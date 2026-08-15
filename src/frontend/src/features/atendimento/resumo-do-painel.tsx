@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { coresDaEtapa } from './cores-de-etapa'
 import type { ResumoDoPainel } from '@/lib/api/tipos'
@@ -47,6 +48,35 @@ function Indicador({
   )
 }
 
+/**
+ * Alterna o painel entre completo e a barra fina.
+ *
+ * `aria-expanded` porque o botão controla a visibilidade de outro bloco — sem
+ * isso, para quem usa leitor de tela o painel simplesmente some.
+ */
+function BotaoDeRecolher({
+  recolhido,
+  aoAlternar,
+}: {
+  recolhido: boolean
+  aoAlternar: () => void
+}) {
+  const rotulo = recolhido ? 'Mostrar indicadores e funil' : 'Recolher indicadores e funil'
+
+  return (
+    <button
+      type="button"
+      onClick={aoAlternar}
+      aria-expanded={!recolhido}
+      aria-label={rotulo}
+      title={rotulo}
+      className="flex size-6 shrink-0 items-center justify-center rounded-md border border-transparent text-tinta-fraca transition-colors hover:border-linha-forte hover:bg-branco hover:text-tinta"
+    >
+      {recolhido ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
+    </button>
+  )
+}
+
 export type IndicadorDoPainel =
   | 'ativas'
   | 'fila'
@@ -61,15 +91,43 @@ export function ResumoDoPainelAtendimento({
   indicadorSelecionado,
   aoSelecionarIndicador,
   aoSelecionarEtapa,
+  recolhido,
+  aoAlternarRecolhido,
 }: {
   resumo: ResumoDoPainel
   etapaSelecionada?: string
   indicadorSelecionado?: IndicadorDoPainel
   aoSelecionarIndicador: (indicador: IndicadorDoPainel) => void
   aoSelecionarEtapa: (etapaId?: string) => void
+  recolhido: boolean
+  aoAlternarRecolhido: () => void
 }) {
+  // Recolhido, o painel vira uma linha. O objetivo é altura: indicadores e funil
+  // ocupam ~110px fixos no topo, e num notebook isso sai direto do fio de
+  // mensagens — que é onde o atendimento realmente acontece.
+  if (recolhido) {
+    return (
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-linha bg-superficie px-6 py-1.5">
+        <p className="truncate text-xs text-tinta-media">
+          <span className="font-dado text-tinta">{resumo.totalAtivas}</span> ativas
+          <span className="mx-1.5 text-tinta-fraca">·</span>
+          <span className="font-dado text-tinta">{resumo.naFila}</span> na fila
+          {resumo.atrasadas > 0 ? (
+            <>
+              <span className="mx-1.5 text-tinta-fraca">·</span>
+              <span className="font-dado text-selo">{resumo.atrasadas}</span>
+              <span className="text-selo"> atrasadas</span>
+            </>
+          ) : null}
+        </p>
+
+        <BotaoDeRecolher recolhido aoAlternar={aoAlternarRecolhido} />
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col gap-3 border-b border-linha bg-superficie px-6 py-3.5">
+    <div className="flex shrink-0 flex-col gap-3 border-b border-linha bg-superficie px-6 py-3.5">
       <div className="flex flex-wrap gap-y-2">
         <Indicador rotulo="Ativas" valor={resumo.totalAtivas} ativo={indicadorSelecionado === 'ativas'} aoSelecionar={() => aoSelecionarIndicador('ativas')} />
         <Indicador rotulo="Na fila" valor={resumo.naFila} ativo={indicadorSelecionado === 'fila'} aoSelecionar={() => aoSelecionarIndicador('fila')} />
@@ -82,6 +140,10 @@ export function ResumoDoPainelAtendimento({
       {/* O funil como filtro: clicar na etapa filtra a inbox por ela. */}
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-1 text-[11px] uppercase tracking-wider text-tinta-fraca">Funil</span>
+
+        <div className="order-last ml-auto">
+          <BotaoDeRecolher recolhido={false} aoAlternar={aoAlternarRecolhido} />
+        </div>
 
         {resumo.porEtapa.map((etapa) => {
           const ativa = etapaSelecionada === etapa.id

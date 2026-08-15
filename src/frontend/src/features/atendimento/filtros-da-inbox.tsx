@@ -62,7 +62,7 @@ export function FiltrosDaInbox({
     Boolean(filtros.setorId) || Boolean(filtros.etapaId) || Boolean(filtros.situacaoPrazo)
 
   return (
-    <div className="flex flex-col gap-2.5 border-b border-linha p-3">
+    <div className="flex shrink-0 flex-col gap-2.5 border-b border-linha p-3">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-tinta-media" />
         <Input

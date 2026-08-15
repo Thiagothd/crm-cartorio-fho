@@ -9,6 +9,7 @@ import { ErroDaApi } from '@/lib/api/cliente-http'
 import { conversasApi } from '@/lib/api/endpoints'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { usarHubDeAtendimento } from '@/lib/realtime/usar-hub-de-atendimento'
+import { usarPreferenciaLocal } from '@/lib/usar-preferencia-local'
 import {
   usarAtendentes,
   usarConversa,
@@ -50,6 +51,13 @@ export function PaginaInbox() {
   // Mesma regra do backend ao resolver {NomeCartorio}: fantasia, e a razão social
   // como reserva. Os dois lados precisam produzir o mesmo texto.
   const nomeCartorio = tenant?.nomeFantasia ?? tenant?.razaoSocial ?? ''
+
+  // Fica lembrado entre sessões: quem trabalha em notebook recolhe uma vez e não
+  // quer refazer isso a cada login.
+  const [painelRecolhido, alternarPainel] = usarPreferenciaLocal(
+    'crm-cartorio.painel-recolhido',
+    false,
+  )
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
   const [historicoVisivel, setHistoricoVisivel] = useState(false)
@@ -223,6 +231,8 @@ export function PaginaInbox() {
           aoSelecionarEtapa={(etapaId) =>
             setFiltros({ ...FILTROS_INICIAIS, etapaId })
           }
+          recolhido={painelRecolhido}
+          aoAlternarRecolhido={alternarPainel}
         />
       ) : null}
 
@@ -360,7 +370,10 @@ export function PaginaInbox() {
               />
 
               <div className="flex min-h-0 flex-1">
-                <div className="flex min-w-0 flex-1 flex-col bg-superficie">
+                {/* min-h-0 também aqui: sem ele, o overflow-y-auto do fio não tem
+                    limite para respeitar e a coluna cresce além da tela em vez de
+                    rolar por dentro. */}
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-superficie">
                   <FioDeMensagens
                     mensagens={detalhe.mensagens}
                     clienteNome={conversa.clienteNome}

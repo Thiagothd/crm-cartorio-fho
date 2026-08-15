@@ -232,6 +232,31 @@ confirmar ou trocar.
 > **nomes fictícios**, mantidos porque a trava de conversa só se demonstra com mais
 > de um atendente na fila. Nomes fictícios de demonstração.
 
+### 5.8 Triagem continua ativa depois de um atendente assumir
+
+**Comportamento atual, encontrado em teste manual e mantido de propósito** —
+registrado aqui para o cartório parceiro decidir, não para ser corrigido por nossa conta.
+
+| # | Pergunta em aberto |
+| --- | --- |
+| 20 | Um atendente assume a conversa manualmente enquanto o menu de triagem está no ar. O cliente então responde algo que não corresponde a nenhum setor. **Hoje o sistema dispara a mensagem "vou te encaminhar para um de nossos atendentes"** — mesmo já havendo um atendente com a conversa na mão |
+
+**Por que não corrigimos direto.** Os dois comportamentos são defensáveis e a
+escolha é de atendimento, não de código:
+
+- **Manter como está:** o cliente escreveu algo fora do menu e recebe uma
+  confirmação de que foi ouvido. Do lado dele, nada mudou — ele não sabe que
+  alguém assumiu a conversa nos bastidores.
+- **Suprimir quando já há responsável:** a mensagem promete um encaminhamento que
+  já aconteceu, e um atendente lendo o fio vê o sistema dizendo que vai fazer o
+  que ele já fez.
+
+> Existe precedente para a segunda opção: quando o **setor** já foi definido, a
+> triagem se cala em silêncio, exatamente com esse raciocínio. Estender a mesma
+> regra para "já tem responsável" seria uma linha em `ResponderTriagemAsync` —
+> mas seria nossa decisão sobre como o cartório fala com o cliente, e essas ficam
+> com o cartório parceiro.
+
 **A decisão que importa — automático ou manual, por aviso:**
 
 | Aviso | Situação hoje | Por que essa escolha, e o risco de mudar |
