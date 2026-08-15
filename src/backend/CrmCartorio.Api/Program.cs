@@ -60,6 +60,11 @@ builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddScoped<IGeradorDeProtocolo, GeradorDeProtocolo>();
 builder.Services.AddScoped<IConversaService, ConversaService>();
 builder.Services.AddScoped<IMensagemService, MensagemService>();
+
+// Mesma instancia serve as duas portas: as acoes do menu de contexto compartilham
+// as regras de trava e de tenant com o envio, e separa-las em dois servicos faria
+// as duas copias divergirem na primeira mudanca de regra.
+builder.Services.AddScoped<IAcoesDeMensagem>(sp => (MensagemService)sp.GetRequiredService<IMensagemService>());
 builder.Services.AddScoped<IDisparadorDeMensagemAutomatica, DisparadorDeMensagemAutomatica>();
 builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();

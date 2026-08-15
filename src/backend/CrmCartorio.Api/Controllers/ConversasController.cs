@@ -9,7 +9,8 @@ namespace CrmCartorio.Api.Controllers;
 [Route("api/conversas")]
 public class ConversasController(
     IConversaService conversas,
-    IMensagemService mensagens) : ControllerBase
+    IMensagemService mensagens,
+    IAcoesDeMensagem acoes) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ResultadoPaginado<ConversaResumoResponse>>> Listar(
@@ -94,6 +95,42 @@ public class ConversasController(
         [FromBody] EnviarMensagemRequest request,
         CancellationToken ct) =>
         Ok(await mensagens.EnviarAsync(id, request, ct));
+
+    // --------------------------------------- acoes do menu de contexto da mensagem
+
+    [HttpPost("{id:guid}/mensagens/{mensagemId:guid}/fixar")]
+    public async Task<ActionResult<MensagemResponse>> Fixar(
+        Guid id,
+        Guid mensagemId,
+        [FromQuery] bool fixar = true,
+        CancellationToken ct = default) =>
+        Ok(await acoes.FixarAsync(id, mensagemId, fixar, ct));
+
+    /// <summary>
+    /// Oculta ou reexibe mensagens. NAO apaga: a linha permanece no banco, com
+    /// registro de quem ocultou e quando (RNF-008).
+    /// </summary>
+    [HttpPost("{id:guid}/mensagens/ocultar")]
+    public async Task<ActionResult<object>> Ocultar(
+        Guid id,
+        [FromBody] OcultarMensagensRequest request,
+        CancellationToken ct) =>
+        Ok(new { afetadas = await acoes.OcultarAsync(id, request, ct) });
+
+    [HttpPost("{id:guid}/mensagens/encaminhar")]
+    public async Task<ActionResult<object>> Encaminhar(
+        Guid id,
+        [FromBody] EncaminharMensagensRequest request,
+        CancellationToken ct) =>
+        Ok(new { encaminhadas = await acoes.EncaminharAsync(id, request, ct) });
+
+    /// <summary>Conversas ativas que podem receber um encaminhamento.</summary>
+    [HttpGet("{id:guid}/destinos")]
+    public async Task<ActionResult<IReadOnlyList<DestinoDeEncaminhamentoResponse>>> Destinos(
+        Guid id,
+        [FromQuery] string? busca,
+        CancellationToken ct) =>
+        Ok(await acoes.DestinosAsync(id, busca, ct));
 
     /// <summary>
     /// FASE 1 apenas. Simula mensagem chegando do cliente para demonstrar o painel

@@ -36,6 +36,8 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.IdExternoWhatsapp).HasMaxLength(80).IsUnicode(false);
         builder.Property(m => m.EnviadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.LidaEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.FixadaEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.OcultaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.AtualizadoEm).HasColumnType("datetime2(3)");
 
@@ -56,8 +58,31 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
             .HasForeignKey(m => m.MensagemRespondidaId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Quem fixou e quem ocultou: Restrict, porque atendente nunca e apagado —
+        // desligamento vira Ativo = false e o historico permanece atribuivel.
+        builder.HasOne<Atendente>()
+            .WithMany()
+            .HasForeignKey(m => m.FixadaPorAtendenteId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Atendente>()
+            .WithMany()
+            .HasForeignKey(m => m.OcultaPorAtendenteId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(m => m.EncaminhadaDeMensagem)
+            .WithMany()
+            .HasForeignKey(m => m.EncaminhadaDeMensagemId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(m => new { m.ConversaId, m.EnviadaEm })
             .HasDatabaseName("IX_Mensagens_Conversa_Enviada");
+
+        // Filtrado: a mensagem fixada de uma conversa e uma entre dezenas, e a
+        // consulta do topo do fio nao deve varrer o resto.
+        builder.HasIndex(m => m.ConversaId)
+            .HasFilter("[FixadaEm] IS NOT NULL")
+            .HasDatabaseName("IX_Mensagens_Fixada");
 
         builder.HasIndex(m => new { m.TenantId, m.AtendenteId })
             .HasDatabaseName("IX_Mensagens_Tenant_Atendente");

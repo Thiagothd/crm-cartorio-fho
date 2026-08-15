@@ -13,6 +13,26 @@ public record CriarConversaRequest(
 public record EnviarMensagemRequest(string Conteudo, Guid? MensagemRespondidaId = null);
 
 /// <summary>
+/// Reenvia mensagens desta conversa para outra. Aceita varias de uma vez porque a
+/// selecao multipla do fio existe justamente para isso.
+/// </summary>
+public record EncaminharMensagensRequest(Guid ConversaDestinoId, IReadOnlyList<Guid> MensagemIds);
+
+/// <summary>
+/// Oculta ou reexibe. Nunca apaga — nao existe DELETE de mensagem em caminho
+/// nenhum do sistema (RNF-008).
+/// </summary>
+public record OcultarMensagensRequest(IReadOnlyList<Guid> MensagemIds, bool Ocultar);
+
+/// <summary>Conversa candidata a receber um encaminhamento.</summary>
+public record DestinoDeEncaminhamentoResponse(
+    Guid Id,
+    string Protocolo,
+    string ClienteNome,
+    string? SetorNome,
+    string? AtendenteNome);
+
+/// <summary>
 /// Fase 1: simula a chegada de mensagem do cliente para demonstrar o fluxo sem
 /// WhatsApp real. Na Fase 2 quem chama esse caminho e o webhook da Cloud API.
 /// </summary>
@@ -99,6 +119,17 @@ public record MensagemResponse(
     bool EhAutomatica,
     DateTime EnviadaEm,
     DateTime? LidaEm,
+    /// <summary>Fixada no topo da conversa. Uma por conversa.</summary>
+    bool Fixada = false,
+    /// <summary>
+    /// Ocultada do fio. A mensagem continua no banco e continua vindo na API —
+    /// quem oculta esconde de quem atende, não do registro.
+    /// </summary>
+    bool Oculta = false,
+    /// <summary>Quem ocultou. Preenchido só quando <see cref="Oculta"/>.</summary>
+    string? OcultaPorNome = null,
+    /// <summary>Protocolo da conversa de origem, quando é um encaminhamento.</summary>
+    string? EncaminhadaDeProtocolo = null,
     Guid? MensagemRespondidaId = null,
     /// <summary>Autor da mensagem citada, para a previa da citacao.</summary>
     string? RespondidaAutor = null,

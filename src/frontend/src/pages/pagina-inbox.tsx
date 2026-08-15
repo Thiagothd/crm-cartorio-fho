@@ -34,6 +34,8 @@ import { FioDeMensagens } from '@/features/atendimento/fio-de-mensagens'
 import { CaixaDeEnvio } from '@/features/atendimento/caixa-de-envio'
 import { LinhaDoTempo } from '@/features/atendimento/linha-do-tempo'
 import { DialogoNovaConversa } from '@/features/atendimento/dialogo-nova-conversa'
+import { DialogoEncaminhar } from '@/features/atendimento/dialogo-encaminhar'
+import { BarraDeSelecao } from '@/features/atendimento/barra-de-selecao'
 import type { Mensagem } from '@/lib/api/tipos'
 
 const FILTROS_INICIAIS: FiltrosVisiveis = {
@@ -64,6 +66,13 @@ export function PaginaInbox() {
   const [historicoVisivel, setHistoricoVisivel] = useState(false)
   const [assumindo, setAssumindo] = useState(false)
   const [mensagemRespondida, setMensagemRespondida] = useState<Mensagem | null>(null)
+
+  // Seleção múltipla e encaminhamento vivem aqui, e não no fio, porque as duas
+  // coisas atravessam componentes: a barra fica acima do fio e o diálogo abre
+  // por cima da página inteira.
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
+  const [modoSelecao, setModoSelecao] = useState(false)
+  const [idsParaEncaminhar, setIdsParaEncaminhar] = useState<string[]>([])
 
   const consulta = useMemo(() => filtrosParaConsulta(filtros), [filtros])
 
@@ -143,7 +152,64 @@ export function PaginaInbox() {
     }
 
     setMensagemRespondida(null)
+    // Trocar de conversa zera a seleção: selecionar mensagens de um atendimento
+    // e agir sobre elas em outro seria o pior erro possível aqui.
+    setSelecionadas(new Set())
+    setModoSelecao(false)
   }, [selecionadaId])
+
+  // Escape sai do modo de seleção. Toda entrada precisa de saída óbvia, e o
+  // teclado é a saída que não exige mirar num botão.
+  useEffect(() => {
+    if (!modoSelecao) return
+
+    function aoTeclar(evento: KeyboardEvent) {
+      if (evento.key === 'Escape') {
+        setModoSelecao(false)
+        setSelecionadas(new Set())
+      }
+    }
+
+    window.addEventListener('keydown', aoTeclar)
+    return () => window.removeEventListener('keydown', aoTeclar)
+  }, [modoSelecao])
+
+  function alternarSelecao(id: string) {
+    setSelecionadas((atual) => {
+      const proxima = new Set(atual)
+
+      if (proxima.has(id)) {
+        proxima.delete(id)
+      } else {
+        proxima.add(id)
+      }
+
+      return proxima
+    })
+  }
+
+  async function fixarMensagem(mensagem: Mensagem) {
+    if (!selecionadaId) return
+
+    await executar(
+      () => conversasApi.fixarMensagem(selecionadaId, mensagem.id, !mensagem.fixada),
+      mensagem.fixada ? 'Mensagem desafixada.' : 'Mensagem fixada no topo.',
+    )
+  }
+
+  async function ocultarMensagens(ids: string[], ocultar: boolean) {
+    if (!selecionadaId || ids.length === 0) return
+
+    await executar(
+      () => conversasApi.ocultarMensagens(selecionadaId, ids, ocultar),
+      ocultar
+        ? `${ids.length === 1 ? 'Mensagem ocultada' : `${ids.length} mensagens ocultadas`} — o registro continua no histórico.`
+        : 'Mensagem reexibida no fio.',
+    )
+
+    setSelecionadas(new Set())
+    setModoSelecao(false)
+  }
 
   // Tempo real: qualquer evento do tenant reflete na lista, no painel e — se for
   // da conversa aberta — no fio de mensagens.
@@ -376,11 +442,33 @@ export function PaginaInbox() {
                     limite para respeitar e a coluna cresce além da tela em vez de
                     rolar por dentro. */}
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-superficie">
+                  {modoSelecao ? (
+                    <BarraDeSelecao
+                      total={selecionadas.size}
+                      aoEncaminhar={() => setIdsParaEncaminhar([...selecionadas])}
+                      aoOcultar={() => void ocultarMensagens([...selecionadas], true)}
+                      aoSair={() => {
+                        setModoSelecao(false)
+                        setSelecionadas(new Set())
+                      }}
+                    />
+                  ) : null}
+
                   <FioDeMensagens
                     mensagens={detalhe.mensagens}
                     clienteNome={conversa.clienteNome}
                     aparencia={aparencia?.aparenciaDaConversa ?? 'PapelLiso'}
+                    selecionadas={selecionadas}
+                    modoSelecao={modoSelecao}
                     aoResponder={setMensagemRespondida}
+                    aoAlternarSelecao={alternarSelecao}
+                    aoEntrarEmSelecao={(id) => {
+                      setModoSelecao(true)
+                      setSelecionadas(new Set([id]))
+                    }}
+                    aoFixar={(m) => void fixarMensagem(m)}
+                    aoOcultar={(ids, ocultar) => void ocultarMensagens(ids, ocultar)}
+                    aoEncaminhar={setIdsParaEncaminhar}
                   />
 
                   <CaixaDeEnvio
@@ -399,6 +487,20 @@ export function PaginaInbox() {
           )}
         </section>
       </div>
+
+      {selecionadaId ? (
+        <DialogoEncaminhar
+          conversaOrigemId={selecionadaId}
+          mensagemIds={idsParaEncaminhar}
+          aberto={idsParaEncaminhar.length > 0}
+          aoFechar={() => setIdsParaEncaminhar([])}
+          aoConcluir={() => {
+            invalidar(selecionadaId)
+            setSelecionadas(new Set())
+            setModoSelecao(false)
+          }}
+        />
+      ) : null}
     </>
   )
 }

@@ -7,6 +7,7 @@ import type {
   Conversa,
   ConversaDetalhada,
   DadosDeCliente,
+  DestinoDeEncaminhamento,
   Etapa,
   FiltroDeClientes,
   FiltroDeConversas,
@@ -82,6 +83,29 @@ export const conversasApi = {
   /** FASE 1 apenas — some quando o webhook da Cloud API entrar. */
   simularMensagemDeCliente: (id: string, conteudo: string) =>
     api.post<Mensagem>(`/api/conversas/${id}/mensagens/simular-cliente`, { conteudo }),
+
+  // Ações do menu de contexto da mensagem -----------------------------------
+
+  fixarMensagem: (id: string, mensagemId: string, fixar: boolean) =>
+    api.post<Mensagem>(
+      `/api/conversas/${id}/mensagens/${mensagemId}/fixar${montarQuery({ fixar })}`,
+    ),
+
+  /** Oculta ou reexibe. Nunca apaga — a linha permanece no banco. */
+  ocultarMensagens: (id: string, mensagemIds: string[], ocultar: boolean) =>
+    api.post<{ afetadas: number }>(`/api/conversas/${id}/mensagens/ocultar`, {
+      mensagemIds,
+      ocultar,
+    }),
+
+  encaminharMensagens: (id: string, conversaDestinoId: string, mensagemIds: string[]) =>
+    api.post<{ encaminhadas: number }>(`/api/conversas/${id}/mensagens/encaminhar`, {
+      conversaDestinoId,
+      mensagemIds,
+    }),
+
+  destinos: (id: string, busca?: string) =>
+    api.get<DestinoDeEncaminhamento[]>(`/api/conversas/${id}/destinos${montarQuery({ busca })}`),
 }
 
 // Clientes ------------------------------------------------------------------

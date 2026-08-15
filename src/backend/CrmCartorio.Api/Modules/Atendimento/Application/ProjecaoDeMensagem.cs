@@ -41,6 +41,23 @@ public static class ProjecaoDeMensagem
             m.EhAutomatica,
             m.EnviadaEm,
             m.LidaEm,
+
+            m.FixadaEm != null,
+            m.OcultaEm != null,
+
+            db.Atendentes.Where(a => a.Id == m.OcultaPorAtendenteId).Select(a => a.Nome).FirstOrDefault(),
+
+            // Protocolo da origem, nao a conversa inteira: e o que identifica o
+            // atendimento de onde a mensagem veio, e e o numero que o atendente
+            // procura na lista.
+            db.Mensagens
+                .Where(o => o.Id == m.EncaminhadaDeMensagemId)
+                .Select(o => db.Conversas
+                    .Where(c => c.Id == o.ConversaId)
+                    .Select(c => c.Protocolo)
+                    .FirstOrDefault())
+                .FirstOrDefault(),
+
             m.MensagemRespondidaId,
 
             db.Mensagens

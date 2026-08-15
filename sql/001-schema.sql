@@ -420,6 +420,21 @@ CREATE TABLE dbo.Mensagens
     -- validado pelo servico antes de gravar.
     MensagemRespondidaId UNIQUEIDENTIFIER NULL,
 
+    -- Fixada no topo da conversa. UMA por conversa: fixar outra desafixa a
+    -- anterior, por regra de servico.
+    FixadaEm             DATETIME2(3)     NULL,
+    FixadaPorAtendenteId UNIQUEIDENTIFIER NULL,
+
+    -- Ocultada do fio. A LINHA PERMANECE: nao existe exclusao de mensagem em
+    -- caminho nenhum do sistema (RNF-008). Guardar quem ocultou e quando e o que
+    -- separa "ocultar" de "apagar com outro nome".
+    OcultaEm             DATETIME2(3)     NULL,
+    OcultaPorAtendenteId UNIQUEIDENTIFIER NULL,
+
+    -- Origem, quando esta mensagem e um encaminhamento. Guarda a referencia e nao
+    -- um recorte do texto, como MensagemRespondidaId.
+    EncaminhadaDeMensagemId UNIQUEIDENTIFIER NULL,
+
     CriadoEm          DATETIME2(3)     NOT NULL,
     AtualizadoEm      DATETIME2(3)     NOT NULL,
 
@@ -428,6 +443,9 @@ CREATE TABLE dbo.Mensagens
     CONSTRAINT FK_Mensagens_Conversas  FOREIGN KEY (ConversaId)  REFERENCES dbo.Conversas (Id),
     CONSTRAINT FK_Mensagens_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
     CONSTRAINT FK_Mensagens_MensagemRespondida FOREIGN KEY (MensagemRespondidaId) REFERENCES dbo.Mensagens (Id),
+    CONSTRAINT FK_Mensagens_FixadaPor      FOREIGN KEY (FixadaPorAtendenteId)    REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT FK_Mensagens_OcultaPor      FOREIGN KEY (OcultaPorAtendenteId)    REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT FK_Mensagens_EncaminhadaDe  FOREIGN KEY (EncaminhadaDeMensagemId) REFERENCES dbo.Mensagens (Id),
     CONSTRAINT CK_Mensagens_AutorTipo     CHECK (AutorTipo     IN (1, 2, 3)),
     CONSTRAINT CK_Mensagens_Tipo          CHECK (Tipo          IN (1, 2, 3, 4, 5)),
     CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5)),
@@ -452,6 +470,7 @@ GO
 CREATE INDEX IX_Mensagens_Conversa_Enviada ON dbo.Mensagens (ConversaId, EnviadaEm);
 CREATE INDEX IX_Mensagens_Tenant_Atendente ON dbo.Mensagens (TenantId, AtendenteId);
 CREATE INDEX IX_Mensagens_MensagemRespondida ON dbo.Mensagens (MensagemRespondidaId) WHERE MensagemRespondidaId IS NOT NULL;
+CREATE INDEX IX_Mensagens_Fixada ON dbo.Mensagens (ConversaId) WHERE FixadaEm IS NOT NULL;
 GO
 
 /* -----------------------------------------------------------------------------

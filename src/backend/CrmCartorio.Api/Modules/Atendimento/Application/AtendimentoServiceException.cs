@@ -41,6 +41,13 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
     public static AtendimentoServiceException MensagemVazia() =>
         new("mensagem_vazia", "A mensagem nao pode ser vazia.", 400);
 
+    public static AtendimentoServiceException MensagemNaoEncontrada() =>
+        new("mensagem_nao_encontrada", "Mensagem nao encontrada nesta conversa.", 404);
+
+    public static AtendimentoServiceException EncaminhamentoParaMesmaConversa() =>
+        new("encaminhamento_para_mesma_conversa",
+            "Escolha outra conversa como destino.", 400);
+
     public static AtendimentoServiceException MensagemCitadaInvalida() =>
         new("mensagem_citada_invalida",
             "A mensagem citada nao pertence a esta conversa.", 400);

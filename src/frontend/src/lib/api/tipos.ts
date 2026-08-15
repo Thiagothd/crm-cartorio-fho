@@ -158,6 +158,18 @@ export interface Mensagem {
    * segunda vira balão com o rótulo "Automática".
    */
   ehAutomatica: boolean
+  /** Fixada no topo da conversa. Uma por conversa. */
+  fixada: boolean
+  /**
+   * Ocultada do fio. A mensagem **continua no banco e continua vindo na API** —
+   * quem oculta esconde de quem atende, não do registro. Não existe exclusão de
+   * mensagem em caminho nenhum do sistema.
+   */
+  oculta: boolean
+  /** Quem ocultou. Preenchido só quando `oculta`. */
+  ocultaPorNome: string | null
+  /** Protocolo da conversa de origem, quando é um encaminhamento. */
+  encaminhadaDeProtocolo: string | null
   enviadaEm: string
   lidaEm: string | null
   mensagemRespondidaId: string | null
@@ -165,6 +177,15 @@ export interface Mensagem {
   respondidaAutor: string | null
   /** Texto (já cortado no servidor) da mensagem citada. */
   respondidaConteudo: string | null
+}
+
+/** Conversa candidata a receber um encaminhamento. */
+export interface DestinoDeEncaminhamento {
+  id: string
+  protocolo: string
+  clienteNome: string
+  setorNome: string | null
+  atendenteNome: string | null
 }
 
 export interface EventoDeHistorico {

@@ -1,6 +1,26 @@
-import { useEffect, useRef } from 'react'
-import { Check, CheckCheck, Clock, Copy, Reply, TriangleAlert } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  Check,
+  CheckCheck,
+  Clock,
+  Copy,
+  Eye,
+  EyeOff,
+  Forward,
+  ListChecks,
+  Pin,
+  PinOff,
+  Reply,
+  TriangleAlert,
+} from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { formatarDataHora, formatarHora } from '@/lib/formatacao'
 import type { AparenciaDaConversa, Mensagem, StatusEntrega } from '@/lib/api/tipos'
@@ -79,14 +99,37 @@ export function FioDeMensagens({
   mensagens,
   clienteNome,
   aparencia,
+  selecionadas,
+  modoSelecao,
   aoResponder,
+  aoAlternarSelecao,
+  aoEntrarEmSelecao,
+  aoFixar,
+  aoOcultar,
+  aoEncaminhar,
 }: {
   mensagens: Mensagem[]
   clienteNome: string
   aparencia: AparenciaDaConversa
+  selecionadas: Set<string>
+  modoSelecao: boolean
   aoResponder: (mensagem: Mensagem) => void
+  aoAlternarSelecao: (id: string) => void
+  aoEntrarEmSelecao: (id: string) => void
+  aoFixar: (mensagem: Mensagem) => void
+  aoOcultar: (ids: string[], ocultar: boolean) => void
+  aoEncaminhar: (ids: string[]) => void
 }) {
   const fim = useRef<HTMLDivElement>(null)
+
+  // Ocultas ficam escondidas atrás de um aviso, não somem da tela. O registro
+  // continua existindo e o atendente sabe que existe — é o que separa ocultar de
+  // apagar, e apagar não é uma operação deste sistema.
+  const [mostrarOcultas, setMostrarOcultas] = useState(false)
+
+  const fixada = mensagens.find((m) => m.fixada && !m.oculta)
+  const totalOcultas = mensagens.filter((m) => m.oculta).length
+  const visiveis = mostrarOcultas ? mensagens : mensagens.filter((m) => !m.oculta)
 
   // Rola para a última mensagem sempre que o fio cresce — comportamento
   // esperado de qualquer conversa de WhatsApp.
@@ -104,17 +147,67 @@ export function FioDeMensagens({
   }
 
   return (
-    /* marca-dagua-selo: o anel do selo ao fundo, no canto superior direito.
-       E background-image, entao nao afeta rolagem, clique nem posicao de
-       mensagem alguma (DESIGN.md, secao 10). */
-    <div
-      className={cn(
-        'flex flex-1 flex-col gap-3 overflow-y-auto bg-papel px-3 py-4 sm:px-6',
-        TEXTURA_DO_FUNDO[aparencia] ?? TEXTURA_DO_FUNDO.PapelLiso,
-      )}
-    >
-      {mensagens.map((mensagem, indice) => {
-        const dia = separadorDeDia(mensagens, indice)
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Faixa da mensagem fixada. Fica FORA da área que rola: fixar serve para
+          a mensagem continuar à vista, e uma faixa que some ao rolar não fixa
+          nada. Clicar leva até ela no fio. */}
+      {fixada ? (
+        <div className="flex shrink-0 items-start gap-2 border-b border-linha bg-branco px-3 py-2 sm:px-6">
+          <Pin className="mt-0.5 size-3.5 shrink-0 text-tinta-media" />
+          <button
+            type="button"
+            onClick={() =>
+              document
+                .getElementById(`mensagem-${fixada.id}`)
+                ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            }
+            className="min-w-0 flex-1 text-left"
+            title="Ir até a mensagem fixada"
+          >
+            <p className="text-[10px] uppercase tracking-wider text-tinta-fraca">Fixada</p>
+            <p className="line-clamp-2 text-xs text-tinta-media">{fixada.conteudo}</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => aoFixar(fixada)}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-tinta-fraca transition-colors hover:bg-superficie hover:text-tinta"
+            aria-label="Desafixar mensagem"
+            title="Desafixar"
+          >
+            <PinOff className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {totalOcultas > 0 ? (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-linha bg-superficie px-3 py-1.5 sm:px-6">
+          <p className="flex items-center gap-1.5 text-[11px] text-tinta-media">
+            <EyeOff className="size-3.5 shrink-0" />
+            {totalOcultas === 1
+              ? '1 mensagem ocultada do fio — continua registrada'
+              : `${totalOcultas} mensagens ocultadas do fio — continuam registradas`}
+          </p>
+          <button
+            type="button"
+            onClick={() => setMostrarOcultas((v) => !v)}
+            aria-pressed={mostrarOcultas}
+            className="shrink-0 rounded-md border border-linha-forte bg-branco px-2 py-0.5 text-[11px] text-tinta-media transition-colors hover:text-tinta"
+          >
+            {mostrarOcultas ? 'Esconder' : 'Mostrar'}
+          </button>
+        </div>
+      ) : null}
+
+      {/* A textura do fundo é background-image, então não afeta rolagem, clique
+          nem posição de mensagem alguma (DESIGN.md, seção 10). */}
+      <div
+        className={cn(
+          'flex flex-1 flex-col gap-3 overflow-y-auto bg-papel px-3 py-4 sm:px-6',
+          TEXTURA_DO_FUNDO[aparencia] ?? TEXTURA_DO_FUNDO.PapelLiso,
+        )}
+      >
+      {visiveis.map((mensagem, indice) => {
+        const dia = separadorDeDia(visiveis, indice)
         const doAtendente = mensagem.autorTipo === 'Atendente'
         const automatica = mensagem.ehAutomatica
 
@@ -124,8 +217,10 @@ export function FioDeMensagens({
         const anotacaoInterna = mensagem.autorTipo === 'Sistema' && !automatica
         const daServentia = doAtendente || automatica
 
+        const selecionada = selecionadas.has(mensagem.id)
+
         return (
-          <div key={mensagem.id} className="flex flex-col gap-2.5">
+          <div key={mensagem.id} id={`mensagem-${mensagem.id}`} className="flex flex-col gap-2.5">
             {dia ? (
               <div className="my-0.5 flex justify-center">
                 <time
@@ -148,29 +243,58 @@ export function FioDeMensagens({
                 </span>
               </div>
             ) : (
-              <div className={cn('group flex items-center gap-2', daServentia ? 'justify-end' : 'justify-start')}>
-                {daServentia ? (
-                  <AcoesDaMensagem mensagem={mensagem} aoCopiar={copiar} aoResponder={aoResponder} />
-                ) : null}
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div
+                    className={cn(
+                      'group flex items-center gap-2 rounded-md',
+                      daServentia ? 'justify-end' : 'justify-start',
+                      // Em modo de seleção a linha inteira vira alvo de clique.
+                      modoSelecao && 'cursor-pointer',
+                      selecionada && 'bg-tinta/5',
+                    )}
+                    onClick={modoSelecao ? () => aoAlternarSelecao(mensagem.id) : undefined}
+                  >
+                    {modoSelecao ? (
+                      <input
+                        type="checkbox"
+                        checked={selecionada}
+                        onChange={() => aoAlternarSelecao(mensagem.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Selecionar mensagem de ${
+                          daServentia ? (mensagem.atendenteNome ?? 'atendente') : clienteNome
+                        }`}
+                        className="size-4 shrink-0 accent-tinta"
+                      />
+                    ) : null}
 
-                <article
-                  className={cn(
-                    'max-w-[82%] rounded-md border px-3 py-2.5 sm:max-w-[72%]',
-                    doAtendente ? 'border-verde/20 bg-verde/10' : null,
+                    {daServentia && !modoSelecao ? (
+                      <AcoesDaMensagem mensagem={mensagem} aoCopiar={copiar} aoResponder={aoResponder} />
+                    ) : null}
 
-                    /* Neutra, e não a diluição de verde do atendente: verde é a cor
-                       de quem respondeu, e a automática não tem quem. Fica no papel
-                       da própria interface — presente, sem reivindicar autoria. */
-                    automatica ? 'border-linha-forte bg-superficie' : null,
+                    <article
+                      className={cn(
+                        'max-w-[82%] rounded-md border px-3 py-2.5 sm:max-w-[72%]',
+                        doAtendente ? 'border-verde/20 bg-verde/10' : null,
 
-                    !daServentia ? 'border-linha-forte bg-branco' : null,
-                  )}
-                  aria-label={
-                    automatica
-                      ? 'Mensagem automática do sistema'
-                      : `Mensagem de ${doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}`
-                  }
-                >
+                        /* Neutra, e não a diluição de verde do atendente: verde é a
+                           cor de quem respondeu, e a automática não tem quem. Fica
+                           no papel da própria interface — presente, sem reivindicar
+                           autoria. */
+                        automatica ? 'border-linha-forte bg-superficie' : null,
+
+                        !daServentia ? 'border-linha-forte bg-branco' : null,
+
+                        /* Ocultada e sendo exibida: fica visivelmente rebaixada,
+                           para ninguém confundir com o fio normal. */
+                        mensagem.oculta && 'opacity-60',
+                      )}
+                      aria-label={
+                        automatica
+                          ? 'Mensagem automática do sistema'
+                          : `Mensagem de ${doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}`
+                      }
+                    >
                   {/* O nome fica visivel dos dois lados. No atendente, cumpre o
                       RF-007; no cliente, evita ambiguidade ao citar/copiar.
                       Na automática não há nome — o rótulo ocupa essa linha, que é
@@ -210,24 +334,84 @@ export function FioDeMensagens({
                     {mensagem.conteudo}
                   </p>
 
-                  <div className="mt-1.5 flex items-center justify-end gap-1 font-dado text-[10px] text-tinta-fraca">
-                    {formatarHora(mensagem.enviadaEm)}
-                    {daServentia ? (
-                      <IconeDeEntrega status={mensagem.statusEntrega} automatica={automatica} />
+                      {/* Procedência do encaminhamento: o texto veio de outro
+                          atendimento, e o protocolo de origem é o que permite
+                          conferir isso depois. */}
+                      {mensagem.encaminhadaDeProtocolo ? (
+                        <p className="mb-1.5 flex items-center gap-1 text-[10px] text-tinta-fraca">
+                          <Forward className="size-3 shrink-0" />
+                          Encaminhada de{' '}
+                          <span className="etiqueta-protocolo text-[10px]">
+                            {mensagem.encaminhadaDeProtocolo}
+                          </span>
+                        </p>
+                      ) : null}
+
+                      <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1 font-dado text-[10px] text-tinta-fraca">
+                        {mensagem.oculta && mensagem.ocultaPorNome ? (
+                          <span className="mr-auto font-corpo italic">
+                            oculta por {mensagem.ocultaPorNome}
+                          </span>
+                        ) : null}
+                        {mensagem.fixada ? (
+                          <Pin className="size-3 text-tinta-media" aria-label="Fixada" />
+                        ) : null}
+                        {formatarHora(mensagem.enviadaEm)}
+                        {daServentia ? (
+                          <IconeDeEntrega status={mensagem.statusEntrega} automatica={automatica} />
+                        ) : null}
+                      </div>
+                    </article>
+
+                    {!daServentia && !modoSelecao ? (
+                      <AcoesDaMensagem mensagem={mensagem} aoCopiar={copiar} aoResponder={aoResponder} />
                     ) : null}
                   </div>
-                </article>
+                </ContextMenuTrigger>
 
-                {!daServentia ? (
-                  <AcoesDaMensagem mensagem={mensagem} aoCopiar={copiar} aoResponder={aoResponder} />
-                ) : null}
-              </div>
+                <ContextMenuContent>
+                  <ContextMenuItem onSelect={() => aoResponder(mensagem)}>
+                    <Reply />
+                    Responder
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => void copiar(mensagem)}>
+                    <Copy />
+                    Copiar
+                  </ContextMenuItem>
+
+                  <ContextMenuSeparator />
+
+                  <ContextMenuItem onSelect={() => aoEncaminhar([mensagem.id])}>
+                    <Forward />
+                    Encaminhar
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => aoFixar(mensagem)}>
+                    {mensagem.fixada ? <PinOff /> : <Pin />}
+                    {mensagem.fixada ? 'Desafixar' : 'Fixar no topo'}
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => aoEntrarEmSelecao(mensagem.id)}>
+                    <ListChecks />
+                    Selecionar
+                  </ContextMenuItem>
+
+                  <ContextMenuSeparator />
+
+                  {/* "Ocultar", nunca "apagar". A mensagem sai da vista de quem
+                      atende e continua no registro, com quem ocultou e quando.
+                      Não existe exclusão de mensagem neste sistema. */}
+                  <ContextMenuItem onSelect={() => aoOcultar([mensagem.id], !mensagem.oculta)}>
+                    {mensagem.oculta ? <Eye /> : <EyeOff />}
+                    {mensagem.oculta ? 'Reexibir no fio' : 'Ocultar da conversa'}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             )}
           </div>
         )
       })}
 
-      <div ref={fim} />
+        <div ref={fim} />
+      </div>
     </div>
   )
 }

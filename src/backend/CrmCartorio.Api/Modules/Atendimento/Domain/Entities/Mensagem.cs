@@ -64,8 +64,49 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     /// </remarks>
     public Guid? MensagemRespondidaId { get; set; }
 
+    /// <summary>
+    /// Mensagem fixada no topo da conversa. Nulo na imensa maioria.
+    /// </summary>
+    /// <remarks>
+    /// UMA por conversa: fixar outra desafixa a anterior. Um mural de mensagens
+    /// fixadas resolveria menos do que atrapalha — o topo do fio e o lugar mais
+    /// caro da tela, e disputa-lo entre cinco avisos e perde-lo.
+    /// </remarks>
+    public DateTime? FixadaEm { get; set; }
+
+    public Guid? FixadaPorAtendenteId { get; set; }
+
+    /// <summary>
+    /// Mensagem ocultada do fio. A LINHA CONTINUA NO BANCO.
+    /// </summary>
+    /// <remarks>
+    /// Nao existe exclusao de mensagem em caminho nenhum do sistema, e isto nao e
+    /// uma limitacao: e a mesma postura de conversa encerrada e cliente desativado
+    /// (RNF-008). Em cartorio, o que foi dito fica dito — some da vista de quem
+    /// atende, nao do registro.
+    ///
+    /// Guardar QUEM ocultou e QUANDO e o que separa "ocultar" de "apagar com outro
+    /// nome": ha a quem perguntar depois.
+    /// </remarks>
+    public DateTime? OcultaEm { get; set; }
+
+    public Guid? OcultaPorAtendenteId { get; set; }
+
+    /// <summary>
+    /// Mensagem de origem, quando esta e um encaminhamento.
+    /// </summary>
+    /// <remarks>
+    /// Mesma escolha de <see cref="MensagemRespondidaId"/>: guarda a referencia, e
+    /// nao um recorte do texto. A partir dela se chega a conversa de origem — a
+    /// procedencia do que foi encaminhado nao se perde.
+    /// </remarks>
+    public Guid? EncaminhadaDeMensagemId { get; set; }
+
     public Conversa? Conversa { get; set; }
 
     /// <summary>Auto-relacionamento para a mensagem citada.</summary>
     public Mensagem? MensagemRespondida { get; set; }
+
+    /// <summary>Auto-relacionamento para a mensagem encaminhada.</summary>
+    public Mensagem? EncaminhadaDeMensagem { get; set; }
 }

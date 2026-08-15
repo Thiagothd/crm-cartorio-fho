@@ -108,17 +108,15 @@ export function ResumoDoPainelAtendimento({
   if (recolhido) {
     return (
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-linha bg-superficie px-6 py-1.5">
+        {/* Duas contagens, em tinta. "Atrasadas" ficou de fora de propósito: em
+            bordô seria a quarta ocorrência da inbox — o limite é três
+            (DESIGN.md, 2.1) —, e em qualquer outra cor contrariaria o
+            mapeamento fixo da seção 5, onde atraso é sempre selo. Quem precisa
+            do número expande o painel, que é justamente o que o botão faz. */}
         <p className="truncate text-xs text-tinta-media">
           <span className="font-dado text-tinta">{resumo.totalAtivas}</span> ativas
           <span className="mx-1.5 text-tinta-fraca">·</span>
           <span className="font-dado text-tinta">{resumo.naFila}</span> na fila
-          {resumo.atrasadas > 0 ? (
-            <>
-              <span className="mx-1.5 text-tinta-fraca">·</span>
-              <span className="font-dado text-selo">{resumo.atrasadas}</span>
-              <span className="text-selo"> atrasadas</span>
-            </>
-          ) : null}
         </p>
 
         <BotaoDeRecolher recolhido aoAlternar={aoAlternarRecolhido} />

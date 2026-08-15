@@ -14,7 +14,7 @@ public class MensagemService(
     IConversaService conversas,
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
-    ILogger<MensagemService> log) : IMensagemService
+    ILogger<MensagemService> log) : IMensagemService, IAcoesDeMensagem
 {
     public async Task<IReadOnlyList<MensagemResponse>> ListarAsync(
         Guid conversaId,
@@ -312,6 +312,256 @@ public class MensagemService(
 
         log.LogInformation(
             "Triagem da conversa {ConversaId} encaminhou ao setor {SetorId}", conversa.Id, escolhido);
+    }
+
+    // ------------------------------------------------- acoes do menu de contexto
+
+    public async Task<MensagemResponse> FixarAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        bool fixar,
+        CancellationToken ct = default)
+    {
+        var conversa = await CarregarParaAcaoAsync(conversaId, ct);
+        var agora = DateTime.UtcNow;
+
+        var mensagem = await db.Mensagens
+            .FirstOrDefaultAsync(m => m.Id == mensagemId
+                                   && m.ConversaId == conversaId
+                                   && m.TenantId == conversa.TenantId, ct)
+            ?? throw AtendimentoServiceException.MensagemNaoEncontrada();
+
+        if (fixar)
+        {
+            // Uma por conversa. Desafixa as demais no mesmo golpe, em vez de
+            // acumular um mural no topo do fio — o lugar mais caro da tela.
+            await db.Mensagens
+                .Where(m => m.ConversaId == conversaId && m.FixadaEm != null && m.Id != mensagemId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.FixadaEm, (DateTime?)null)
+                    .SetProperty(m => m.FixadaPorAtendenteId, (Guid?)null)
+                    .SetProperty(m => m.AtualizadoEm, agora), ct);
+
+            mensagem.FixadaEm = agora;
+            mensagem.FixadaPorAtendenteId = ctx.AtendenteId;
+        }
+        else
+        {
+            mensagem.FixadaEm = null;
+            mensagem.FixadaPorAtendenteId = null;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var resposta = await ObterUmaAsync(mensagem.Id, conversaId, ct);
+        var resumo = await conversas.ObterResumoAsync(conversaId, ct);
+        await notificador.MensagemRecebidaAsync(conversa.TenantId, resposta, resumo, ct);
+
+        return resposta;
+    }
+
+    public async Task<int> OcultarAsync(
+        Guid conversaId,
+        OcultarMensagensRequest request,
+        CancellationToken ct = default)
+    {
+        var conversa = await CarregarParaAcaoAsync(conversaId, ct);
+
+        if (request.MensagemIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var agora = DateTime.UtcNow;
+        var ids = request.MensagemIds;
+
+        // ExecuteUpdate, e nao entidade rastreada: e operacao em lote vinda da
+        // selecao multipla, e carregar N mensagens para mudar duas colunas seria
+        // trabalho a toa. O WHERE amarra a conversa e o tenant — nao da para
+        // ocultar mensagem de outro atendimento passando o Id na mao.
+        var afetadas = await db.Mensagens
+            .Where(m => ids.Contains(m.Id)
+                     && m.ConversaId == conversaId
+                     && m.TenantId == conversa.TenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.OcultaEm, request.Ocultar ? agora : null)
+                .SetProperty(m => m.OcultaPorAtendenteId, request.Ocultar ? ctx.AtendenteId : null)
+                .SetProperty(m => m.AtualizadoEm, agora), ct);
+
+        log.LogInformation(
+            "{Total} mensagem(ns) {Acao} na conversa {ConversaId} por {AtendenteId}",
+            afetadas, request.Ocultar ? "ocultada(s)" : "reexibida(s)", conversaId, ctx.AtendenteId);
+
+        var resumo = await conversas.ObterResumoAsync(conversaId, ct);
+        await notificador.ConversaAtualizadaAsync(conversa.TenantId, resumo, ct);
+
+        return afetadas;
+    }
+
+    public async Task<int> EncaminharAsync(
+        Guid conversaId,
+        EncaminharMensagensRequest request,
+        CancellationToken ct = default)
+    {
+        var origem = await CarregarParaAcaoAsync(conversaId, ct);
+
+        if (request.MensagemIds.Count == 0)
+        {
+            return 0;
+        }
+
+        if (request.ConversaDestinoId == conversaId)
+        {
+            throw AtendimentoServiceException.EncaminhamentoParaMesmaConversa();
+        }
+
+        var destino = await db.Conversas
+            .FirstOrDefaultAsync(c => c.Id == request.ConversaDestinoId
+                                   && c.TenantId == origem.TenantId, ct)
+            ?? throw AtendimentoServiceException.ConversaNaoEncontrada();
+
+        if (destino.Status != StatusConversa.Ativa)
+        {
+            throw AtendimentoServiceException.ConversaEncerrada();
+        }
+
+        // Mesma regra de quem pode escrever no destino que vale para uma mensagem
+        // digitada ali: conversa na fila e assumida, conversa de terceiro e
+        // recusada. Encaminhar nao pode ser porta dos fundos para escrever numa
+        // conversa que o atendente nao poderia responder.
+        if (destino.AtendenteId is null)
+        {
+            await conversas.AssumirAsync(destino.Id, ct);
+        }
+        else if (destino.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
+        {
+            var responsavel = await db.Atendentes.AsNoTracking()
+                .Where(a => a.Id == destino.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefaultAsync(ct) ?? "outro atendente";
+
+            throw AtendimentoServiceException.NaoEhOResponsavel(responsavel);
+        }
+
+        var ids = request.MensagemIds;
+
+        var originais = await db.Mensagens.AsNoTracking()
+            .Where(m => ids.Contains(m.Id)
+                     && m.ConversaId == conversaId
+                     && m.TenantId == origem.TenantId)
+            .OrderBy(m => m.EnviadaEm)
+            .ThenBy(m => m.Id)
+            .Select(m => new { m.Id, m.Conteudo })
+            .ToListAsync(ct);
+
+        if (originais.Count == 0)
+        {
+            throw AtendimentoServiceException.MensagemNaoEncontrada();
+        }
+
+        var agora = DateTime.UtcNow;
+
+        foreach (var original in originais)
+        {
+            db.Mensagens.Add(new Mensagem
+            {
+                TenantId = origem.TenantId,
+                ConversaId = destino.Id,
+
+                // Quem encaminha ASSINA. O texto e de outra conversa, mas quem
+                // decidiu trazê-lo para cá foi este atendente, e o RF-007 vale
+                // igual: a mensagem carrega quem a colocou no fio.
+                AutorTipo = AutorTipo.Atendente,
+                AtendenteId = ctx.AtendenteId,
+
+                Conteudo = original.Conteudo,
+                Tipo = TipoMensagem.Texto,
+                EncaminhadaDeMensagemId = original.Id,
+                StatusEntrega = StatusEntrega.Enviada,
+                EnviadaEm = agora
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        // Encaminhamento e mensagem de gente: reordena a inbox, ao contrario do
+        // aviso automatico.
+        await db.Conversas
+            .Where(c => c.Id == destino.Id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.UltimaMensagemEm, agora)
+                .SetProperty(c => c.AtualizadoEm, agora), ct);
+
+        log.LogInformation(
+            "{Total} mensagem(ns) encaminhada(s) de {Origem} para {Destino} por {AtendenteId}",
+            originais.Count, conversaId, destino.Id, ctx.AtendenteId);
+
+        var resumo = await conversas.ObterResumoAsync(destino.Id, ct);
+        await notificador.ConversaAtualizadaAsync(origem.TenantId, resumo, ct);
+
+        return originais.Count;
+    }
+
+    public async Task<IReadOnlyList<DestinoDeEncaminhamentoResponse>> DestinosAsync(
+        Guid conversaOrigemId,
+        string? busca,
+        CancellationToken ct = default)
+    {
+        var tenantId = ctx.TenantId;
+
+        var consulta = db.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId
+                     && c.Status == StatusConversa.Ativa
+                     && c.Id != conversaOrigemId);
+
+        if (!string.IsNullOrWhiteSpace(busca))
+        {
+            var termo = busca.Trim();
+
+            consulta = consulta.Where(c =>
+                c.Protocolo.Contains(termo) ||
+                db.Clientes.Any(cl => cl.Id == c.ClienteId && cl.Nome.Contains(termo)));
+        }
+
+        return await consulta
+            .OrderByDescending(c => c.UltimaMensagemEm)
+            .Take(30)
+            .Select(c => new DestinoDeEncaminhamentoResponse(
+                c.Id,
+                c.Protocolo,
+                db.Clientes.Where(cl => cl.Id == c.ClienteId).Select(cl => cl.Nome).FirstOrDefault() ?? string.Empty,
+                db.Setores.Where(s => s.Id == c.SetorId).Select(s => s.Nome).FirstOrDefault(),
+                db.Atendentes.Where(a => a.Id == c.AtendenteId).Select(a => a.Nome).FirstOrDefault()))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Carrega a conversa e confere que quem pediu pode mexer nela.
+    /// </summary>
+    /// <remarks>
+    /// Fixar e ocultar sao acoes sobre o fio, nao envio: nao assumem conversa. Quem
+    /// nao e o responsavel — nem tem perfil de supervisao — nao reorganiza o
+    /// atendimento alheio.
+    /// </remarks>
+    private async Task<Conversa> CarregarParaAcaoAsync(Guid conversaId, CancellationToken ct)
+    {
+        var conversa = await db.Conversas
+            .FirstOrDefaultAsync(c => c.Id == conversaId && c.TenantId == ctx.TenantId, ct)
+            ?? throw AtendimentoServiceException.ConversaNaoEncontrada();
+
+        if (conversa.AtendenteId is not null
+            && conversa.AtendenteId != ctx.AtendenteId
+            && !ctx.PodeOperarConversaDeTerceiro)
+        {
+            var responsavel = await db.Atendentes.AsNoTracking()
+                .Where(a => a.Id == conversa.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefaultAsync(ct) ?? "outro atendente";
+
+            throw AtendimentoServiceException.NaoEhOResponsavel(responsavel);
+        }
+
+        return conversa;
     }
 
     /// <summary>

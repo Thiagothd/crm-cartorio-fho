@@ -1,5 +1,35 @@
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
+/// <summary>
+/// Acoes do menu de contexto da mensagem.
+/// </summary>
+/// <remarks>
+/// NAO existe "apagar". Ocultar e o mais proximo disso, e de proposito: o sistema
+/// nao apaga conversa encerrada nem cliente desativado, e nao ha razao para a
+/// mensagem — a unica peca com fe de conversa — ser a excecao. Exclusao real, se
+/// um dia for pedida, e decisao a ser tomada explicitamente, nao padrao.
+/// </remarks>
+public interface IAcoesDeMensagem
+{
+    /// <summary>
+    /// Fixa a mensagem no topo. Uma por conversa: fixar outra desafixa a anterior.
+    /// </summary>
+    Task<MensagemResponse> FixarAsync(
+        Guid conversaId, Guid mensagemId, bool fixar, CancellationToken ct = default);
+
+    /// <summary>Oculta ou reexibe. A linha permanece no banco em ambos os casos.</summary>
+    Task<int> OcultarAsync(
+        Guid conversaId, OcultarMensagensRequest request, CancellationToken ct = default);
+
+    /// <summary>Reenvia mensagens desta conversa para outra conversa ativa.</summary>
+    Task<int> EncaminharAsync(
+        Guid conversaId, EncaminharMensagensRequest request, CancellationToken ct = default);
+
+    /// <summary>Conversas ativas que podem receber um encaminhamento.</summary>
+    Task<IReadOnlyList<DestinoDeEncaminhamentoResponse>> DestinosAsync(
+        Guid conversaOrigemId, string? busca, CancellationToken ct = default);
+}
+
 public interface IMensagemService
 {
     Task<IReadOnlyList<MensagemResponse>> ListarAsync(Guid conversaId, CancellationToken ct = default);
