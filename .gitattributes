@@ -1,0 +1,21 @@
+# Fim de linha normalizado.
+#
+# O repositorio guarda LF em tudo, e o working tree tambem recebe LF — inclusive
+# no Windows. Sem isto, o valor de core.autocrlf de cada maquina decide o formato,
+# e dois desenvolvedores em Windows conseguem produzir um diff em que TODAS as
+# linhas do arquivo aparecem alteradas sem ninguem ter mudado nada.
+#
+# Nao ha binario versionado neste projeto, mas `text=auto` mantem a deteccao
+# automatica ligada: se um .png ou .pdf entrar depois, o Git nao vai tentar
+# converter fim de linha dentro dele.
+* text=auto eol=lf
+
+# Os .sql sao gravados em UTF-8 COM BOM de proposito — sem o BOM o sqlcmd le o
+# arquivo como ANSI e todo acento vira dois caracteres no banco (ver CLAUDE.md,
+# regra 10). A marcacao abaixo nao altera o BOM, que e conteudo e nao fim de
+# linha; esta aqui para deixar explicito que o arquivo e texto e nao deve ser
+# tratado como binario por nenhuma ferramenta.
+*.sql text eol=lf
+
+# Scripts de shell quebram se receberem CRLF.
+*.sh text eol=lf
