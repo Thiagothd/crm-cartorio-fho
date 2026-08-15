@@ -1,0 +1,42 @@
+using CrmCartorio.Api.Modules.Clientes.Application;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CrmCartorio.Api.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/clientes")]
+public class ClientesController(IClienteService servico) : ControllerBase
+{
+    [HttpGet]
+    public async Task<ActionResult<ResultadoPaginadoDeClientes>> Listar(
+        [FromQuery] FiltroDeClientes filtro,
+        CancellationToken ct) =>
+        Ok(await servico.ListarAsync(filtro, ct));
+
+    /// <summary>Cidades ja cadastradas, para montar o filtro da tela.</summary>
+    [HttpGet("opcoes")]
+    public async Task<ActionResult<OpcoesDeClientesResponse>> Opcoes(CancellationToken ct) =>
+        Ok(await servico.ObterOpcoesAsync(ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<ClienteResponse>> Obter(Guid id, CancellationToken ct) =>
+        Ok(await servico.ObterAsync(id, ct));
+
+    [HttpPost]
+    public async Task<ActionResult<ClienteResponse>> Criar(
+        [FromBody] DadosDeCliente dados,
+        CancellationToken ct)
+    {
+        var criado = await servico.CriarAsync(dados, ct);
+        return CreatedAtAction(nameof(Obter), new { id = criado.Id }, criado);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<ClienteResponse>> Atualizar(
+        Guid id,
+        [FromBody] DadosDeCliente dados,
+        CancellationToken ct) =>
+        Ok(await servico.AtualizarAsync(id, dados, ct));
+}

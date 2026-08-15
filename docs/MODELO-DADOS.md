@@ -1,0 +1,718 @@
+# MODELO DE DADOS
+
+> **Status:** aprovado para a Fase 1 e implementado.
+> **Última atualização:** 2026-08-14
+>
+> DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
+> Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
+> script foi executado em produção.
+
+---
+
+## 1. Visão geral
+
+```mermaid
+erDiagram
+    Tenant       ||--o{ Atendente      : "emprega"
+    Tenant       ||--o{ Cliente        : "atende"
+    Tenant       ||--o{ Setor          : "configura"
+    Tenant       ||--o{ EtapaFunil     : "configura"
+    Tenant       ||--o{ TipoServico    : "cataloga"
+    Tenant       ||--o{ MensagemAutomatica : "configura"
+    Tenant       ||--o{ RespostaRapida : "configura"
+    TipoServico  ||--o| PrazoServico   : "tem SLA"
+    EtapaFunil   ||--o{ MensagemAutomatica : "dispara"
+    Cliente      ||--o{ Conversa       : "inicia"
+    Conversa     ||--o{ Mensagem       : "contém"
+    Mensagem     o|--o{ Mensagem       : "é citada por"
+    Conversa     ||--o{ HistoricoEtapa : "registra"
+    Atendente    ||--o{ Conversa       : "é responsável por"
+    Atendente    ||--o{ Mensagem       : "envia"
+    Setor        ||--o{ Conversa       : "roteia"
+    EtapaFunil   ||--o{ Conversa       : "posiciona"
+    TipoServico  ||--o{ Conversa       : "classifica"
+```
+
+Leitura em uma frase: **um cliente inicia uma conversa no WhatsApp do cartório;
+essa conversa é assumida por um atendente, roteada para um setor, avança por
+etapas de funil, acumula mensagens identificadas por autor, e ao final é
+encerrada — nunca apagada.**
+
+---
+
+## 2. Dois eixos independentes
+
+Erro clássico neste domínio é fundir setor e etapa numa coluna só. São coisas
+diferentes:
+
+| | **Setor** | **EtapaFunil** |
+| --- | --- | --- |
+| Responde | *quem* atende | *em que ponto* está |
+| Uso | roteamento | progressão |
+| Muda quando | a demanda é de outra área | o atendimento avança |
+| Exemplo | Tabelionato de Notas | Em processamento / exigência |
+
+Uma conversa pode trocar de setor sem avançar de etapa (roteamento errado) e
+avançar de etapa sem trocar de setor (caso normal). Por isso são duas FKs
+separadas em `Conversa` e um histórico único que registra as duas dimensões.
+
+Ambas são **tabelas configuráveis por tenant**. Nada de enum fixo em código:
+o cartório parceiro precisa poder renomear e reordenar pela tela.
+
+---
+
+## 3. Entidades
+
+Convenções aplicadas a todas as tabelas de negócio:
+
+- PK `Id` do tipo `uniqueidentifier` (Guid v7 sequencial, gerado na aplicação).
+- `TenantId` obrigatório — presente desde a Fase 1 mesmo com um tenant só.
+  Retrofit de multi-tenancy depois seria caro e arriscado.
+- `CriadoEm` / `AtualizadoEm` em `datetime2(3)`, UTC.
+- Desativação por flag `Ativo`. **Não existe DELETE físico no código.**
+
+### 3.1 Tenant
+
+Cartório cliente. Na Fase 1 existe um registro; a estrutura já é multi-tenant.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| RazaoSocial | string(200) | sim | |
+| NomeFantasia | string(200) | não | |
+| Cnpj | string(14) | sim | Só dígitos. Único |
+| WhatsappBusinessAccountId | string(64) | não | WABA ID — preenchido na Fase 2 |
+| WhatsappPhoneNumberId | string(64) | não | Phone Number ID da Cloud API — Fase 2 |
+| WhatsappNumeroExibicao | string(20) | não | Número em formato E.164, exibição |
+| Ativo | bool | sim | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+Os três campos de WhatsApp existem desde já porque são o ponto de encaixe da
+Fase 2. Ficam nulos até lá.
+
+**Dados da serventia que o modelo ainda não guarda:** CNS, endereço, horário de
+funcionamento e jurisdição. Estão em [CONTEXTO.md](CONTEXTO.md), seção 2, e no
+cabeçalho de [`sql/002-seed-simulado.sql`](../sql/002-seed-simulado.sql). Entram
+no banco quando houver tela de configuração da serventia — não é escopo da Fase 1,
+e adicionar coluna que nenhuma tela preenche é peso morto.
+
+### 3.2 Atendente
+
+Usuário do sistema — funcionário da serventia.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Nome | string(150) | sim | Exibido junto de cada mensagem enviada |
+| Email | string(160) | sim | Login. Único por tenant |
+| SenhaHash | string(500) | sim | PBKDF2 + salt por usuário. Nunca texto claro |
+| Perfil | enum | sim | **Permissão no sistema.** `Administrador` / `Supervisor` / `Atendente` |
+| Cargo | enum | sim | **Função na serventia.** Ver abaixo. Nasce `NaoInformado` |
+| SetorPadraoId | Guid | não | FK → Setor. Pré-seleção na triagem |
+| Ativo | bool | sim | Desligamento corta acesso sem apagar histórico |
+| UltimoAcessoEm | datetime2(3) | não | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+Perfis (a validar — [REQUISITOS.md](REQUISITOS.md) §5, pendência 7):
+
+| Perfil | Pode |
+| --- | --- |
+| Atendente | Assumir conversa livre, responder a sua, liberar a sua, mover etapa/setor da sua, encerrar a sua |
+| Supervisor | Tudo do atendente + transferir conversa de terceiro + reabrir + gerir cadastros |
+| Administrador | Tudo do supervisor + gerir atendentes |
+
+#### Cargo e perfil são eixos independentes
+
+As duas coisas estavam fundidas numa coluna só e foram separadas. Não são a mesma
+pergunta:
+
+| | `Cargo` | `Perfil` |
+| --- | --- | --- |
+| Responde | o que a pessoa **é** no cartório | o que a pessoa **pode fazer** no sistema |
+| Origem | estrutura da Lei 8.935/94 | decisão do administrador |
+| Existe fora do software | sim | não |
+| Concede acesso | **não** | sim |
+
+| Cargo | Valor |
+| --- | --- |
+| `NaoInformado` | 0 |
+| `Titular` | 1 |
+| `Substituto` | 2 |
+| `EscreventeAutorizado` | 3 |
+| `Escrevente` | 4 |
+| `Auxiliar` | 5 |
+
+Fundidos, um escrevente não podia receber permissão de supervisão sem aparecer como
+"Supervisor" — cargo que não existe em cartório —, e o titular não podia ter acesso
+restrito sem parecer rebaixado na tela. No seed, Carla Menezes é o exemplo:
+`EscreventeAutorizado` de cargo, `Supervisor` de perfil.
+
+**Enum, não tabela**, pela mesma regra do gatilho de mensagem: os cargos vêm da lei
+de delegação, não da preferência do cartório. O que é configurável por tenant é quem
+ocupa cada um — isso se faz pela tela de Atendentes.
+
+### 3.3 Cliente
+
+Contato final que manda mensagem. **Não é usuário do sistema.**
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Nome | string(200) | sim | Nome do perfil do WhatsApp até ser corrigido |
+| Tipo | enum | sim | `Fisica` / `Juridica` |
+| TelefoneWhatsapp | string(20) | sim | E.164, só dígitos. **Único por tenant** |
+| TelefoneAlternativo | string(20) | não | Telefone fixo ou de recado |
+| Documento | string(14) | não | CPF/CNPJ, conforme `Tipo` |
+| Email | string(160) | não | |
+| Rg / OrgaoEmissor / UfOrgaoEmissor | string | não | Identidade de pessoa física |
+| DataNascimento | date | não | |
+| EstadoCivil | enum | sim | Valor neutro `NaoInformado` quando ainda não coletado |
+| RegimeDeBens | enum | sim | Só permanece preenchido quando `EstadoCivil = Casado` |
+| Profissao / Nacionalidade / Naturalidade | string | não | Qualificação da parte |
+| NomeDoPai / NomeDaMae | string(200) | não | Filiação |
+| RazaoSocial / RepresentanteLegal | string(200) | não | Pessoa jurídica |
+| Cep / Logradouro / Numero / Complemento | string | não | Endereço |
+| Bairro / Cidade / Uf | string | não | Endereço |
+| Observacoes | string(1000) | não | |
+| PrimeiroContatoEm | datetime2(3) | sim | |
+| Ativo | bool | sim | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+O telefone é a identidade real do cliente — é por ele que a mensagem chega. Por
+isso é único por tenant e não pode ser nulo. Documento é opcional de propósito:
+exigir CPF no primeiro "bom dia" trava o atendimento.
+
+Os demais dados também são opcionais pela mesma razão. A interface mostra um
+**percentual de qualificação calculado na leitura**, nunca persistido: o indicador
+orienta o atendente sobre o que ainda falta sem transformar o primeiro contato
+num formulário obrigatório. Pessoa física considera documento, RG, profissão,
+nacionalidade, naturalidade, filiação, nascimento, estado civil e endereço;
+pessoa jurídica considera CNPJ, razão social, representante, contato e endereço.
+
+### 3.4 Setor
+
+Área da serventia. Configurável.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Nome | string(120) | sim | Único por tenant |
+| Descricao | string(300) | não | |
+| Ordem | int | sim | Ordenação na interface |
+| Ativo | bool | sim | Desativar não afeta conversa histórica |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Setores semeados — dois, e são dado confirmado**, não sugestão: espelham as
+atribuições da serventia no CNJ ([CONTEXTO.md](CONTEXTO.md), seção 2.2).
+
+| Ordem | Nome |
+| --- | --- |
+| 1 | Tabelionato de Notas |
+| 2 | Registro Civil |
+
+### 3.5 EtapaFunil
+
+Estágio da conversa. Configurável e ordenável.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Nome | string(120) | sim | Único por tenant |
+| Descricao | string(300) | não | |
+| Ordem | int | sim | Define a sequência do funil |
+| Cor | string(9) | sim | Hex `#RRGGBB`, para o quadro |
+| EhFinal | bool | sim | Marca a etapa que representa conclusão |
+| Ativo | bool | sim | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Etapas semeadas na demonstração** (sugestão de mercado, a validar):
+
+| Ordem | Nome | EhFinal |
+| --- | --- | --- |
+| 1 | Atendimento inicial | não |
+| 2 | Captação do serviço | não |
+| 3 | Em processamento / exigência | não |
+| 4 | Pronto / entrega | **sim** |
+
+### 3.6 TipoServico
+
+Catálogo de atos cartorários. Configurável.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Nome | string(160) | sim | Único por tenant |
+| Codigo | string(30) | não | Código interno do cartório |
+| Categoria | enum | sim | `Notas`, `RegistroCivil`, `RegistroImoveis`, `TitulosDocumentos`, `Protesto`, `Outros` |
+| Descricao | string(500) | não | |
+| Ativo | bool | sim | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Catálogo semeado — 10 atos, apenas das duas atribuições da serventia**
+([CONTEXTO.md](CONTEXTO.md), seção 2.2):
+
+| Categoria | Atos |
+| --- | --- |
+| `RegistroCivil` | Certidão de nascimento, de casamento, de óbito, segunda via de certidão |
+| `Notas` | Reconhecimento de firma, autenticação de documento, escritura pública de compra e venda, escritura pública de doação, procuração pública |
+| `Outros` | Notificação extrajudicial — **`AGUARDANDO CONFIRMAÇÃO`** na descrição |
+
+**Removidos** por não serem atribuição deste cartório: registro de imóvel,
+averbação em matrícula, certidão de matrícula, certidão de ônus reais.
+
+A **escritura** de compra e venda permanece: lavrar escritura é ato do tabelião
+de notas. O que corre em outra serventia é o **registro** dessa escritura na
+matrícula, no Registro de Imóveis.
+
+O enum `CategoriaServico` mantém os valores `RegistroImoveis`,
+`TitulosDocumentos` e `Protesto`. Ficam sem uso: são categorias válidas do
+domínio cartorário em geral, e removê-las do enum quebraria a leitura de dado
+já gravado quando o sistema for usado por uma serventia de ofício único.
+
+### 3.7 PrazoServico
+
+SLA de um tipo de serviço. Relação **1:1** com `TipoServico`.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| TipoServicoId | Guid | sim | FK → TipoServico. **Único** |
+| PrazoHoras | int | sim | Duração do SLA em horas |
+| PercentualAlerta | int | sim | 1–99. Alerta ao consumir esse % do prazo |
+| ApenasDiasUteis | bool | sim | Se `true`, o cálculo pula sábado e domingo |
+| Ativo | bool | sim | |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+Prazo em **horas**, não dias, porque a faixa é larga: reconhecimento de firma sai
+em minutos, registro de imóvel leva dias. Hora é a menor unidade que cobre os dois
+sem virar dois campos.
+
+**Situação de prazo** é calculada na leitura, nunca persistida:
+
+| Situação | Regra |
+| --- | --- |
+| `SemPrazo` | `Conversa.PrazoLimite` nulo |
+| `EmDia` | agora < `Conversa.PrazoAlertaEm` |
+| `EmAlerta` | agora ≥ `PrazoAlertaEm` e agora ≤ `PrazoLimite` |
+| `Atrasada` | agora > `PrazoLimite` |
+
+Persistir a **situação** exigiria job de atualização e mentiria entre as
+execuções. Já os dois **instantes** (`PrazoLimite` e `PrazoAlertaEm`) são
+gravados na conversa quando o serviço é vinculado — são datas fixas, não estado
+que envelhece.
+
+Isso é o que torna o filtro de prazo da inbox uma comparação de datas em SQL,
+indexável, em vez de uma subconsulta de percentual por linha. Conversa encerrada
+congela a avaliação em `EncerradaEm`: mostrar "atrasada" para atendimento já
+entregue só polui o painel.
+
+### 3.8 Conversa
+
+Entidade central. É onde mora a trava.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| ClienteId | Guid | sim | FK → Cliente |
+| Protocolo | string(20) | sim | **Único por tenant.** Formato `AAAAMM-NNNN` |
+| AtendenteId | Guid | não | FK → Atendente. **Nulo = na fila. Preenchido = travada** |
+| SetorId | Guid | não | FK → Setor |
+| EtapaId | Guid | não | FK → EtapaFunil |
+| TipoServicoId | Guid | não | FK → TipoServico. Preenchido na captação |
+| Status | enum | sim | `Ativa` / `Encerrada` |
+| Canal | enum | sim | `Simulado` na Fase 1, `WhatsApp` na Fase 2 |
+| IniciadaEm | datetime2(3) | sim | |
+| UltimaMensagemEm | datetime2(3) | sim | Ordenação da inbox |
+| MensagensNaoLidas | int | sim | Mensagens do cliente ainda não lidas |
+| AguardandoTriagem | bool | sim | Recebeu o menu e espera a escolha do setor. Ver 3.11 |
+| PrazoIniciadoEm | datetime2(3) | não | Marcado ao vincular o tipo de serviço |
+| PrazoLimite | datetime2(3) | não | Calculado por `PrazoServico` |
+| PrazoAlertaEm | datetime2(3) | não | Instante em que entra em alerta. Derivado do percentual, ver nota |
+| AvisoDeAlertaEnviadoEm | datetime2(3) | não | Quando o aviso de prazo perto de vencer saiu |
+| AvisoDeVencimentoEnviadoEm | datetime2(3) | não | Quando o aviso de prazo vencido saiu |
+| EncerradaEm | datetime2(3) | não | |
+| EncerradaPorAtendenteId | Guid | não | FK → Atendente |
+| MotivoEncerramento | string(500) | não | Opcional (pendência 10) |
+| ReabertaEm | datetime2(3) | não | |
+| ReabertaPorAtendenteId | Guid | não | FK → Atendente |
+| **RowVersion** | rowversion | sim | **Concorrência otimista** |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Não existe coluna de exclusão.** Encerrar muda `Status` para `Encerrada` e a
+conversa sai da lista ativa — o conteúdo permanece íntegro e consultável. Foi
+pedido explicitamente pelo cliente (RF-015).
+
+**Os dois `AvisoDe…EnviadoEm` não contradizem a regra de não persistir situação de
+prazo.** O que fica gravado não é *"está em alerta"* — isso envelhece e mentiria
+entre duas leituras — e sim *"o aviso saiu"*, que é fato datado e não muda mais.
+São eles que tornam o disparo idempotente: a varredura roda a cada poucos minutos e
+reencontraria a mesma conversa em alerta a cada volta.
+
+### 3.9 Mensagem
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| ConversaId | Guid | sim | FK → Conversa |
+| AutorTipo | enum | sim | `Cliente` / `Atendente` / `Sistema` |
+| AtendenteId | Guid | não | FK → Atendente. **Obrigatório quando `AutorTipo = Atendente`** |
+| Conteudo | string(4000) | sim | |
+| Tipo | enum | sim | `Texto` na Fase 1; mídia entra na Fase 2 |
+| StatusEntrega | enum | sim | `Pendente` / `Enviada` / `Entregue` / `Lida` / `Falha` |
+| EhAutomatica | bool | sim | Gerada por regra, não escrita por gente. Ver abaixo |
+| EnviadaEm | datetime2(3) | sim | |
+| LidaEm | datetime2(3) | não | |
+| IdExternoWhatsapp | string(80) | não | ID da Meta — Fase 2 |
+| MensagemRespondidaId | Guid | não | Auto-FK → Mensagem citada na resposta |
+| CriadoEm | datetime2(3) | sim | |
+
+`AtendenteId` é o requisito RF-007 na sua forma mais literal: o cliente pediu para
+saber **qual atendente respondeu**, e a resposta é uma coluna, não uma inferência.
+A regra "atendente exige `AtendenteId`" é validada no serviço e reforçada por
+`CHECK` no banco.
+
+Mensagem `Sistema` registra evento no fio da conversa ("Conversa assumida por
+Fulano", "Etapa alterada para X"), o que dá contexto ao próximo atendente sem
+precisar abrir uma aba de histórico.
+
+`EhAutomatica` divide esse `Sistema` em dois, e a diferença muda tudo na tela:
+
+| `AutorTipo` | `EhAutomatica` | O que é | Como aparece |
+| --- | --- | --- | --- |
+| `Sistema` | `false` | Anotação interna. O cliente nunca receberia | Texto à margem, centralizado |
+| `Sistema` | `true` | Mensagem **endereçada ao cliente** | Balão do lado da serventia, com o rótulo "Automática" |
+
+Sem essa coluna as duas seriam indistinguíveis no banco, e o atendente veria uma
+frase dirigida ao cliente achando que um colega a escreveu. `CHECK` no banco impede
+`EhAutomatica = 1` fora de `AutorTipo = Sistema`.
+
+Na Fase 1 a mensagem automática nasce em `Pendente` — é o único estado honesto, já
+que não há WhatsApp conectado para entregar nada. Na Fase 2, o retorno da Graph API
+promove para `Enviada` e o webhook de status para `Entregue`/`Lida`, sem que a
+lógica de geração mude.
+
+Ao responder, o banco guarda somente `MensagemRespondidaId`. Autor e prévia do
+texto citado são resolvidos na leitura; copiar o texto para a resposta criaria
+duas versões da mesma mensagem. O serviço exige que a mensagem citada pertença
+à mesma conversa e ao mesmo tenant.
+
+Os cinco estados de entrega já existem na Fase 1. `Enviada` é o estado inicial
+da resposta simulada; quando se simula uma nova mensagem do cliente, as respostas
+anteriores são promovidas a `Lida` para demonstrar os tiques. `Entregue` e `Lida`
+reais só serão verdadeiros quando o webhook de status da Meta entrar na Fase 2.
+
+### 3.10 HistoricoEtapa
+
+Trilha de mudanças de etapa e setor. **Só cresce — nunca editado, nunca apagado.**
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| ConversaId | Guid | sim | FK → Conversa |
+| TipoMudanca | enum | sim | `Abertura` / `Etapa` / `Setor` / `EtapaESetor` |
+| EtapaAnteriorId | Guid | não | FK → EtapaFunil |
+| EtapaNovaId | Guid | não | FK → EtapaFunil |
+| SetorAnteriorId | Guid | não | FK → Setor |
+| SetorNovoId | Guid | não | FK → Setor |
+| AtendenteId | Guid | não | FK → Atendente. Nulo = automático |
+| OcorridoEm | datetime2(3) | sim | |
+| Observacao | string(500) | não | |
+
+### 3.11 MensagemAutomatica
+
+Modelo de mensagem que o sistema envia sozinho quando um evento acontece.
+Configurável, no mesmo padrão de `Setor` e `EtapaFunil`.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Gatilho | enum | sim | Ver tabela abaixo |
+| EtapaAlvoId | Guid | não | FK → EtapaFunil. **Obrigatório com `EtapaAlterada`, nulo nos demais** |
+| Conteudo | string(1000) | sim | Modelo com marcadores |
+| Ativo | bool | sim | Desativar para de disparar; não apaga o que já saiu |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+| Gatilho | Quando dispara | Quem provoca |
+| --- | --- | --- |
+| `NovoAtendimento` | Conversa aberta **sem setor definido** | `ConversaService.CriarAsync` |
+| `TriagemSemCorrespondencia` | Resposta ao menu não bate com nenhum setor | `MensagemService` |
+| `EtapaAlterada` | Conversa entra na etapa alvo | `ConversaService.MoverAsync` |
+| `PrazoProximoVencimento` | `agora ≥ PrazoAlertaEm` e ainda dentro do prazo | Varredura periódica |
+| `PrazoVencido` | `agora > PrazoLimite` | Varredura periódica |
+
+**Por que gatilho é enum e o resto é cadastro.** Cada gatilho corresponde a um ponto
+de código que precisa existir para disparar — gatilho novo exige release. Já o
+**texto** e **qual etapa** dispara são linhas de tabela: nenhuma frase que o cliente
+final lê deveria exigir alteração de código para mudar.
+
+**Por que `EtapaAlvoId` não aceita nulo no gatilho de etapa.** Uma regra "qualquer
+etapa" enviaria mensagem ao cliente em toda movimentação interna do funil — o oposto
+do que se quer. `CHECK` no banco garante os dois lados da regra.
+
+**Marcadores aceitos no conteúdo**, resolvidos no instante do disparo:
+
+| Marcador | Vira |
+| --- | --- |
+| `{NomeCliente}` | Nome do cliente no cadastro |
+| `{NomeCartorio}` | `Tenant.NomeFantasia`, ou a razão social quando nulo |
+| `{Servico}` | `TipoServico.Nome`, ou `"não informado"` quando ainda não captado |
+| `{Protocolo}` | `Conversa.Protocolo` |
+| `{MenuSetores}` | Lista numerada dos setores **ativos**, montada no disparo |
+
+Marcador fora dessa lista é **recusado no salvamento**. É a única chance de pegar o
+erro: um `{NomeClinte}` digitado errado não estouraria em lugar nenhum — sairia
+literal na mensagem que o cliente do cartório lê.
+
+`{MenuSetores}` é o que torna o menu de triagem cadastro e não código: adicionar ou
+desativar um setor muda o menu sozinho, sem tocar no texto da mensagem.
+
+### 3.12 RespostaRapida
+
+Texto pronto que o atendente insere no campo digitando `/atalho`.
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| Atalho | string(30) | sim | Sem a barra, minúsculo, sem espaço. **Único por tenant** |
+| Titulo | string(120) | sim | Rótulo na lista do seletor |
+| Conteudo | string(1000) | sim | Aceita os mesmos marcadores de 3.11 |
+| Ativo | bool | sim | Desativada some do seletor sem sair do cadastro |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Não é mensagem automática.** Nada sai daqui sozinho: o atalho preenche o campo, o
+atendente lê, edita se quiser e envia. As duas entidades parecem iguais no banco —
+um texto com marcadores — e são opostas na responsabilidade: a de 3.11 o sistema
+assina, esta o atendente assina. É por isso que o `AtendenteId` da mensagem
+resultante continua sendo o dele, e o RF-007 continua valendo.
+
+---
+
+## 4. Trava de conversa
+
+Requisito técnico crítico (RF-009, RF-010, RF-011). Duplicidade de resposta é o
+erro mais citado no mercado. Três mecanismos em camadas:
+
+### 4.1 UPDATE condicional — a garantia real
+
+Assumir conversa não é `SELECT` seguido de `UPDATE`. É um `UPDATE` único com a
+condição no `WHERE`:
+
+```sql
+UPDATE Conversas
+   SET AtendenteId = @atendente, AtualizadoEm = @agora
+ WHERE Id = @id
+   AND TenantId = @tenant
+   AND AtendenteId IS NULL
+   AND Status = 1;          -- Ativa
+```
+
+Se afetar **0 linhas**, outro atendente chegou primeiro. O serviço então relê a
+conversa e devolve `ConflitoDeAtribuicaoException` com o **nome de quem assumiu** —
+conflito tratável, com mensagem útil, não erro 500.
+
+Isso resolve a corrida de verdade: a atomicidade é do banco, não de um `lock` do
+processo. Funciona com múltiplas instâncias de IIS.
+
+### 4.2 `rowversion` — proteção das demais escritas
+
+`Conversa.RowVersion` é `rowversion` mapeado como token de concorrência do EF
+Core. Qualquer `SaveChanges` sobre uma conversa lida com versão antiga levanta
+`DbUpdateConcurrencyException`, traduzida para conflito HTTP 409. Cobre mudança de
+etapa, setor, encerramento e transferência — não só a atribuição.
+
+### 4.3 SignalR — prevenção na interface
+
+Hub `/hubs/atendimento`, com grupo por tenant. Eventos emitidos:
+
+| Evento | Quando |
+| --- | --- |
+| `ConversaAtribuida` | Atendente assume |
+| `ConversaLiberada` | Responsável devolve à fila |
+| `ConversaTransferida` | Supervisor move para outro atendente |
+| `ConversaAtualizada` | Etapa, setor ou tipo de serviço mudam |
+| `ConversaEncerrada` | Encerramento |
+| `ConversaReaberta` | Reabertura |
+| `MensagemRecebida` | Nova mensagem em qualquer conversa |
+
+A interface trava o botão "Assumir" assim que o evento chega, então o segundo
+atendente normalmente **nem tenta**. As camadas 4.1 e 4.2 existem para quando ele
+tenta mesmo assim — rede lenta, aba antiga, dois cliques simultâneos.
+
+---
+
+## 5. Protocolo
+
+Formato `AAAAMM-NNNN` — ex.: `202608-0042`. Sequencial reiniciado por mês,
+único por tenant.
+
+Geração sob transação com `UPDLOCK, HOLDLOCK` no maior protocolo do mês, para não
+gerar número duplicado sob concorrência. Índice único em `(TenantId, Protocolo)`
+é a rede de segurança.
+
+> **Pendência:** se o cartório tiver numeração oficial de livro/protocolo a
+> respeitar, o formato muda ([REQUISITOS.md](REQUISITOS.md) §5, pendência 6).
+> É o único item da lista que exige alteração de código.
+
+---
+
+## 6. Automação de mensagens
+
+Três coisas diferentes que costumam ser confundidas:
+
+| | Dispara sozinho? | Quem assina | Chega ao cliente? |
+| --- | --- | --- | --- |
+| **Mensagem automática** | sim | o sistema | sim (Fase 2) |
+| **Anotação de sistema** | sim | ninguém — é registro | nunca |
+| **Resposta rápida** | não | o atendente | sim, depois que ele envia |
+
+### 6.1 Triagem do primeiro contato
+
+1. Conversa nasce **sem setor** → dispara `NovoAtendimento` e marca
+   `AguardandoTriagem`.
+2. O menu sai com os setores **ativos** numerados por `Ordem`.
+3. A próxima mensagem do cliente é lida: número da opção, nome exato, ou nome
+   parcial (mínimo 3 caracteres, em qualquer direção). Acento, caixa e pontuação
+   são ignorados — o cliente digita no celular, com pressa.
+4. Reconheceu → grava `SetorId`, registra em `HistoricoEtapa` com `AtendenteId`
+   nulo (que é o valor que o modelo já reservava para mudança automática) e deixa
+   uma anotação no fio.
+5. Não reconheceu, ou reconheceu **mais de um** setor → dispara
+   `TriagemSemCorrespondencia` e segue para atendimento humano.
+
+**A flag sai em todos os caminhos.** Uma tentativa e acabou. Repetir o menu até o
+cliente acertar prende quem escreveu "bom dia" num loop de robô — é o motivo pelo
+qual gente desiste de atendimento por WhatsApp, e o produto existe para o contrário
+disso. Ambiguidade cai no mesmo caminho: chutar entre dois setores manda o cliente
+para a fila errada, e o erro só apareceria quando alguém lesse a conversa.
+
+Se um atendente rotear a conversa enquanto o menu está no ar, a escolha da pessoa
+vale: a flag é limpa em silêncio, sem mensagem nenhuma ao cliente.
+
+### 6.2 Varredura de prazo
+
+Os gatilhos de prazo são os únicos que **ninguém provoca** — os outros nascem de uma
+ação (abrir conversa, mover etapa, o cliente escrever). Prazo simplesmente passa.
+
+Por isso existe uma varredura periódica (`Automacao:IntervaloEmMinutos`, padrão 5),
+e não um cálculo na leitura da inbox. A alternativa é pior de duas formas: um `GET`
+passaria a escrever no banco, e o aviso ficaria dependendo de alguém ter olhado a
+tela — de noite, no fim de semana ou num dia parado, ninguém seria avisado.
+
+Cada aviso é reivindicado por **`UPDATE` condicional** sobre o marcador
+correspondente, dentro de transação, na mesma disciplina da seção 4.1. Zero linhas
+afetadas = outra instância chegou primeiro. É o que impede o cliente de receber o
+mesmo aviso duas vezes quando há mais de uma instância de IIS.
+
+O aviso de "prazo perto de vencer" exige que o prazo **ainda não** tenha estourado.
+Se a conversa pulou de "em dia" para "atrasada" entre duas passadas — intervalo
+longo, API parada à noite —, avisar que "está chegando" perdeu o sentido e só o de
+vencido sai.
+
+A varredura só olha tenants que **têm regra ativa** para o gatilho. Sem isso, uma
+serventia que decidiu não avisar prazo automaticamente seria varrida a cada passada
+para não gerar nada — ou, pior, teria o marcador gravado sem mensagem, e os avisos
+nunca sairiam se ela mudasse de ideia depois.
+
+### 6.3 O que a automação não faz
+
+- **Não move a conversa na inbox.** `UltimaMensagemEm` continua sendo atualizado só
+  por mensagem de gente (ver README do módulo Atendimento). Um aviso disparado de
+  madrugada jogaria dez conversas para o topo da fila sem que nada tivesse
+  acontecido com o cliente.
+- **Não encerra, não muda etapa, não atribui atendente.** Só a triagem escreve, e
+  só em `SetorId`.
+- **Não envia nada ao WhatsApp na Fase 1.** As mensagens ficam no fio em `Pendente`.
+
+---
+
+## 7. Índices
+
+| Tabela | Índice | Motivo |
+| --- | --- | --- |
+| Tenants | `UQ Cnpj` | Identidade do cartório |
+| Atendentes | `UQ (TenantId, Email)` | Login |
+| Clientes | `UQ (TenantId, TelefoneWhatsapp)` | Identidade do contato |
+| Clientes | `IX (TenantId, Documento)` | Busca da ficha por CPF/CNPJ |
+| Clientes | `IX (TenantId, Cidade)` | Filtro de clientes por cidade |
+| Setores | `UQ (TenantId, Nome)` | Evita duplicata de cadastro |
+| EtapasFunil | `UQ (TenantId, Nome)` | Idem |
+| TiposServico | `UQ (TenantId, Nome)` | Idem |
+| PrazosServico | `UQ TipoServicoId` | Garante o 1:1 |
+| Conversas | `UQ (TenantId, Protocolo)` | Rede de segurança do protocolo |
+| Conversas | `IX (TenantId, Status, UltimaMensagemEm DESC)` | Consulta padrão da inbox |
+| Conversas | `IX (TenantId, AtendenteId, Status)` | "Minhas conversas" |
+| Conversas | `IX (TenantId, EtapaId, Status)` / `IX (TenantId, SetorId, Status)` | Filtros e contadores |
+| Conversas | `IX (TenantId, PrazoAlertaEm)` filtrado | Varredura do aviso de alerta pendente |
+| Conversas | `IX (TenantId, PrazoLimite)` filtrado | Varredura do aviso de vencimento pendente |
+| Mensagens | `IX (ConversaId, EnviadaEm)` | Carregar o fio da conversa |
+| Mensagens | `IX MensagemRespondidaId` filtrado | Resolver citações sem indexar os nulos |
+| HistoricoEtapas | `IX (ConversaId, OcorridoEm)` | Linha do tempo |
+| MensagensAutomaticas | `IX (TenantId, Gatilho, Ativo)` | Consulta do disparador a cada evento |
+| RespostasRapidas | `UQ (TenantId, Atalho)` | Dois atalhos iguais deixariam o seletor ambíguo |
+
+Os dois índices de varredura são **filtrados** (`WHERE AvisoDe… IS NULL AND
+PrazoLimite IS NOT NULL`): em regime, quase toda conversa antiga já avisou, e
+indexá-las seria carregar peso morto numa consulta que roda a cada poucos minutos.
+
+---
+
+## 8. Decisões técnicas tomadas
+
+| Decisão | Escolha | Motivo |
+| --- | --- | --- |
+| PK | `Guid` v7 (`Guid.CreateVersion7()`) | Gerada na aplicação, sequencial — sem fragmentação de índice e sem round-trip |
+| Multi-tenant | `TenantId` em toda tabela de negócio desde a Fase 1 | Retrofit depois é caro e propenso a vazamento de dado entre clientes |
+| Exclusão | Não existe. `Ativo` em cadastro, `Status` em conversa | Exigência do cliente e postura correta em cartório |
+| Concorrência | `rowversion` + `UPDATE` condicional | Ver seção 4 |
+| Situação de prazo | Calculada na leitura | Persistir exigiria job e mentiria entre execuções |
+| Enum no banco | `tinyint` | Legível em `CHECK`, barato de indexar |
+| Datas | UTC em `datetime2(3)` | Conversão para horário local é da interface |
+| Financeiro | Fora do modelo | Emolumento é tabela estadual — fora de escopo |
+| Texto de mensagem ao cliente | Cadastro, nunca constante em código | Quem escreve a voz do cartório é o cartório parceiro, e ele não abre release para trocar uma frase |
+| Gatilho de mensagem | Enum, não tabela | Cada valor é um ponto de código que precisa existir para disparar |
+| Disparo de prazo | Varredura periódica com marcador | Ninguém provoca o evento, e calcular na leitura faria um `GET` escrever no banco |
+
+---
+
+## 9. SQL
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| [`sql/001-schema.sql`](../sql/001-schema.sql) | DDL completo: tabelas, PKs, FKs, índices, `CHECK` |
+| [`sql/002-seed-simulado.sql`](../sql/002-seed-simulado.sql) | Tenant, atendentes, setores, etapas, tipos de serviço e prazos |
+| [`sql/003-cores-de-etapa.sql`](../sql/003-cores-de-etapa.sql) | Corrige as tintas das etapas em bases já existentes |
+| [`sql/004-qualificacao-clientes-e-resposta.sql`](../sql/004-qualificacao-clientes-e-resposta.sql) | Amplia clientes e adiciona resposta/citação de mensagem |
+| [`sql/005-mensagens-automaticas.sql`](../sql/005-mensagens-automaticas.sql) | Cria `MensagensAutomaticas` e `RespostasRapidas`, amplia `Conversas` e `Mensagens`, semeia os cadastros |
+| [`sql/006-encoding-e-textos.sql`](../sql/006-encoding-e-textos.sql) | Repara o texto corrompido por encoding e grava a redação profissional das mensagens |
+| [`sql/007-cargo-do-atendente.sql`](../sql/007-cargo-do-atendente.sql) | Cria `Atendentes.Cargo`, separado do perfil de acesso |
+
+`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 007
+acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
+
+Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.
+
+### 9.1 Encoding — os `.sql` têm BOM UTF-8
+
+**Todo arquivo `.sql` do repositório é gravado em UTF-8 com BOM.** Sem o BOM, o
+`sqlcmd` lê o arquivo como ANSI e cada caractere acentuado vira dois no banco.
+Medido: `LEN(N'Olá — çãé')` devolvia **15** em vez de **9**.
+
+Isso não era teórico — a descrição da etapa "Em processamento" ficou gravada como
+`pendencias â?" inclusive` desde o `002`, e o `006` foi quem reparou. Ao editar
+qualquer `.sql`, preserve o BOM (o VS Code mostra "UTF-8 with BOM" na barra
+inferior). O `006` traz uma trava que recusa rodar se o próprio arquivo estiver
+sendo lido errado.
+O backend também traz um semeador de dados de demonstração (clientes, conversas
+e mensagens fictícias), desligado por padrão e ativado por configuração — ver
+`README` do backend.

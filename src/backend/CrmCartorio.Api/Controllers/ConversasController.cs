@@ -1,0 +1,109 @@
+using CrmCartorio.Api.Modules.Atendimento.Application;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CrmCartorio.Api.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/conversas")]
+public class ConversasController(
+    IConversaService conversas,
+    IMensagemService mensagens) : ControllerBase
+{
+    [HttpGet]
+    public async Task<ActionResult<ResultadoPaginado<ConversaResumoResponse>>> Listar(
+        [FromQuery] FiltroDeConversas filtro,
+        CancellationToken ct) =>
+        Ok(await conversas.ListarAsync(filtro, ct));
+
+    [HttpGet("resumo")]
+    public async Task<ActionResult<PainelResumoResponse>> Resumo(CancellationToken ct) =>
+        Ok(await conversas.ResumoDoPainelAsync(ct));
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<ConversaDetalheResponse>> Obter(Guid id, CancellationToken ct) =>
+        Ok(await conversas.ObterAsync(id, ct));
+
+    [HttpPost]
+    public async Task<ActionResult<ConversaResumoResponse>> Criar(
+        [FromBody] CriarConversaRequest request,
+        CancellationToken ct)
+    {
+        var criada = await conversas.CriarAsync(request, ct);
+        return CreatedAtAction(nameof(Obter), new { id = criada.Id }, criada);
+    }
+
+    /// <summary>
+    /// Assume a conversa. Devolve 409 com o nome de quem assumiu primeiro quando
+    /// dois atendentes clicam quase ao mesmo tempo.
+    /// </summary>
+    [HttpPost("{id:guid}/assumir")]
+    public async Task<ActionResult<ConversaResumoResponse>> Assumir(Guid id, CancellationToken ct) =>
+        Ok(await conversas.AssumirAsync(id, ct));
+
+    [HttpPost("{id:guid}/liberar")]
+    public async Task<ActionResult<ConversaResumoResponse>> Liberar(Guid id, CancellationToken ct) =>
+        Ok(await conversas.LiberarAsync(id, ct));
+
+    [HttpPost("{id:guid}/transferir")]
+    public async Task<ActionResult<ConversaResumoResponse>> Transferir(
+        Guid id,
+        [FromBody] TransferirConversaRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.TransferirAsync(id, request, ct));
+
+    [HttpPost("{id:guid}/mover")]
+    public async Task<ActionResult<ConversaResumoResponse>> Mover(
+        Guid id,
+        [FromBody] MoverConversaRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.MoverAsync(id, request, ct));
+
+    [HttpPost("{id:guid}/servico")]
+    public async Task<ActionResult<ConversaResumoResponse>> VincularServico(
+        Guid id,
+        [FromBody] VincularServicoRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.VincularServicoAsync(id, request, ct));
+
+    [HttpPost("{id:guid}/encerrar")]
+    public async Task<ActionResult<ConversaResumoResponse>> Encerrar(
+        Guid id,
+        [FromBody] EncerrarConversaRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.EncerrarAsync(id, request, ct));
+
+    [HttpPost("{id:guid}/reabrir")]
+    public async Task<ActionResult<ConversaResumoResponse>> Reabrir(Guid id, CancellationToken ct) =>
+        Ok(await conversas.ReabrirAsync(id, ct));
+
+    [HttpPost("{id:guid}/ler")]
+    public async Task<ActionResult<ConversaResumoResponse>> MarcarComoLida(Guid id, CancellationToken ct) =>
+        Ok(await conversas.MarcarComoLidaAsync(id, ct));
+
+    [HttpGet("{id:guid}/mensagens")]
+    public async Task<ActionResult<IReadOnlyList<MensagemResponse>>> ListarMensagens(
+        Guid id,
+        CancellationToken ct) =>
+        Ok(await mensagens.ListarAsync(id, ct));
+
+    [HttpPost("{id:guid}/mensagens")]
+    public async Task<ActionResult<MensagemResponse>> Enviar(
+        Guid id,
+        [FromBody] EnviarMensagemRequest request,
+        CancellationToken ct) =>
+        Ok(await mensagens.EnviarAsync(id, request, ct));
+
+    /// <summary>
+    /// FASE 1 apenas. Simula mensagem chegando do cliente para demonstrar o painel
+    /// sem WhatsApp real. Na Fase 2 quem alimenta esse caminho e o webhook da Meta,
+    /// e este endpoint sai da API.
+    /// </summary>
+    [HttpPost("{id:guid}/mensagens/simular-cliente")]
+    public async Task<ActionResult<MensagemResponse>> SimularMensagemDeCliente(
+        Guid id,
+        [FromBody] SimularMensagemDeClienteRequest request,
+        CancellationToken ct) =>
+        Ok(await mensagens.SimularRecebimentoAsync(id, request, ct));
+}

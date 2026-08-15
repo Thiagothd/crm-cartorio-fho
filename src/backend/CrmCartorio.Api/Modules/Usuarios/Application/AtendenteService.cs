@@ -1,0 +1,226 @@
+using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Infrastructure.Security;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace CrmCartorio.Api.Modules.Usuarios.Application;
+
+public class AtendenteService(
+    CrmDbContext db,
+    IContextoDoUsuario ctx,
+    IHashDeSenha hash) : IAtendenteService
+{
+    public async Task<IReadOnlyList<AtendenteResponse>> ListarAsync(
+        bool incluirInativos,
+        CancellationToken ct = default)
+    {
+        var tenantId = ctx.TenantId;
+
+        var consulta = db.Atendentes.AsNoTracking().Where(a => a.TenantId == tenantId);
+
+        if (!incluirInativos)
+        {
+            consulta = consulta.Where(a => a.Ativo);
+        }
+
+        var itens = await consulta
+            .OrderBy(a => a.Nome)
+            .Select(a => new
+            {
+                a.Id,
+                a.Nome,
+                a.Email,
+                a.Perfil,
+                a.Cargo,
+                a.SetorPadraoId,
+                SetorPadraoNome = db.Setores
+                    .Where(s => s.Id == a.SetorPadraoId)
+                    .Select(s => s.Nome)
+                    .FirstOrDefault(),
+                a.Ativo,
+                a.UltimoAcessoEm
+            })
+            .ToListAsync(ct);
+
+        // O rotulo do cargo e resolvido na memoria: switch de enum nao traduz para
+        // SQL, e mapear isso em CASE WHEN espalharia vocabulario de interface dentro
+        // da consulta.
+        return [.. itens.Select(a => new AtendenteResponse(
+            a.Id,
+            a.Nome,
+            a.Email,
+            a.Perfil,
+            a.Cargo,
+            DescreverCargo(a.Cargo),
+            a.SetorPadraoId,
+            a.SetorPadraoNome,
+            a.Ativo,
+            a.UltimoAcessoEm))];
+    }
+
+    /// <summary>
+    /// Rotulo do cargo no vocabulario da serventia.
+    /// </summary>
+    /// <remarks>
+    /// Publico porque a resposta do login tambem precisa dele, e duplicar o de-para
+    /// em dois lugares faria os dois divergirem no primeiro ajuste de palavra.
+    /// </remarks>
+    public static string DescreverCargo(CargoNaServentia cargo) => cargo switch
+    {
+        CargoNaServentia.Titular => "Titular",
+        CargoNaServentia.Substituto => "Substituto",
+        CargoNaServentia.EscreventeAutorizado => "Escrevente autorizado",
+        CargoNaServentia.Escrevente => "Escrevente",
+        CargoNaServentia.Auxiliar => "Auxiliar",
+        _ => "Não informado"
+    };
+
+    public async Task<AtendenteResponse> ObterAsync(Guid id, CancellationToken ct = default)
+    {
+        var atendente = await db.Atendentes.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == ctx.TenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        return await MapearAsync(atendente, ct);
+    }
+
+    public async Task<AtendenteResponse> CriarAsync(
+        CriarAtendenteRequest request,
+        CancellationToken ct = default)
+    {
+        GarantirPermissao();
+
+        var email = NormalizarEmail(request.Email);
+
+        if (string.IsNullOrWhiteSpace(request.Senha) || request.Senha.Length < 8)
+        {
+            throw UsuariosServiceException.SenhaFraca();
+        }
+
+        if (await db.Atendentes.AnyAsync(a => a.TenantId == ctx.TenantId && a.Email == email, ct))
+        {
+            throw UsuariosServiceException.EmailEmUso(email);
+        }
+
+        var atendente = new Atendente
+        {
+            TenantId = ctx.TenantId,
+            Nome = request.Nome.Trim(),
+            Email = email,
+            SenhaHash = hash.Gerar(request.Senha),
+            Perfil = request.Perfil,
+            Cargo = request.Cargo,
+            SetorPadraoId = request.SetorPadraoId,
+            Ativo = true
+        };
+
+        db.Atendentes.Add(atendente);
+        await db.SaveChangesAsync(ct);
+
+        return await MapearAsync(atendente, ct);
+    }
+
+    public async Task<AtendenteResponse> AtualizarAsync(
+        Guid id,
+        AtualizarAtendenteRequest request,
+        CancellationToken ct = default)
+    {
+        GarantirPermissao();
+
+        var atendente = await db.Atendentes
+            .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == ctx.TenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        var email = NormalizarEmail(request.Email);
+
+        var emUso = await db.Atendentes.AnyAsync(
+            a => a.TenantId == ctx.TenantId && a.Email == email && a.Id != id, ct);
+
+        if (emUso)
+        {
+            throw UsuariosServiceException.EmailEmUso(email);
+        }
+
+        // Um administrador se trancando para fora deixaria o cartorio sem quem
+        // gerencie acessos — e o desbloqueio so sairia por SQL manual.
+        if (!request.Ativo && atendente.Id == ctx.AtendenteId)
+        {
+            throw UsuariosServiceException.NaoPodeDesativarASiMesmo();
+        }
+
+        atendente.Nome = request.Nome.Trim();
+        atendente.Email = email;
+        atendente.Perfil = request.Perfil;
+        atendente.Cargo = request.Cargo;
+        atendente.SetorPadraoId = request.SetorPadraoId;
+        atendente.Ativo = request.Ativo;
+
+        await db.SaveChangesAsync(ct);
+
+        return await MapearAsync(atendente, ct);
+    }
+
+    public async Task RedefinirSenhaAsync(
+        Guid id,
+        RedefinirSenhaRequest request,
+        CancellationToken ct = default)
+    {
+        GarantirPermissao();
+
+        if (string.IsNullOrWhiteSpace(request.NovaSenha) || request.NovaSenha.Length < 8)
+        {
+            throw UsuariosServiceException.SenhaFraca();
+        }
+
+        var atendente = await db.Atendentes
+            .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == ctx.TenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        atendente.SenhaHash = hash.Gerar(request.NovaSenha);
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private void GarantirPermissao()
+    {
+        if (!ctx.PodeGerirAtendentes)
+        {
+            throw UsuariosServiceException.SemPermissao();
+        }
+    }
+
+    private static string NormalizarEmail(string? email)
+    {
+        var normalizado = email?.Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(normalizado) || !normalizado.Contains('@'))
+        {
+            throw new UsuariosServiceException("email_invalido", "Informe um e-mail valido.");
+        }
+
+        return normalizado;
+    }
+
+    private async Task<AtendenteResponse> MapearAsync(Atendente atendente, CancellationToken ct)
+    {
+        var setor = atendente.SetorPadraoId is null
+            ? null
+            : await db.Setores.AsNoTracking()
+                .Where(s => s.Id == atendente.SetorPadraoId)
+                .Select(s => s.Nome)
+                .FirstOrDefaultAsync(ct);
+
+        return new AtendenteResponse(
+            atendente.Id,
+            atendente.Nome,
+            atendente.Email,
+            atendente.Perfil,
+            atendente.Cargo,
+            DescreverCargo(atendente.Cargo),
+            atendente.SetorPadraoId,
+            setor,
+            atendente.Ativo,
+            atendente.UltimoAcessoEm);
+    }
+}

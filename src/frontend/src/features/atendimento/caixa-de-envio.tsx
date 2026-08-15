@@ -1,0 +1,312 @@
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Lock, MessageSquarePlus, Reply, Send, X, Zap } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { ErroDaApi } from '@/lib/api/cliente-http'
+import { conversasApi } from '@/lib/api/endpoints'
+import { usarInvalidarAtendimento, usarRespostasRapidas } from './consultas'
+import { aplicarMarcadores, dadosDaConversa } from './placeholders'
+import {
+  ID_DA_LISTA,
+  SeletorDeRespostaRapida,
+  filtrarRespostas,
+  idDaOpcao,
+} from './seletor-de-resposta-rapida'
+import type { Conversa, Mensagem, RespostaRapida, Setor } from '@/lib/api/tipos'
+
+/**
+ * O seletor só abre quando o campo INTEIRO é o atalho sendo digitado — "/", "/pra",
+ * "/prazo".
+ *
+ * Não é limitação: é o que torna o gatilho previsível. Abrir a cada "/" no meio de
+ * um texto faria a lista pular na cara de quem escreveu "segunda/sexta" ou uma data,
+ * e o Enter passaria a inserir resposta em vez de enviar a mensagem.
+ */
+const ATALHO_EM_DIGITACAO = /^\/(\S*)$/
+
+export function CaixaDeEnvio({
+  conversa,
+  souOResponsavel,
+  podeAssumir,
+  assumindo,
+  aoAssumir,
+  mensagemRespondida,
+  aoCancelarResposta,
+  setores,
+  nomeCartorio,
+}: {
+  conversa: Conversa
+  souOResponsavel: boolean
+  podeAssumir: boolean
+  assumindo: boolean
+  aoAssumir: () => void
+  mensagemRespondida: Mensagem | null
+  aoCancelarResposta: () => void
+  setores: Setor[]
+  nomeCartorio: string
+}) {
+  const [texto, setTexto] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [indiceAtivo, setIndiceAtivo] = useState(0)
+  const [seletorDispensado, setSeletorDispensado] = useState(false)
+  const campo = useRef<HTMLTextAreaElement>(null)
+  const invalidar = usarInvalidarAtendimento()
+
+  const { data: respostasRapidas } = usarRespostasRapidas()
+
+  const termo = ATALHO_EM_DIGITACAO.exec(texto)?.[1] ?? null
+
+  const filtradas = useMemo(
+    () => (termo === null ? [] : filtrarRespostas(respostasRapidas ?? [], termo)),
+    [respostasRapidas, termo],
+  )
+
+  // Nada cadastrado: nem abre. Um painel vazio a cada "/" seria ruído. Já filtro
+  // sem resultado ABRE, com a explicação — senão a tecla pareceria não funcionar.
+  const seletorAberto =
+    termo !== null && !seletorDispensado && (respostasRapidas?.length ?? 0) > 0
+
+  useEffect(() => {
+    // Cada tecla muda o filtro, e a opção ativa tem de voltar para a primeira —
+    // senão o índice apontaria para uma linha que não está mais na lista.
+    setIndiceAtivo(0)
+
+    // Sair do padrão de atalho rearma o seletor: dispensar com Esc vale para aquela
+    // digitação, não para o resto do atendimento.
+    if (termo === null) {
+      setSeletorDispensado(false)
+    }
+  }, [termo])
+
+  useEffect(() => {
+    if (mensagemRespondida) {
+      campo.current?.focus()
+    }
+  }, [mensagemRespondida])
+
+  if (conversa.status === 'Encerrada') {
+    return (
+      <div className="border-t border-linha px-6 py-4 text-center text-sm text-tinta-media">
+        Atendimento encerrado. O histórico continua disponível — reabra para voltar a responder.
+      </div>
+    )
+  }
+
+  // A trava, do lado de quem escreve: sem ser o responsável, não há caixa de texto.
+  if (!souOResponsavel) {
+    return (
+      <div className="flex items-center justify-between gap-3 border-t border-linha bg-superficie px-6 py-4">
+        <p className="flex items-center gap-2 text-sm text-tinta-media">
+          <Lock className="size-4 shrink-0" />
+          {conversa.atendenteNome
+            ? `Em atendimento por ${conversa.atendenteNome}.`
+            : 'Esta conversa está na fila.'}
+        </p>
+
+        {podeAssumir ? (
+          <Button size="sm" onClick={aoAssumir} disabled={assumindo}>
+            Assumir conversa
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
+
+  /**
+   * Insere o texto da resposta rápida no campo. NÃO envia.
+   *
+   * Os marcadores são resolvidos aqui para que o atendente leia a mensagem final
+   * antes de mandar — inserir um "{NomeCliente}" cru transferiria para ele a
+   * conferência de um detalhe que o sistema já sabe fazer.
+   */
+  function inserirRespostaRapida(resposta: RespostaRapida) {
+    const conteudo = aplicarMarcadores(
+      resposta.conteudo,
+      dadosDaConversa(conversa, nomeCartorio, setores),
+    )
+
+    setTexto(conteudo)
+    setSeletorDispensado(false)
+
+    // Depois do re-render, devolve o foco e põe o cursor no fim — o passo seguinte
+    // natural é completar ou ajustar o texto.
+    requestAnimationFrame(() => {
+      const elemento = campo.current
+      if (!elemento) return
+
+      elemento.focus()
+      elemento.setSelectionRange(elemento.value.length, elemento.value.length)
+    })
+  }
+
+  async function enviar() {
+    const conteudo = texto.trim()
+    if (!conteudo || enviando) {
+      return
+    }
+
+    setEnviando(true)
+
+    try {
+      await conversasApi.enviarMensagem(conversa.id, conteudo, mensagemRespondida?.id)
+      setTexto('')
+      aoCancelarResposta()
+      invalidar(conversa.id)
+    } catch (falha) {
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível enviar.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function simularCliente() {
+    const conteudo = texto.trim()
+    if (!conteudo) {
+      toast.info('Escreva o texto que o cliente enviaria.')
+      return
+    }
+
+    setEnviando(true)
+
+    try {
+      await conversasApi.simularMensagemDeCliente(conversa.id, conteudo)
+      setTexto('')
+      aoCancelarResposta()
+      invalidar(conversa.id)
+    } catch (falha) {
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível simular.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  function aoTeclar(evento: KeyboardEvent<HTMLTextAreaElement>) {
+    // Com o seletor aberto, as teclas pertencem a ele. Enter precisa INSERIR, não
+    // enviar: sem esta ordem, quem digitasse "/prazo" e apertasse Enter mandaria
+    // literalmente "/prazo" para o cliente.
+    if (seletorAberto) {
+      if (evento.key === 'ArrowDown' || evento.key === 'ArrowUp') {
+        evento.preventDefault()
+
+        if (filtradas.length === 0) return
+
+        const passo = evento.key === 'ArrowDown' ? 1 : -1
+        setIndiceAtivo((atual) => (atual + passo + filtradas.length) % filtradas.length)
+        return
+      }
+
+      if (evento.key === 'Enter' || evento.key === 'Tab') {
+        const escolhida = filtradas[indiceAtivo]
+        if (escolhida) {
+          evento.preventDefault()
+          inserirRespostaRapida(escolhida)
+        }
+        return
+      }
+
+      if (evento.key === 'Escape') {
+        evento.preventDefault()
+        setSeletorDispensado(true)
+        return
+      }
+    }
+
+    // Enter envia, Shift+Enter quebra linha — o hábito de quem usa WhatsApp.
+    if (evento.key === 'Enter' && !evento.shiftKey) {
+      evento.preventDefault()
+      void enviar()
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-linha px-6 py-3">
+      {mensagemRespondida ? (
+        <div className="flex items-start gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
+          <Reply className="mt-0.5 size-3.5 shrink-0 text-tinta-media" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium text-tinta-media">
+              Respondendo a{' '}
+              {mensagemRespondida.autorTipo === 'Cliente'
+                ? conversa.clienteNome
+                : (mensagemRespondida.atendenteNome ?? 'Atendente')}
+            </p>
+            <p className="truncate text-xs text-tinta-fraca">{mensagemRespondida.conteudo}</p>
+          </div>
+          <button
+            type="button"
+            onClick={aoCancelarResposta}
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-tinta-fraca transition-colors hover:bg-branco hover:text-tinta"
+            aria-label="Cancelar resposta"
+            title="Cancelar resposta"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* relative: é a âncora do seletor, que sobe a partir do topo do campo. */}
+      <div className="relative flex items-end gap-2">
+        {seletorAberto ? (
+          <SeletorDeRespostaRapida
+            respostas={filtradas}
+            termo={termo ?? ''}
+            indiceAtivo={indiceAtivo}
+            aoEscolher={inserirRespostaRapida}
+          />
+        ) : null}
+
+        <Textarea
+          ref={campo}
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={aoTeclar}
+          placeholder="Escreva a resposta… (Enter envia, / abre as respostas rápidas)"
+          rows={2}
+          maxLength={4000}
+          className="max-h-40 min-h-[42px] resize-none"
+          /* Padrão combobox sem trocar o papel do campo: ele continua sendo a caixa
+             de mensagem para o leitor de tela, e a opção ativa é anunciada por
+             activedescendant — o foco nunca sai daqui, senão cada seta interromperia
+             a digitação. */
+          aria-expanded={seletorAberto}
+          /* Só aponta para a lista quando ela existe: sem resultado o seletor mostra
+             uma explicação, não um <ul>, e apontar para um id inexistente confunde o
+             leitor de tela em vez de ajudar. */
+          aria-controls={seletorAberto && filtradas.length > 0 ? ID_DA_LISTA : undefined}
+          aria-activedescendant={
+            seletorAberto && filtradas.length > 0 ? idDaOpcao(indiceAtivo) : undefined
+          }
+          aria-autocomplete="list"
+        />
+
+        <Button onClick={() => void enviar()} disabled={enviando || !texto.trim()} size="icon">
+          <Send />
+          <span className="sr-only">Enviar</span>
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {/* FASE 1: sem WhatsApp real, o painel precisa de um jeito de encenar a
+            chegada de mensagem do cliente. Este botão sai quando o webhook entrar. */}
+        <button
+          type="button"
+          onClick={() => void simularCliente()}
+          disabled={enviando}
+          className="inline-flex w-fit items-center gap-1.5 text-[11px] text-tinta-media transition-colors hover:text-tinta disabled:opacity-50"
+          title="Fase 1: encena uma mensagem chegando do cliente"
+        >
+          <MessageSquarePlus className="size-3.5" />
+          Simular mensagem do cliente
+        </button>
+
+        {(respostasRapidas?.length ?? 0) > 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-tinta-fraca">
+            <Zap className="size-3.5" />
+            Digite <span className="font-dado">/</span> para as respostas rápidas
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prévia — Painel de atendimentos · Cartório</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   PRÉVIA VISUAL — material de apresentação, descartável.
+   Referência estética: documento oficial e livro de registro.
+   Sem gradiente, sem sombra, sem glow, sem emoji. Bordas 1px, cantos 6px.
+
+   ORÇAMENTO DE BORDÔ (--selo) — 3 lugares, e só:
+     1. marca/selo no topo da barra lateral
+     2. botão "Nova solicitação"
+     3. sinalização de prazo vencido (indicador + célula da tabela)
+   ========================================================================== */
+
+:root{
+  --papel:#EDEBE6;
+  --superficie:#F7F6F3;
+  --branco:#FCFBF9;
+
+  --tinta:#1F1D1A;
+  --tinta-media:#5C5852;
+  --tinta-fraca:#8E8981;
+
+  --linha:#DDD9D2;
+  --linha-forte:#C5C0B7;
+
+  --selo:#7A2E32;
+  --ambar:#8A6516;
+  --verde:#3D5C3A;
+
+  --serif:'Spectral','Iowan Old Style','Palatino Linotype',Georgia,'Times New Roman',serif;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;
+  --mono:'IBM Plex Mono','Consolas','SF Mono','Courier New',monospace;
+
+  --r:6px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+html{-webkit-text-size-adjust:100%}
+
+body{
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.5;
+  color:var(--tinta);
+  background:var(--papel);
+  -webkit-font-smoothing:antialiased;
+}
+
+svg{display:block;flex:none}
+
+/* ---------- layout ---------- */
+
+.app{display:flex;min-height:100vh}
+
+/* ---------- barra lateral ---------- */
+
+.lateral{
+  width:238px;flex:none;
+  background:var(--tinta);
+  display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;
+}
+
+.lateral-topo{
+  padding:22px 20px 20px;
+  border-bottom:1px solid rgba(237,235,230,.13);
+  display:flex;align-items:center;gap:11px;
+}
+
+/* [BORDÔ 1 de 3] */
+.selo-marca{
+  width:30px;height:30px;flex:none;
+  border-radius:var(--r);
+  background:var(--selo);
+  color:var(--papel);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--serif);font-size:15px;font-weight:600;
+  letter-spacing:.02em;
+}
+
+.marca-nome{
+  font-family:var(--serif);
+  font-size:15px;font-weight:600;
+  color:var(--papel);
+  line-height:1.25;
+}
+.marca-sub{
+  font-size:10px;
+  color:var(--tinta-fraca);
+  letter-spacing:.09em;
+  text-transform:uppercase;
+  margin-top:1px;
+}
+
+.nav{padding:16px 12px;flex:1}
+
+.nav-rotulo-secao{padding-top:18px}
+.nav-rotulo{
+  font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+  color:#6E6960;
+  padding:0 8px 9px;
+}
+
+.nav-item{
+  display:flex;align-items:center;gap:11px;
+  padding:9px 10px;
+  border-radius:var(--r);
+  color:var(--linha-forte);
+  text-decoration:none;
+  font-size:13.5px;
+  border-left:2px solid transparent;
+  margin-bottom:1px;
+}
+.nav-item:hover{background:rgba(237,235,230,.06);color:var(--papel)}
+.nav-item.ativo{
+  background:rgba(237,235,230,.09);
+  color:var(--branco);
+  border-left-color:var(--papel);
+  font-weight:500;
+}
+.nav-item .cont{
+  margin-left:auto;
+  font-family:var(--mono);font-size:11px;
+  color:var(--tinta-fraca);
+}
+.nav-item.ativo .cont{color:var(--linha-forte)}
+
+.lateral-rodape{
+  padding:15px 18px;
+  border-top:1px solid rgba(237,235,230,.13);
+  display:flex;align-items:center;gap:11px;
+}
+.avatar{
+  width:32px;height:32px;flex:none;
+  border-radius:var(--r);
+  border:1px solid rgba(237,235,230,.28);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--serif);font-size:12.5px;
+  color:var(--papel);
+  letter-spacing:.03em;
+}
+.rodape-nome{font-size:13px;color:var(--papel);line-height:1.3}
+.rodape-cargo{font-size:11px;color:var(--tinta-fraca);line-height:1.3}
+
+/* ---------- área principal ---------- */
+
+.principal{flex:1;min-width:0;display:flex;flex-direction:column}
+
+.conteudo{padding:24px 30px 32px;flex:1;max-width:1420px;width:100%}
+
+/* ---------- cabeçalho ---------- */
+
+.topo{
+  display:flex;align-items:flex-end;justify-content:space-between;
+  gap:24px;flex-wrap:wrap;
+  padding-bottom:18px;
+  border-bottom:1px solid var(--linha-forte);
+}
+
+.topo h1{
+  font-family:var(--serif);
+  font-size:25px;font-weight:600;
+  letter-spacing:-.01em;
+  line-height:1.2;
+}
+.data-extenso{
+  font-size:12.5px;color:var(--tinta-media);
+  margin-top:5px;
+}
+
+.topo-acoes{display:flex;align-items:center;gap:10px}
+
+.busca{position:relative;display:flex;align-items:center}
+.busca svg{position:absolute;left:11px;color:var(--tinta-fraca)}
+.busca input{
+  font-family:var(--sans);font-size:13px;color:var(--tinta);
+  background:var(--branco);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  padding:8px 12px 8px 34px;
+  width:272px;
+}
+.busca input::placeholder{color:var(--tinta-fraca)}
+.busca input:focus{outline:none;border-color:var(--linha-forte)}
+
+/* [BORDÔ 2 de 3] */
+.btn-primario{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--sans);font-size:13px;font-weight:500;
+  color:var(--branco);
+  background:var(--selo);
+  border:1px solid var(--selo);
+  border-radius:var(--r);
+  padding:8px 14px;
+  cursor:pointer;
+}
+.btn-primario:hover{background:#6A2A2D;border-color:#6A2A2D}
+
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--sans);font-size:12.5px;font-weight:500;
+  color:var(--tinta);
+  background:var(--branco);
+  border:1px solid var(--linha-forte);
+  border-radius:var(--r);
+  padding:7px 13px;
+  cursor:pointer;
+}
+.btn:hover{background:var(--papel)}
+
+/* ---------- indicadores ---------- */
+
+.indicadores{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:14px;
+  margin-top:22px;
+}
+.indicador{
+  background:var(--branco);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  padding:15px 17px 16px;
+}
+.ind-rotulo{
+  font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tinta-fraca);
+  display:flex;align-items:center;gap:7px;
+}
+.ind-valor{
+  font-family:var(--serif);
+  font-size:32px;font-weight:500;
+  line-height:1.1;
+  margin-top:9px;
+  letter-spacing:-.01em;
+}
+/* [BORDÔ 3 de 3] — prazo vencido */
+.ind-valor.vencido{color:var(--selo)}
+.ind-nota{
+  font-size:11.5px;color:var(--tinta-media);
+  margin-top:5px;
+}
+
+/* ---------- filtros em chip ---------- */
+
+.filtros{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-top:26px;
+}
+.filtros-rotulo{
+  font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tinta-fraca);
+  margin-right:4px;
+}
+.chip{
+  font-family:var(--sans);font-size:12.5px;
+  color:var(--tinta-media);
+  background:var(--superficie);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  padding:6px 13px;
+  cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;
+}
+.chip:hover{border-color:var(--linha-forte);color:var(--tinta)}
+.chip .n{font-family:var(--mono);font-size:11px;color:var(--tinta-fraca)}
+.chip.ativo{
+  background:var(--tinta);
+  border-color:var(--tinta);
+  color:var(--branco);
+  font-weight:500;
+}
+.chip.ativo .n{color:var(--linha-forte)}
+
+/* ---------- tabela ---------- */
+
+.quadro{
+  background:var(--branco);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  margin-top:14px;
+  overflow:hidden;
+}
+.rolagem{overflow-x:auto}
+
+table{border-collapse:collapse;width:100%;min-width:940px}
+
+thead th{
+  text-align:left;
+  font-size:10.5px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tinta-fraca);
+  padding:11px 16px;
+  background:var(--superficie);
+  border-bottom:1px solid var(--linha-forte);
+  white-space:nowrap;
+}
+thead th:first-child{border-left:2px solid transparent}
+tbody td{
+  padding:13px 16px;
+  border-bottom:1px solid var(--linha);
+  vertical-align:middle;
+}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--superficie)}
+
+tbody td:first-child{border-left:2px solid transparent}
+tbody tr.selecionada td{background:var(--papel)}
+tbody tr.selecionada td:first-child{border-left-color:var(--tinta)}
+
+.cli-nome{font-size:13.5px;font-weight:500;line-height:1.35}
+.cli-doc{font-family:var(--mono);font-size:11.5px;color:var(--tinta-fraca);margin-top:2px}
+
+.servico{font-size:13px;line-height:1.35}
+.servico-nota{font-size:11.5px;color:var(--tinta-fraca);margin-top:2px}
+
+.protocolo{
+  font-family:var(--mono);font-size:12.5px;font-weight:500;
+  letter-spacing:.02em;
+  white-space:nowrap;
+}
+
+.entrada-data{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.entrada-quem{font-size:11.5px;color:var(--tinta-fraca);margin-top:2px}
+
+.prazo-data{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.prazo-rel{font-size:11.5px;color:var(--tinta-media);margin-top:2px}
+.prazo-rel.hoje{color:var(--ambar)}
+/* [BORDÔ 3 de 3] — mesma sinalização de vencimento */
+.prazo-data.vencido,.prazo-rel.vencido{color:var(--selo)}
+
+/* ---------- situação ---------- */
+
+.situacao{
+  display:inline-flex;align-items:center;gap:7px;
+  font-size:11.5px;
+  border:1px solid var(--linha-forte);
+  border-radius:var(--r);
+  padding:3px 9px;
+  color:var(--tinta-media);
+  white-space:nowrap;
+}
+.situacao .ponto{width:5px;height:5px;border-radius:50%;background:var(--tinta-fraca);flex:none}
+.situacao.andamento{color:var(--tinta);border-color:var(--linha-forte)}
+.situacao.andamento .ponto{background:var(--tinta)}
+.situacao.aguardando{color:var(--ambar);border-color:#D6C79E}
+.situacao.aguardando .ponto{background:var(--ambar)}
+.situacao.pronta{color:var(--verde);border-color:#B4C2B2}
+.situacao.pronta .ponto{background:var(--verde)}
+
+/* carimbo "Entregue" — único elemento com personalidade da tela */
+.carimbo{display:inline-flex;align-items:center;gap:9px}
+.carimbo-selo{
+  width:34px;height:34px;flex:none;
+  border:1.5px solid var(--verde);
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--verde);
+  transform:rotate(-9deg);
+}
+.carimbo-txt{
+  font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--verde);font-weight:500;
+  transform:rotate(-9deg);
+}
+
+/* ---------- detalhe ---------- */
+
+.detalhe-titulo{
+  display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  margin-top:34px;padding-bottom:11px;
+  border-bottom:1px solid var(--linha-forte);
+}
+.detalhe-titulo h2{
+  font-family:var(--serif);font-size:17px;font-weight:600;
+}
+.detalhe-titulo .ref{
+  font-family:var(--mono);font-size:12.5px;color:var(--tinta-media);
+}
+
+.detalhe{
+  display:grid;grid-template-columns:1fr 1fr;gap:0;
+  background:var(--branco);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  margin-top:14px;
+}
+.detalhe-col{padding:22px 24px}
+.detalhe-col + .detalhe-col{border-left:1px solid var(--linha)}
+
+.col-rotulo{
+  font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tinta-fraca);
+  margin-bottom:16px;
+}
+
+.campos{display:grid;grid-template-columns:1fr 1fr;gap:15px 22px}
+.campo-rotulo{
+  font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--tinta-fraca);
+  margin-bottom:3px;
+}
+.campo-valor{font-size:13.5px;line-height:1.4}
+.campo-valor.mono{font-family:var(--mono);font-size:12.5px}
+.campo-largo{grid-column:1 / -1}
+
+.observacoes{
+  margin-top:20px;
+  background:var(--superficie);
+  border:1px solid var(--linha);
+  border-radius:var(--r);
+  padding:13px 15px;
+}
+.observacoes p{
+  font-size:13px;line-height:1.6;color:var(--tinta-media);
+  font-family:var(--serif);
+}
+
+.acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+
+/* ---------- linha do tempo ---------- */
+
+.linha-tempo{position:relative;padding-left:22px}
+.linha-tempo::before{
+  content:"";position:absolute;left:4px;top:5px;bottom:8px;
+  width:1px;background:var(--linha-forte);
+}
+.evento{position:relative;padding-bottom:20px}
+.evento:last-child{padding-bottom:0}
+.evento::before{
+  content:"";position:absolute;left:-22px;top:4px;
+  width:9px;height:9px;border-radius:50%;
+  background:var(--branco);
+  border:1.5px solid var(--linha-forte);
+}
+.evento.atual::before{background:var(--tinta);border-color:var(--tinta)}
+
+.ev-topo{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.ev-status{font-size:13px;font-weight:500}
+.evento.atual .ev-status{font-weight:600}
+.ev-quando{font-family:var(--mono);font-size:11px;color:var(--tinta-fraca);white-space:nowrap}
+.ev-quem{font-size:11.5px;color:var(--tinta-fraca);margin-top:2px}
+.ev-nota{
+  font-family:var(--serif);
+  font-size:12.5px;line-height:1.55;color:var(--tinta-media);
+  margin-top:5px;
+}
+
+/* ---------- rodapé ---------- */
+
+.rodape-pag{
+  padding:16px 30px 22px;
+  border-top:1px solid var(--linha);
+  font-size:11.5px;
+  color:var(--tinta-fraca);
+  display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
+}
+
+/* ---------- responsivo ---------- */
+
+@media (max-width:900px){
+  .lateral{display:none}
+  .conteudo{padding:20px 16px 26px}
+  .indicadores{grid-template-columns:repeat(2,1fr)}
+  .detalhe{grid-template-columns:1fr}
+  .detalhe-col + .detalhe-col{border-left:none;border-top:1px solid var(--linha)}
+  .topo{align-items:flex-start}
+  .topo-acoes{width:100%}
+  .busca{flex:1}
+  .busca input{width:100%}
+  .campos{grid-template-columns:1fr}
+  .rodape-pag{padding:16px}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ================= BARRA LATERAL ================= -->
+  <aside class="lateral">
+    <div class="lateral-topo">
+      <div class="selo-marca">C</div>
+      <div>
+        <div class="marca-nome">Serventia</div>
+        <div class="marca-sub">Gameleiras · MG</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-rotulo">Atendimento</div>
+
+      <a class="nav-item ativo" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Painel
+      </a>
+
+      <a class="nav-item" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+        Solicitações
+        <span class="cont">34</span>
+      </a>
+
+      <a class="nav-item" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Clientes
+      </a>
+
+      <a class="nav-item" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+        Prazos
+        <span class="cont">3</span>
+      </a>
+
+      <div class="nav-rotulo nav-rotulo-secao">Cadastros</div>
+
+      <a class="nav-item" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V5a2 2 0 0 1 2-2h7a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>
+        Tipos de serviço
+      </a>
+
+      <a class="nav-item" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>
+        Relatórios
+      </a>
+    </nav>
+
+    <div class="lateral-rodape">
+      <div class="avatar">EM</div>
+      <div>
+        <div class="rodape-nome">Rafael Mendes</div>
+        <div class="rodape-cargo">Oficial titular</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= PRINCIPAL ================= -->
+  <div class="principal">
+    <div class="conteudo">
+
+      <!-- cabeçalho -->
+      <div class="topo">
+        <div>
+          <h1>Painel de atendimentos</h1>
+          <div class="data-extenso">segunda-feira, 3 de agosto de 2026</div>
+        </div>
+        <div class="topo-acoes">
+          <div class="busca">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" placeholder="Buscar por nome, CPF ou protocolo">
+          </div>
+          <button type="button" class="btn-primario">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            Nova solicitação
+          </button>
+        </div>
+      </div>
+
+      <!-- indicadores -->
+      <div class="indicadores">
+        <div class="indicador">
+          <div class="ind-rotulo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+            Em aberto
+          </div>
+          <div class="ind-valor">34</div>
+          <div class="ind-nota">12 entraram nesta semana</div>
+        </div>
+
+        <div class="indicador">
+          <div class="ind-rotulo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v13H4z"/><path d="M4 7l4-4h8l4 4"/><path d="M9 12h6"/></svg>
+            Aguardando retirada
+          </div>
+          <div class="ind-valor">9</div>
+          <div class="ind-nota">2 prontos há mais de 15 dias</div>
+        </div>
+
+        <div class="indicador">
+          <div class="ind-rotulo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+            Prazo vencido
+          </div>
+          <div class="ind-valor vencido">3</div>
+          <div class="ind-nota">o mais antigo há 8 dias</div>
+        </div>
+
+        <div class="indicador">
+          <div class="ind-rotulo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+            Concluídos no mês
+          </div>
+          <div class="ind-valor">128</div>
+          <div class="ind-nota">referência: julho / 2026</div>
+        </div>
+      </div>
+
+      <!-- filtros -->
+      <div class="filtros">
+        <span class="filtros-rotulo">Filtrar</span>
+        <button type="button" class="chip ativo" data-chip>Todas <span class="n">46</span></button>
+        <button type="button" class="chip" data-chip>Recebidas <span class="n">7</span></button>
+        <button type="button" class="chip" data-chip>Em andamento <span class="n">18</span></button>
+        <button type="button" class="chip" data-chip>Prontas <span class="n">9</span></button>
+        <button type="button" class="chip" data-chip>Vencidas <span class="n">3</span></button>
+      </div>
+
+      <!-- tabela -->
+      <div class="quadro">
+        <div class="rolagem">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Protocolo</th>
+                <th>Entrada</th>
+                <th>Prazo</th>
+                <th>Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <tr class="selecionada">
+                <td>
+                  <div class="cli-nome">Maria Aparecida Nogueira</div>
+                  <div class="cli-doc">043.221.876-11</div>
+                </td>
+                <td>
+                  <div class="servico">Escritura de compra e venda</div>
+                  <div class="servico-nota">Imóvel urbano · Lote 14, Quadra C</div>
+                </td>
+                <td><span class="protocolo">0417-A</span></td>
+                <td>
+                  <div class="entrada-data">28/07/2026</div>
+                  <div class="entrada-quem">Cleide Ramos</div>
+                </td>
+                <td>
+                  <div class="prazo-data">05/08/2026</div>
+                  <div class="prazo-rel">em 2 dias</div>
+                </td>
+                <td><span class="situacao andamento"><span class="ponto"></span>Em andamento</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">José Ribamar da Silva</div>
+                  <div class="cli-doc">512.908.334-02</div>
+                </td>
+                <td>
+                  <div class="servico">Procuração pública</div>
+                  <div class="servico-nota">Poderes para representação junto ao INSS</div>
+                </td>
+                <td><span class="protocolo">0418-A</span></td>
+                <td>
+                  <div class="entrada-data">29/07/2026</div>
+                  <div class="entrada-quem">Cleide Ramos</div>
+                </td>
+                <td>
+                  <div class="prazo-data">03/08/2026</div>
+                  <div class="prazo-rel hoje">vence hoje</div>
+                </td>
+                <td><span class="situacao pronta"><span class="ponto"></span>Pronta</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Divino Alves Pereira</div>
+                  <div class="cli-doc">887.014.552-90</div>
+                </td>
+                <td>
+                  <div class="servico">Registro de imóvel</div>
+                  <div class="servico-nota">Matrícula 3.482 · aguarda certidão da prefeitura</div>
+                </td>
+                <td><span class="protocolo">0409-A</span></td>
+                <td>
+                  <div class="entrada-data">15/07/2026</div>
+                  <div class="entrada-quem">Rafael Mendes</div>
+                </td>
+                <td>
+                  <div class="prazo-data vencido">26/07/2026</div>
+                  <div class="prazo-rel vencido">vencido há 8 dias</div>
+                </td>
+                <td><span class="situacao aguardando"><span class="ponto"></span>Aguardando terceiro</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Terezinha de Jesus Rocha</div>
+                  <div class="cli-doc">226.741.089-53</div>
+                </td>
+                <td>
+                  <div class="servico">Certidão de nascimento</div>
+                  <div class="servico-nota">Segunda via · inteiro teor</div>
+                </td>
+                <td><span class="protocolo">0421-A</span></td>
+                <td>
+                  <div class="entrada-data">31/07/2026</div>
+                  <div class="entrada-quem">Cleide Ramos</div>
+                </td>
+                <td>
+                  <div class="prazo-data">04/08/2026</div>
+                  <div class="prazo-rel">amanhã</div>
+                </td>
+                <td><span class="situacao"><span class="ponto"></span>Recebida</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Antônio Firmino Barbosa</div>
+                  <div class="cli-doc">019.663.470-28</div>
+                </td>
+                <td>
+                  <div class="servico">Averbação de casamento</div>
+                  <div class="servico-nota">Falta certidão de óbito do cônjuge anterior</div>
+                </td>
+                <td><span class="protocolo">0412-A</span></td>
+                <td>
+                  <div class="entrada-data">22/07/2026</div>
+                  <div class="entrada-quem">Rafael Mendes</div>
+                </td>
+                <td>
+                  <div class="prazo-data">06/08/2026</div>
+                  <div class="prazo-rel">em 3 dias</div>
+                </td>
+                <td><span class="situacao aguardando"><span class="ponto"></span>Aguardando documento</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Construtora Vale do Jequitinhonha Ltda</div>
+                  <div class="cli-doc">12.884.310/0001-46</div>
+                </td>
+                <td>
+                  <div class="servico">Escritura de compra e venda</div>
+                  <div class="servico-nota">Área rural · 4,2 ha · Fazenda Boa Vista</div>
+                </td>
+                <td><span class="protocolo">0415-A</span></td>
+                <td>
+                  <div class="entrada-data">24/07/2026</div>
+                  <div class="entrada-quem">Rafael Mendes</div>
+                </td>
+                <td>
+                  <div class="prazo-data">08/08/2026</div>
+                  <div class="prazo-rel">em 5 dias</div>
+                </td>
+                <td><span class="situacao andamento"><span class="ponto"></span>Em andamento</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Geralda Moreira Fonseca</div>
+                  <div class="cli-doc">348.902.117-64</div>
+                </td>
+                <td>
+                  <div class="servico">Certidão de casamento</div>
+                  <div class="servico-nota">Segunda via · via balcão</div>
+                </td>
+                <td><span class="protocolo">0419-A</span></td>
+                <td>
+                  <div class="entrada-data">30/07/2026</div>
+                  <div class="entrada-quem">Cleide Ramos</div>
+                </td>
+                <td>
+                  <div class="prazo-data">04/08/2026</div>
+                  <div class="prazo-rel">amanhã</div>
+                </td>
+                <td><span class="situacao pronta"><span class="ponto"></span>Pronta</span></td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="cli-nome">Sebastião Nunes de Oliveira</div>
+                  <div class="cli-doc">764.330.219-05</div>
+                </td>
+                <td>
+                  <div class="servico">Reconhecimento de firma</div>
+                  <div class="servico-nota">Por autenticidade · 2 assinaturas</div>
+                </td>
+                <td><span class="protocolo">0422-A</span></td>
+                <td>
+                  <div class="entrada-data">01/08/2026</div>
+                  <div class="entrada-quem">Cleide Ramos</div>
+                </td>
+                <td>
+                  <div class="prazo-data">01/08/2026</div>
+                  <div class="prazo-rel">no ato</div>
+                </td>
+                <td>
+                  <span class="carimbo">
+                    <span class="carimbo-selo">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+                    </span>
+                    <span class="carimbo-txt">Entregue</span>
+                  </span>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- detalhe -->
+      <div class="detalhe-titulo">
+        <h2>Detalhe da solicitação</h2>
+        <span class="ref">Protocolo 0417-A</span>
+      </div>
+
+      <div class="detalhe">
+
+        <!-- coluna esquerda -->
+        <div class="detalhe-col">
+          <div class="col-rotulo">Dados da solicitação</div>
+
+          <div class="campos">
+            <div class="campo-largo">
+              <div class="campo-rotulo">Cliente</div>
+              <div class="campo-valor">Maria Aparecida Nogueira</div>
+            </div>
+
+            <div>
+              <div class="campo-rotulo">CPF</div>
+              <div class="campo-valor mono">043.221.876-11</div>
+            </div>
+            <div>
+              <div class="campo-rotulo">Telefone</div>
+              <div class="campo-valor mono">(38) 99812-4470</div>
+            </div>
+
+            <div class="campo-largo">
+              <div class="campo-rotulo">Serviço</div>
+              <div class="campo-valor">Escritura pública de compra e venda</div>
+            </div>
+
+            <div>
+              <div class="campo-rotulo">Protocolo</div>
+              <div class="campo-valor mono">0417-A</div>
+            </div>
+            <div>
+              <div class="campo-rotulo">Entrada</div>
+              <div class="campo-valor mono">28/07/2026</div>
+            </div>
+
+            <div>
+              <div class="campo-rotulo">Prazo previsto</div>
+              <div class="campo-valor mono">05/08/2026</div>
+            </div>
+            <div>
+              <div class="campo-rotulo">Responsável</div>
+              <div class="campo-valor">Rafael Mendes</div>
+            </div>
+
+            <div>
+              <div class="campo-rotulo">Situação</div>
+              <div class="campo-valor">Em andamento</div>
+            </div>
+            <div>
+              <div class="campo-rotulo">Prioridade</div>
+              <div class="campo-valor">Normal</div>
+            </div>
+          </div>
+
+          <div class="observacoes">
+            <div class="campo-rotulo">Observações</div>
+            <p>Imóvel urbano, Lote 14 da Quadra C, loteamento Santa Rita. Certidão negativa
+            municipal recebida em 01/08. Vendedor reside em Janaúba e virá assinar na
+            sexta-feira pela manhã. Conferir estado civil do comprador antes da lavratura.</p>
+          </div>
+
+          <div class="acoes">
+            <button type="button" class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              Registrar andamento
+            </button>
+            <button type="button" class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></svg>
+              Marcar como pronta
+            </button>
+            <button type="button" class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v13H3z"/><path d="m3 7 9 6 9-6"/></svg>
+              Avisar cliente
+            </button>
+            <button type="button" class="btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="1"/><path d="M6 16h12v5H6z"/></svg>
+              Imprimir protocolo
+            </button>
+          </div>
+        </div>
+
+        <!-- coluna direita -->
+        <div class="detalhe-col">
+          <div class="col-rotulo">Histórico de andamento</div>
+
+          <div class="linha-tempo">
+
+            <div class="evento atual">
+              <div class="ev-topo">
+                <span class="ev-status">Em andamento</span>
+                <span class="ev-quando">01/08/2026 · 11:27</span>
+              </div>
+              <div class="ev-quem">Cleide Ramos</div>
+              <div class="ev-nota">Certidão negativa municipal recebida. Minuta da escritura
+              em elaboração.</div>
+            </div>
+
+            <div class="evento">
+              <div class="ev-topo">
+                <span class="ev-status">Aguardando documento</span>
+                <span class="ev-quando">30/07/2026 · 10:02</span>
+              </div>
+              <div class="ev-quem">Rafael Mendes</div>
+              <div class="ev-nota">Solicitada certidão negativa de débitos municipais do
+              imóvel. Cliente comunicada por telefone.</div>
+            </div>
+
+            <div class="evento">
+              <div class="ev-topo">
+                <span class="ev-status">Em análise</span>
+                <span class="ev-quando">28/07/2026 · 15:40</span>
+              </div>
+              <div class="ev-quem">Rafael Mendes</div>
+              <div class="ev-nota">Conferência da documentação apresentada e da matrícula
+              do imóvel.</div>
+            </div>
+
+            <div class="evento">
+              <div class="ev-topo">
+                <span class="ev-status">Recebida</span>
+                <span class="ev-quando">28/07/2026 · 09:14</span>
+              </div>
+              <div class="ev-quem">Cleide Ramos</div>
+              <div class="ev-nota">Protocolo aberto no balcão. Documentos pessoais das
+              partes recebidos em cópia.</div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="rodape-pag">
+      <span>Prévia visual para discussão — dados fictícios.</span>
+      <span>Gameleiras / MG</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Única interação do protótipo: alternar o chip de filtro ativo.
+document.querySelectorAll('[data-chip]').forEach(function (chip) {
+  chip.addEventListener('click', function () {
+    document.querySelectorAll('[data-chip]').forEach(function (c) {
+      c.classList.remove('ativo');
+    });
+    chip.classList.add('ativo');
+  });
+});
+</script>
+
+</body>
+</html>

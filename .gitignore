@@ -1,0 +1,38 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Segredos — NUNCA versionar
+.env
+.env.*
+!.env.example
+appsettings.Production.json
+appsettings.Local.json
+secrets.json
+
+# Configuração local de desenvolvimento.
+#
+# Fora do versionamento por decisão explícita: o arquivo carrega a connection
+# string da máquina de quem desenvolve e a chave JWT local. Hoje os dois valores
+# são descartáveis (SQL Server local por autenticação do Windows, chave que diz
+# "troque antes de publicar"), mas versionar o arquivo é o que faz um segredo de
+# verdade vazar no dia em que alguém colar um ali sem pensar.
+#
+# Quem clonar copia o .example ao lado e preenche — ver README.md.
+appsettings.Development.json
+!appsettings.Development.example.json
+
+# Ferramentas de agente (configuração local, pode conter caminho de máquina)
+.claude/settings.local.json
+
+# Sistema operacional
+Thumbs.db
+.DS_Store

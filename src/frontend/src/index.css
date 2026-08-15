@@ -1,0 +1,270 @@
+@import 'tailwindcss';
+
+/* Fontes empacotadas, nao CDN. Ver docs/DESIGN.md, secao 3: o produto e
+   self-hosted e roda onde a internet oscila — fonte por CDN quebra a tela. */
+@import '@fontsource/spectral/400.css';
+@import '@fontsource/spectral/500.css';
+@import '@fontsource/spectral/600.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/* =============================================================================
+   TOKENS — docs/DESIGN.md e a fonte de verdade.
+   Cor fora desta lista nao entra em componente nenhum.
+
+   Nao ha bloco de tema escuro: papel escuro e contradicao com o conceito
+   (documento oficial). Ver DESIGN.md, secao 9.
+   ========================================================================== */
+@layer base {
+  :root {
+    /* --- papel e superficie --- */
+    --cor-papel: #edebe6;
+    --cor-superficie: #f7f6f3;
+    --cor-branco: #fcfbf9;
+
+    /* --- tinta --- */
+    --cor-tinta: #1f1d1a;
+    --cor-tinta-media: #5c5852;
+    --cor-tinta-fraca: #8e8981;
+
+    /* --- linhas --- */
+    --cor-linha: #ddd9d2;
+    --cor-linha-forte: #c5c0b7;
+
+    /* --- acentos (bordo: no maximo 3 por tela) --- */
+    --cor-selo: #7a2e32;
+    --cor-ambar: #8a6516;
+    --cor-verde: #3d5c3a;
+
+    /* --- forma --- */
+    --raio: 6px;
+    --borda: 1px;
+
+    /* Aliases semanticos usados pelos componentes herdados do shadcn.
+       Existem para que Card, Input e afins nao precisem ser reescritos do
+       zero — apontam para os tokens acima, nunca para cor propria. */
+    --background: var(--cor-papel);
+    --foreground: var(--cor-tinta);
+    --card: var(--cor-branco);
+    --card-foreground: var(--cor-tinta);
+    --popover: var(--cor-branco);
+    --popover-foreground: var(--cor-tinta);
+    --primary: var(--cor-selo);
+    --primary-foreground: var(--cor-branco);
+    --secondary: var(--cor-superficie);
+    --secondary-foreground: var(--cor-tinta);
+    --muted: var(--cor-superficie);
+    --muted-foreground: var(--cor-tinta-media);
+    --accent: var(--cor-superficie);
+    --accent-foreground: var(--cor-tinta);
+    --destructive: var(--cor-selo);
+    --destructive-foreground: var(--cor-branco);
+    --border: var(--cor-linha);
+    --input: var(--cor-linha-forte);
+    --ring: var(--cor-tinta-media);
+  }
+}
+
+@theme inline {
+  --color-papel: var(--cor-papel);
+  --color-superficie: var(--cor-superficie);
+  --color-branco: var(--cor-branco);
+
+  --color-tinta: var(--cor-tinta);
+  --color-tinta-media: var(--cor-tinta-media);
+  --color-tinta-fraca: var(--cor-tinta-fraca);
+
+  --color-linha: var(--cor-linha);
+  --color-linha-forte: var(--cor-linha-forte);
+
+  --color-selo: var(--cor-selo);
+  --color-ambar: var(--cor-ambar);
+  --color-verde: var(--cor-verde);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-titulo: 'Spectral', Georgia, 'Times New Roman', serif;
+  --font-corpo: 'Inter', ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-dado: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* Um raio para tudo. DESIGN.md, secao 4. */
+  --radius-sm: var(--raio);
+  --radius-md: var(--raio);
+  --radius-lg: var(--raio);
+  --radius-xl: var(--raio);
+}
+
+@layer base {
+  * {
+    border-color: var(--cor-linha);
+  }
+
+  body {
+    background-color: var(--cor-papel);
+    color: var(--cor-tinta);
+    font-family: var(--font-corpo);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Spectral so em titulo e cabecalho. Nunca no corpo. DESIGN.md, secao 3. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-titulo);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Icones em stroke 1.6px, sem preenchimento. DESIGN.md, secao 4. */
+  svg {
+    stroke-width: 1.6;
+  }
+
+  /* Sem sombra: papel nao flutua (DESIGN.md, secao 4).
+     A proibicao NAO e um `box-shadow: none` global — no Tailwind o anel de foco
+     e implementado com box-shadow, e apagar tudo tiraria a indicacao de foco de
+     quem navega por teclado. Sombra decorativa e removida componente por
+     componente; o foco abaixo usa outline, que e imune a essa regra. */
+  :focus-visible {
+    outline: 2px solid var(--cor-tinta-media);
+    outline-offset: 1px;
+  }
+
+  ::placeholder {
+    color: var(--cor-tinta-fraca);
+  }
+
+  /* Barra de rolagem discreta: a inbox e o fio da conversa rolam o tempo todo. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--cor-linha-forte);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--cor-tinta-fraca);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* --- utilitarios de tipografia --- */
+  .font-titulo {
+    font-family: var(--font-titulo);
+  }
+
+  .font-corpo {
+    font-family: var(--font-corpo);
+  }
+
+  /* Dado que se confere caractere por caractere: protocolo, CPF, CNPJ, telefone. */
+  .font-dado {
+    font-family: var(--font-dado);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* -------------------------------------------------------------------------
+     ETIQUETA DE PROTOCOLO
+     O numero do protocolo ganha caixa propria: e o identificador que o cliente
+     repete ao telefone e o atendente procura na lista, entao vale destacar do
+     texto ao redor. Aplicacao pontual — DESIGN.md, secao 10.
+     ---------------------------------------------------------------------- */
+  .etiqueta-protocolo {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--cor-linha-forte);
+    border-radius: 3px;
+    background-color: var(--cor-superficie);
+    padding: 0 0.25rem;
+    font-family: var(--font-dado);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    line-height: 1.45;
+    white-space: nowrap;
+  }
+
+  /* -------------------------------------------------------------------------
+     MARCA D'AGUA DO SELO
+     O anel do selo ao fundo da area de mensagens, no canto superior direito.
+
+     E background-image, nao elemento: assim nao entra no fluxo, nao recebe
+     clique, nao precisa de z-index e nao desloca mensagem nenhuma. O anel vem
+     como SVG embutido porque fonte de @font-face nao carrega dentro de
+     data-URI — um selo com texto cairia numa serifa qualquer do sistema.
+
+     background-attachment fica no padrao (scroll): a marca gruda na caixa
+     visivel e nao acompanha a rolagem do fio.
+     ---------------------------------------------------------------------- */
+  .marca-dagua-selo {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='94' fill='none' stroke='%233D5C3A' stroke-opacity='.05' stroke-width='3'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1.25rem top 1.25rem;
+    background-size: 11rem 11rem;
+  }
+
+  /* -------------------------------------------------------------------------
+     SELO — o unico elemento com personalidade da interface.
+     DESIGN.md, secao 6. A rotacao e o que faz funcionar: reto vira icone de
+     sistema, torto vira carimbo. Nao "corrigir".
+     ---------------------------------------------------------------------- */
+  .selo-concluido {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 4.25rem;
+    height: 4.25rem;
+    border: 1.5px solid var(--cor-verde);
+    border-radius: 9999px;
+    color: var(--cor-verde);
+    background: transparent;
+    transform: rotate(-9deg);
+    font-family: var(--font-titulo);
+    font-size: 0.5625rem;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.25rem;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Versao pequena, para a linha da inbox. */
+  .selo-concluido-mini {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 0.375rem;
+    letter-spacing: 0.06em;
+    border-width: 1.5px;
+  }
+}
