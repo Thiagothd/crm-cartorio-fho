@@ -28,6 +28,18 @@
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+
+-- Obrigatorias para qualquer DELETE em dbo.Conversas: a tabela tem indices
+-- FILTRADOS (IX_Conversas_AvisoAlertaPendente e IX_Conversas_AvisoVencimentoPendente,
+-- criados na migracao 005), e o SQL Server recusa DML sobre tabela com indice
+-- filtrado se estas opcoes nao estiverem ligadas — erro 1934.
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET NUMERIC_ROUNDABORT OFF;
 GO
 
 IF DB_NAME() NOT LIKE '%_Dev%' AND DB_NAME() NOT LIKE '%Dev%'
