@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Lock, MessageSquarePlus, Reply, Send, X, Zap } from 'lucide-react'
+import { Inbox, Lock, MessageSquarePlus, Reply, Send, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -28,9 +28,6 @@ const ATALHO_EM_DIGITACAO = /^\/(\S*)$/
 export function CaixaDeEnvio({
   conversa,
   souOResponsavel,
-  podeAssumir,
-  assumindo,
-  aoAssumir,
   mensagemRespondida,
   aoCancelarResposta,
   setores,
@@ -38,9 +35,6 @@ export function CaixaDeEnvio({
 }: {
   conversa: Conversa
   souOResponsavel: boolean
-  podeAssumir: boolean
-  assumindo: boolean
-  aoAssumir: () => void
   mensagemRespondida: Mensagem | null
   aoCancelarResposta: () => void
   setores: Setor[]
@@ -93,22 +87,16 @@ export function CaixaDeEnvio({
     )
   }
 
-  // A trava, do lado de quem escreve: sem ser o responsável, não há caixa de texto.
-  if (!souOResponsavel) {
+  // A trava, do lado de quem escreve: conversa de OUTRO atendente não tem caixa
+  // de texto. Conversa na fila tem — quem escreve e envia assume junto, e o
+  // backend faz isso com o mesmo UPDATE condicional de sempre.
+  if (!souOResponsavel && conversa.atendenteId !== null) {
     return (
       <div className="flex items-center justify-between gap-3 border-t border-linha bg-superficie px-6 py-4">
         <p className="flex items-center gap-2 text-sm text-tinta-media">
           <Lock className="size-4 shrink-0" />
-          {conversa.atendenteNome
-            ? `Em atendimento por ${conversa.atendenteNome}.`
-            : 'Esta conversa está na fila.'}
+          Em atendimento por {conversa.atendenteNome}.
         </p>
-
-        {podeAssumir ? (
-          <Button size="sm" onClick={aoAssumir} disabled={assumindo}>
-            Assumir conversa
-          </Button>
-        ) : null}
       </div>
     )
   }
@@ -154,6 +142,17 @@ export function CaixaDeEnvio({
       aoCancelarResposta()
       invalidar(conversa.id)
     } catch (falha) {
+      // Corrida perdida ao assumir junto com o envio: a mensagem NÃO foi gravada.
+      // O texto fica no campo de propósito — quem escreveu não deve perder o que
+      // digitou por causa de um clique de um colega meio segundo antes.
+      if (falha instanceof ErroDaApi && falha.ehConflitoDeAtribuicao) {
+        toast.warning('Conversa já assumida', {
+          description: `${falha.atendenteQueAssumiu ?? 'Outro atendente'} chegou primeiro. Sua mensagem não foi enviada.`,
+        })
+        invalidar(conversa.id)
+        return
+      }
+
       toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível enviar.')
     } finally {
       setEnviando(false)
@@ -219,8 +218,20 @@ export function CaixaDeEnvio({
     }
   }
 
+  const naFila = conversa.atendenteId === null
+
   return (
     <div className="flex flex-col gap-2 border-t border-linha px-6 py-3">
+      {/* Avisa ANTES de digitar, não depois de enviar: enviar aqui não é só
+          enviar, é assumir o atendimento. Quem só quer reservar a conversa sem
+          responder ainda continua tendo o botão "Assumir" no cabeçalho. */}
+      {naFila ? (
+        <p className="flex items-center gap-1.5 text-[11px] text-tinta-media">
+          <Inbox className="size-3.5 shrink-0" />
+          Esta conversa está na fila — ao enviar, você assume o atendimento.
+        </p>
+      ) : null}
+
       {mensagemRespondida ? (
         <div className="flex items-start gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
           <Reply className="mt-0.5 size-3.5 shrink-0 text-tinta-media" />

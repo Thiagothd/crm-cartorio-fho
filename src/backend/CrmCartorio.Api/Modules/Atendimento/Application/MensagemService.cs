@@ -65,14 +65,26 @@ public class MensagemService(
             throw AtendimentoServiceException.ConversaEncerrada();
         }
 
-        // Aqui esta a trava, do lado do envio: quem nao e o responsavel nao escreve.
-        // Sem isso, dois atendentes responderiam o mesmo cliente ao mesmo tempo —
-        // o erro que este produto existe para eliminar.
+        // Conversa na fila: responder E assumir. Quem digitou e apertou enviar ja
+        // decidiu atender — exigir um clique extra em "Assumir" antes disso e
+        // cerimonia, e cerimonia no meio de um atendimento vira conversa perdida.
+        //
+        // A TRAVA NAO ENFRAQUECE. Reusa AssumirAsync, que e o mesmo UPDATE
+        // condicional ja exercitado sob 12 chamadas simultaneas em
+        // verificar-concorrencia.cs: se outro atendente assumiu um instante antes,
+        // ele levanta ConflitoDeAtribuicaoException e a mensagem NAO e gravada.
+        // O que muda e quando o UPDATE dispara, nao a garantia que ele da.
+        //
+        // AssumirAsync recarrega a entidade rastreada depois do ExecuteUpdate,
+        // entao `conversa` ja sai daqui com o responsavel preenchido.
         if (conversa.AtendenteId is null)
         {
-            throw AtendimentoServiceException.ConversaSemResponsavel();
+            await conversas.AssumirAsync(conversaId, ct);
         }
 
+        // A trava do lado do envio continua: quem nao e o responsavel nao escreve
+        // por cima de quem e. Sem isso, dois atendentes responderiam o mesmo
+        // cliente ao mesmo tempo — o erro que este produto existe para eliminar.
         if (conversa.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
         {
             var responsavel = await db.Atendentes.AsNoTracking()
@@ -122,9 +134,24 @@ public class MensagemService(
 
         db.Mensagens.Add(mensagem);
 
-        conversa.UltimaMensagemEm = agora;
-
         await db.SaveChangesAsync(ct);
+
+        // UltimaMensagemEm sai por ExecuteUpdate, e NAO pela entidade rastreada.
+        //
+        // Conversa carrega RowVersion como token de concorrencia, entao gravar o
+        // carimbo pela entidade faria dois envios simultaneos na mesma conversa
+        // colidirem — o segundo levantaria DbUpdateConcurrencyException e viraria
+        // 409 na cara de quem so respondeu um cliente. E conflito inventado: o
+        // token existe para proteger DECISAO sobre a conversa (quem atende, que
+        // etapa, encerrar), nao para arbitrar qual de dois relogios venceu.
+        //
+        // Para um carimbo de "ultima mensagem", o ultimo a escrever vencer e a
+        // resposta certa, e e o que o UPDATE direto faz.
+        await db.Conversas
+            .Where(c => c.Id == conversaId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.UltimaMensagemEm, agora)
+                .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         var resposta = await ObterUmaAsync(mensagem.Id, conversaId, ct);
 

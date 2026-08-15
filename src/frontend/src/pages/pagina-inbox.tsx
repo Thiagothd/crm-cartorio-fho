@@ -370,9 +370,6 @@ export function PaginaInbox() {
                   <CaixaDeEnvio
                     conversa={conversa}
                     souOResponsavel={souOResponsavel}
-                    podeAssumir={conversa.atendenteId === null}
-                    assumindo={assumindo}
-                    aoAssumir={() => void assumir()}
                     mensagemRespondida={mensagemRespondida}
                     aoCancelarResposta={() => setMensagemRespondida(null)}
                     setores={setores ?? []}

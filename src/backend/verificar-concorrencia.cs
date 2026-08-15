@@ -79,7 +79,9 @@ await using (var db = new CrmDbContext(opcoes))
 
     // Um cliente por conversa: CriarAsync recusa abrir um segundo atendimento
     // para quem ja tem um em aberto, e essa regra nao e o que estamos testando.
-    for (var i = 0; i < Simultaneas + 1; i++)
+    //
+    // Simultaneas para o teste 1, mais um para o teste 2 e um para o teste 3.
+    for (var i = 0; i < Simultaneas + 2; i++)
     {
         var telefone = $"559999900{i:D3}";
 
@@ -219,7 +221,7 @@ Guid alvo;
 await using (var db = new CrmDbContext(opcoes))
 {
     var criada = await Servico(db, 0).CriarAsync(
-        new CriarConversaRequest(clientesDeTeste[^1], null, null, "Conversa disputada."));
+        new CriarConversaRequest(clientesDeTeste[Simultaneas], null, null, "Conversa disputada."));
 
     alvo = criada.Id;
 }
@@ -287,6 +289,131 @@ else if (conflitos.Count + vencedores.Count != Simultaneas)
 else
 {
     Console.WriteLine("  RESULTADO: OK — um unico atendente assumiu; o resto virou conflito tratado.");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 3 — envio simultaneo em conversa SEM DONO
+//
+// Responder uma conversa da fila assume junto, e a atribuicao passou a nascer
+// dentro de MensagemService.EnviarAsync. Se a trava tivesse enfraquecido nessa
+// mudanca, N atendentes escrevendo ao mesmo tempo gravariam N mensagens numa
+// conversa que deveria pertencer a um so.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 3 — envio simultaneo assume sem furar a trava");
+
+Guid disputada;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 1], null, null, "Cliente escreveu primeiro."));
+
+    // CriarAsync ja deixa a conversa sem dono; e esse o estado sob teste.
+    disputada = criada.Id;
+}
+
+var largada3 = new TaskCompletionSource();
+var enviosAceitos = new ConcurrentBag<string>();
+var conflitosNoEnvio = new ConcurrentBag<string>();
+var errosNoEnvio = new ConcurrentBag<string>();
+
+var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
+{
+    await largada3.Task;
+
+    try
+    {
+        await using var db = new CrmDbContext(opcoes);
+        var (id, nome, perfil) = atendentes[i % atendentes.Length];
+        var ctx = new ContextoFixo(tenantId, id, nome, perfil);
+
+        var mensagens = new MensagemService(
+            db,
+            ctx,
+            Servico(db, i),
+            new NotificadorSilencioso(),
+            new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+            NullLogger<MensagemService>.Instance);
+
+        var enviada = await mensagens.EnviarAsync(
+            disputada, new EnviarMensagemRequest($"Resposta simultanea {i}."));
+
+        enviosAceitos.Add(enviada.AtendenteNome ?? "?");
+    }
+    catch (ConflitoDeAtribuicaoException ex)
+    {
+        conflitosNoEnvio.Add(ex.AtendenteNome);
+    }
+    catch (AtendimentoServiceException ex) when (ex.Codigo == "nao_eh_o_responsavel")
+    {
+        // Perdeu a corrida por um caminho diferente: assumiu depois de outro, e a
+        // checagem de responsavel barrou antes de gravar. Tambem e recusa correta.
+        conflitosNoEnvio.Add(ex.Message);
+    }
+    catch (Exception ex)
+    {
+        errosNoEnvio.Add($"{ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+    }
+}).ToArray();
+
+largada3.SetResult();
+await Task.WhenAll(envios);
+
+int mensagensGravadas;
+Guid? donoFinal;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    mensagensGravadas = await db.Mensagens
+        .CountAsync(m => m.ConversaId == disputada && m.AutorTipo == AutorTipo.Atendente);
+
+    donoFinal = await db.Conversas
+        .Where(c => c.Id == disputada)
+        .Select(c => c.AtendenteId)
+        .FirstAsync();
+}
+
+var autoresDistintos = enviosAceitos.Distinct().ToList();
+
+Console.WriteLine($"  tentativas de envio ...... {Simultaneas}");
+Console.WriteLine($"  envios aceitos ........... {enviosAceitos.Count}");
+Console.WriteLine($"  autores distintos ........ {autoresDistintos.Count} ({string.Join(", ", autoresDistintos)})");
+Console.WriteLine($"  recusas tratadas ......... {conflitosNoEnvio.Count}");
+Console.WriteLine($"  erros inesperados ........ {errosNoEnvio.Count}");
+Console.WriteLine($"  mensagens gravadas ....... {mensagensGravadas}");
+Console.WriteLine($"  conversa tem dono ........ {(donoFinal is null ? "NAO" : "sim")}");
+
+foreach (var erro in errosNoEnvio.Take(5))
+{
+    Console.WriteLine($"    ! {erro}");
+}
+
+if (errosNoEnvio.Count > 0)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — houve erro nao tratado.");
+}
+else if (autoresDistintos.Count != 1)
+{
+    problemas++;
+    Console.WriteLine($"  RESULTADO: FALHOU — esperado 1 autor, houve {autoresDistintos.Count}.");
+}
+else if (mensagensGravadas != enviosAceitos.Count)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — mensagem gravada sem envio aceito correspondente.");
+}
+else if (donoFinal is null)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — a conversa continuou sem dono depois do envio.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — um unico atendente assumiu e escreveu; o resto foi recusado.");
 }
 
 // ---------------------------------------------------------------------------
