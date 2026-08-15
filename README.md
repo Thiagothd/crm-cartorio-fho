@@ -3,15 +3,16 @@
 CRM de atendimento via WhatsApp especializado para cartórios (serventias
 extrajudiciais). **Repositório privado.**
 
-> **Fase 1 — sistema completo com dados simulados.** O WhatsApp real não está
-> conectado: as mensagens ficam numa conversa simulada, prontas para a Fase 2
-> plugar a Cloud API da Meta sem reescrever a lógica.
+> **Fase 1 ✅ concluída em 2026-08-15.** Sistema completo com dados simulados: o
+> WhatsApp real não está conectado, as mensagens ficam numa conversa simulada,
+> prontas para a Fase 2 plugar a Cloud API da Meta sem reescrever a lógica.
 
 ## Por onde começar a leitura
 
 | Arquivo | O que responde |
 | --- | --- |
 | [CLAUDE.md](CLAUDE.md) | **Comece aqui.** Regras de trabalho, roadmap, convenções, stack |
+| [docs/FASE-1-PRONTIDAO.md](docs/FASE-1-PRONTIDAO.md) | O que é fato confirmado, o que é suposição nossa e o que depende de terceiro |
 | [docs/CONTEXTO.md](docs/CONTEXTO.md) | A serventia e o contexto do projeto |
 | [docs/REQUISITOS.md](docs/REQUISITOS.md) | Requisitos confirmados e o que ainda depende de validação |
 | [docs/MODELO-DADOS.md](docs/MODELO-DADOS.md) | Entidades, índices e as decisões técnicas por trás delas |
