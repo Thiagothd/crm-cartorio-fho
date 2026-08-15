@@ -4,6 +4,7 @@ import {
   atendentesApi,
   etapasApi,
   respostasRapidasApi,
+  serventiaApi,
   setoresApi,
   servicosApi,
 } from '@/lib/api/endpoints'
@@ -18,6 +19,7 @@ export const chaves = {
   servicos: () => ['servicos'] as const,
   atendentes: () => ['atendentes'] as const,
   respostasRapidas: () => ['respostas-rapidas'] as const,
+  aparencia: () => ['aparencia-da-conversa'] as const,
 }
 
 // Cadastros usados o tempo todo pelos seletores da inbox. Mudam pouco, entao
@@ -64,6 +66,15 @@ export function usarRespostasRapidas() {
   return useQuery({
     queryKey: chaves.respostasRapidas(),
     queryFn: () => respostasRapidasApi.listar(),
+    staleTime: TEMPO_DE_CADASTRO,
+  })
+}
+
+/** Textura do fio. Muda raramente e vale para o tenant todo. */
+export function usarAparenciaDaConversa() {
+  return useQuery({
+    queryKey: chaves.aparencia(),
+    queryFn: () => serventiaApi.aparencia(),
     staleTime: TEMPO_DE_CADASTRO,
   })
 }

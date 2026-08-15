@@ -39,6 +39,9 @@ export type SituacaoPrazo = 'SemPrazo' | 'EmDia' | 'EmAlerta' | 'Atrasada'
 
 export type TipoMudancaHistorico = 'Abertura' | 'Etapa' | 'Setor' | 'EtapaESetor'
 
+/** Textura de fundo do fio de mensagens. Escolhida por tenant, não por atendente. */
+export type AparenciaDaConversa = 'PapelLiso' | 'SeloRepetido' | 'PautaFina'
+
 export type GatilhoDeMensagem =
   | 'NovoAtendimento'
   | 'EtapaAlterada'

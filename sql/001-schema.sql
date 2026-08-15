@@ -52,11 +52,16 @@ CREATE TABLE dbo.Tenants
     WhatsappPhoneNumberId     VARCHAR(64)      NULL,
     WhatsappNumeroExibicao    VARCHAR(20)      NULL,
 
+    -- Textura de fundo do fio de mensagens: 1 PapelLiso, 2 SeloRepetido,
+    -- 3 PautaFina. Por tenant, nao por atendente — e a cara do cartorio.
+    AparenciaDaConversa       TINYINT          NOT NULL CONSTRAINT DF_Tenants_AparenciaDaConversa DEFAULT (1),
+
     Ativo                     BIT              NOT NULL CONSTRAINT DF_Tenants_Ativo DEFAULT (1),
     CriadoEm                  DATETIME2(3)     NOT NULL,
     AtualizadoEm              DATETIME2(3)     NOT NULL,
 
-    CONSTRAINT PK_Tenants PRIMARY KEY CLUSTERED (Id)
+    CONSTRAINT PK_Tenants PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT CK_Tenants_AparenciaDaConversa CHECK (AparenciaDaConversa IN (1, 2, 3))
 );
 GO
 

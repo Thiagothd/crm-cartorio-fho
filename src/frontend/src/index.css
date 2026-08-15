@@ -43,6 +43,23 @@
     --raio: 6px;
     --borda: 1px;
 
+    /* --- texturas de fundo do fio de mensagens ---
+       SVG embutido, uma definicao por textura, referenciadas pelas classes
+       .marca-dagua-selo / .fundo-conversa-*. Ficam aqui para o anel do selo ter
+       UMA fonte só — antes de existir a escolha de aparencia ele estava escrito
+       direto na classe, e repeti-lo em tres lugares seria garantir divergencia.
+
+       O hexadecimal dentro do data-URI e a excecao ja documentada: var() do CSS
+       nao atravessa a fronteira do SVG embutido. Os valores sao os tokens
+       `verde` (#3D5C3A) e `linha` (#DDD9D2). */
+    --marca-do-selo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='94' fill='none' stroke='%233D5C3A' stroke-opacity='.05' stroke-width='3'/%3E%3C/svg%3E");
+
+    /* Anel menor, em grade larga, a 3%: presente de perto, invisivel de longe. */
+    --grade-de-selos: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Ccircle cx='60' cy='60' r='34' fill='none' stroke='%233D5C3A' stroke-opacity='.03' stroke-width='2'/%3E%3C/svg%3E");
+
+    /* Uma linha ao pe do bloco de 28px, repetida no eixo Y. */
+    --pauta-do-livro: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='28' viewBox='0 0 8 28' preserveAspectRatio='none'%3E%3Cline x1='0' y1='27.5' x2='8' y2='27.5' stroke='%23DDD9D2' stroke-width='1'/%3E%3C/svg%3E");
+
     /* Aliases semanticos usados pelos componentes herdados do shadcn.
        Existem para que Card, Input e afins nao precisem ser reescritos do
        zero — apontam para os tokens acima, nunca para cor propria. */
@@ -223,12 +240,44 @@
 
      background-attachment fica no padrao (scroll): a marca gruda na caixa
      visivel e nao acompanha a rolagem do fio.
+
+     A cor vai em hexadecimal DENTRO do data-URI porque var() do CSS nao
+     atravessa a fronteira do SVG embutido — o arquivo e renderizado isolado.
+     E a mesma excecao que ja existia aqui; os valores sao os tokens `verde`
+     (#3D5C3A) e `linha` (#DDD9D2), nao cor nova.
      ---------------------------------------------------------------------- */
   .marca-dagua-selo {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='94' fill='none' stroke='%233D5C3A' stroke-opacity='.05' stroke-width='3'/%3E%3C/svg%3E");
+    background-image: var(--marca-do-selo);
     background-repeat: no-repeat;
     background-position: right 1.25rem top 1.25rem;
     background-size: 11rem 11rem;
+  }
+
+  /* -------------------------------------------------------------------------
+     APARENCIA DA CONVERSA — textura de fundo do fio, escolhida por tenant.
+
+     As tres mantem a marca d'agua do selo: ela e elemento aprovado
+     (DESIGN.md, 10.2) e nao e alternativa de textura, e sim assinatura fixa.
+     Por isso cada classe declara a PILHA inteira de camadas, e o fio usa
+     exatamente uma delas — duas classes disputando background-image dariam
+     resultado dependente da ordem do CSS.
+
+     Nenhuma usa gradiente. A pauta e um SVG de UMA linha repetido no eixo Y,
+     nao um repeating-linear-gradient: papel de registro tem linha impressa, e
+     a regra 4 do DESIGN.md nao abre excecao para gradiente "que parece linha".
+     ---------------------------------------------------------------------- */
+  .fundo-conversa-selo {
+    background-image: var(--marca-do-selo), var(--grade-de-selos);
+    background-repeat: no-repeat, repeat;
+    background-position: right 1.25rem top 1.25rem, 0 0;
+    background-size: 11rem 11rem, 7.5rem 7.5rem;
+  }
+
+  .fundo-conversa-pauta {
+    background-image: var(--marca-do-selo), var(--pauta-do-livro);
+    background-repeat: no-repeat, repeat;
+    background-position: right 1.25rem top 1.25rem, 0 0;
+    background-size: 11rem 11rem, 100% 1.75rem;
   }
 
   /* -------------------------------------------------------------------------

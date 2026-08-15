@@ -5,6 +5,7 @@ import { AbaEtapas } from '@/features/configuracoes/aba-etapas'
 import { AbaAtendentes } from '@/features/configuracoes/aba-atendentes'
 import { AbaMensagensAutomaticas } from '@/features/configuracoes/aba-mensagens-automaticas'
 import { AbaRespostasRapidas } from '@/features/configuracoes/aba-respostas-rapidas'
+import { AbaAparencia } from '@/features/configuracoes/aba-aparencia'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 
 export function PaginaConfiguracoes() {
@@ -24,6 +25,7 @@ export function PaginaConfiguracoes() {
             <TabsTrigger value="setores">Setores</TabsTrigger>
             <TabsTrigger value="mensagens">Mensagens automáticas</TabsTrigger>
             <TabsTrigger value="respostas">Respostas rápidas</TabsTrigger>
+            <TabsTrigger value="aparencia">Aparência</TabsTrigger>
             {podeGerirAtendentes ? <TabsTrigger value="atendentes">Atendentes</TabsTrigger> : null}
           </TabsList>
 
@@ -41,6 +43,10 @@ export function PaginaConfiguracoes() {
 
           <TabsContent value="respostas">
             <AbaRespostasRapidas />
+          </TabsContent>
+
+          <TabsContent value="aparencia">
+            <AbaAparencia />
           </TabsContent>
 
           {podeGerirAtendentes ? (

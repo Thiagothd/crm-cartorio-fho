@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Domain.Common;
+using CrmCartorio.Api.Modules.Tenants.Domain.Enums;
 
 namespace CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 
@@ -23,6 +24,15 @@ public class Tenant : EntidadeBase
 
     /// <summary>Numero em formato E.164, apenas para exibicao.</summary>
     public string? WhatsappNumeroExibicao { get; set; }
+
+    /// <summary>
+    /// Textura de fundo do fio de mensagens.
+    /// </summary>
+    /// <remarks>
+    /// Por TENANT, e nao por atendente: e a cara do cartorio, e a mesma tela vista
+    /// por duas pessoas da mesma serventia nao deveria parecer dois produtos.
+    /// </remarks>
+    public AparenciaDaConversa AparenciaDaConversa { get; set; } = AparenciaDaConversa.PapelLiso;
 
     public bool Ativo { get; set; } = true;
 }

@@ -3,7 +3,7 @@ import { Check, CheckCheck, Clock, Copy, Reply, TriangleAlert } from 'lucide-rea
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatarDataHora, formatarHora } from '@/lib/formatacao'
-import type { Mensagem, StatusEntrega } from '@/lib/api/tipos'
+import type { AparenciaDaConversa, Mensagem, StatusEntrega } from '@/lib/api/tipos'
 
 const formatadorDeDia = new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit',
@@ -62,13 +62,28 @@ function separadorDeDia(mensagens: Mensagem[], indice: number) {
  * mais discretas e mais baratas: alinhamento, peso de borda e o nome do
  * atendente em Spectral — que ainda cumpre o RF-007 melhor que cor.
  */
+/**
+ * Classe de textura por aparência configurada.
+ *
+ * Uma classe só por vez: todas declaram a pilha inteira de camadas de fundo, e
+ * duas disputando `background-image` dariam resultado dependente da ordem do CSS.
+ * A marca d'água do selo está em todas — é assinatura fixa, não alternativa.
+ */
+const TEXTURA_DO_FUNDO: Record<AparenciaDaConversa, string> = {
+  PapelLiso: 'marca-dagua-selo',
+  SeloRepetido: 'fundo-conversa-selo',
+  PautaFina: 'fundo-conversa-pauta',
+}
+
 export function FioDeMensagens({
   mensagens,
   clienteNome,
+  aparencia,
   aoResponder,
 }: {
   mensagens: Mensagem[]
   clienteNome: string
+  aparencia: AparenciaDaConversa
   aoResponder: (mensagem: Mensagem) => void
 }) {
   const fim = useRef<HTMLDivElement>(null)
@@ -92,7 +107,12 @@ export function FioDeMensagens({
     /* marca-dagua-selo: o anel do selo ao fundo, no canto superior direito.
        E background-image, entao nao afeta rolagem, clique nem posicao de
        mensagem alguma (DESIGN.md, secao 10). */
-    <div className="marca-dagua-selo flex flex-1 flex-col gap-3 overflow-y-auto bg-papel px-3 py-4 sm:px-6">
+    <div
+      className={cn(
+        'flex flex-1 flex-col gap-3 overflow-y-auto bg-papel px-3 py-4 sm:px-6',
+        TEXTURA_DO_FUNDO[aparencia] ?? TEXTURA_DO_FUNDO.PapelLiso,
+      )}
+    >
       {mensagens.map((mensagem, indice) => {
         const dia = separadorDeDia(mensagens, indice)
         const doAtendente = mensagem.autorTipo === 'Atendente'

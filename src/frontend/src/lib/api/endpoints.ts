@@ -1,5 +1,6 @@
 import { api, montarQuery } from './cliente-http'
 import type {
+  AparenciaDaConversa,
   Atendente,
   CargoNaServentia,
   Cliente,
@@ -138,6 +139,18 @@ export const etapasApi = {
   ) => api.put<Etapa>(`/api/etapas/${id}`, dados),
 
   reordenar: (idsNaOrdem: string[]) => api.post<Etapa[]>('/api/etapas/reordenar', idsNaOrdem),
+}
+
+// Serventia -----------------------------------------------------------------
+
+export const serventiaApi = {
+  aparencia: () =>
+    api.get<{ aparenciaDaConversa: AparenciaDaConversa }>('/api/serventia/aparencia'),
+
+  definirAparencia: (aparenciaDaConversa: AparenciaDaConversa) =>
+    api.put<{ aparenciaDaConversa: AparenciaDaConversa }>('/api/serventia/aparencia', {
+      aparenciaDaConversa,
+    }),
 }
 
 // Automacao -----------------------------------------------------------------

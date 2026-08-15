@@ -12,6 +12,8 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
 
         builder.HasKey(t => t.Id);
 
+        builder.Property(t => t.AparenciaDaConversa).HasConversion<byte>();
+
         builder.Property(t => t.RazaoSocial).HasMaxLength(200).IsRequired();
         builder.Property(t => t.NomeFantasia).HasMaxLength(200);
         builder.Property(t => t.Cnpj).HasMaxLength(14).IsRequired().IsUnicode(false);

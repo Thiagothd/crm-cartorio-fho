@@ -11,6 +11,7 @@ import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { usarHubDeAtendimento } from '@/lib/realtime/usar-hub-de-atendimento'
 import { usarPreferenciaLocal } from '@/lib/usar-preferencia-local'
 import {
+  usarAparenciaDaConversa,
   usarAtendentes,
   usarConversa,
   usarConversas,
@@ -72,6 +73,7 @@ export function PaginaInbox() {
   const { data: etapas } = usarEtapas()
   const { data: servicos } = usarServicos()
   const { data: atendentes } = usarAtendentes()
+  const { data: aparencia } = usarAparenciaDaConversa()
 
   const selecionadaId = idDaRota ?? null
   const {
@@ -377,6 +379,7 @@ export function PaginaInbox() {
                   <FioDeMensagens
                     mensagens={detalhe.mensagens}
                     clienteNome={conversa.clienteNome}
+                    aparencia={aparencia?.aparenciaDaConversa ?? 'PapelLiso'}
                     aoResponder={setMensagemRespondida}
                   />
 
