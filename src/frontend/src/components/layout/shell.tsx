@@ -26,19 +26,6 @@ const itens: ItemDeMenu[] = [
   { para: '/configuracoes', rotulo: 'Configurações', icone: Settings2, exigeGestao: true },
 ]
 
-/**
- * Perfil de acesso traduzido para vocabulario de cartorio.
- *
- * PENDENCIA: cargo e perfil de acesso sao coisas diferentes e hoje estao fundidos
- * numa coluna so. Um cargo de verdade por atendente exige campo novo no schema —
- * fora do escopo desta rodada. Ver docs/REQUISITOS.md, pendencia 14.
- */
-const cargoPorPerfil: Record<string, string> = {
-  Administrador: 'Titular / Substituto',
-  Supervisor: 'Escrevente autorizado',
-  Atendente: 'Escrevente',
-}
-
 export function Shell({ children }: { children: ReactNode }) {
   const { atendente, tenant, sair, podeGerirCadastros } = usarAutenticacao()
   const navegar = useNavigate()
@@ -132,15 +119,26 @@ export function Shell({ children }: { children: ReactNode }) {
                     <span className="w-full truncate text-sm font-medium text-branco">
                       {atendente?.nome}
                     </span>
+                    {/* Cargo REAL, não o perfil de acesso traduzido. São eixos
+                        independentes desde a migração 007: um escrevente
+                        autorizado pode ser Administrador do painel. O rótulo vem
+                        pronto do backend, mesma fonte que a tela de Atendentes. */}
                     <span className="w-full truncate text-[11px] uppercase tracking-wider text-linha">
-                      {atendente ? (cargoPorPerfil[atendente.perfil] ?? atendente.perfil) : ''}
+                      {atendente?.cargo && atendente.cargo !== 'NaoInformado'
+                        ? atendente.cargoDescrito
+                        : ''}
                     </span>
                   </>
                 )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel className="font-dado normal-case">
+              {/* break-words e whitespace-normal: e-mail longo em fonte
+                  monoespaçada estourava a largura fixa do menu, porque
+                  DropdownMenuLabel não quebra por padrão. Quebrar é melhor que
+                  truncar — o e-mail é o login, e login pela metade não serve
+                  para conferir nada. */}
+              <DropdownMenuLabel className="whitespace-normal break-words font-dado text-[11px] font-normal leading-relaxed normal-case text-tinta-media">
                 {atendente?.email}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

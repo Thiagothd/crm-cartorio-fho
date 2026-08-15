@@ -56,3 +56,13 @@ public record TenantResponse(
     string Cnpj,
     string? WhatsappNumeroExibicao,
     bool WhatsappConfigurado);
+
+/// <summary>
+/// Identificacao da serventia para a tela de LOGIN, antes de existir sessao.
+/// </summary>
+/// <remarks>
+/// Deliberadamente magra: so o nome. CNPJ, telefone e qualquer outro dado ficam
+/// no <see cref="TenantResponse"/>, que exige autenticacao — um endpoint anonimo
+/// nao deve devolver mais do que a tela que o consome precisa desenhar.
+/// </remarks>
+public record ServentiaPublicaResponse(string Nome);

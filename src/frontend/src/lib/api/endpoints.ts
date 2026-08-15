@@ -31,6 +31,9 @@ export const autenticacaoApi = {
 
   sessao: () => api.get<Sessao>('/api/autenticacao/sessao'),
 
+  /** Nome da serventia para a tela de login — anônimo, chamado antes da sessão. */
+  serventia: () => api.get<{ nome: string }>('/api/autenticacao/serventia'),
+
   alterarSenha: (senhaAtual: string, novaSenha: string) =>
     api.post<void>('/api/autenticacao/senha', { senhaAtual, novaSenha }),
 }

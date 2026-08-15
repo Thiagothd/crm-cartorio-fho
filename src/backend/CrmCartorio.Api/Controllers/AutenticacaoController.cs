@@ -15,6 +15,15 @@ public class AutenticacaoController(IAutenticacaoService servico) : ControllerBa
         CancellationToken ct) =>
         Ok(await servico.AutenticarAsync(request, ct));
 
+    /// <summary>
+    /// Nome da serventia para a tela de login. Anonimo por necessidade — e
+    /// consumido antes de existir sessao — e por isso devolve somente o nome.
+    /// </summary>
+    [HttpGet("serventia")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ServentiaPublicaResponse>> Serventia(CancellationToken ct) =>
+        Ok(await servico.ObterServentiaPublicaAsync(ct));
+
     [HttpGet("sessao")]
     [Authorize]
     public async Task<ActionResult<LoginResponse>> Sessao(CancellationToken ct) =>

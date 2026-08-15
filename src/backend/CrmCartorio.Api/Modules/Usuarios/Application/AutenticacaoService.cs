@@ -114,6 +114,21 @@ public class AutenticacaoService(
             atendente.UltimoAcessoEm);
     }
 
+    public async Task<ServentiaPublicaResponse> ObterServentiaPublicaAsync(CancellationToken ct = default)
+    {
+        // Mesma regra de {NomeCartorio} nas mensagens automaticas: fantasia, com a
+        // razao social como reserva. Os dois lados precisam dizer o mesmo nome.
+        var nome = await db.Tenants.AsNoTracking()
+            .Where(t => t.Ativo)
+            .OrderBy(t => t.CriadoEm)
+            .Select(t => t.NomeFantasia ?? t.RazaoSocial)
+            .FirstOrDefaultAsync(ct);
+
+        // Base ainda nao semeada: a tela de login precisa abrir mesmo assim, senao
+        // o primeiro acesso de uma instalacao nova fica sem porta de entrada.
+        return new ServentiaPublicaResponse(nome ?? "Cartório");
+    }
+
     private async Task<TenantResponse> ObterTenantAsync(Guid tenantId, CancellationToken ct)
     {
         var tenant = await db.Tenants.AsNoTracking()

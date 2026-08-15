@@ -73,25 +73,47 @@ export function FiltrosDaInbox({
         />
       </div>
 
-      <div className="flex items-center gap-1 rounded-md bg-muted p-0.5">
-        {escopos.map(({ valor, rotulo }) => (
-          <button
-          key={valor}
-          type="button"
-            onClick={() => atualizar({ escopo: valor, apenasEncerradasHoje: false })}
-            className={cn(
-              'flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
-              filtros.escopo === valor
-                ? 'bg-card text-tinta'
-                : 'text-tinta-media hover:text-tinta',
-            )}
-          >
-            {rotulo}
-          </button>
-        ))}
+      {/* Grupo segmentado. O estado ativo antes era bg-card sobre bg-muted —
+          branco sobre superfície, dois tons vizinhos na paleta de papel, e o
+          botão seiecionado ficava indistinguível.
+
+          A distinção agora vem de BORDA + PESO, não de matiz: é o mesmo
+          tratamento que tabs.tsx e o Indicador do painel já usam. Bordô ficou
+          fora de propósito — a inbox já tem três ocorrências (menu ativo, Nova
+          conversa, Enviar) e DESIGN.md 2.1 manda usar tinta ou linha-forte a
+          partir daí. `aria-pressed` deixa o estado audível para leitor de tela,
+          já que cor sozinha nunca é sinal suficiente. */}
+      <div
+        role="group"
+        aria-label="Escopo das conversas"
+        className="flex items-center gap-1 rounded-md border border-linha bg-muted p-0.5"
+      >
+        {escopos.map(({ valor, rotulo }) => {
+          const ativo = filtros.escopo === valor && filtros.status === 'Ativa'
+
+          return (
+            <button
+              key={valor}
+              type="button"
+              aria-pressed={ativo}
+              onClick={() =>
+                atualizar({ escopo: valor, status: 'Ativa', apenasEncerradasHoje: false })
+              }
+              className={cn(
+                'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+                ativo
+                  ? 'border-linha-forte bg-branco font-semibold text-tinta'
+                  : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
+              )}
+            >
+              {rotulo}
+            </button>
+          )
+        })}
 
         <button
           type="button"
+          aria-pressed={filtros.status === 'Encerrada'}
           onClick={() =>
             atualizar({
               status: filtros.status === 'Ativa' ? 'Encerrada' : 'Ativa',
@@ -99,10 +121,10 @@ export function FiltrosDaInbox({
             })
           }
           className={cn(
-            'flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
-            filtros.status === 'Encerrada' && !filtros.apenasEncerradasHoje
-              ? 'bg-card text-tinta'
-              : 'text-tinta-media hover:text-tinta',
+            'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+            filtros.status === 'Encerrada'
+              ? 'border-linha-forte bg-branco font-semibold text-tinta'
+              : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
           )}
           title="Conversas encerradas continuam consultáveis — nada é apagado"
         >

@@ -1,12 +1,14 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Building2, Loader2 } from 'lucide-react'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
+import { autenticacaoApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export function PaginaLogin() {
   const { atendente, carregando, entrar } = usarAutenticacao()
@@ -16,6 +18,25 @@ export function PaginaLogin() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const [nomeDaServentia, setNomeDaServentia] = useState<string | null>(null)
+
+  // O nome vem do cadastro, não do código. Antes estava fixo como "Cartório de
+  // Gameleiras" — errado no dia em que o sistema atender a segunda
+  // serventia, que é justamente o plano.
+  useEffect(() => {
+    let vivo = true
+
+    autenticacaoApi
+      .serventia()
+      .then((r) => vivo && setNomeDaServentia(r.nome))
+      // Falha aqui não pode impedir o login: quem sabe a senha entra mesmo sem o
+      // letreiro. O nome genérico é degradação aceitável, não erro de tela.
+      .catch(() => vivo && setNomeDaServentia('Cartório'))
+
+    return () => {
+      vivo = false
+    }
+  }, [])
 
   if (!carregando && atendente) {
     return <Navigate to="/" replace />
@@ -47,8 +68,17 @@ export function PaginaLogin() {
           <div className="flex size-11 items-center justify-center rounded-md border border-linha-forte bg-branco text-tinta-media">
             <Building2 className="size-5" />
           </div>
-          <div>
-            <h1 className="font-titulo text-xl text-tinta">Cartório de Gameleiras</h1>
+          <div className="w-full">
+            {/* Altura reservada com min-h: sem isso o bloco cresce quando o nome
+                chega e empurra o formulário para baixo com o usuário já mirando
+                o campo de e-mail. */}
+            <div className="flex min-h-7 items-center justify-center">
+              {nomeDaServentia === null ? (
+                <Skeleton className="h-5 w-52" />
+              ) : (
+                <h1 className="font-titulo text-xl leading-tight text-tinta">{nomeDaServentia}</h1>
+              )}
+            </div>
             <p className="mt-0.5 text-[11px] uppercase tracking-wider text-tinta-fraca">
               Atendimento via WhatsApp
             </p>
