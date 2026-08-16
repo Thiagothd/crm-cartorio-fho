@@ -36,3 +36,9 @@ appsettings.Development.json
 # Sistema operacional
 Thumbs.db
 .DS_Store
+
+# Logs de execução local (dotnet run / npm run dev) — regenerados a cada
+# sessão, sem valor de histórico; versionar só produziria diff de ruído a
+# cada vez que alguém rodar o app.
+*-dev.out.log
+*-dev.err.log
