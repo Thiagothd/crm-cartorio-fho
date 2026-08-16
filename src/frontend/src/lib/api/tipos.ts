@@ -317,6 +317,25 @@ export interface DadosDeCliente {
   ativo?: boolean
 }
 
+/**
+ * Resultado da consulta pública de CEP e de CNPJ. Não é o formato de nenhum
+ * provedor: o backend normaliza os dois antes de entregar.
+ */
+export interface EnderecoConsultado {
+  cep: string
+  logradouro: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+}
+
+export interface EmpresaConsultada {
+  cnpj: string
+  razaoSocial: string | null
+  nomeFantasia: string | null
+  endereco: EnderecoConsultado | null
+}
+
 export interface FiltroDeClientes {
   busca?: string
   incluirInativos?: boolean

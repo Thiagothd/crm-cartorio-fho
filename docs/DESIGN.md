@@ -1,7 +1,7 @@
 # IDENTIDADE VISUAL
 
 > **Status:** direção aprovada pelo cliente. Implementada na Fase 1.
-> **Última atualização:** 2026-08-14
+> **Última atualização:** 2026-08-15
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -415,5 +415,77 @@ painel da aplicação: a separação vem da borda, não de elevação falsa.
   `aria-activedescendant` — foco de verdade na lista interromperia a digitação a
   cada seta.
 - Escolher **insere no campo**. Nunca envia. A revisão do atendente é o ponto.
+
+---
+
+## 11. Preenchimento assistido e validação de campo
+
+Diferente da seção 10, isto **não** é aplicação pontual: é como todo campo que
+consulta ou confere se comporta, hoje e no próximo formulário.
+
+### 11.1 A regra que não se negocia
+
+| Campo | Consulta fonte pública | Valida |
+| --- | --- | --- |
+| **CEP** | **Sim** — preenche logradouro, bairro, cidade e UF | 8 dígitos |
+| **CNPJ** | **Sim** — preenche nome, razão social e endereço | Dígito verificador |
+| **CPF** | **Não. Nunca.** | Dígito verificador |
+
+**CPF não se consulta porque não existe fonte pública e legal que devolva dado
+pessoal a partir de CPF.** O que se encontra por aí é base vazada ou revenda
+irregular. Plugar uma dessas trocaria o argumento central do produto — soberania
+de dados e LGPD num nicho que lida com documento de fé pública — por conveniência
+de digitação. Não vale, e não é assunto reaberto por pedido de tela.
+
+CNPJ é outra coisa: dado de empresa é público por definição e a Receita publica.
+
+A consulta sai do **servidor**, nunca do navegador da estação: o cache serve a
+serventia inteira, só uma máquina precisa de internet, e o endereço do terceiro
+fica em `appsettings` — dá para trocar de provedor ou desligar tudo. Ver
+`Modules/Consultas/README.md`.
+
+### 11.2 Estado do campo
+
+| Estado | Cor | Ícone (`lucide`) | Quando |
+| --- | --- | --- | --- |
+| Consultando | `tinta-fraca` | `Loader2` girando | Chamada em voo |
+| Preenchido | `verde` | `Check` | Achou e preencheu |
+| Aviso | `ambar` | `TriangleAlert` | Não achou, serviço fora, ou DV não confere |
+
+Texto de 11px, na mesma linha do texto de ajuda do campo — **substitui** a ajuda
+enquanto durar, para o campo não crescer duas linhas.
+
+**Sem bordô.** Falha de consulta não é falha de prazo legal; gastar `selo` aqui
+comeria a cota de 3 por tela (seção 2.1) numa tela que já usa o bordô no botão
+primário e no asterisco de obrigatório.
+
+**Cor nunca é o único sinal** — mesma regra de 10.4. Todo estado leva ícone e
+texto.
+
+### 11.3 Preenchimento não apaga trabalho
+
+- **CEP sobrescreve** logradouro, bairro, cidade e UF. Quem trocou o CEP trocou o
+  endereço. Número e complemento nunca são tocados: são do imóvel, não do CEP.
+- **CNPJ só preenche o que está vazio**, exceto razão social. O endereço vem de
+  brinde na consulta; sobrescrever o que o atendente digitou seria destruir dado
+  para entregar comodidade.
+- Todo campo preenchido continua **editável à mão**. A consulta sugere; quem
+  responde pelo cadastro é o atendente.
+
+### 11.4 Validação avisa, não tranca
+
+Dígito verificador inválido pinta o aviso e **não bloqueia o salvamento**. No
+balcão aparece documento antigo e documento de terceiro, e recusar por conta
+disso travaria atendimento — mesma razão registrada em
+`ClienteService.ValidarDocumento`. O backend segue conferindo só o tamanho.
+
+### 11.5 Máscara
+
+CPF, CNPJ, CEP e telefone são **IBM Plex Mono** (`font-dado`, seção 3): é dado
+conferível caractere a caractere.
+
+A máscara formata enquanto se digita e aceita dígito corrido, colado ou digitado.
+Regra de implementação em `lib/mascaras.ts`: **nunca emitir separador à direita**
+(`38` vira `(38`, não `(38) `), senão o backspace trava.
 
 ---

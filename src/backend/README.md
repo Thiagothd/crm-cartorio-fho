@@ -107,6 +107,7 @@ CrmCartorio.Api/
     ├── Atendimento/      ← Conversa, Mensagem, HistoricoEtapa — a trava mora aqui
     ├── Clientes/
     ├── Configuracoes/    ← Setor, EtapaFunil, MensagemAutomatica, RespostaRapida
+    ├── Consultas/        ← CEP e CNPJ em fonte pública; sem entidade e sem tabela
     ├── Servicos/         ← TipoServico e PrazoServico (SLA)
     ├── Tenants/
     └── Usuarios/         ← Atendente e autenticação

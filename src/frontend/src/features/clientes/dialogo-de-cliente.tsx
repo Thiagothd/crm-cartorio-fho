@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
+import { Check, Loader2, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,11 +22,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { clientesApi } from '@/lib/api/endpoints'
+import { clientesApi, consultasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { cn } from '@/lib/utils'
+import {
+  cnpjEhValido,
+  cpfEhValido,
+  mascararCep,
+  mascararCnpj,
+  mascararCpf,
+  mascararTelefone,
+  somenteDigitos,
+} from '@/lib/mascaras'
 import type {
   Cliente,
   DadosDeCliente,
+  EnderecoConsultado,
   EstadoCivil,
   RegimeDeBens,
   TipoDePessoa,
@@ -79,13 +91,155 @@ export function DialogoDeCliente({
 }) {
   const [dados, setDados] = useState<DadosDeCliente>(VAZIO)
   const [salvando, setSalvando] = useState(false)
+  const [estadoDoCep, setEstadoDoCep] = useState<EstadoDoCampo | null>(null)
+  const [estadoDoDocumento, setEstadoDoDocumento] = useState<EstadoDoCampo | null>(null)
+
+  const fisica = (dados.tipo ?? 'Fisica') === 'Fisica'
+
+  // Guarda o que já foi consultado: sem isso, apagar e redigitar o último dígito
+  // do CEP dispara a mesma consulta de novo a cada tecla.
+  const ultimoCepConsultado = useRef('')
+  const ultimoCnpjConsultado = useRef('')
+  const consultaEmVoo = useRef<AbortController | null>(null)
+  const campoNumero = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (aberto) setDados(dadosDoCliente(cliente))
+    if (!aberto) return
+
+    setDados(dadosDoCliente(cliente))
+    setEstadoDoCep(null)
+    setEstadoDoDocumento(null)
+    ultimoCepConsultado.current = ''
+    ultimoCnpjConsultado.current = ''
   }, [aberto, cliente])
+
+  // Fechar o diálogo no meio de uma consulta não pode deixar a resposta chegar
+  // depois e escrever num formulário que já é de outro cliente.
+  useEffect(() => () => consultaEmVoo.current?.abort(), [])
 
   function atualizar<K extends keyof DadosDeCliente>(campo: K, valor: DadosDeCliente[K]) {
     setDados((atuais) => ({ ...atuais, [campo]: valor }))
+  }
+
+  /** Abre uma consulta cancelando a anterior, e devolve o controle para quem chamou. */
+  function abrirConsulta() {
+    consultaEmVoo.current?.abort()
+    const controle = new AbortController()
+    consultaEmVoo.current = controle
+    return controle
+  }
+
+  async function consultarCep(cep: string) {
+    if (ultimoCepConsultado.current === cep) return
+    ultimoCepConsultado.current = cep
+
+    const controle = abrirConsulta()
+    setEstadoDoCep({ tom: 'carregando', texto: 'Consultando o CEP…' })
+
+    try {
+      const endereco = await consultasApi.cep(cep, controle.signal)
+
+      // Aqui sobrescreve mesmo: quem trocou o CEP trocou o endereço. Número e
+      // complemento ficam de fora — não vêm no resultado e são do imóvel.
+      setDados((atuais) => ({
+        ...atuais,
+        logradouro: endereco.logradouro,
+        bairro: endereco.bairro,
+        cidade: endereco.cidade,
+        uf: endereco.uf,
+      }))
+
+      setEstadoDoCep({ tom: 'ok', texto: 'Endereço preenchido. Falta o número.' })
+      campoNumero.current?.focus()
+    } catch (falha) {
+      if (controle.signal.aborted) return
+      setEstadoDoCep({ tom: 'aviso', texto: explicarFalha(falha, 'CEP') })
+    }
+  }
+
+  async function consultarCnpj(cnpj: string) {
+    if (ultimoCnpjConsultado.current === cnpj) return
+    ultimoCnpjConsultado.current = cnpj
+
+    const controle = abrirConsulta()
+    setEstadoDoDocumento({ tom: 'carregando', texto: 'Consultando o CNPJ…' })
+
+    try {
+      const empresa = await consultasApi.cnpj(cnpj, controle.signal)
+      let preenchidos: string[] = []
+
+      setDados((atuais) => {
+        const aplicado = aplicarEmpresa(atuais, empresa)
+        preenchidos = aplicado.preenchidos
+        return aplicado.dados
+      })
+
+      setEstadoDoDocumento({ tom: 'ok', texto: 'Empresa encontrada.' })
+
+      // O resultado cai em OUTRAS abas (Contato e Endereço). Sem o aviso, o
+      // preenchimento acontece fora do campo de visão e ninguém vê.
+      if (preenchidos.length > 0) {
+        toast.success(`Preenchido pelo CNPJ: ${preenchidos.join(', ')}.`)
+      }
+    } catch (falha) {
+      if (controle.signal.aborted) return
+      setEstadoDoDocumento({ tom: 'aviso', texto: explicarFalha(falha, 'CNPJ') })
+    }
+  }
+
+  function aoMudarCep(valor: string) {
+    const digitos = somenteDigitos(valor).slice(0, 8)
+    atualizar('cep', digitos || null)
+
+    if (digitos.length === 8) {
+      void consultarCep(digitos)
+      return
+    }
+
+    setEstadoDoCep(null)
+    ultimoCepConsultado.current = ''
+  }
+
+  function aoMudarDocumento(valor: string) {
+    const digitos = somenteDigitos(valor).slice(0, fisica ? 11 : 14)
+    atualizar('documento', digitos || null)
+
+    if (fisica) {
+      // CPF só confere e avisa. Não existe consulta, e a ausência dela é
+      // decisão registrada — ver lib/mascaras.ts e DESIGN.md, seção 11.
+      setEstadoDoDocumento(
+        digitos.length === 11 && !cpfEhValido(digitos)
+          ? { tom: 'aviso', texto: 'Dígito verificador não confere. Confira o documento.' }
+          : null,
+      )
+      return
+    }
+
+    if (digitos.length < 14) {
+      setEstadoDoDocumento(null)
+      ultimoCnpjConsultado.current = ''
+      return
+    }
+
+    if (!cnpjEhValido(digitos)) {
+      // Consultar um CNPJ que já se sabe inválido só gasta a espera do atendente.
+      setEstadoDoDocumento({
+        tom: 'aviso',
+        texto: 'Dígito verificador não confere. Confira o documento.',
+      })
+      ultimoCnpjConsultado.current = ''
+      return
+    }
+
+    void consultarCnpj(digitos)
+  }
+
+  function aoMudarTipo(valor: TipoDePessoa) {
+    // Documento não sobrevive à troca: CPF tem 11 dígitos e CNPJ tem 14, e o que
+    // ficava para trás só reaparecia como erro do backend na hora de salvar.
+    setDados((atuais) => ({ ...atuais, tipo: valor, documento: null }))
+    setEstadoDoDocumento(null)
+    ultimoCnpjConsultado.current = ''
   }
 
   async function salvar() {
@@ -104,8 +258,6 @@ export function DialogoDeCliente({
       setSalvando(false)
     }
   }
-
-  const fisica = (dados.tipo ?? 'Fisica') === 'Fisica'
 
   return (
     <Dialog open={aberto} onOpenChange={(valor) => !valor && aoFechar()}>
@@ -131,7 +283,7 @@ export function DialogoDeCliente({
                 <Input id="cliente-nome" autoFocus value={dados.nome} onChange={(e) => atualizar('nome', e.target.value)} />
               </Campo>
               <Campo rotulo="Tipo de pessoa">
-                <Select value={dados.tipo ?? 'Fisica'} onValueChange={(valor) => atualizar('tipo', valor as TipoDePessoa)}>
+                <Select value={dados.tipo ?? 'Fisica'} onValueChange={(valor) => aoMudarTipo(valor as TipoDePessoa)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Fisica">Pessoa física</SelectItem>
@@ -141,12 +293,17 @@ export function DialogoDeCliente({
               </Campo>
             </div>
 
+            {/* Os dois campos aceitam dígito corrido, colado ou digitado, e a
+                máscara formata sozinha. Na edição o valor chega em E.164
+                (5538999000045) e sai daqui legível — antes ele aparecia cru ao
+                lado de um placeholder que prometia outro formato, e o atendente
+                "corrigia" o número até quebrar. */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Campo rotulo="WhatsApp" htmlFor="cliente-whatsapp" obrigatorio ajuda="DDD e número; o sistema inclui o código 55.">
-                <Input id="cliente-whatsapp" type="tel" autoComplete="tel" value={dados.telefoneWhatsapp} onChange={(e) => atualizar('telefoneWhatsapp', e.target.value)} placeholder="(38) 99999-0001" />
+                <Input id="cliente-whatsapp" type="tel" autoComplete="tel" className="font-dado" value={mascararTelefone(dados.telefoneWhatsapp)} onChange={(e) => atualizar('telefoneWhatsapp', mascararTelefone(e.target.value))} placeholder="(38) 99999-0001" />
               </Campo>
-              <Campo rotulo="Telefone alternativo" htmlFor="cliente-telefone-alternativo">
-                <Input id="cliente-telefone-alternativo" type="tel" value={dados.telefoneAlternativo ?? ''} onChange={(e) => atualizar('telefoneAlternativo', e.target.value || null)} />
+              <Campo rotulo="Telefone alternativo" htmlFor="cliente-telefone-alternativo" ajuda="Fixo ou segundo celular. Mesmo formato.">
+                <Input id="cliente-telefone-alternativo" type="tel" className="font-dado" value={mascararTelefone(dados.telefoneAlternativo ?? '')} onChange={(e) => atualizar('telefoneAlternativo', mascararTelefone(e.target.value) || null)} placeholder="(38) 3221-1234" />
               </Campo>
             </div>
 
@@ -168,8 +325,25 @@ export function DialogoDeCliente({
 
           <TabsContent value="qualificacao" className="mt-4 grid gap-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Campo rotulo={fisica ? 'CPF' : 'CNPJ'} htmlFor="cliente-documento">
-                <Input id="cliente-documento" inputMode="numeric" className="font-dado" value={dados.documento ?? ''} onChange={(e) => atualizar('documento', e.target.value || null)} />
+              {/* CNPJ consulta; CPF não. Não é assimetria por preguiça: dado de
+                  empresa é público e a Receita publica, enquanto dado pessoal por
+                  CPF não tem fonte pública e legal nenhuma. Ver DESIGN.md, seção
+                  11, e Modules/Consultas/README.md antes de "completar" isto. */}
+              <Campo
+                rotulo={fisica ? 'CPF' : 'CNPJ'}
+                htmlFor="cliente-documento"
+                ajuda={fisica ? undefined : 'Preenche nome e endereço da empresa.'}
+                estado={estadoDoDocumento}
+              >
+                <Input
+                  id="cliente-documento"
+                  inputMode="numeric"
+                  className="font-dado"
+                  maxLength={fisica ? 14 : 18}
+                  placeholder={fisica ? '000.000.000-00' : '00.000.000/0000-00'}
+                  value={(fisica ? mascararCpf : mascararCnpj)(dados.documento ?? '')}
+                  onChange={(e) => aoMudarDocumento(e.target.value)}
+                />
               </Campo>
 
               {fisica ? (
@@ -182,7 +356,7 @@ export function DialogoDeCliente({
                       <Input id="cliente-orgao" value={dados.orgaoEmissor ?? ''} onChange={(e) => atualizar('orgaoEmissor', e.target.value || null)} />
                     </Campo>
                     <Campo rotulo="UF" htmlFor="cliente-uf-orgao">
-                      <Input id="cliente-uf-orgao" maxLength={2} value={dados.ufOrgaoEmissor ?? ''} onChange={(e) => atualizar('ufOrgaoEmissor', e.target.value || null)} />
+                      <Input id="cliente-uf-orgao" maxLength={2} className="uppercase" value={dados.ufOrgaoEmissor ?? ''} onChange={(e) => atualizar('ufOrgaoEmissor', e.target.value.toUpperCase() || null)} />
                     </Campo>
                   </div>
                 </>
@@ -239,14 +413,27 @@ export function DialogoDeCliente({
 
           <TabsContent value="endereco" className="mt-4 grid gap-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr_120px]">
-              <Campo rotulo="CEP" htmlFor="cliente-cep">
-                <Input id="cliente-cep" inputMode="numeric" className="font-dado" value={dados.cep ?? ''} onChange={(e) => atualizar('cep', e.target.value || null)} />
+              <Campo
+                rotulo="CEP"
+                htmlFor="cliente-cep"
+                ajuda="Ao completar, o endereço vem sozinho."
+                estado={estadoDoCep}
+              >
+                <Input
+                  id="cliente-cep"
+                  inputMode="numeric"
+                  className="font-dado"
+                  maxLength={9}
+                  placeholder="00000-000"
+                  value={mascararCep(dados.cep ?? '')}
+                  onChange={(e) => aoMudarCep(e.target.value)}
+                />
               </Campo>
               <Campo rotulo="Logradouro" htmlFor="cliente-logradouro">
                 <Input id="cliente-logradouro" autoComplete="street-address" value={dados.logradouro ?? ''} onChange={(e) => atualizar('logradouro', e.target.value || null)} />
               </Campo>
               <Campo rotulo="Número" htmlFor="cliente-numero">
-                <Input id="cliente-numero" value={dados.numero ?? ''} onChange={(e) => atualizar('numero', e.target.value || null)} />
+                <Input id="cliente-numero" ref={campoNumero} value={dados.numero ?? ''} onChange={(e) => atualizar('numero', e.target.value || null)} />
               </Campo>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -262,7 +449,7 @@ export function DialogoDeCliente({
                 <Input id="cliente-cidade" value={dados.cidade ?? ''} onChange={(e) => atualizar('cidade', e.target.value || null)} />
               </Campo>
               <Campo rotulo="UF" htmlFor="cliente-uf">
-                <Input id="cliente-uf" maxLength={2} value={dados.uf ?? ''} onChange={(e) => atualizar('uf', e.target.value || null)} />
+                <Input id="cliente-uf" maxLength={2} className="uppercase" value={dados.uf ?? ''} onChange={(e) => atualizar('uf', e.target.value.toUpperCase() || null)} />
               </Campo>
             </div>
           </TabsContent>
@@ -300,21 +487,136 @@ function Campo({
   htmlFor,
   obrigatorio,
   ajuda,
+  estado,
   children,
 }: {
   rotulo: string
   htmlFor?: string
   obrigatorio?: boolean
   ajuda?: string
+  estado?: EstadoDoCampo | null
   children: ReactNode
 }) {
+  const Icone = ICONE_DO_TOM[estado?.tom ?? 'carregando']
+
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <Label htmlFor={htmlFor}>
         {rotulo}{obrigatorio ? <span className="text-selo"> *</span> : null}
       </Label>
       {children}
-      {ajuda ? <p className="text-[11px] text-tinta-fraca">{ajuda}</p> : null}
+      {estado ? (
+        // Ícone junto do texto porque cor nunca é o único sinal (DESIGN.md, 10.4).
+        // Âmbar e verde bastam aqui: erro de consulta não é falha de prazo legal,
+        // e gastar bordô nisso comeria a cota de 3 por tela.
+        <p
+          className={cn(
+            'flex items-start gap-1.5 text-[11px] leading-snug',
+            TOM_DO_ESTADO[estado.tom],
+          )}
+          role="status"
+        >
+          <Icone
+            className={cn('mt-px size-3 shrink-0', estado.tom === 'carregando' && 'animate-spin')}
+          />
+          {estado.texto}
+        </p>
+      ) : ajuda ? (
+        <p className="text-[11px] text-tinta-fraca">{ajuda}</p>
+      ) : null}
     </div>
   )
+}
+
+/** Estado de um campo com preenchimento assistido. Ver DESIGN.md, seção 11. */
+type EstadoDoCampo = {
+  tom: 'carregando' | 'aviso' | 'ok'
+  texto: string
+}
+
+const TOM_DO_ESTADO = {
+  carregando: 'text-tinta-fraca',
+  aviso: 'text-ambar',
+  ok: 'text-verde',
+} as const
+
+const ICONE_DO_TOM = {
+  carregando: Loader2,
+  aviso: TriangleAlert,
+  ok: Check,
+} as const
+
+/**
+ * Traduz a falha da consulta para o que o atendente precisa fazer. O código vem
+ * do backend e é estável; a mensagem, não — por isso a decisão é pelo código.
+ */
+function explicarFalha(falha: unknown, oQue: string) {
+  if (falha instanceof ErroDaApi) {
+    if (falha.codigo === 'consulta_nao_encontrada') {
+      return `${oQue} não encontrado na base pública. Preencha manualmente.`
+    }
+
+    if (falha.codigo === 'consulta_indisponivel') {
+      return 'Consulta indisponível agora. Preencha manualmente.'
+    }
+  }
+
+  return 'Não foi possível consultar. Preencha manualmente.'
+}
+
+/**
+ * Aplica o resultado do CNPJ sem apagar o que o atendente já digitou, e devolve
+ * o que de fato mudou — é o que o aviso da tela precisa nomear.
+ *
+ * Pura de propósito: quem chama a usa dentro de um atualizador de estado, e
+ * atualizador que guarda efeito colateral roda duas vezes em desenvolvimento.
+ */
+function aplicarEmpresa(
+  atuais: DadosDeCliente,
+  empresa: { razaoSocial: string | null; nomeFantasia: string | null; endereco: EnderecoConsultado | null },
+): { dados: DadosDeCliente; preenchidos: string[] } {
+  const dados = { ...atuais }
+  const preenchidos: string[] = []
+
+  // Razão social é campo formal e vem da Receita: sobrescreve.
+  if (empresa.razaoSocial) {
+    dados.razaoSocial = empresa.razaoSocial
+    preenchidos.push('razão social')
+  }
+
+  // Nome é o que o atendente vê no WhatsApp e pode já ter ajustado à mão —
+  // só entra se estiver vazio.
+  const nome = empresa.nomeFantasia ?? empresa.razaoSocial
+  if (nome && !dados.nome.trim()) {
+    dados.nome = nome
+    preenchidos.push('nome')
+  }
+
+  // Endereço aqui é brinde, não o que foi pedido: preenche só o que está vazio.
+  // Diferente do CEP, onde sobrescrever é o comportamento certo.
+  const endereco = empresa.endereco
+  let mexeuNoEndereco = false
+
+  if (endereco) {
+    const campos = [
+      ['cep', endereco.cep],
+      ['logradouro', endereco.logradouro],
+      ['bairro', endereco.bairro],
+      ['cidade', endereco.cidade],
+      ['uf', endereco.uf],
+    ] as const
+
+    for (const [campo, valor] of campos) {
+      if (valor && !dados[campo]?.trim()) {
+        dados[campo] = valor
+        mexeuNoEndereco = true
+      }
+    }
+  }
+
+  if (mexeuNoEndereco) {
+    preenchidos.push('endereço')
+  }
+
+  return { dados, preenchidos }
 }

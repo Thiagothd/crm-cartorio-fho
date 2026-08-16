@@ -8,6 +8,8 @@ import type {
   ConversaDetalhada,
   DadosDeCliente,
   DestinoDeEncaminhamento,
+  EmpresaConsultada,
+  EnderecoConsultado,
   Etapa,
   FiltroDeClientes,
   FiltroDeConversas,
@@ -120,6 +122,23 @@ export const clientesApi = {
 
   atualizar: (id: string, dados: DadosDeCliente) =>
     api.put<Cliente>(`/api/clientes/${id}`, dados),
+}
+
+// Consultas públicas --------------------------------------------------------
+
+/**
+ * Preenchimento assistido do cadastro. Sai pelo servidor da serventia, não pelo
+ * navegador — o cache é de todo mundo e só uma máquina precisa de internet.
+ *
+ * Não há consulta por CPF, e não é esquecimento: não existe fonte pública e legal
+ * para dado pessoal a partir de CPF. Ver Modules/Consultas/README.md.
+ */
+export const consultasApi = {
+  cep: (cep: string, sinal?: AbortSignal) =>
+    api.get<EnderecoConsultado>(`/api/consultas/cep/${cep}`, sinal),
+
+  cnpj: (cnpj: string, sinal?: AbortSignal) =>
+    api.get<EmpresaConsultada>(`/api/consultas/cnpj/${cnpj}`, sinal),
 }
 
 // Setores e etapas ----------------------------------------------------------

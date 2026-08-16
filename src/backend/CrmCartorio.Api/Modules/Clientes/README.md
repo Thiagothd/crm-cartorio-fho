@@ -16,6 +16,22 @@ sozinho. Ninguém digita "+55" no meio de um atendimento.
 Exigir CPF no primeiro "bom dia" trava o atendimento. Quando informado, é
 validado (11 ou 14 dígitos) e guardado só com dígitos.
 
+**O backend não valida dígito verificador, e isso é decisão, não esquecimento.**
+No balcão aparece documento antigo e documento de terceiro; recusar por conta
+disso travaria atendimento. O que se valida aqui é o tamanho, que já pega erro de
+digitação.
+
+A tela confere o DV e mostra **aviso em âmbar** quando não fecha — sem bloquear o
+salvamento. As duas camadas dizem a mesma coisa de propósito: uma avisa, nenhuma
+recusa. Mudar uma sem a outra faz o cadastro parecer quebrado.
+
+## CNPJ preenche sozinho; CPF não
+
+CNPJ e CEP consultam fonte pública e preenchem o cadastro
+([Modules/Consultas](../Consultas/README.md)). **CPF não tem consulta e não vai
+ter**: não existe fonte pública e legal de dado pessoal a partir de CPF. Ver
+DESIGN.md, seção 11.
+
 ## Nome
 
 Nasce como o nome do perfil do WhatsApp e é corrigido pelo atendente quando a

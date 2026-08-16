@@ -10,6 +10,7 @@ using CrmCartorio.Api.Infrastructure.Web;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
+using CrmCartorio.Api.Modules.Consultas.Application;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
@@ -23,6 +24,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<OpcoesDeJwt>(builder.Configuration.GetSection(OpcoesDeJwt.Secao));
 builder.Services.Configure<OpcoesDeAutomacao>(builder.Configuration.GetSection(OpcoesDeAutomacao.Secao));
+builder.Services.Configure<OpcoesDeConsultaPublica>(
+    builder.Configuration.GetSection(OpcoesDeConsultaPublica.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 
@@ -69,6 +72,17 @@ builder.Services.AddScoped<IDisparadorDeMensagemAutomatica, DisparadorDeMensagem
 builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
+
+// Consulta de CEP e CNPJ. O cache e singleton de proposito: e da serventia
+// inteira, nao da requisicao — cartorio atende a mesma cidade o dia todo.
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IConsultaPublicaService, ConsultaPublicaService>(http =>
+{
+    // Sem User-Agent a BrasilAPI responde 429 e a consulta nunca funciona — ela
+    // trata requisicao anonima como robo. Identificar-se tambem e boa educacao
+    // com quem mantem servico publico de graca.
+    http.DefaultRequestHeaders.UserAgent.ParseAdd("CrmCartorio/1.0 (self-hosted)");
+});
 
 // Os gatilhos de prazo sao os unicos que ninguem provoca — prazo simplesmente passa.
 // Ver IVarredorDePrazos para o motivo de nao serem calculados na leitura da inbox.

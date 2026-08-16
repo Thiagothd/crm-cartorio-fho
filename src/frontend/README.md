@@ -45,7 +45,22 @@ src/
 └── pages/            ← componentes de rota
 ```
 
-Componente nunca chama `fetch` direto: tudo passa por `lib/api/`.
+Componente nunca chama `fetch` direto: tudo passa por `lib/api/`. Vale inclusive
+para a consulta de CEP e CNPJ, que sai pelo backend (`consultasApi`) e não pelo
+navegador — ver `Modules/Consultas/README.md`.
+
+## Formatar entrada e formatar saída são coisas diferentes
+
+Duas famílias em `lib/`, e trocar uma pela outra dá defeito sutil:
+
+| Arquivo | Para quê | Comportamento com valor pela metade |
+| --- | --- | --- |
+| `formatacao.ts` | **Saída** — tabela, lista, cabeçalho | Devolve lixo (`formatarTelefone('389')` → `+389`) |
+| `mascaras.ts` | **Entrada** — campo de formulário | Formata o que já tem e espera o resto |
+
+Regra das máscaras: **nunca emitir separador à direita**, senão o backspace
+trava. E `cpfEhValido`/`cnpjEhValido` são **aviso, nunca bloqueio** — a razão está
+em DESIGN.md, seção 11.
 
 ## Como a trava aparece na tela
 
