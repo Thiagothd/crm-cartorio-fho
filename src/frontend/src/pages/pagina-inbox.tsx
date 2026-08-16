@@ -55,11 +55,17 @@ export function PaginaInbox() {
   // como reserva. Os dois lados precisam produzir o mesmo texto.
   const nomeCartorio = tenant?.nomeFantasia ?? tenant?.razaoSocial ?? ''
 
-  // Fica lembrado entre sessões: quem trabalha em notebook recolhe uma vez e não
-  // quer refazer isso a cada login.
+  // Nasce RECOLHIDO. Indicadores e funil comem ~110px fixos do topo, e num
+  // notebook isso sai direto do fio de mensagens — que é onde o atendimento
+  // acontece. Quem quiser o painel expande uma vez e fica lembrado.
+  //
+  // O sufixo .v2 na chave é obrigatório: a versão anterior do hook gravava no
+  // localStorage já na montagem, então todo navegador que abriu a inbox uma vez
+  // tem 'false' guardado sem ninguém ter escolhido nada. Sem trocar a chave, o
+  // novo padrão não chegaria em quem já usa o sistema.
   const [painelRecolhido, alternarPainel] = usarPreferenciaLocal(
-    'crm-cartorio.painel-recolhido',
-    false,
+    'crm-cartorio.painel-recolhido.v2',
+    true,
   )
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
