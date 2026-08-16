@@ -14,6 +14,7 @@ public class MensagemService(
     IConversaService conversas,
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
+    IEnviadorDeCanal canal,
     ILogger<MensagemService> log) : IMensagemService, IAcoesDeMensagem
 {
     public async Task<IReadOnlyList<MensagemResponse>> ListarAsync(
@@ -126,9 +127,13 @@ public class MensagemService(
             Tipo = TipoMensagem.Texto,
             MensagemRespondidaId = request.MensagemRespondidaId,
 
-            // Fase 1 nao tem confirmacao real da Meta. Na Fase 2 isso nasce como
-            // Pendente e o webhook de status promove para Entregue/Lida.
-            StatusEntrega = StatusEntrega.Enviada,
+            // Conversa de WhatsApp nasce Pendente: o envio real acontece depois do
+            // commit, e so entao vira Enviada com o id externo. Conversa simulada
+            // continua nascendo Enviada — nao ha canal para confirmar coisa alguma,
+            // e Pendente eterno mentiria no fio.
+            StatusEntrega = conversa.Canal == CanalOrigem.WhatsApp
+                ? StatusEntrega.Pendente
+                : StatusEntrega.Enviada,
             EnviadaEm = agora
         };
 
@@ -152,6 +157,12 @@ public class MensagemService(
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.UltimaMensagemEm, agora)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
+
+        // Entrega de verdade, DEPOIS do commit. O adaptador decide pelo canal da
+        // conversa: WhatsApp sai, simulada nao. Nao lanca — falha vira StatusEntrega
+        // .Falha, porque a mensagem ja esta no fio e derrubar a requisicao aqui
+        // faria o atendente clicar de novo e duplicar.
+        await canal.EnviarAsync(mensagem.Id, ct);
 
         var resposta = await ObterUmaAsync(mensagem.Id, conversaId, ct);
 
@@ -236,83 +247,20 @@ public class MensagemService(
     }
 
     /// <summary>
-    /// Le a resposta do cliente ao menu de triagem: acerta o setor quando reconhece a
-    /// opcao, avisa que vai para atendimento humano quando nao reconhece.
+    /// Le a resposta do cliente ao menu de triagem.
     /// </summary>
     /// <remarks>
-    /// A flag sai em TODOS os caminhos, e isso e o requisito, nao um detalhe: uma
-    /// unica tentativa e o suficiente. Repetir o menu ate o cliente acertar prende
-    /// quem escreveu "bom dia" num loop de robo — o pior comportamento possivel num
-    /// canal de cartorio, e o motivo pelo qual gente desiste de atendimento por
-    /// WhatsApp.
+    /// A regra mora em <see cref="AplicadorDeTriagem"/> desde a Fase 2, porque o
+    /// webhook do WhatsApp real precisa da MESMA triagem que a simulacao pelo
+    /// painel. Duas copias divergiriam na primeira mudanca, e a divergencia so
+    /// apareceria na conversa de um cliente de verdade.
     /// </remarks>
-    private async Task ResponderTriagemAsync(
+    private Task ResponderTriagemAsync(
         Conversa conversa,
         string conteudo,
         DateTime agora,
-        CancellationToken ct)
-    {
-        conversa.AguardandoTriagem = false;
-
-        // Alguem da serventia roteou a conversa enquanto o menu estava no ar. A
-        // escolha da pessoa vale mais que a do robo, e nao ha o que avisar ao
-        // cliente: um atendente ja esta com o caso.
-        if (conversa.SetorId is not null)
-        {
-            return;
-        }
-
-        var setores = await automaticas.SetoresDoMenuAsync(conversa.TenantId, ct);
-        var escolhido = TriagemAutomatica.InterpretarResposta(conteudo, setores);
-
-        if (escolhido is null)
-        {
-            log.LogInformation(
-                "Triagem da conversa {ConversaId} sem correspondencia — encaminhada para atendimento humano",
-                conversa.Id);
-
-            await automaticas.EnfileirarAsync(
-                conversa, GatilhoDeMensagem.TriagemSemCorrespondencia, ct: ct);
-
-            return;
-        }
-
-        conversa.SetorId = escolhido;
-
-        var nomeDoSetor = setores.First(s => s.Id == escolhido).Nome;
-
-        // AtendenteId nulo no historico e o que o modelo definiu para "mudanca
-        // automatica" (MODELO-DADOS.md, 3.10). A trilha registra que foi o sistema,
-        // nao um atendente cujo nome nao caberia aqui.
-        db.HistoricoEtapas.Add(new HistoricoEtapa
-        {
-            TenantId = conversa.TenantId,
-            ConversaId = conversa.Id,
-            TipoMudanca = TipoMudancaHistorico.Setor,
-            SetorNovoId = escolhido,
-            AtendenteId = null,
-            OcorridoEm = agora,
-            Observacao = "Setor definido pela triagem automatica do primeiro contato."
-        });
-
-        // Anotacao interna, nao mensagem ao cliente: EhAutomatica fica falso. Quem
-        // abrir a conversa depois precisa saber por que ela esta neste setor sem
-        // ninguem ter mexido.
-        db.Mensagens.Add(new Mensagem
-        {
-            TenantId = conversa.TenantId,
-            ConversaId = conversa.Id,
-            AutorTipo = AutorTipo.Sistema,
-            Conteudo = $"Triagem automatica encaminhou o atendimento ao setor {nomeDoSetor}.",
-            Tipo = TipoMensagem.Texto,
-            StatusEntrega = StatusEntrega.Entregue,
-            EnviadaEm = agora,
-            LidaEm = agora
-        });
-
-        log.LogInformation(
-            "Triagem da conversa {ConversaId} encaminhou ao setor {SetorId}", conversa.Id, escolhido);
-    }
+        CancellationToken ct) =>
+        AplicadorDeTriagem.AplicarAsync(db, automaticas, conversa, conteudo, agora, log, ct);
 
     // ------------------------------------------------- acoes do menu de contexto
 

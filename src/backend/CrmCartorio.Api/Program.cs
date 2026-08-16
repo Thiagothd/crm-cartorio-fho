@@ -8,6 +8,7 @@ using CrmCartorio.Api.Infrastructure.Realtime;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Infrastructure.Web;
 using CrmCartorio.Api.Modules.Atendimento.Application;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
@@ -26,6 +27,8 @@ builder.Services.Configure<OpcoesDeJwt>(builder.Configuration.GetSection(OpcoesD
 builder.Services.Configure<OpcoesDeAutomacao>(builder.Configuration.GetSection(OpcoesDeAutomacao.Secao));
 builder.Services.Configure<OpcoesDeConsultaPublica>(
     builder.Configuration.GetSection(OpcoesDeConsultaPublica.Secao));
+builder.Services.Configure<OpcoesDoCanalWhatsApp>(
+    builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 
@@ -72,6 +75,15 @@ builder.Services.AddScoped<IDisparadorDeMensagemAutomatica, DisparadorDeMensagem
 builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
+
+// Canal real de WhatsApp (PILOTO, numero pessoal — ver docs/DEPLOY-WHATSAPP.md).
+// O recebimento fica no Atendimento porque e regra de atendimento; so o formato
+// do gateway mora no slice CanalWhatsApp.
+builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();
+builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
+builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
+builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
+builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
 // Consulta de CEP e CNPJ. O cache e singleton de proposito: e da serventia
 // inteira, nao da requisicao — cartorio atende a mesma cidade o dia todo.

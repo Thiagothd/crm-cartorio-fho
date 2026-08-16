@@ -26,6 +26,21 @@ public class Tenant : EntidadeBase
     public string? WhatsappNumeroExibicao { get; set; }
 
     /// <summary>
+    /// Nome da instancia pareada no gateway Evolution. UMA INSTANCIA = UM TENANT.
+    /// </summary>
+    /// <remarks>
+    /// E por aqui que o webhook descobre de qual serventia e a mensagem. O
+    /// endpoint do webhook e anonimo — o gateway nao carrega JWT —, entao nao ha
+    /// token de onde ler o TenantId; o payload traz a instancia e este campo faz
+    /// a ponte.
+    ///
+    /// Nulo enquanto o canal nao foi conectado. Preenchido ao parear pela tela de
+    /// Configuracoes. Piloto: aponta para o numero PESSOAL do Thiago, nao para o
+    /// do cartorio (docs/DEPLOY-WHATSAPP.md).
+    /// </remarks>
+    public string? WhatsappInstancia { get; set; }
+
+    /// <summary>
     /// Textura de fundo do fio de mensagens.
     /// </summary>
     /// <remarks>

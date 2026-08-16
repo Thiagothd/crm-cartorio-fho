@@ -15,6 +15,7 @@ public class ConversaService(
     IGeradorDeProtocolo protocolos,
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
+    IEnviadorDeCanal canal,
     ILogger<ConversaService> log) : IConversaService
 {
     // ---------------------------------------------------------------- leitura
@@ -574,6 +575,14 @@ public class ConversaService(
         }
 
         await db.SaveChangesAsync(ct);
+
+        // O aviso so sai depois do commit, e so em conversa de WhatsApp — o gate
+        // fica no adaptador. E a mensagem de maior valor percebido pelo cliente
+        // ("seu ato esta pronto"), entao vale ela chegar de verdade.
+        if (mudouEtapa)
+        {
+            await canal.EnviarPendentesAsync(id, ct);
+        }
 
         var resumo = await ObterResumoAsync(id, ct);
         await notificador.ConversaAtualizadaAsync(conversa.TenantId, resumo, ct);

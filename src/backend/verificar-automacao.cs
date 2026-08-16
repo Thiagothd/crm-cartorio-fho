@@ -176,6 +176,7 @@ ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome) =>
         new GeradorDeProtocolo(db),
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
         NullLogger<ConversaService>.Instance);
 
 MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
@@ -188,6 +189,7 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
         NovaConversaService(db, quem, nome),
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
         NullLogger<MensagemService>.Instance);
 }
 
@@ -615,6 +617,7 @@ VarredorDePrazos NovoVarredor(CrmDbContext db) =>
     new(db,
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         new NotificadorSilencioso(),
+        new CanalSilencioso(),
         NullLogger<VarredorDePrazos>.Instance);
 
 // ---------------------------------------------------------------------------
@@ -639,6 +642,19 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e a automacao, nao o hub.</summary>
+/// <summary>
+/// Canal que nao entrega nada. O verificador exercita a REGRA de atendimento,
+/// nao o gateway: sair para o WhatsApp real aqui mandaria mensagem de teste para
+/// telefone de gente.
+/// </summary>
+file sealed class CanalSilencioso : IEnviadorDeCanal
+{
+    public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult<string?>(null);
+
+    public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
 file sealed class NotificadorSilencioso : INotificadorDeAtendimento
 {
     public Task ConversaAtribuidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;

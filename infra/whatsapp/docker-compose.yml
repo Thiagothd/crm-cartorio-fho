@@ -1,0 +1,97 @@
+# Evolution API — gateway de WhatsApp do piloto de demonstracao.
+#
+# NAO e a solucao final do cartorio. Roda com o numero PESSOAL do Thiago para
+# demonstrar o canal sem depender dos pre-requisitos da Cloud API oficial da
+# Meta (CNPJ verificado + numero dedicado), que estao travados em terceiro.
+# Ver docs/DEPLOY-WHATSAPP.md e o bloco de mudanca de direcao no CLAUDE.md.
+#
+# Tudo aqui roda no proprio servidor: nenhum dado de conversa sai para nuvem de
+# terceiro. E a mesma soberania de dado que o produto vende como diferencial.
+
+name: crm-cartorio-whatsapp
+
+services:
+  evolution:
+    # Versao FIXADA de proposito: `latest` num gateway que guarda sessao de
+    # WhatsApp e' convite para a sessao cair sozinha depois de um pull.
+    image: atendai/evolution-api:v2.1.1
+    container_name: crm-cartorio-evolution
+    restart: unless-stopped
+    ports:
+      # So no laco local. O gateway nao precisa de porta publica: quem fala com
+      # ele e' a API .NET, na mesma maquina.
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - .env
+    environment:
+      SERVER_URL: ${SERVER_URL}
+
+      # Autenticacao do proprio gateway. A API .NET manda esta chave no header
+      # `apikey` de toda chamada REST.
+      AUTHENTICATION_API_KEY: ${AUTHENTICATION_API_KEY}
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: crm_cartorio
+
+      # O gateway guarda a instancia (a sessao pareada). O historico de conversa
+      # e' do SQL Server do CRM — aqui fica so o que o Baileys precisa para nao
+      # pedir QR de novo a cada restart.
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379
+      CACHE_REDIS_PREFIX_KEY: crm_cartorio
+      CACHE_LOCAL_ENABLED: "false"
+
+      # O webhook e' configurado POR INSTANCIA na hora do pareamento (ver
+      # DEPLOY-WHATSAPP.md), e nao aqui: o token compartilhado que a API .NET
+      # valida vai na URL, e URL com segredo nao entra em variavel global.
+      WEBHOOK_GLOBAL_ENABLED: "false"
+
+      LOG_LEVEL: ${LOG_LEVEL:-ERROR,WARN,INFO}
+      DEL_INSTANCE: "false"
+    volumes:
+      # A SESSAO PAREADA VIVE AQUI. Apagar este volume = parear o QR de novo.
+      # Volume nomeado, nunca bind mount para dentro do repositorio: sessao de
+      # WhatsApp nao pode nem chegar perto de virar arquivo versionado.
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: crm-cartorio-evolution-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_postgres:/var/lib/postgresql/data
+    healthcheck:
+      # O Evolution quebra ao subir se o banco ainda nao aceita conexao.
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm-cartorio-evolution-cache
+    restart: unless-stopped
+    volumes:
+      - evolution_redis:/data
+
+volumes:
+  evolution_instances:
+  evolution_postgres:
+  evolution_redis:

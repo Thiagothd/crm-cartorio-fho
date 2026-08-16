@@ -11,6 +11,7 @@ public class VarredorDePrazos(
     CrmDbContext db,
     IDisparadorDeMensagemAutomatica automaticas,
     INotificadorDeAtendimento notificador,
+    IEnviadorDeCanal canal,
     ILogger<VarredorDePrazos> log) : IVarredorDePrazos
 {
     /// <summary>
@@ -167,6 +168,11 @@ public class VarredorDePrazos(
 
         await db.SaveChangesAsync(ct);
         await transacao.CommitAsync(ct);
+
+        // Depois do commit, nunca dentro da transacao: a varredura reivindica o
+        // aviso por UPDATE condicional, e segurar esse lock pelo tempo de uma
+        // chamada de rede travaria a conversa para quem estiver atendendo.
+        await canal.EnviarPendentesAsync(conversa.Id, ct);
 
         await NotificarAsync(conversa, geradas[0], ct);
 

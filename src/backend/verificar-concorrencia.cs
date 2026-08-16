@@ -133,6 +133,7 @@ ConversaService Servico(CrmDbContext db, int indiceDoAtendente)
         new GeradorDeProtocolo(db),
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
         NullLogger<ConversaService>.Instance);
 }
 
@@ -327,8 +328,20 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
     try
     {
         await using var db = new CrmDbContext(opcoes);
-        var (id, nome, perfil) = atendentes[i % atendentes.Length];
-        var ctx = new ContextoFixo(tenantId, id, nome, perfil);
+        var (id, nome, _) = atendentes[i % atendentes.Length];
+
+        // Perfil Atendente para TODOS, ignorando o perfil semeado de proposito.
+        //
+        // Tres dos quatro atendentes da base sao Supervisor ou Administrador, e
+        // para esses o MensagemService PERMITE escrever em conversa de terceiro
+        // (PodeOperarConversaDeTerceiro) — comportamento desejado, nao furo. Com o
+        // perfil real, quem lesse a conversa depois de outro ja ter assumido
+        // passaria direto pela checagem de responsavel e gravaria, fazendo este
+        // teste falhar de forma intermitente conforme o escalonamento do dia.
+        //
+        // O que o teste mede e a TRAVA, nao o privilegio de supervisao. Nivelar o
+        // perfil isola uma coisa da outra.
+        var ctx = new ContextoFixo(tenantId, id, nome, PerfilDeAtendente.Atendente);
 
         var mensagens = new MensagemService(
             db,
@@ -336,6 +349,7 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
             Servico(db, i),
             new NotificadorSilencioso(),
             new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+            new CanalSilencioso(),
             NullLogger<MensagemService>.Instance);
 
         var enviada = await mensagens.EnviarAsync(
@@ -473,6 +487,19 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e o banco, nao o hub.</summary>
+/// <summary>
+/// Canal que nao entrega nada. O verificador exercita a TRAVA de conversa, nao o
+/// gateway: sair para o WhatsApp real aqui mandaria doze mensagens de teste para
+/// telefone de gente a cada execucao.
+/// </summary>
+file sealed class CanalSilencioso : IEnviadorDeCanal
+{
+    public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult<string?>(null);
+
+    public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
 file sealed class NotificadorSilencioso : INotificadorDeAtendimento
 {
     public Task ConversaAtribuidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;

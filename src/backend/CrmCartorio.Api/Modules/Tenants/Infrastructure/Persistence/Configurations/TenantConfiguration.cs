@@ -20,9 +20,18 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.WhatsappBusinessAccountId).HasMaxLength(64).IsUnicode(false);
         builder.Property(t => t.WhatsappPhoneNumberId).HasMaxLength(64).IsUnicode(false);
         builder.Property(t => t.WhatsappNumeroExibicao).HasMaxLength(20).IsUnicode(false);
+        builder.Property(t => t.WhatsappInstancia).HasMaxLength(120).IsUnicode(false);
         builder.Property(t => t.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(t => t.AtualizadoEm).HasColumnType("datetime2(3)");
 
         builder.HasIndex(t => t.Cnpj).IsUnique().HasDatabaseName("UQ_Tenants_Cnpj");
+
+        // Duas serventias apontando para a mesma instancia fariam a mensagem cair
+        // no atendimento da serventia errada. Filtrado para permitir varios nulos
+        // — quem ainda nao conectou o canal.
+        builder.HasIndex(t => t.WhatsappInstancia)
+            .IsUnique()
+            .HasFilter("[WhatsappInstancia] IS NOT NULL")
+            .HasDatabaseName("UQ_Tenants_WhatsappInstancia");
     }
 }
