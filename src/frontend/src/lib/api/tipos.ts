@@ -318,6 +318,23 @@ export interface DadosDeCliente {
 }
 
 /**
+ * Situação do canal real de WhatsApp.
+ *
+ * PILOTO com número pessoal, não o do cartório — ver docs/DEPLOY-WHATSAPP.md.
+ */
+export interface SituacaoDoCanal {
+  /** O canal está ligado na configuração do servidor. */
+  habilitado: boolean
+  /** A instância está pareada e operante. */
+  conectado: boolean
+  /** Texto cru do gateway: `open`, `connecting`, `close`, `desligado`. */
+  estado: string
+  /** PNG em data-URI enquanto espera a leitura; nulo quando já pareado. */
+  qrCodeBase64: string | null
+  instancia: string | null
+}
+
+/**
  * Resultado da consulta pública de CEP e de CNPJ. Não é o formato de nenhum
  * provedor: o backend normaliza os dois antes de entregar.
  */

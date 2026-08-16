@@ -24,6 +24,7 @@ import type {
   ResumoDoPainel,
   Sessao,
   Setor,
+  SituacaoDoCanal,
   TipoServico,
 } from './tipos'
 
@@ -139,6 +140,19 @@ export const consultasApi = {
 
   cnpj: (cnpj: string, sinal?: AbortSignal) =>
     api.get<EmpresaConsultada>(`/api/consultas/cnpj/${cnpj}`, sinal),
+}
+
+// Canal de WhatsApp ---------------------------------------------------------
+
+/**
+ * Pareamento do número. Só Administrador — conectar o WhatsApp da serventia é
+ * decisão de quem responde por ela.
+ */
+export const whatsappApi = {
+  situacao: () => api.get<SituacaoDoCanal>('/api/whatsapp/situacao'),
+
+  /** Cria a instância se preciso, registra o webhook e devolve o QR. */
+  parear: () => api.post<SituacaoDoCanal>('/api/whatsapp/parear'),
 }
 
 // Setores e etapas ----------------------------------------------------------

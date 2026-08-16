@@ -45,6 +45,12 @@
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+
+/* Obrigatorio desde a migracao 010: dbo.Tenants ganhou um indice FILTRADO
+   (UQ_Tenants_WhatsappInstancia), e o SQL Server recusa escrita em tabela com
+   indice filtrado quando QUOTED_IDENTIFIER esta OFF — que e como o sqlcmd sobe
+   por padrao. Sem esta linha o script falha no terminal e funciona no SSMS. */
+SET QUOTED_IDENTIFIER ON;
 GO
 
 IF DB_NAME() NOT LIKE '%_Dev%' AND DB_NAME() NOT LIKE '%Dev%'

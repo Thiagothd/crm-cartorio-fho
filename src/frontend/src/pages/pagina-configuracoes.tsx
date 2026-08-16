@@ -6,6 +6,7 @@ import { AbaAtendentes } from '@/features/configuracoes/aba-atendentes'
 import { AbaMensagensAutomaticas } from '@/features/configuracoes/aba-mensagens-automaticas'
 import { AbaRespostasRapidas } from '@/features/configuracoes/aba-respostas-rapidas'
 import { AbaAparencia } from '@/features/configuracoes/aba-aparencia'
+import { AbaWhatsApp } from '@/features/configuracoes/aba-whatsapp'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 
 export function PaginaConfiguracoes() {
@@ -26,6 +27,9 @@ export function PaginaConfiguracoes() {
             <TabsTrigger value="mensagens">Mensagens automáticas</TabsTrigger>
             <TabsTrigger value="respostas">Respostas rápidas</TabsTrigger>
             <TabsTrigger value="aparencia">Aparência</TabsTrigger>
+            {/* Pareia o canal e vê o número conectado — decisão de quem responde
+                pela serventia, mesma régua dos atendentes. */}
+            {podeGerirAtendentes ? <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger> : null}
             {podeGerirAtendentes ? <TabsTrigger value="atendentes">Atendentes</TabsTrigger> : null}
           </TabsList>
 
@@ -50,20 +54,17 @@ export function PaginaConfiguracoes() {
           </TabsContent>
 
           {podeGerirAtendentes ? (
+            <TabsContent value="whatsapp">
+              <AbaWhatsApp />
+            </TabsContent>
+          ) : null}
+
+          {podeGerirAtendentes ? (
             <TabsContent value="atendentes">
               <AbaAtendentes />
             </TabsContent>
           ) : null}
         </Tabs>
-
-        <div className="mt-8 rounded-md border border-linha bg-superficie px-4 py-3 text-sm">
-          <p className="font-medium">WhatsApp</p>
-          <p className="mt-1 text-tinta-media">
-            {tenant?.whatsappConfigurado
-              ? `Número conectado: ${tenant.whatsappNumeroExibicao ?? '—'}`
-              : 'Ainda não conectado. A integração real é a Fase 2 e depende de dois pré-requisitos externos: CNPJ com conta Meta Business verificada e um número de telefone dedicado, que não pode estar ativo no aplicativo WhatsApp pessoal.'}
-          </p>
-        </div>
       </div>
     </>
   )

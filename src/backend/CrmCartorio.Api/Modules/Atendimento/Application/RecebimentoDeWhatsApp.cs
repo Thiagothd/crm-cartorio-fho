@@ -45,6 +45,14 @@ public class RecebimentoDeWhatsApp(
         var cliente = await ResolverClienteAsync(tenantId, mensagem, agora, ct);
         var (conversa, ehNova) = await ResolverConversaAsync(tenantId, cliente, agora, ct);
 
+        // Grava cliente e conversa ANTES de enfileirar as automaticas. O
+        // disparador resolve {NomeCliente} por CONSULTA ao banco, e um cliente que
+        // so existe no change tracker nao aparece nela — o resultado era um
+        // "Ola, !" na primeira mensagem que o cliente recebe do cartorio.
+        //
+        // Continua tudo na mesma transacao: se algo falhar adiante, nada fica.
+        await db.SaveChangesAsync(ct);
+
         db.Mensagens.Add(new Mensagem
         {
             TenantId = tenantId,
@@ -64,13 +72,27 @@ public class RecebimentoDeWhatsApp(
         conversa.UltimaMensagemEm = agora;
         conversa.MensagensNaoLidas += 1;
 
-        // A mensagem do cliente ja esta na frente da fila de insercao, entao a
-        // resposta da triagem aparece DEPOIS dela no fio — Guid v7 e sequencial, e
-        // o fio ordena por EnviadaEm e depois por Id.
-        if (conversa.AguardandoTriagem)
+        if (ehNova)
         {
+            // Conversa recem-aberta: sai o menu, e so. Aplicar triagem aqui
+            // responderia a pergunta com a MESMA mensagem que a provocou — o
+            // "bom dia" nunca casa com opcao nenhuma, e o cliente receberia o
+            // menu e o "vou encaminhar para um atendente" na mesma tacada, sem
+            // chance de escolher.
+            await EnfileirarBoasVindasAsync(conversa, ct);
+        }
+        else if (conversa.AguardandoTriagem)
+        {
+            // Um milissegundo a frente, e nao o mesmo `agora`: o fio ordena por
+            // EnviadaEm e desempata por Id, mas o SQL Server compara
+            // uniqueidentifier numa ordem de bytes propria que NAO e a ordem
+            // cronologica do Guid v7. Com timestamp igual, a resposta da triagem
+            // podia aparecer acima da mensagem que a provocou — observado no fio.
+            //
+            // Separar o instante torna a ordem determinista sem depender de como
+            // o banco compara GUID.
             await AplicadorDeTriagem.AplicarAsync(
-                db, automaticas, conversa, mensagem.Conteudo, agora, log, ct);
+                db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
         }
 
         await db.SaveChangesAsync(ct);
@@ -268,15 +290,27 @@ public class RecebimentoDeWhatsApp(
             Observacao = $"Atendimento aberto pelo WhatsApp com o protocolo {protocolo}."
         });
 
-        // Boas-vindas com o menu. A flag depende de o menu ter REALMENTE saido:
-        // sem regra cadastrada nao ha menu, e esperar resposta de uma pergunta que
-        // ninguem fez faria a proxima mensagem receber um fallback vindo do nada.
+        return (conversa, true);
+    }
+
+    /// <summary>
+    /// Boas-vindas com o menu de triagem.
+    /// </summary>
+    /// <remarks>
+    /// Roda depois de o cliente ja estar gravado, e depois da mensagem dele
+    /// entrar na fila: o disparador resolve {NomeCliente} por consulta ao banco, e
+    /// a ordem de insercao e o que faz o menu aparecer DEPOIS do "bom dia" no fio.
+    ///
+    /// A flag depende de o menu ter REALMENTE saido: sem regra cadastrada nao ha
+    /// menu, e esperar resposta de uma pergunta que ninguem fez faria a proxima
+    /// mensagem do cliente receber um fallback vindo do nada.
+    /// </remarks>
+    private async Task EnfileirarBoasVindasAsync(Conversa conversa, CancellationToken ct)
+    {
         var boasVindas = await automaticas.EnfileirarAsync(
             conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
 
         conversa.AguardandoTriagem = boasVindas.Count > 0;
-
-        return (conversa, true);
     }
 
     /// <summary>

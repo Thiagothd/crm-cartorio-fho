@@ -34,6 +34,13 @@
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+
+/* Obrigatorio desde a migracao 010: dbo.Tenants passou a ter um indice FILTRADO
+   (UQ_Tenants_WhatsappInstancia), e o SQL Server recusa INSERT/UPDATE/DELETE em
+   tabela com indice filtrado quando QUOTED_IDENTIFIER esta OFF — que e como o
+   sqlcmd sobe por padrao. Sem esta linha o seed falha no terminal e funciona no
+   SSMS. */
+SET QUOTED_IDENTIFIER ON;
 GO
 
 BEGIN TRANSACTION;
