@@ -479,7 +479,25 @@ balcão aparece documento antigo e documento de terceiro, e recusar por conta
 disso travaria atendimento — mesma razão registrada em
 `ClienteService.ValidarDocumento`. O backend segue conferindo só o tamanho.
 
-### 11.5 Máscara
+### 11.5 Recusa do servidor cai no campo, não num toast
+
+Erro de salvamento **aponta o campo que o causou**, no mesmo lugar e com o mesmo
+tratamento de 11.2 — âmbar, ícone, texto de 11px sob o campo.
+
+- Se o campo está em outra aba, **a aba troca sozinha** e o campo recebe o foco.
+  Formulário de quatro abas com o erro num toast obriga o atendente a caçar.
+- O aviso **sai assim que o campo é editado**. Erro que fica na tela depois de
+  corrigido ensina a ignorar aviso.
+- Erro **sem endereço** — sessão expirada, conflito de versão, rede fora —
+  continua em toast. É onde erro sem campo pertence.
+- A decisão vem do **`codigo` do ProblemDetails**, nunca do texto da mensagem: o
+  código é contrato estável, a redação não é.
+
+Como o texto do backend passa a ficar **fixo sob o campo**, e não mais de
+passagem num toast, ele é texto de interface para todos os efeitos: leva acento
+e diz o que fazer. Ver `ClientesServiceException`.
+
+### 11.6 Máscara
 
 CPF, CNPJ, CEP e telefone são **IBM Plex Mono** (`font-dado`, seção 3): é dado
 conferível caractere a caractere.

@@ -94,6 +94,11 @@ export function DialogoDeCliente({
   const [estadoDoCep, setEstadoDoCep] = useState<EstadoDoCampo | null>(null)
   const [estadoDoDocumento, setEstadoDoDocumento] = useState<EstadoDoCampo | null>(null)
 
+  // A aba é controlada porque a recusa do backend precisa poder trocar de aba: o
+  // erro não serve de nada exibido numa aba que o atendente não está vendo.
+  const [aba, setAba] = useState<Aba>('contato')
+  const [erroDeSalvamento, setErroDeSalvamento] = useState<ErroDeCampo | null>(null)
+
   const fisica = (dados.tipo ?? 'Fisica') === 'Fisica'
 
   // Guarda o que já foi consultado: sem isso, apagar e redigitar o último dígito
@@ -109,6 +114,8 @@ export function DialogoDeCliente({
     setDados(dadosDoCliente(cliente))
     setEstadoDoCep(null)
     setEstadoDoDocumento(null)
+    setErroDeSalvamento(null)
+    setAba('contato')
     ultimoCepConsultado.current = ''
     ultimoCnpjConsultado.current = ''
   }, [aberto, cliente])
@@ -119,6 +126,20 @@ export function DialogoDeCliente({
 
   function atualizar<K extends keyof DadosDeCliente>(campo: K, valor: DadosDeCliente[K]) {
     setDados((atuais) => ({ ...atuais, [campo]: valor }))
+
+    // Mexeu no campo acusado, o aviso sai. Erro que continua na tela depois de
+    // corrigido ensina o atendente a ignorar aviso.
+    setErroDeSalvamento((atual) => (atual?.campo === campo ? null : atual))
+  }
+
+  /**
+   * Estado a exibir sob um campo. A recusa do salvamento ganha do estado próprio
+   * do campo: é ela que está impedindo o cadastro de fechar.
+   */
+  function estadoDe(campo: keyof DadosDeCliente, proprio?: EstadoDoCampo | null) {
+    return erroDeSalvamento?.campo === campo
+      ? { tom: 'aviso' as const, texto: erroDeSalvamento.texto }
+      : (proprio ?? null)
   }
 
   /** Abre uma consulta cancelando a anterior, e devolve o controle para quem chamou. */
@@ -244,6 +265,7 @@ export function DialogoDeCliente({
 
   async function salvar() {
     setSalvando(true)
+    setErroDeSalvamento(null)
 
     try {
       if (cliente) await clientesApi.atualizar(cliente.id, dados)
@@ -253,10 +275,41 @@ export function DialogoDeCliente({
       aoSalvar()
       aoFechar()
     } catch (falha) {
-      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível salvar.')
+      mostrarFalhaDeSalvamento(falha)
     } finally {
       setSalvando(false)
     }
+  }
+
+  /**
+   * Leva a recusa do backend até o campo que a causou.
+   *
+   * Antes tudo caía num toast: o atendente clicava Salvar da aba Observações,
+   * lia "CEP deve ter 8 digitos" e ia procurar o campo pelas quatro abas. O
+   * código do erro é estável (ClientesServiceException) e diz exatamente onde
+   * fica o problema — só faltava alguém usar.
+   */
+  function mostrarFalhaDeSalvamento(falha: unknown) {
+    if (!(falha instanceof ErroDaApi)) {
+      toast.error('Não foi possível salvar.')
+      return
+    }
+
+    const campo = campoDoErro(falha.codigo, dados)
+    const local = campo ? LOCAL_DO_CAMPO[campo] : undefined
+
+    // Erro que não é de campo — sessão expirada, conflito de versão, rede.
+    // Continua no toast, que é onde erro sem endereço pertence.
+    if (!campo || !local) {
+      toast.error(falha.message)
+      return
+    }
+
+    setErroDeSalvamento({ campo, texto: falha.message })
+    setAba(local.aba)
+
+    // Depois da troca de aba, senão o campo ainda não está montado.
+    requestAnimationFrame(() => document.getElementById(local.id)?.focus())
   }
 
   return (
@@ -269,7 +322,7 @@ export function DialogoDeCliente({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="contato">
+        <Tabs value={aba} onValueChange={(valor) => setAba(valor as Aba)}>
           <TabsList className="grid h-auto w-full grid-cols-4">
             <TabsTrigger value="contato">Contato</TabsTrigger>
             <TabsTrigger value="qualificacao">Qualificação</TabsTrigger>
@@ -279,7 +332,7 @@ export function DialogoDeCliente({
 
           <TabsContent value="contato" className="mt-4 grid gap-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_180px]">
-              <Campo rotulo="Nome" htmlFor="cliente-nome" obrigatorio>
+              <Campo rotulo="Nome" htmlFor="cliente-nome" obrigatorio estado={estadoDe('nome')}>
                 <Input id="cliente-nome" autoFocus value={dados.nome} onChange={(e) => atualizar('nome', e.target.value)} />
               </Campo>
               <Campo rotulo="Tipo de pessoa">
@@ -299,10 +352,10 @@ export function DialogoDeCliente({
                 lado de um placeholder que prometia outro formato, e o atendente
                 "corrigia" o número até quebrar. */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Campo rotulo="WhatsApp" htmlFor="cliente-whatsapp" obrigatorio ajuda="DDD e número; o sistema inclui o código 55.">
+              <Campo rotulo="WhatsApp" htmlFor="cliente-whatsapp" obrigatorio ajuda="DDD e número; o sistema inclui o código 55." estado={estadoDe('telefoneWhatsapp')}>
                 <Input id="cliente-whatsapp" type="tel" autoComplete="tel" className="font-dado" value={mascararTelefone(dados.telefoneWhatsapp)} onChange={(e) => atualizar('telefoneWhatsapp', mascararTelefone(e.target.value))} placeholder="(38) 99999-0001" />
               </Campo>
-              <Campo rotulo="Telefone alternativo" htmlFor="cliente-telefone-alternativo" ajuda="Fixo ou segundo celular. Mesmo formato.">
+              <Campo rotulo="Telefone alternativo" htmlFor="cliente-telefone-alternativo" ajuda="Fixo ou segundo celular. Mesmo formato." estado={estadoDe('telefoneAlternativo')}>
                 <Input id="cliente-telefone-alternativo" type="tel" className="font-dado" value={mascararTelefone(dados.telefoneAlternativo ?? '')} onChange={(e) => atualizar('telefoneAlternativo', mascararTelefone(e.target.value) || null)} placeholder="(38) 3221-1234" />
               </Campo>
             </div>
@@ -333,7 +386,7 @@ export function DialogoDeCliente({
                 rotulo={fisica ? 'CPF' : 'CNPJ'}
                 htmlFor="cliente-documento"
                 ajuda={fisica ? undefined : 'Preenche nome e endereço da empresa.'}
-                estado={estadoDoDocumento}
+                estado={estadoDe('documento', estadoDoDocumento)}
               >
                 <Input
                   id="cliente-documento"
@@ -355,7 +408,7 @@ export function DialogoDeCliente({
                     <Campo rotulo="Órgão emissor" htmlFor="cliente-orgao">
                       <Input id="cliente-orgao" value={dados.orgaoEmissor ?? ''} onChange={(e) => atualizar('orgaoEmissor', e.target.value || null)} />
                     </Campo>
-                    <Campo rotulo="UF" htmlFor="cliente-uf-orgao">
+                    <Campo rotulo="UF" htmlFor="cliente-uf-orgao" estado={estadoDe('ufOrgaoEmissor')}>
                       <Input id="cliente-uf-orgao" maxLength={2} className="uppercase" value={dados.ufOrgaoEmissor ?? ''} onChange={(e) => atualizar('ufOrgaoEmissor', e.target.value.toUpperCase() || null)} />
                     </Campo>
                   </div>
@@ -366,7 +419,7 @@ export function DialogoDeCliente({
             {fisica ? (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <Campo rotulo="Nascimento" htmlFor="cliente-nascimento">
+                  <Campo rotulo="Nascimento" htmlFor="cliente-nascimento" estado={estadoDe('dataNascimento')}>
                     <Input id="cliente-nascimento" type="date" value={dados.dataNascimento ?? ''} onChange={(e) => atualizar('dataNascimento', e.target.value || null)} />
                   </Campo>
                   <Campo rotulo="Estado civil">
@@ -417,7 +470,7 @@ export function DialogoDeCliente({
                 rotulo="CEP"
                 htmlFor="cliente-cep"
                 ajuda="Ao completar, o endereço vem sozinho."
-                estado={estadoDoCep}
+                estado={estadoDe('cep', estadoDoCep)}
               >
                 <Input
                   id="cliente-cep"
@@ -448,7 +501,7 @@ export function DialogoDeCliente({
               <Campo rotulo="Cidade" htmlFor="cliente-cidade">
                 <Input id="cliente-cidade" value={dados.cidade ?? ''} onChange={(e) => atualizar('cidade', e.target.value || null)} />
               </Campo>
-              <Campo rotulo="UF" htmlFor="cliente-uf">
+              <Campo rotulo="UF" htmlFor="cliente-uf" estado={estadoDe('uf')}>
                 <Input id="cliente-uf" maxLength={2} className="uppercase" value={dados.uf ?? ''} onChange={(e) => atualizar('uf', e.target.value.toUpperCase() || null)} />
               </Campo>
             </div>
@@ -514,7 +567,9 @@ function Campo({
             'flex items-start gap-1.5 text-[11px] leading-snug',
             TOM_DO_ESTADO[estado.tom],
           )}
-          role="status"
+          // Aviso interrompe: é o que está impedindo o cadastro de fechar.
+          // Carregando e concluído só ficam disponíveis, sem cortar a leitura.
+          role={estado.tom === 'aviso' ? 'alert' : 'status'}
         >
           <Icone
             className={cn('mt-px size-3 shrink-0', estado.tom === 'carregando' && 'animate-spin')}
@@ -532,6 +587,73 @@ function Campo({
 type EstadoDoCampo = {
   tom: 'carregando' | 'aviso' | 'ok'
   texto: string
+}
+
+type Aba = 'contato' | 'qualificacao' | 'endereco' | 'observacoes'
+
+type ErroDeCampo = {
+  campo: keyof DadosDeCliente
+  texto: string
+}
+
+/** Onde cada campo mora, para a recusa do backend saber que aba abrir. */
+const LOCAL_DO_CAMPO: Partial<Record<keyof DadosDeCliente, { aba: Aba; id: string }>> = {
+  nome: { aba: 'contato', id: 'cliente-nome' },
+  telefoneWhatsapp: { aba: 'contato', id: 'cliente-whatsapp' },
+  telefoneAlternativo: { aba: 'contato', id: 'cliente-telefone-alternativo' },
+  documento: { aba: 'qualificacao', id: 'cliente-documento' },
+  dataNascimento: { aba: 'qualificacao', id: 'cliente-nascimento' },
+  ufOrgaoEmissor: { aba: 'qualificacao', id: 'cliente-uf-orgao' },
+  cep: { aba: 'endereco', id: 'cliente-cep' },
+  uf: { aba: 'endereco', id: 'cliente-uf' },
+}
+
+/** Códigos que apontam um campo só. Os ambíguos são resolvidos em campoDoErro. */
+const CAMPO_POR_CODIGO: Record<string, keyof DadosDeCliente> = {
+  nome_obrigatorio: 'nome',
+  telefone_em_uso: 'telefoneWhatsapp',
+  cpf_invalido: 'documento',
+  cnpj_invalido: 'documento',
+  nascimento_no_futuro: 'dataNascimento',
+  nascimento_implausivel: 'dataNascimento',
+  cep_invalido: 'cep',
+}
+
+/**
+ * Traduz o código do erro no campo que o causou.
+ *
+ * Dois códigos servem a mais de um campo no backend, e nesses o código sozinho
+ * não basta — a mesma exceção sai de `ValidarTelefone` e de
+ * `LimparTelefoneOpcional`, e de `ValidarUf` chamado duas vezes. Em vez de
+ * pedir códigos novos ao backend, a tela repete a regra dele e descobre qual
+ * dos dois campos está fora. Errar aqui só custa apontar o campo vizinho.
+ */
+function campoDoErro(codigo: string, dados: DadosDeCliente): keyof DadosDeCliente | null {
+  if (codigo === 'telefone_invalido') {
+    return telefoneAceitavel(dados.telefoneWhatsapp) && dados.telefoneAlternativo
+      ? 'telefoneAlternativo'
+      : 'telefoneWhatsapp'
+  }
+
+  if (codigo === 'uf_invalida') {
+    return ufAceitavel(dados.uf) ? 'ufOrgaoEmissor' : 'uf'
+  }
+
+  return CAMPO_POR_CODIGO[codigo] ?? null
+}
+
+/** Mesma janela de ClienteService.ValidarTelefone: 10 ou 11 dígitos, ou 12 a 15. */
+function telefoneAceitavel(valor: string | null | undefined) {
+  const digitos = somenteDigitos(valor ?? '')
+  const comPais = digitos.length === 10 || digitos.length === 11 ? digitos.length + 2 : digitos.length
+
+  return comPais >= 12 && comPais <= 15
+}
+
+function ufAceitavel(valor: string | null | undefined) {
+  const limpo = valor?.trim() ?? ''
+
+  return limpo.length === 0 || /^[A-Za-z]{2}$/.test(limpo)
 }
 
 const TOM_DO_ESTADO = {
