@@ -132,13 +132,17 @@ export function Shell({ children }: { children: ReactNode }) {
                 )}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {/* break-words e whitespace-normal: e-mail longo em fonte
-                  monoespaçada estourava a largura fixa do menu, porque
-                  DropdownMenuLabel não quebra por padrão. Quebrar é melhor que
-                  truncar — o e-mail é o login, e login pela metade não serve
-                  para conferir nada. */}
-              <DropdownMenuLabel className="whitespace-normal break-words font-dado text-[11px] font-normal leading-relaxed normal-case text-tinta-media">
+            {/* w-72 e não w-56: o e-mail mais longo da serventia
+                (helena@cartoriogameleiras.com.br, 36 caracteres em mono de
+                11px) precisa de ~238px e o menu antigo oferecia ~200px úteis.
+                Alargar resolve na origem; quebrar linha só disfarçava. */}
+            <DropdownMenuContent align="start" className="w-72">
+              {/* overflow-wrap:anywhere é salvaguarda, não o mecanismo: quebra
+                  apenas quando o e-mail não couber de jeito nenhum. break-words
+                  não quebra token sem espaço, e break-all quebrava sempre — foi
+                  ele que partiu "gameleiras.com.b / r" no meio. Truncar está
+                  fora: o e-mail é o login, e login pela metade não confere nada. */}
+              <DropdownMenuLabel className="whitespace-normal [overflow-wrap:anywhere] font-dado text-[11px] font-normal leading-relaxed normal-case text-tinta-media">
                 {atendente?.email}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

@@ -78,12 +78,17 @@ decisão dele, não nossa.
 
 Usuários criados (senha `cartorio2026` para todos):
 
-| E-mail | Perfil |
-| --- | --- |
-| `rafael@cartoriogameleiras.com.br` | Administrador |
-| `carla@cartoriogameleiras.com.br` | Supervisor |
-| `paula@cartoriogameleiras.com.br` | Atendente |
-| `carlos@cartoriogameleiras.com.br` | Atendente |
+| E-mail | Perfil de acesso | Cargo na serventia |
+| --- | --- | --- |
+| `helena@cartoriogameleiras.com.br` | Administrador | Titular |
+| `rafael@cartoriogameleiras.com.br` | Administrador | Substituto |
+| `carla@cartoriogameleiras.com.br` | Supervisor | Escrevente autorizado |
+| `paula@cartoriogameleiras.com.br` | Atendente | Escrevente |
+
+Perfil e cargo são eixos independentes desde a migração `007` — ver
+[Modules/Usuarios](CrmCartorio.Api/Modules/Usuarios/README.md). Carla e Paula
+são fictícias: existem para demonstrar a trava de conversa, que precisa de mais
+de um atendente na mesma fila.
 
 ## Organização
 
