@@ -58,7 +58,18 @@ public class EvolutionClient(
         var estado = await EnviarAsync(
             HttpMethod.Get, $"instance/connectionState/{_opcoes.NomeDaInstancia}", null, ct);
 
-        var atual = estado is { } e ? LerTexto(e, "state") ?? "close" : "close";
+        // O campo vem ANINHADO — {"instance":{"instanceName":...,"state":"open"}}
+        // — e nao solto na raiz. Ler a raiz direto (bug encontrado ao vivo,
+        // 2026-08-17: instancia pareada de verdade e o endpoint teimava em
+        // devolver "close") faz ESTA leitura sempre cair no fallback "close",
+        // que por sua vez faz esta funcao chamar instance/connect em toda
+        // consulta — inclusive com a sessao ja aberta, o que arrisca perturbar
+        // uma conexao que nao precisava de QR nenhum.
+        var atual = estado is { } e
+            && e.TryGetProperty("instance", out var instanciaAtual)
+            && LerTexto(instanciaAtual, "state") is { Length: > 0 } estadoLido
+                ? estadoLido
+                : "close";
 
         if (atual.Equals("open", StringComparison.OrdinalIgnoreCase))
         {

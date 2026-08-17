@@ -14,7 +14,16 @@ services:
   evolution:
     # Versao FIXADA de proposito: `latest` num gateway que guarda sessao de
     # WhatsApp e' convite para a sessao cair sozinha depois de um pull.
-    image: atendai/evolution-api:v2.1.1
+    #
+    # Era v2.1.1 (imagem de set/2024). Testada ao vivo em 2026-08-17: a
+    # instancia entrava em loop de reconexao a cada poucos segundos, sem
+    # nenhuma chamada nossa no meio — o Baileys embutido nao completa mais o
+    # handshake com os servidores atuais do WhatsApp. Trocado para a mais
+    # recente estavel disponivel, porque a proxima versao "so um pouco mais
+    # nova" tem a mesma chance de ja estar obsoleta de novo. Organizacao do
+    # Docker Hub tambem mudou de atendai/ para evoapicloud/ nesse meio tempo
+    # (atendai/evolution-api passou a exigir login).
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: crm-cartorio-evolution
     restart: unless-stopped
     ports:
@@ -39,7 +48,16 @@ services:
       # e' do SQL Server do CRM — aqui fica so o que o Baileys precisa para nao
       # pedir QR de novo a cada restart.
       DATABASE_SAVE_DATA_INSTANCE: "true"
-      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+
+      # PRECISA ser "true". Testado ao vivo em 2026-08-17: com "false" a mensagem
+      # que ENVIAMOS nunca fica correlacionavel do lado do gateway, e quando o
+      # DELIVERY_ACK/READ volta da Meta, o Evolution loga "Original message not
+      # found for update. Skipping." e o webhook messages.update NUNCA dispara —
+      # o tique de entrega no fio fica preso em "Enviada" para sempre. Isto NAO
+      # e o gateway virar fonte de historico (o SQL Server continua sendo):
+      # e o minimo de estado que o proprio Evolution precisa para saber a qual
+      # mensagem um status se refere.
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
       DATABASE_SAVE_MESSAGE_UPDATE: "false"
       DATABASE_SAVE_DATA_CONTACTS: "false"
       DATABASE_SAVE_DATA_CHATS: "false"
