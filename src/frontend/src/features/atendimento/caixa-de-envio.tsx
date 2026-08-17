@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Inbox, Lock, MessageSquarePlus, Reply, Send, X, Zap } from 'lucide-react'
+import { Inbox, Lock, MessageSquarePlus, Paperclip, Reply, Send, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -25,6 +25,17 @@ import type { Conversa, Mensagem, RespostaRapida, Setor } from '@/lib/api/tipos'
  */
 const ATALHO_EM_DIGITACAO = /^\/(\S*)$/
 
+/**
+ * Teto do lado do cliente. Espelha `Anexos:TamanhoMaximoMb` no backend, que
+ * continua sendo quem decide — aqui é só para o atendente não esperar o upload
+ * de um arquivo que já se sabe que será recusado.
+ */
+const TAMANHO_MAXIMO_MB = 16
+
+/** O mesmo conjunto que o backend aceita, para o seletor já filtrar. */
+const TIPOS_ACEITOS =
+  'image/jpeg,image/png,image/webp,image/gif,application/pdf,.doc,.docx,.xls,.xlsx,text/plain,audio/*,video/mp4'
+
 export function CaixaDeEnvio({
   conversa,
   souOResponsavel,
@@ -41,10 +52,12 @@ export function CaixaDeEnvio({
   nomeCartorio: string
 }) {
   const [texto, setTexto] = useState('')
+  const [arquivo, setArquivo] = useState<File | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [indiceAtivo, setIndiceAtivo] = useState(0)
   const [seletorDispensado, setSeletorDispensado] = useState(false)
   const campo = useRef<HTMLTextAreaElement>(null)
+  const seletorDeArquivo = useRef<HTMLInputElement>(null)
   const invalidar = usarInvalidarAtendimento()
 
   const { data: respostasRapidas } = usarRespostasRapidas()
@@ -128,17 +141,46 @@ export function CaixaDeEnvio({
     })
   }
 
+  /**
+   * Recusa o arquivo grande demais AQUI.
+   *
+   * O backend recusa igual, mas só depois do upload inteiro subir — e um arquivo
+   * de 40 MB numa conexão de balcão de cartório leva minutos para ser rejeitado.
+   */
+  function escolherArquivo(escolhido: File | null) {
+    if (!escolhido) {
+      return
+    }
+
+    if (escolhido.size > TAMANHO_MAXIMO_MB * 1024 * 1024) {
+      toast.error(`O arquivo passa do limite de ${TAMANHO_MAXIMO_MB} MB.`)
+      return
+    }
+
+    setArquivo(escolhido)
+    campo.current?.focus()
+  }
+
   async function enviar() {
     const conteudo = texto.trim()
-    if (!conteudo || enviando) {
+
+    // Com arquivo, o texto vira legenda e pode ser vazio: um documento sozinho já
+    // é uma mensagem completa.
+    if ((!conteudo && !arquivo) || enviando) {
       return
     }
 
     setEnviando(true)
 
     try {
-      await conversasApi.enviarMensagem(conversa.id, conteudo, mensagemRespondida?.id)
+      if (arquivo) {
+        await conversasApi.enviarAnexo(conversa.id, arquivo, conteudo, mensagemRespondida?.id)
+      } else {
+        await conversasApi.enviarMensagem(conversa.id, conteudo, mensagemRespondida?.id)
+      }
+
       setTexto('')
+      setArquivo(null)
       aoCancelarResposta()
       invalidar(conversa.id)
     } catch (falha) {
@@ -256,6 +298,33 @@ export function CaixaDeEnvio({
         </div>
       ) : null}
 
+      {/* O arquivo escolhido fica à vista ANTES de enviar, e não some sozinho:
+          anexar por engano num atendimento de cartório manda o documento de um
+          cliente para outro. Sair daqui exige o X, não a sorte. */}
+      {arquivo ? (
+        <div className="flex items-center gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
+          <Paperclip className="size-3.5 shrink-0 text-tinta-media" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-tinta">{arquivo.name}</p>
+            <p className="font-dado text-[10px] text-tinta-fraca">
+              {arquivo.size < 1024 * 1024
+                ? `${Math.round(arquivo.size / 1024)} KB`
+                : `${(arquivo.size / 1024 / 1024).toFixed(1).replace('.', ',')} MB`}
+              {' — o texto abaixo vai como legenda'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setArquivo(null)}
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-tinta-fraca transition-colors hover:bg-branco hover:text-tinta"
+            aria-label="Remover arquivo"
+            title="Remover arquivo"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
       {/* relative: é a âncora do seletor, que sobe a partir do topo do campo. */}
       <div className="relative flex items-end gap-2">
         {seletorAberto ? (
@@ -291,7 +360,36 @@ export function CaixaDeEnvio({
           aria-autocomplete="list"
         />
 
-        <Button onClick={() => void enviar()} disabled={enviando || !texto.trim()} size="icon">
+        <input
+          ref={seletorDeArquivo}
+          type="file"
+          accept={TIPOS_ACEITOS}
+          className="hidden"
+          onChange={(e) => {
+            escolherArquivo(e.target.files?.[0] ?? null)
+
+            // Zera o input para que escolher O MESMO arquivo de novo, depois de
+            // remover, ainda dispare o onChange.
+            e.target.value = ''
+          }}
+        />
+
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => seletorDeArquivo.current?.click()}
+          disabled={enviando}
+          title="Anexar arquivo"
+        >
+          <Paperclip />
+          <span className="sr-only">Anexar arquivo</span>
+        </Button>
+
+        <Button
+          onClick={() => void enviar()}
+          disabled={enviando || (!texto.trim() && !arquivo)}
+          size="icon"
+        >
           <Send />
           <span className="sr-only">Enviar</span>
         </Button>

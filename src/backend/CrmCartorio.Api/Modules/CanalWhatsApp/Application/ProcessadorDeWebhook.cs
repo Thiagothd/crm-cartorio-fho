@@ -24,6 +24,7 @@ public interface IProcessadorDeWebhook
 public class ProcessadorDeWebhook(
     CrmDbContext db,
     IRecebimentoDeWhatsApp recebimento,
+    IEvolutionClient gateway,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<ProcessadorDeWebhook> log) : IProcessadorDeWebhook
 {
@@ -86,7 +87,8 @@ public class ProcessadorDeWebhook(
                     mensagem.NomeDoPerfil,
                     mensagem.Conteudo,
                     mensagem.Tipo,
-                    mensagem.IdExterno),
+                    mensagem.IdExterno,
+                    await BaixarArquivoAsync(mensagem, ct)),
                 ct);
 
             return;
@@ -95,6 +97,55 @@ public class ProcessadorDeWebhook(
         if (TradutorDePayload.LerStatus(payload.Data) is { } status)
         {
             await recebimento.AtualizarEntregaAsync(tenantId, status.IdExterno, status.Status, ct);
+        }
+    }
+
+    /// <summary>
+    /// Baixa a midia do gateway, ou <c>null</c> quando nao ha o que baixar.
+    /// </summary>
+    /// <remarks>
+    /// Roda ANTES de gravar a mensagem, e nao depois, porque o fio nunca deve
+    /// mostrar um anexo que ainda esta chegando: o atendente clicaria e receberia
+    /// erro. O custo e o webhook demorar o tempo do download — aceitavel, porque
+    /// reentrega do gateway ja cai na guarda por IdExterno do recebimento.
+    ///
+    /// <b>Falha nao interrompe.</b> Se o download nao vier, a mensagem entra
+    /// mesmo assim com a legenda: o atendente ver "o cliente mandou uma foto, e
+    /// ela nao chegou" vale muito mais do que a mensagem sumir por causa de uma
+    /// midia. Quem chama recebe null e segue.
+    /// </remarks>
+    private async Task<ArquivoDoCanal?> BaixarArquivoAsync(
+        MensagemRecebidaDoCanal mensagem,
+        CancellationToken ct)
+    {
+        if (!mensagem.TemMidia)
+        {
+            return null;
+        }
+
+        try
+        {
+            var bytes = await gateway.BaixarMidiaAsync(mensagem.IdExterno, ct);
+
+            if (bytes is null || bytes.Length == 0)
+            {
+                log.LogWarning(
+                    "Midia da mensagem {IdExterno} nao veio do gateway; a mensagem entra sem anexo.",
+                    mensagem.IdExterno);
+
+                return null;
+            }
+
+            return new ArquivoDoCanal(bytes, mensagem.NomeDoArquivo, mensagem.TipoMimeDaMidia);
+        }
+        catch (Exception falha) when (falha is not OperationCanceledException)
+        {
+            log.LogError(
+                falha,
+                "Falha ao baixar a midia da mensagem {IdExterno}; a mensagem entra sem anexo.",
+                mensagem.IdExterno);
+
+            return null;
         }
     }
 

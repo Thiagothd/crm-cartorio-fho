@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using CrmCartorio.Api.Infrastructure.Automacao;
 using CrmCartorio.Api.Infrastructure.Identity;
+using CrmCartorio.Api.Infrastructure.Anexos;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Persistence.Seeding;
 using CrmCartorio.Api.Infrastructure.Realtime;
@@ -29,6 +30,7 @@ builder.Services.Configure<OpcoesDeConsultaPublica>(
     builder.Configuration.GetSection(OpcoesDeConsultaPublica.Secao));
 builder.Services.Configure<OpcoesDoCanalWhatsApp>(
     builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
+builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 
@@ -84,6 +86,11 @@ builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
+
+// Anexo vai para o disco do proprio servidor, nunca para o banco nem para
+// storage de terceiro. Singleton porque nao guarda estado de requisicao —
+// so le a configuracao e mexe em arquivo.
+builder.Services.AddSingleton<IArmazenamentoDeAnexos, ArmazenamentoDeAnexosEmDisco>();
 
 // Consulta de CEP e CNPJ. O cache e singleton de proposito: e da serventia
 // inteira, nao da requisicao — cartorio atende a mesma cidade o dia todo.

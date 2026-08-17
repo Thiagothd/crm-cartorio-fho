@@ -98,6 +98,61 @@ public class EvolutionClient(
         throw CanalWhatsAppServiceException.GatewayIndisponivel();
     }
 
+    public async Task<string> EnviarMidiaAsync(
+        string telefoneE164,
+        byte[] conteudo,
+        string tipoMime,
+        string nomeDoArquivo,
+        string? legenda,
+        CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var resposta = await EnviarAsync(
+            HttpMethod.Post,
+            $"message/sendMedia/{_opcoes.NomeDaInstancia}",
+            new
+            {
+                number = telefoneE164,
+                mediatype = CategoriaDaMidia(tipoMime),
+                mimetype = tipoMime,
+                caption = legenda ?? string.Empty,
+                media = Convert.ToBase64String(conteudo),
+                fileName = nomeDoArquivo
+            },
+            ct)
+            ?? throw CanalWhatsAppServiceException.GatewayIndisponivel();
+
+        if (resposta.TryGetProperty("key", out var chave)
+            && LerTexto(chave, "id") is { Length: > 0 } id)
+        {
+            return id;
+        }
+
+        log.LogWarning("Envio de midia aceito pelo gateway sem id de mensagem na resposta.");
+        throw CanalWhatsAppServiceException.GatewayIndisponivel();
+    }
+
+    /// <summary>
+    /// O `mediatype` que a Evolution espera, derivado do MIME.
+    /// </summary>
+    /// <remarks>
+    /// Cai em `document` no desconhecido de proposito: documento e o unico tipo
+    /// que o WhatsApp entrega sem tentar interpretar o conteudo. Chutar `image`
+    /// num arquivo que nao e imagem produz mensagem quebrada no aparelho do
+    /// cliente.
+    /// </remarks>
+    private static string CategoriaDaMidia(string tipoMime)
+    {
+        var mime = tipoMime.Split(';')[0].Trim().ToLowerInvariant();
+
+        if (mime.StartsWith("image/", StringComparison.Ordinal)) return "image";
+        if (mime.StartsWith("video/", StringComparison.Ordinal)) return "video";
+        if (mime.StartsWith("audio/", StringComparison.Ordinal)) return "audio";
+
+        return "document";
+    }
+
     public async Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct)
     {
         GarantirConfigurado();

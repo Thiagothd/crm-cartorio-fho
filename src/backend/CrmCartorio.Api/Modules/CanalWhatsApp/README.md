@@ -21,7 +21,7 @@ reescrever este módulo, e nada mais.
 
 | Peça | Papel |
 | --- | --- |
-| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, enviar, baixar mídia |
+| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, enviar texto e mídia, baixar mídia |
 | `WebhookContracts` + `TradutorDePayload` | Traduz o payload cru para o nosso vocabulário |
 | `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook |
 | `CanalWhatsAppServiceException` | Códigos estáveis para a tela reagir |
@@ -52,6 +52,32 @@ reescrever este módulo, e nada mais.
   instância no payload (`Tenants.WhatsappInstancia`), não por token de sessão.
   Na Fase 1 há um tenant só, mas amarrar agora evita reescrever o recebimento na
   Fase 3.
+
+## Anexo: quem baixa, e o que acontece quando falha
+
+A mídia do WhatsApp está **criptografada** nos servidores da Meta, e só o gateway
+sabe decifrar. Por isso é este slice que baixa (`BaixarMidiaAsync`) e entrega os
+**bytes** ao Atendimento — passar uma URL obrigaria o Atendimento a falar com o
+terceiro, que é exatamente o acoplamento que este módulo existe para evitar.
+
+O download acontece **antes** de gravar a mensagem. O fio nunca deve mostrar um
+anexo que ainda está chegando: o atendente clicaria e receberia erro.
+
+**Falha no download não perde a mensagem.** Se a mídia não vier, a mensagem entra
+com a legenda e sem arquivo. O atendente ver "o cliente mandou uma foto e ela não
+chegou" vale muito mais do que a mensagem sumir por causa do anexo — e uma
+figurinha recusada silenciaria uma pergunta de verdade.
+
+O mesmo vale na gravação: tipo fora da lista de permitidos, arquivo grande demais
+ou disco cheio derrubam o anexo, nunca a mensagem. **No envio pelo painel é o
+contrário** — ali a falha sobe, porque quem anexou está na frente da tela e
+precisa saber que o arquivo não foi.
+
+> Os rótulos que o tradutor grava quando o anexo vem sem legenda (`[imagem]`,
+> `[documento]`, `[áudio]`, `[vídeo]`) são conhecidos em outros dois lugares:
+> `EnviadorPeloWhatsApp`, para não mandar "[imagem]" como legenda de uma imagem,
+> e o fio no frontend, para não repetir o rótulo embaixo do próprio anexo. Mudar
+> aqui sem mudar lá só aparece em conversa real.
 
 ## Fronteiras
 

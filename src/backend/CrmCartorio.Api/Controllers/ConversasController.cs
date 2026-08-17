@@ -96,6 +96,68 @@ public class ConversasController(
         CancellationToken ct) =>
         Ok(await mensagens.EnviarAsync(id, request, ct));
 
+    /// <summary>
+    /// Envia um arquivo para o cliente.
+    /// </summary>
+    /// <remarks>
+    /// Multipart, e nao JSON com base64: base64 incha o corpo em um terco e
+    /// obrigaria o navegador a carregar o arquivo inteiro em memoria como texto.
+    /// </remarks>
+    [HttpPost("{id:guid}/mensagens/anexo")]
+    [RequestSizeLimit(32 * 1024 * 1024)]
+    public async Task<ActionResult<MensagemResponse>> EnviarAnexo(
+        Guid id,
+        IFormFile arquivo,
+        [FromForm] string? legenda,
+        [FromForm] Guid? mensagemRespondidaId,
+        CancellationToken ct)
+    {
+        // O teto real vive no servico, junto com a lista de tipos. O
+        // RequestSizeLimit acima e mais folgado de proposito: ele existe para
+        // cortar corpo absurdo antes de ler, nao para ser a regra.
+        using var memoria = new MemoryStream();
+        await arquivo.CopyToAsync(memoria, ct);
+
+        return Ok(await mensagens.EnviarAnexoAsync(
+            id,
+            new EnviarAnexoRequest(
+                memoria.ToArray(),
+                arquivo.FileName,
+                arquivo.ContentType,
+                legenda,
+                mensagemRespondidaId),
+            ct));
+    }
+
+    /// <summary>
+    /// Devolve o arquivo anexado a uma mensagem.
+    /// </summary>
+    /// <remarks>
+    /// Autenticado e conferido por tenant e conversa no servico. Anexo de
+    /// cartorio e documento de cliente — RG, escritura, comprovante: servir a
+    /// pasta como arquivo estatico entregaria o documento de um terceiro a quem
+    /// tentasse a URL certa.
+    /// </remarks>
+    [HttpGet("{id:guid}/mensagens/{mensagemId:guid}/anexo")]
+    public async Task<IActionResult> BaixarAnexo(Guid id, Guid mensagemId, CancellationToken ct)
+    {
+        var anexo = await mensagens.ObterAnexoAsync(id, mensagemId, ct);
+
+        // Sem cache no disco do navegador: o painel pode estar num computador de
+        // balcao compartilhado, e documento de cliente nao fica para o proximo
+        // turno em cache.
+        Response.Headers.CacheControl = "private, no-store";
+
+        // Trava o navegador no tipo que NOS declaramos. Sem isto, um arquivo com
+        // conteudo enganoso poderia ser reinterpretado como HTML pelo sniffing e
+        // executar no dominio do painel.
+        Response.Headers.XContentTypeOptions = "nosniff";
+
+        return anexo.ExibirNaTela
+            ? File(anexo.Conteudo, anexo.TipoMime)
+            : File(anexo.Conteudo, anexo.TipoMime, anexo.Nome);
+    }
+
     // --------------------------------------- acoes do menu de contexto da mensagem
 
     [HttpPost("{id:guid}/mensagens/{mensagemId:guid}/fixar")]

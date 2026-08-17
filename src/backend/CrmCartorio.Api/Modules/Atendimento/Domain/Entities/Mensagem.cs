@@ -54,6 +54,38 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     public string? IdExternoWhatsapp { get; set; }
 
     /// <summary>
+    /// Nome com que o arquivo chegou. Dado EXIBIDO, nunca caminho.
+    /// </summary>
+    /// <remarks>
+    /// O nome vem do aparelho do cliente e nao e confiavel: um
+    /// <c>..\..\web.config</c> daria escrita fora da pasta de anexos se virasse
+    /// caminho. O arquivo em disco se chama <c>{Id}{extensao}</c>; este campo so
+    /// alimenta o fio e o <c>Content-Disposition</c> do download.
+    /// </remarks>
+    public string? ArquivoNome { get; set; }
+
+    /// <summary>Tipo MIME ja conferido contra a lista de permitidos.</summary>
+    public string? ArquivoTipoMime { get; set; }
+
+    public long? ArquivoTamanhoBytes { get; set; }
+
+    /// <summary>
+    /// Caminho do arquivo RELATIVO a raiz configurada.
+    /// </summary>
+    /// <remarks>
+    /// Relativo de proposito: mover a pasta de anexos para outro disco nao pode
+    /// invalidar as linhas ja gravadas. O binario nao entra no banco — o .bak
+    /// cresceria com cada foto de documento, e sao muitas num cartorio.
+    ///
+    /// <b>Consequencia para backup:</b> copia so do SQL Server restaura conversa
+    /// com anexo quebrado. A pasta tem de entrar na rotina junto.
+    /// </remarks>
+    public string? ArquivoCaminho { get; set; }
+
+    /// <summary>Tem arquivo gravado e legivel.</summary>
+    public bool TemArquivo => !string.IsNullOrWhiteSpace(ArquivoCaminho);
+
+    /// <summary>
     /// Mensagem que esta responde, como no WhatsApp. Nulo na maioria dos casos.
     /// </summary>
     /// <remarks>

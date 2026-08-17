@@ -38,6 +38,33 @@ public interface IMensagemService
     Task<MensagemResponse> EnviarAsync(Guid conversaId, EnviarMensagemRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Resposta do atendente com arquivo anexado.
+    /// </summary>
+    /// <remarks>
+    /// Caminho separado de <see cref="EnviarAsync"/> porque a requisicao e
+    /// multipart, nao JSON — e porque a legenda pode ser vazia, ao contrario de
+    /// uma mensagem de texto, que vazia nao e mensagem nenhuma.
+    /// </remarks>
+    Task<MensagemResponse> EnviarAnexoAsync(
+        Guid conversaId,
+        EnviarAnexoRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Devolve o binario do anexo de uma mensagem.
+    /// </summary>
+    /// <remarks>
+    /// Passa pelo servico, e nao por arquivo estatico, porque anexo de cartorio e
+    /// documento de cliente: a leitura confere tenant e conversa antes de
+    /// entregar. Uma pasta servida por URL adivinhavel entregaria RG de terceiro
+    /// a quem tentasse o id certo.
+    /// </remarks>
+    Task<AnexoParaDownload> ObterAnexoAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Fase 1: simula mensagem chegando do cliente, para demonstrar o fluxo sem
     /// WhatsApp real. Na Fase 2 este e o ponto que o webhook da Cloud API chama.
     /// </summary>

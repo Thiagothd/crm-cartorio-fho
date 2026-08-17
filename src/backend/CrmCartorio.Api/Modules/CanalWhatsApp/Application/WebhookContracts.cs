@@ -15,6 +15,10 @@ namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 public record PayloadDoWebhook(string? Event, string? Instance, JsonElement Data);
 
 /// <summary>Mensagem que chegou do cliente, ja traduzida para o nosso vocabulario.</summary>
+/// <param name="TipoMimeDaMidia">
+/// Como o WhatsApp declarou o arquivo. Chega com parametro com frequencia
+/// (<c>audio/ogg; codecs=opus</c>) — quem consome normaliza.
+/// </param>
 public record MensagemRecebidaDoCanal(
     string TelefoneE164,
     string? NomeDoPerfil,
@@ -22,7 +26,12 @@ public record MensagemRecebidaDoCanal(
     TipoMensagem Tipo,
     string IdExterno,
     string? UrlDaMidia,
-    string? NomeDoArquivo);
+    string? NomeDoArquivo,
+    string? TipoMimeDaMidia)
+{
+    /// <summary>Traz arquivo para baixar do gateway.</summary>
+    public bool TemMidia => Tipo != TipoMensagem.Texto;
+}
 
 /// <summary>Mudanca de estado de entrega de uma mensagem que NOS enviamos.</summary>
 public record StatusDeEntregaDoCanal(string IdExterno, StatusEntrega Status);
@@ -98,7 +107,8 @@ public static class TradutorDePayload
                 conteudo.Tipo,
                 idExterno,
                 conteudo.Url,
-                conteudo.NomeDoArquivo)
+                conteudo.NomeDoArquivo,
+                conteudo.TipoMime)
             : null;
     }
 
@@ -138,22 +148,30 @@ public static class TradutorDePayload
     public static string? LerEstadoDaConexao(JsonElement data) =>
         Texto(data, "state") ?? Texto(data, "connection");
 
-    private record Conteudo(string Texto, TipoMensagem Tipo, string? Url, string? NomeDoArquivo);
+    private record Conteudo(
+        string Texto,
+        TipoMensagem Tipo,
+        string? Url,
+        string? NomeDoArquivo,
+        string? TipoMime);
 
     private static Conteudo? LerConteudo(JsonElement mensagem)
     {
         // Texto simples e o caso esmagadoramente comum no balcao.
         if (Texto(mensagem, "conversation") is { Length: > 0 } simples)
         {
-            return new Conteudo(simples, TipoMensagem.Texto, null, null);
+            return new Conteudo(simples, TipoMensagem.Texto, null, null, null);
         }
 
         if (mensagem.TryGetProperty("extendedTextMessage", out var estendida)
             && Texto(estendida, "text") is { Length: > 0 } textoEstendido)
         {
-            return new Conteudo(textoEstendido, TipoMensagem.Texto, null, null);
+            return new Conteudo(textoEstendido, TipoMensagem.Texto, null, null, null);
         }
 
+        // Legenda vira o Conteudo da mensagem. Uma foto de RG com "esse aqui ta
+        // certo?" escrito junto perderia a pergunta se so guardassemos o arquivo —
+        // e a pergunta e o que o atendente precisa ler.
         if (mensagem.TryGetProperty("imageMessage", out var imagem))
         {
             var legenda = Texto(imagem, "caption");
@@ -161,22 +179,40 @@ public static class TradutorDePayload
                 string.IsNullOrWhiteSpace(legenda) ? "[imagem]" : legenda,
                 TipoMensagem.Imagem,
                 Texto(imagem, "url"),
-                null);
+                null,
+                Texto(imagem, "mimetype"));
         }
 
         if (mensagem.TryGetProperty("documentMessage", out var documento))
         {
             var nome = Texto(documento, "fileName");
+            var legenda = Texto(documento, "caption");
+
             return new Conteudo(
-                string.IsNullOrWhiteSpace(nome) ? "[documento]" : nome,
+                string.IsNullOrWhiteSpace(legenda)
+                    ? (string.IsNullOrWhiteSpace(nome) ? "[documento]" : nome)
+                    : legenda,
                 TipoMensagem.Documento,
                 Texto(documento, "url"),
-                nome);
+                nome,
+                Texto(documento, "mimetype"));
+        }
+
+        // Documento com legenda chega neste envelope em versoes recentes.
+        if (mensagem.TryGetProperty("documentWithCaptionMessage", out var comLegenda)
+            && comLegenda.TryGetProperty("message", out var interna))
+        {
+            return LerConteudo(interna);
         }
 
         if (mensagem.TryGetProperty("audioMessage", out var audio))
         {
-            return new Conteudo("[áudio]", TipoMensagem.Audio, Texto(audio, "url"), null);
+            return new Conteudo(
+                "[áudio]",
+                TipoMensagem.Audio,
+                Texto(audio, "url"),
+                null,
+                Texto(audio, "mimetype"));
         }
 
         if (mensagem.TryGetProperty("videoMessage", out var video))
@@ -186,7 +222,8 @@ public static class TradutorDePayload
                 string.IsNullOrWhiteSpace(legenda) ? "[vídeo]" : legenda,
                 TipoMensagem.Video,
                 Texto(video, "url"),
-                null);
+                null,
+                Texto(video, "mimetype"));
         }
 
         return null;

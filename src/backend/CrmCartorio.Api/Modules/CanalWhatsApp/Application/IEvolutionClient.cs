@@ -36,6 +36,22 @@ public interface IEvolutionClient
     /// </remarks>
     Task<string> EnviarTextoAsync(string telefoneE164, string conteudo, CancellationToken ct);
 
+    /// <summary>
+    /// Envia um arquivo e devolve o id da mensagem no WhatsApp.
+    /// </summary>
+    /// <param name="legenda">
+    /// Texto que acompanha o arquivo. Vai vazio quando o conteudo da mensagem e
+    /// so o rotulo do proprio anexo — mandar "[imagem]" como legenda de uma
+    /// imagem seria ruido na tela do cliente.
+    /// </param>
+    Task<string> EnviarMidiaAsync(
+        string telefoneE164,
+        byte[] conteudo,
+        string tipoMime,
+        string nomeDoArquivo,
+        string? legenda,
+        CancellationToken ct);
+
     /// <summary>Baixa a midia de uma mensagem recebida, em base64.</summary>
     Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct);
 }

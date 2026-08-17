@@ -23,7 +23,27 @@ import {
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { formatarDataHora, formatarHora } from '@/lib/formatacao'
+import { AnexoDaMensagem } from './anexo-da-mensagem'
 import type { AparenciaDaConversa, Mensagem, StatusEntrega } from '@/lib/api/tipos'
+
+/**
+ * Rótulos que o servidor grava quando o anexo chega sem legenda.
+ *
+ * Repetir o rótulo embaixo da própria imagem seria ruído: o anexo já se
+ * apresenta. Espelha `TradutorDePayload.LerConteudo` no backend.
+ */
+const ROTULOS_DE_ANEXO = new Set(['[imagem]', '[documento]', '[áudio]', '[vídeo]'])
+
+/** O texto da mensagem acrescenta algo ao anexo, em vez de repeti-lo. */
+function temLegendaPropria(mensagem: Mensagem) {
+  if (!mensagem.arquivoNome) {
+    return mensagem.conteudo.length > 0
+  }
+
+  return (
+    mensagem.conteudo !== mensagem.arquivoNome && !ROTULOS_DE_ANEXO.has(mensagem.conteudo)
+  )
+}
 
 const formatadorDeDia = new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit',
@@ -330,9 +350,13 @@ export function FioDeMensagens({
                     </div>
                   ) : null}
 
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-tinta">
-                    {mensagem.conteudo}
-                  </p>
+                  {mensagem.arquivoNome ? <AnexoDaMensagem mensagem={mensagem} /> : null}
+
+                  {temLegendaPropria(mensagem) ? (
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-tinta">
+                      {mensagem.conteudo}
+                    </p>
+                  ) : null}
 
                       {/* Procedência do encaminhamento: o texto veio de outro
                           atendimento, e o protocolo de origem é o que permite

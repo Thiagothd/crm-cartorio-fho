@@ -61,6 +61,35 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
 
     public static AtendimentoServiceException NadaParaMover() =>
         new("nada_para_mover", "Informe uma etapa ou um setor de destino.", 400);
+
+    // ------------------------------------------------------------------ anexos
+
+    public static AtendimentoServiceException AnexoVazio() =>
+        new("anexo_vazio", "O arquivo esta vazio.", 400);
+
+    public static AtendimentoServiceException AnexoGrandeDemais(int limiteMb) =>
+        new("anexo_grande_demais", $"O arquivo passa do limite de {limiteMb} MB.", 400)
+        {
+            Detalhes = { ["limiteMb"] = limiteMb }
+        };
+
+    /// <remarks>
+    /// A mensagem nomeia o tipo recusado de proposito: "tipo nao aceito" sozinho
+    /// faz o atendente tentar de novo com o mesmo arquivo.
+    /// </remarks>
+    public static AtendimentoServiceException AnexoDeTipoNaoAceito(string? tipoMime) =>
+        new("anexo_tipo_nao_aceito",
+            $"Tipo de arquivo nao aceito ({tipoMime ?? "desconhecido"}). "
+            + "Envie imagem, PDF, documento do Office ou texto.", 400);
+
+    /// <remarks>
+    /// 404, e nao 500: a linha existe no banco e o arquivo nao esta no disco — o
+    /// que acontece de verdade quando alguem restaura um .bak sem restaurar a
+    /// pasta de anexos.
+    /// </remarks>
+    public static AtendimentoServiceException AnexoNaoEncontrado() =>
+        new("anexo_nao_encontrado",
+            "O arquivo desta mensagem nao esta disponivel no servidor.", 404);
 }
 
 /// <summary>

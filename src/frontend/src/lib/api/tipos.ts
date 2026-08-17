@@ -177,6 +177,15 @@ export interface Mensagem {
   respondidaAutor: string | null
   /** Texto (já cortado no servidor) da mensagem citada. */
   respondidaConteudo: string | null
+  /**
+   * Nome do arquivo anexado, quando há um. `null` na imensa maioria.
+   *
+   * O caminho no disco **não** vem na resposta: o binário é pedido pelo id da
+   * mensagem, num endpoint autenticado que confere tenant e conversa.
+   */
+  arquivoNome: string | null
+  arquivoTipoMime: string | null
+  arquivoTamanhoBytes: number | null
 }
 
 /** Conversa candidata a receber um encaminhamento. */

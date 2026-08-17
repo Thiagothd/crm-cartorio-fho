@@ -25,6 +25,17 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
             t.HasCheckConstraint(
                 "CK_Mensagens_AutomaticaEhDoSistema",
                 "([EhAutomatica] = 0) OR ([EhAutomatica] = 1 AND [AutorTipo] = 3)");
+
+            // Ou o anexo esta inteiro, ou nao ha anexo. Meia linha gravada —
+            // caminho sem tipo, tipo sem caminho — daria um fio que promete
+            // arquivo e um download que devolve 404.
+            t.HasCheckConstraint(
+                "CK_Mensagens_Arquivo",
+                """
+                ([ArquivoCaminho] IS NULL AND [ArquivoNome] IS NULL AND [ArquivoTipoMime] IS NULL AND [ArquivoTamanhoBytes] IS NULL)
+                OR
+                ([ArquivoCaminho] IS NOT NULL AND [ArquivoNome] IS NOT NULL AND [ArquivoTipoMime] IS NOT NULL AND [ArquivoTamanhoBytes] IS NOT NULL)
+                """);
         });
 
         builder.HasKey(m => m.Id);
@@ -34,6 +45,13 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.Tipo).HasConversion<byte>();
         builder.Property(m => m.StatusEntrega).HasConversion<byte>();
         builder.Property(m => m.IdExternoWhatsapp).HasMaxLength(80).IsUnicode(false);
+
+        builder.Property(m => m.ArquivoNome).HasMaxLength(260);
+        builder.Property(m => m.ArquivoTipoMime).HasMaxLength(150).IsUnicode(false);
+        builder.Property(m => m.ArquivoCaminho).HasMaxLength(400);
+
+        // Propriedade so de leitura sobre ArquivoCaminho — nao vira coluna.
+        builder.Ignore(m => m.TemArquivo);
         builder.Property(m => m.EnviadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.LidaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.FixadaEm).HasColumnType("datetime2(3)");

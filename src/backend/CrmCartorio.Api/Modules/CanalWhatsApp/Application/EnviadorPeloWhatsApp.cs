@@ -18,6 +18,7 @@ namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 public class EnviadorPeloWhatsApp(
     CrmDbContext db,
     IEvolutionClient gateway,
+    IArmazenamentoDeAnexos anexos,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<EnviadorPeloWhatsApp> log) : IEnviadorDeCanal
 {
@@ -37,6 +38,9 @@ public class EnviadorPeloWhatsApp(
                 m.Id,
                 m.Conteudo,
                 m.StatusEntrega,
+                m.ArquivoCaminho,
+                m.ArquivoNome,
+                m.ArquivoTipoMime,
                 Canal = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
                     .Select(c => c.Canal)
@@ -74,7 +78,15 @@ public class EnviadorPeloWhatsApp(
 
         try
         {
-            var idExterno = await gateway.EnviarTextoAsync(alvo.Telefone, alvo.Conteudo, ct);
+            var idExterno = alvo.ArquivoCaminho is { Length: > 0 } caminho
+                ? await EnviarComArquivoAsync(
+                    alvo.Telefone,
+                    caminho,
+                    alvo.ArquivoNome,
+                    alvo.ArquivoTipoMime,
+                    alvo.Conteudo,
+                    ct)
+                : await gateway.EnviarTextoAsync(alvo.Telefone, alvo.Conteudo, ct);
 
             await MarcarAsync(mensagemId, StatusEntrega.Enviada, idExterno, ct);
 
@@ -126,6 +138,57 @@ public class EnviadorPeloWhatsApp(
             await EnviarAsync(id, ct);
         }
     }
+
+    /// <summary>
+    /// Le o arquivo do disco e manda pelo gateway.
+    /// </summary>
+    /// <remarks>
+    /// A legenda so vai quando ha texto de gente. O conteudo de uma mensagem so
+    /// de anexo e o rotulo do proprio arquivo — "[imagem]", ou o nome do PDF — e
+    /// mandar isso como legenda escreveria "[imagem]" embaixo da imagem no
+    /// aparelho do cliente.
+    ///
+    /// Arquivo sumido do disco levanta, e quem chamou converte em
+    /// <see cref="StatusEntrega.Falha"/>: melhor o atendente ver que nao saiu do
+    /// que o cliente receber uma mensagem vazia no lugar do documento.
+    /// </remarks>
+    private async Task<string> EnviarComArquivoAsync(
+        string telefone,
+        string caminho,
+        string? nome,
+        string? tipoMime,
+        string conteudo,
+        CancellationToken ct)
+    {
+        var bytes = await anexos.LerAsync(caminho, ct)
+            ?? throw AtendimentoServiceException.AnexoNaoEncontrado();
+
+        var nomeDoArquivo = string.IsNullOrWhiteSpace(nome) ? "anexo" : nome;
+
+        var legenda = conteudo.Equals(nomeDoArquivo, StringComparison.Ordinal)
+                      || RotulosDeAnexo.Contains(conteudo)
+            ? null
+            : conteudo;
+
+        return await gateway.EnviarMidiaAsync(
+            telefone,
+            bytes,
+            string.IsNullOrWhiteSpace(tipoMime) ? "application/octet-stream" : tipoMime,
+            nomeDoArquivo,
+            legenda,
+            ct);
+    }
+
+    /// <summary>
+    /// Textos que o tradutor usa quando o anexo veio sem legenda.
+    /// </summary>
+    /// <remarks>
+    /// Espelham <c>TradutorDePayload.LerConteudo</c>. Mudar la sem mudar aqui faz
+    /// o rotulo reaparecer como legenda no aparelho do cliente — visivel so em
+    /// conversa real, entao vale a nota.
+    /// </remarks>
+    private static readonly HashSet<string> RotulosDeAnexo =
+        new(StringComparer.Ordinal) { "[imagem]", "[documento]", "[áudio]", "[vídeo]" };
 
     /// <remarks>
     /// <c>ExecuteUpdate</c> e nao entidade rastreada: quem chamou ja fez o

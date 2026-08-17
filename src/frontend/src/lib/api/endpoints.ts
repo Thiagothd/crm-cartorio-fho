@@ -87,6 +87,33 @@ export const conversasApi = {
   simularMensagemDeCliente: (id: string, conteudo: string) =>
     api.post<Mensagem>(`/api/conversas/${id}/mensagens/simular-cliente`, { conteudo }),
 
+  enviarAnexo: (
+    id: string,
+    arquivo: File,
+    legenda?: string,
+    mensagemRespondidaId?: string | null,
+  ) => {
+    const dados = new FormData()
+    dados.append('arquivo', arquivo)
+
+    if (legenda) {
+      dados.append('legenda', legenda)
+    }
+
+    if (mensagemRespondidaId) {
+      dados.append('mensagemRespondidaId', mensagemRespondidaId)
+    }
+
+    return api.formulario<Mensagem>(`/api/conversas/${id}/mensagens/anexo`, dados)
+  },
+
+  /**
+   * Binário do anexo. Autenticado — anexo de cartório é documento de cliente, e
+   * pasta servida por URL adivinhável entregaria RG de terceiro a quem tentasse.
+   */
+  baixarAnexo: (id: string, mensagemId: string, sinal?: AbortSignal) =>
+    api.blob(`/api/conversas/${id}/mensagens/${mensagemId}/anexo`, sinal),
+
   // Ações do menu de contexto da mensagem -----------------------------------
 
   fixarMensagem: (id: string, mensagemId: string, fixar: boolean) =>

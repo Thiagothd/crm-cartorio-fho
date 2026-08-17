@@ -14,6 +14,7 @@ public class RecebimentoDeWhatsApp(
     IDisparadorDeMensagemAutomatica automaticas,
     INotificadorDeAtendimento notificador,
     IEnviadorDeCanal canal,
+    IArmazenamentoDeAnexos anexos,
     ILogger<RecebimentoDeWhatsApp> log) : IRecebimentoDeWhatsApp
 {
     public async Task<Guid> ReceberAsync(
@@ -53,7 +54,7 @@ public class RecebimentoDeWhatsApp(
         // Continua tudo na mesma transacao: se algo falhar adiante, nada fica.
         await db.SaveChangesAsync(ct);
 
-        db.Mensagens.Add(new Mensagem
+        var recebida = new Mensagem
         {
             TenantId = tenantId,
             ConversaId = conversa.Id,
@@ -67,7 +68,11 @@ public class RecebimentoDeWhatsApp(
             StatusEntrega = StatusEntrega.Entregue,
             IdExternoWhatsapp = mensagem.IdExterno,
             EnviadaEm = agora
-        });
+        };
+
+        await GravarAnexoAsync(recebida, mensagem.Arquivo, agora, ct);
+
+        db.Mensagens.Add(recebida);
 
         conversa.UltimaMensagemEm = agora;
         conversa.MensagensNaoLidas += 1;
@@ -171,6 +176,61 @@ public class RecebimentoDeWhatsApp(
         if (conversaId is { } id)
         {
             await NotificarAsync(tenantId, id, ct);
+        }
+    }
+
+    /// <summary>
+    /// Grava o anexo em disco e carimba os campos na mensagem.
+    /// </summary>
+    /// <remarks>
+    /// <b>Falha aqui nao derruba a mensagem.</b> Tipo fora da lista de
+    /// permitidos, arquivo grande demais, disco cheio — em todos, a mensagem
+    /// entra no fio com a legenda e sem o arquivo. O oposto seria perder a
+    /// mensagem do cliente por causa de um anexo, e uma figurinha recusada
+    /// silenciaria uma pergunta de verdade.
+    ///
+    /// O <c>Tipo</c> passa a ser o que a lista de permitidos diz, e nao o que o
+    /// WhatsApp declarou: e a mesma informacao vinda de uma fonte que nos
+    /// controlamos.
+    ///
+    /// Arquivo gravado com a transacao aberta pode virar orfao em disco se o
+    /// commit falhar adiante. Preferido ao contrario — linha apontando para
+    /// arquivo que nunca existiu quebra o fio; arquivo sem linha so ocupa espaco.
+    /// </remarks>
+    private async Task GravarAnexoAsync(
+        Mensagem mensagem,
+        ArquivoDoCanal? arquivo,
+        DateTime agora,
+        CancellationToken ct)
+    {
+        if (arquivo is null || arquivo.Conteudo.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var gravado = await anexos.GravarAsync(
+                mensagem.TenantId,
+                mensagem.Id,
+                agora,
+                arquivo.Conteudo,
+                arquivo.Nome,
+                arquivo.TipoMime,
+                ct);
+
+            mensagem.ArquivoCaminho = gravado.CaminhoRelativo;
+            mensagem.ArquivoNome = gravado.Nome;
+            mensagem.ArquivoTipoMime = gravado.TipoMime;
+            mensagem.ArquivoTamanhoBytes = gravado.TamanhoBytes;
+            mensagem.Tipo = gravado.Tipo;
+        }
+        catch (Exception falha) when (falha is not OperationCanceledException)
+        {
+            log.LogWarning(
+                falha,
+                "Anexo da mensagem {IdExterno} nao foi gravado; a mensagem entra sem arquivo.",
+                mensagem.IdExternoWhatsapp);
         }
     }
 

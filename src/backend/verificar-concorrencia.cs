@@ -350,6 +350,7 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
             new NotificadorSilencioso(),
             new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
             new CanalSilencioso(),
+            new AnexosEmMemoria(),
             NullLogger<MensagemService>.Instance);
 
         var enviada = await mensagens.EnviarAsync(
@@ -498,6 +499,37 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
         Task.FromResult<string?>(null);
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Anexo em memoria. Nenhum teste daqui anexa arquivo; existe para satisfazer o
+/// construtor sem escrever no disco de quem roda o verificador.
+/// </summary>
+file sealed class AnexosEmMemoria : IArmazenamentoDeAnexos
+{
+    private readonly Dictionary<string, byte[]> _guardados = [];
+
+    public long TamanhoMaximoBytes => 16 * 1024 * 1024;
+
+    public bool TipoPermitido(string? tipoMime) => !string.IsNullOrWhiteSpace(tipoMime);
+
+    public Task<AnexoGravado> GravarAsync(
+        Guid tenantId, Guid mensagemId, DateTime quando, byte[] conteudo,
+        string? nomeOriginal, string? tipoMime, CancellationToken ct = default)
+    {
+        var caminho = $"memoria/{mensagemId:N}";
+        _guardados[caminho] = conteudo;
+
+        return Task.FromResult(new AnexoGravado(
+            caminho,
+            nomeOriginal ?? "anexo",
+            tipoMime ?? "application/octet-stream",
+            conteudo.LongLength,
+            TipoMensagem.Documento));
+    }
+
+    public Task<byte[]?> LerAsync(string caminhoRelativo, CancellationToken ct = default) =>
+        Task.FromResult(_guardados.GetValueOrDefault(caminhoRelativo));
 }
 
 file sealed class NotificadorSilencioso : INotificadorDeAtendimento

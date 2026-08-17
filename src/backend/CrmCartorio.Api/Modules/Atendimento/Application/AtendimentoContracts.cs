@@ -13,6 +13,38 @@ public record CriarConversaRequest(
 public record EnviarMensagemRequest(string Conteudo, Guid? MensagemRespondidaId = null);
 
 /// <summary>
+/// Envio de arquivo pelo painel.
+/// </summary>
+/// <param name="Conteudo">
+/// Bytes ja lidos do formulario. O controller resolve o multipart; o servico so
+/// ve o arquivo — assim a regra nao depende do formato do transporte.
+/// </param>
+/// <param name="Legenda">
+/// Opcional, ao contrario da mensagem de texto: um documento sozinho ja e uma
+/// mensagem completa.
+/// </param>
+public record EnviarAnexoRequest(
+    byte[] Conteudo,
+    string? NomeDoArquivo,
+    string? TipoMime,
+    string? Legenda = null,
+    Guid? MensagemRespondidaId = null);
+
+/// <summary>Anexo pronto para o controller devolver.</summary>
+/// <param name="ExibirNaTela">
+/// Imagem abre na tela; qualquer outra coisa baixa. E a diferenca entre
+/// <c>inline</c> e <c>attachment</c> no Content-Disposition, e ela e de
+/// SEGURANCA antes de ser de conforto: abrir no dominio do painel um arquivo que
+/// o cliente escolheu e o que transformaria um anexo em script rodando com a
+/// sessao do atendente.
+/// </param>
+public record AnexoParaDownload(
+    byte[] Conteudo,
+    string Nome,
+    string TipoMime,
+    bool ExibirNaTela);
+
+/// <summary>
 /// Reenvia mensagens desta conversa para outra. Aceita varias de uma vez porque a
 /// selecao multipla do fio existe justamente para isso.
 /// </summary>
@@ -134,7 +166,18 @@ public record MensagemResponse(
     /// <summary>Autor da mensagem citada, para a previa da citacao.</summary>
     string? RespondidaAutor = null,
     /// <summary>Texto da mensagem citada, resolvido na leitura.</summary>
-    string? RespondidaConteudo = null);
+    string? RespondidaConteudo = null,
+    /// <summary>
+    /// Nome do arquivo anexado, quando ha um.
+    /// </summary>
+    /// <remarks>
+    /// O CAMINHO no disco nunca sai daqui. A interface pede o binario pelo id da
+    /// mensagem; expor o caminho daria a quem lesse a resposta um mapa da pasta
+    /// de anexos do servidor.
+    /// </remarks>
+    string? ArquivoNome = null,
+    string? ArquivoTipoMime = null,
+    long? ArquivoTamanhoBytes = null);
 
 public record HistoricoEtapaResponse(
     Guid Id,

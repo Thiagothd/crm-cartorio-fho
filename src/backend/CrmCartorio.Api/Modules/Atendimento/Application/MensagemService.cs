@@ -15,6 +15,7 @@ public class MensagemService(
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
     IEnviadorDeCanal canal,
+    IArmazenamentoDeAnexos anexos,
     ILogger<MensagemService> log) : IMensagemService, IAcoesDeMensagem
 {
     public async Task<IReadOnlyList<MensagemResponse>> ListarAsync(
@@ -55,6 +56,162 @@ public class MensagemService(
             throw AtendimentoServiceException.MensagemVazia();
         }
 
+        var conversa = await PrepararEnvioAsync(conversaId, request.MensagemRespondidaId, ct);
+        var agora = DateTime.UtcNow;
+
+        var mensagem = new Mensagem
+        {
+            TenantId = conversa.TenantId,
+            ConversaId = conversaId,
+            AutorTipo = AutorTipo.Atendente,
+
+            // RF-007: a mensagem carrega QUEM respondeu. Nao e inferido do dono da
+            // conversa — se ela for transferida depois, o autor original permanece.
+            AtendenteId = ctx.AtendenteId,
+
+            Conteudo = conteudo,
+            Tipo = TipoMensagem.Texto,
+            MensagemRespondidaId = request.MensagemRespondidaId,
+
+            // Conversa de WhatsApp nasce Pendente: o envio real acontece depois do
+            // commit, e so entao vira Enviada com o id externo. Conversa simulada
+            // continua nascendo Enviada — nao ha canal para confirmar coisa alguma,
+            // e Pendente eterno mentiria no fio.
+            StatusEntrega = conversa.Canal == CanalOrigem.WhatsApp
+                ? StatusEntrega.Pendente
+                : StatusEntrega.Enviada,
+            EnviadaEm = agora
+        };
+
+        db.Mensagens.Add(mensagem);
+
+        return await ConcluirEnvioAsync(mensagem, conversaId, agora, ct);
+    }
+
+    public async Task<MensagemResponse> EnviarAnexoAsync(
+        Guid conversaId,
+        EnviarAnexoRequest request,
+        CancellationToken ct = default)
+    {
+        // Conferido ANTES de assumir a conversa: recusar um arquivo depois de
+        // atribuir o atendimento a quem so tentou mandar um tipo invalido deixaria
+        // a conversa presa com ele.
+        if (request.Conteudo.Length == 0)
+        {
+            throw AtendimentoServiceException.AnexoVazio();
+        }
+
+        if (request.Conteudo.LongLength > anexos.TamanhoMaximoBytes)
+        {
+            throw AtendimentoServiceException.AnexoGrandeDemais(
+                (int)(anexos.TamanhoMaximoBytes / (1024 * 1024)));
+        }
+
+        if (!anexos.TipoPermitido(request.TipoMime))
+        {
+            throw AtendimentoServiceException.AnexoDeTipoNaoAceito(request.TipoMime);
+        }
+
+        var conversa = await PrepararEnvioAsync(conversaId, request.MensagemRespondidaId, ct);
+        var agora = DateTime.UtcNow;
+        var legenda = request.Legenda?.Trim();
+
+        var mensagem = new Mensagem
+        {
+            TenantId = conversa.TenantId,
+            ConversaId = conversaId,
+            AutorTipo = AutorTipo.Atendente,
+            AtendenteId = ctx.AtendenteId,
+
+            // Placeholder ate o arquivo ser gravado: Conteudo e NOT NULL e o nome
+            // final so existe depois que o armazenamento resolve a extensao.
+            Conteudo = string.IsNullOrWhiteSpace(legenda) ? "[documento]" : legenda,
+            MensagemRespondidaId = request.MensagemRespondidaId,
+            StatusEntrega = conversa.Canal == CanalOrigem.WhatsApp
+                ? StatusEntrega.Pendente
+                : StatusEntrega.Enviada,
+            EnviadaEm = agora
+        };
+
+        // Aqui a falha SOBE, ao contrario do recebimento. Sao situacoes opostas:
+        // no webhook, recusar o anexo perderia a mensagem do cliente; aqui, quem
+        // anexou esta na frente da tela e precisa saber que o arquivo nao foi.
+        var gravado = await anexos.GravarAsync(
+            conversa.TenantId,
+            mensagem.Id,
+            agora,
+            request.Conteudo,
+            request.NomeDoArquivo,
+            request.TipoMime,
+            ct);
+
+        mensagem.ArquivoCaminho = gravado.CaminhoRelativo;
+        mensagem.ArquivoNome = gravado.Nome;
+        mensagem.ArquivoTipoMime = gravado.TipoMime;
+        mensagem.ArquivoTamanhoBytes = gravado.TamanhoBytes;
+        mensagem.Tipo = gravado.Tipo;
+
+        // Sem legenda, o fio mostra o nome do arquivo — mais util que "[documento]"
+        // e igual ao que o recebimento faz com documento que chega sem legenda.
+        if (string.IsNullOrWhiteSpace(legenda))
+        {
+            mensagem.Conteudo = gravado.Nome;
+        }
+
+        db.Mensagens.Add(mensagem);
+
+        return await ConcluirEnvioAsync(mensagem, conversaId, agora, ct);
+    }
+
+    public async Task<AnexoParaDownload> ObterAnexoAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CancellationToken ct = default)
+    {
+        // O WHERE amarra conversa E tenant. Sem isso, adivinhar o id de uma
+        // mensagem entregaria o documento de um cliente de outra serventia.
+        var alvo = await db.Mensagens.AsNoTracking()
+            .Where(m => m.Id == mensagemId
+                     && m.ConversaId == conversaId
+                     && m.TenantId == ctx.TenantId)
+            .Select(m => new { m.ArquivoCaminho, m.ArquivoNome, m.ArquivoTipoMime })
+            .FirstOrDefaultAsync(ct)
+            ?? throw AtendimentoServiceException.MensagemNaoEncontrada();
+
+        if (string.IsNullOrWhiteSpace(alvo.ArquivoCaminho))
+        {
+            throw AtendimentoServiceException.AnexoNaoEncontrado();
+        }
+
+        var conteudo = await anexos.LerAsync(alvo.ArquivoCaminho, ct)
+            ?? throw AtendimentoServiceException.AnexoNaoEncontrado();
+
+        var mime = alvo.ArquivoTipoMime ?? "application/octet-stream";
+
+        return new AnexoParaDownload(
+            conteudo,
+            alvo.ArquivoNome ?? "anexo",
+            mime,
+
+            // SO imagem abre na tela. Qualquer outro tipo baixa, inclusive PDF:
+            // exibir no dominio do painel um arquivo que o cliente escolheu e o
+            // que transforma um anexo em codigo rodando com a sessao do atendente.
+            mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Confere que da para escrever nesta conversa, e assume se ela estiver na fila.
+    /// </summary>
+    /// <remarks>
+    /// Compartilhado por texto e anexo de proposito: duas copias destas regras
+    /// divergiriam, e a divergencia seria justamente na trava que este produto
+    /// existe para garantir.
+    /// </remarks>
+    private async Task<Conversa> PrepararEnvioAsync(
+        Guid conversaId,
+        Guid? mensagemRespondidaId,
+        CancellationToken ct)
+    {
         var tenantId = ctx.TenantId;
 
         var conversa = await db.Conversas
@@ -98,7 +255,7 @@ public class MensagemService(
 
         // A mensagem citada tem de ser da MESMA conversa. Sem esta checagem daria
         // para citar mensagem de outro atendimento — e de outro cliente.
-        if (request.MensagemRespondidaId is { } respondidaId)
+        if (mensagemRespondidaId is { } respondidaId)
         {
             var pertence = await db.Mensagens.AsNoTracking()
                 .AnyAsync(m => m.Id == respondidaId
@@ -111,34 +268,18 @@ public class MensagemService(
             }
         }
 
-        var agora = DateTime.UtcNow;
+        return conversa;
+    }
 
-        var mensagem = new Mensagem
-        {
-            TenantId = tenantId,
-            ConversaId = conversaId,
-            AutorTipo = AutorTipo.Atendente,
-
-            // RF-007: a mensagem carrega QUEM respondeu. Nao e inferido do dono da
-            // conversa — se ela for transferida depois, o autor original permanece.
-            AtendenteId = ctx.AtendenteId,
-
-            Conteudo = conteudo,
-            Tipo = TipoMensagem.Texto,
-            MensagemRespondidaId = request.MensagemRespondidaId,
-
-            // Conversa de WhatsApp nasce Pendente: o envio real acontece depois do
-            // commit, e so entao vira Enviada com o id externo. Conversa simulada
-            // continua nascendo Enviada — nao ha canal para confirmar coisa alguma,
-            // e Pendente eterno mentiria no fio.
-            StatusEntrega = conversa.Canal == CanalOrigem.WhatsApp
-                ? StatusEntrega.Pendente
-                : StatusEntrega.Enviada,
-            EnviadaEm = agora
-        };
-
-        db.Mensagens.Add(mensagem);
-
+    /// <summary>
+    /// Grava, carimba a conversa, entrega pelo canal e avisa os paineis abertos.
+    /// </summary>
+    private async Task<MensagemResponse> ConcluirEnvioAsync(
+        Mensagem mensagem,
+        Guid conversaId,
+        DateTime agora,
+        CancellationToken ct)
+    {
         await db.SaveChangesAsync(ct);
 
         // UltimaMensagemEm sai por ExecuteUpdate, e NAO pela entidade rastreada.
@@ -167,7 +308,7 @@ public class MensagemService(
         var resposta = await ObterUmaAsync(mensagem.Id, conversaId, ct);
 
         var resumo = await conversas.ObterResumoAsync(conversaId, ct);
-        await notificador.MensagemRecebidaAsync(tenantId, resposta, resumo, ct);
+        await notificador.MensagemRecebidaAsync(mensagem.TenantId, resposta, resumo, ct);
 
         return resposta;
     }

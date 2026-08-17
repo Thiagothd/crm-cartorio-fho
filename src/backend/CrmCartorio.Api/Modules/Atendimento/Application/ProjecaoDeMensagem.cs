@@ -74,5 +74,12 @@ public static class ProjecaoDeMensagem
                 .Select(r => r.Conteudo.Length > TamanhoDaPrevia
                     ? r.Conteudo.Substring(0, TamanhoDaPrevia)
                     : r.Conteudo)
-                .FirstOrDefault()));
+                .FirstOrDefault(),
+
+            // Sem ArquivoCaminho: a interface pede o binario pelo id da mensagem,
+            // e publicar o caminho daria a quem lesse a resposta um mapa da pasta
+            // de anexos do servidor.
+            m.ArquivoNome,
+            m.ArquivoTipoMime,
+            m.ArquivoTamanhoBytes));
 }

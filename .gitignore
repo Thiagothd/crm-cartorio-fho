@@ -30,6 +30,21 @@ secrets.json
 appsettings.Development.json
 !appsettings.Development.example.json
 
+# Anexos recebidos e enviados pelo WhatsApp.
+#
+# São documentos de clientes — RG, escritura, comprovante. Dado pessoal
+# sensível, do tipo que este produto existe para manter no servidor da própria
+# serventia. Versionar um só já seria vazamento, e vazamento que fica no
+# histórico do git para sempre.
+#
+# A pasta é recriada sozinha; o caminho sai de CanalWhatsApp:RaizDosAnexos.
+src/backend/CrmCartorio.Api/anexos/
+anexos/
+
+# Sessão pareada do gateway Evolution (volume do Docker).
+# Quem tem esses arquivos manda mensagem como o número pareado.
+infra/whatsapp/dados/
+
 # Ferramentas de agente (configuração local, pode conter caminho de máquina)
 .claude/settings.local.json
 
