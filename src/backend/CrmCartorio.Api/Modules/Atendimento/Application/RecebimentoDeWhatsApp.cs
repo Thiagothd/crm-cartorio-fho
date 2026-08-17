@@ -3,7 +3,9 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -15,8 +17,12 @@ public class RecebimentoDeWhatsApp(
     INotificadorDeAtendimento notificador,
     IEnviadorDeCanal canal,
     IArmazenamentoDeAnexos anexos,
+    IRespostaInteligenteService respostaInteligente,
+    IOptions<OpcoesDaIA> opcoesDaIA,
     ILogger<RecebimentoDeWhatsApp> log) : IRecebimentoDeWhatsApp
 {
+    private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
+
     public async Task<Guid> ReceberAsync(
         Guid tenantId,
         MensagemDoCanal mensagem,
@@ -97,7 +103,24 @@ public class RecebimentoDeWhatsApp(
             // Separar o instante torna a ordem determinista sem depender de como
             // o banco compara GUID.
             await AplicadorDeTriagem.AplicarAsync(
-                db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+                db, automaticas, respostaInteligente, _opcoesDaIA,
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+        }
+        else if (conversa.AguardandoEscolhaDeServico)
+        {
+            // Mesmo ajuste de um milissegundo dos outros ramos, e pelo mesmo motivo.
+            await AplicadorDeEscolhaDeServico.AplicarAsync(
+                db, automaticas, respostaInteligente, _opcoesDaIA,
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+        }
+        else if (conversa.AguardandoRespostaInteligente)
+        {
+            // Mesmo ajuste de um milissegundo do ramo da triagem acima, e pelo
+            // mesmo motivo: a resposta da IA tem de aparecer DEPOIS da mensagem que
+            // a provocou, e Guid v7 sozinho nao garante isso com timestamp igual.
+            await AplicadorDeRespostaInteligente.AplicarAsync(
+                db, respostaInteligente, automaticas, _opcoesDaIA,
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
         }
 
         await db.SaveChangesAsync(ct);

@@ -18,6 +18,9 @@ export const MARCADORES: { token: string; descricao: string }[] = [
   { token: '{Servico}', descricao: 'Tipo de serviço vinculado ao atendimento.' },
   { token: '{Protocolo}', descricao: 'Protocolo do atendimento (AAAAMM-NNNN).' },
   { token: '{MenuSetores}', descricao: 'Lista numerada dos setores ativos.' },
+  { token: '{MenuServicos}', descricao: 'Lista numerada dos serviços ativos do setor da conversa.' },
+  { token: '{DocumentosNecessarios}', descricao: 'Checklist de documento do serviço vinculado.' },
+  { token: '{PrazoServico}', descricao: 'Prazo do serviço vinculado, em texto.' },
 ]
 
 /**
@@ -27,6 +30,9 @@ export const MARCADORES: { token: string; descricao: string }[] = [
  * informado" funciona, "certidão está pronto" não.
  */
 export const SERVICO_NAO_INFORMADO = 'não informado'
+
+/** Mesmo texto do backend (PlaceholdersDeMensagem.cs) para os três marcadores novos. */
+const A_CONFIRMAR_COM_ATENDENTE = 'a confirmar com o atendente'
 
 export interface DadosParaMensagem {
   nomeCliente: string
@@ -55,7 +61,15 @@ export function dadosDaConversa(
   }
 }
 
-/** Substituição literal, sem expressão nem condicional — igual ao backend. */
+/**
+ * Substituição literal, sem expressão nem condicional — igual ao backend.
+ *
+ * {MenuServicos}, {DocumentosNecessarios} e {PrazoServico} dependem do serviço
+ * específico já captado na conversa — dado que esta tela (inserção de resposta
+ * rápida no campo do atendente) não carrega. Resolvem para o mesmo texto de
+ * fallback do backend em vez de aparecer cru na prévia; a resolução de verdade,
+ * por serviço, é a que roda no disparo real da mensagem automática.
+ */
 export function aplicarMarcadores(modelo: string, dados: DadosParaMensagem): string {
   return modelo
     .replaceAll('{NomeCliente}', dados.nomeCliente)
@@ -63,4 +77,7 @@ export function aplicarMarcadores(modelo: string, dados: DadosParaMensagem): str
     .replaceAll('{Servico}', dados.servico?.trim() ? dados.servico : SERVICO_NAO_INFORMADO)
     .replaceAll('{Protocolo}', dados.protocolo)
     .replaceAll('{MenuSetores}', dados.menuSetores)
+    .replaceAll('{MenuServicos}', '')
+    .replaceAll('{DocumentosNecessarios}', A_CONFIRMAR_COM_ATENDENTE)
+    .replaceAll('{PrazoServico}', A_CONFIRMAR_COM_ATENDENTE)
 }

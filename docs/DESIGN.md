@@ -165,7 +165,7 @@ Não são preferências. São restrições.
 | **Gradiente** | Nenhum documento oficial tem gradiente |
 | **Sombra** (`box-shadow`) | Profundidade falsa. Papel não flutua |
 | **Glow**, `blur` decorativo | Idem |
-| **Emoji** na interface | Quebra o registro formal na hora |
+| **Emoji** no painel (botão, ícone, badge, menu) | Quebra o registro formal na hora — exceção para mensagem ao cliente, ver abaixo |
 | **Cor fora dos tokens** | Se não está na seção 2, não entra |
 
 | Obrigatório | Valor |
@@ -179,6 +179,18 @@ com **tipografia e espaço**, não com elevação.
 
 Sobre ícones: usamos `lucide-react`, que é stroke por natureza. A espessura vai
 no `strokeWidth` global — nunca `fill`.
+
+**Sem emoji, aqui, é sobre o painel — botão, ícone, badge, menu.** Decisão de
+2026-08-17: o texto que o CLIENTE lê no WhatsApp
+(`MensagemAutomatica.Conteudo`, `RespostaRapida.Conteudo`, resposta da IA) pode
+usar emoji pontual e com propósito — que ajuda a escanear a mensagem (📍
+endereço, 📄 documento, ⏱️ prazo), nunca emoji solto só para chamar atenção.
+Essa mensagem é conteúdo que o cartório parceiro escreve e edita pela tela, na voz do
+cartório para o cliente final — registro formal do painel e tom de conversa
+por WhatsApp são dois registros diferentes, e forçar o segundo a soar como o
+primeiro é o motivo do produto ainda soar "atrás" das mensagens de um cartório
+que já usa WhatsApp de verdade. A restrição do parágrafo anterior continua
+inteira para o painel em si.
 
 ---
 

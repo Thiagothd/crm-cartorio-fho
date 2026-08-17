@@ -27,7 +27,7 @@ public class DisparadorDeMensagemAutomatica(
     // de setores. Escopo curto (uma requisicao ou uma varredura), entao nao ha
     // risco de servir cadastro velho depois de uma edicao.
     private readonly Dictionary<Guid, string> _nomeDoCartorio = [];
-    private readonly Dictionary<Guid, IReadOnlyList<TriagemAutomatica.OpcaoDeSetor>> _setores = [];
+    private readonly Dictionary<Guid, IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> _setores = [];
 
     public async Task<IReadOnlyList<Mensagem>> EnfileirarAsync(
         Conversa conversa,
@@ -113,7 +113,7 @@ public class DisparadorDeMensagemAutomatica(
         return geradas;
     }
 
-    public async Task<IReadOnlyList<TriagemAutomatica.OpcaoDeSetor>> SetoresDoMenuAsync(
+    public async Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> SetoresDoMenuAsync(
         Guid tenantId,
         CancellationToken ct = default)
     {
@@ -128,11 +128,27 @@ public class DisparadorDeMensagemAutomatica(
             .Where(s => s.TenantId == tenantId && s.Ativo)
             .OrderBy(s => s.Ordem)
             .ThenBy(s => s.Nome)
-            .Select(s => new TriagemAutomatica.OpcaoDeSetor(s.Id, s.Nome))
+            .Select(s => new TriagemAutomatica.OpcaoDeMenu(s.Id, s.Nome))
             .ToListAsync(ct);
 
         _setores[tenantId] = setores;
         return setores;
+    }
+
+    public async Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> ServicosDoMenuAsync(
+        Guid tenantId,
+        Guid setorId,
+        CancellationToken ct = default)
+    {
+        // Sem memoria de escopo, ao contrario de SetoresDoMenuAsync: o disparador
+        // atende varios setores por passada (varredor de prazo), e o custo de
+        // memorizar por (tenant, setor) nao compensa para uma consulta indexada
+        // (IX_TiposServico_Tenant_Setor_Ativo).
+        return await db.TiposServico.AsNoTracking()
+            .Where(t => t.TenantId == tenantId && t.SetorId == setorId && t.Ativo)
+            .OrderBy(t => t.Nome)
+            .Select(t => new TriagemAutomatica.OpcaoDeMenu(t.Id, t.Nome))
+            .ToListAsync(ct);
     }
 
     private async Task<DadosParaMensagem> MontarDadosAsync(Conversa conversa, CancellationToken ct)
@@ -142,21 +158,57 @@ public class DisparadorDeMensagemAutomatica(
             .Select(c => c.Nome)
             .FirstOrDefaultAsync(ct) ?? string.Empty;
 
-        var servico = conversa.TipoServicoId is { } servicoId
+        var dadosDoServico = conversa.TipoServicoId is { } servicoId
             ? await db.TiposServico.AsNoTracking()
                 .Where(t => t.Id == servicoId)
-                .Select(t => t.Nome)
+                .Select(t => new
+                {
+                    t.Nome,
+                    t.DocumentosNecessarios,
+                    PrazoHoras = t.Prazo != null && t.Prazo.Ativo ? (int?)t.Prazo.PrazoHoras : null,
+                    ApenasDiasUteis = t.Prazo != null && t.Prazo.Ativo && t.Prazo.ApenasDiasUteis
+                })
                 .FirstOrDefaultAsync(ct)
             : null;
 
         var setores = await SetoresDoMenuAsync(conversa.TenantId, ct);
 
+        // So faz sentido com setor ja roteado — antes disso a conversa nem chegou
+        // ao ponto de perguntar qual servico.
+        var menuServicos = conversa.SetorId is { } setorId
+            ? TriagemAutomatica.MontarMenu(await ServicosDoMenuAsync(conversa.TenantId, setorId, ct))
+            : "";
+
         return new DadosParaMensagem(
             clienteNome,
             await NomeDoCartorioAsync(conversa.TenantId, ct),
-            servico,
+            dadosDoServico?.Nome,
             conversa.Protocolo,
-            TriagemAutomatica.MontarMenu(setores));
+            TriagemAutomatica.MontarMenu(setores),
+            menuServicos,
+            dadosDoServico?.DocumentosNecessarios,
+            dadosDoServico?.PrazoHoras is { } prazoHoras
+                ? FormatarPrazo(prazoHoras, dadosDoServico.ApenasDiasUteis)
+                : null);
+    }
+
+    /// <summary>
+    /// Mesma logica de TipoServicoService.DescreverPrazo (Modules/Servicos), sem
+    /// chamar aquele Service — modulo nao chama Application de outro modulo
+    /// (CLAUDE.md, 7.1). Formatacao pura, pequena o bastante para nao valer um
+    /// tipo compartilhado so para isto.
+    /// </summary>
+    private static string FormatarPrazo(int prazoHoras, bool apenasDiasUteis)
+    {
+        if (prazoHoras < 24)
+        {
+            return prazoHoras == 1 ? "até 1 hora" : $"até {prazoHoras} horas";
+        }
+
+        var dias = prazoHoras / 24;
+        var sufixo = apenasDiasUteis ? " úteis" : " corridos";
+
+        return dias == 1 ? $"até 1 dia{sufixo}" : $"até {dias} dias{sufixo}";
     }
 
     private async Task<string> NomeDoCartorioAsync(Guid tenantId, CancellationToken ct)

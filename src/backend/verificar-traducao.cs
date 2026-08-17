@@ -33,6 +33,8 @@ using var db = new CrmDbContext(opcoes);
 var tenantId = Guid.Parse("0199b2c0-0000-7000-8000-000000000001");
 var atendenteId = Guid.NewGuid();
 var etapaAlvoId = Guid.Parse("0199b2c0-0002-7000-8000-000000000004");
+var setorId = Guid.Parse("0199b2c0-0001-7000-8000-000000000001");
+var servicoId = Guid.Parse("0199b2c0-0004-7000-8000-000000000001");
 var agora = DateTime.UtcNow;
 var busca = "maria";
 
@@ -247,7 +249,26 @@ Checar("Disparador: setores do menu de triagem", () =>
     db.Setores.AsNoTracking()
         .Where(s => s.TenantId == tenantId && s.Ativo)
         .OrderBy(s => s.Ordem).ThenBy(s => s.Nome)
-        .Select(s => new TriagemAutomatica.OpcaoDeSetor(s.Id, s.Nome))
+        .Select(s => new TriagemAutomatica.OpcaoDeMenu(s.Id, s.Nome))
+        .ToQueryString());
+
+Checar("Disparador: servicos do menu de 2o nivel (por setor)", () =>
+    db.TiposServico.AsNoTracking()
+        .Where(t => t.TenantId == tenantId && t.SetorId == setorId && t.Ativo)
+        .OrderBy(t => t.Nome)
+        .Select(t => new TriagemAutomatica.OpcaoDeMenu(t.Id, t.Nome))
+        .ToQueryString());
+
+Checar("Disparador: dados do servico para {DocumentosNecessarios}/{PrazoServico}", () =>
+    db.TiposServico.AsNoTracking()
+        .Where(t => t.Id == servicoId)
+        .Select(t => new
+        {
+            t.Nome,
+            t.DocumentosNecessarios,
+            PrazoHoras = t.Prazo != null && t.Prazo.Ativo ? (int?)t.Prazo.PrazoHoras : null,
+            ApenasDiasUteis = t.Prazo != null && t.Prazo.Ativo && t.Prazo.ApenasDiasUteis
+        })
         .ToQueryString());
 
 Checar("Disparador: nome fantasia com fallback para razao social", () =>

@@ -10,7 +10,9 @@ public record SalvarTipoServicoRequest(
     CategoriaServico Categoria,
     string? Descricao,
     bool Ativo,
-    PrazoServicoRequest? Prazo);
+    PrazoServicoRequest? Prazo,
+    Guid? SetorId = null,
+    string? DocumentosNecessarios = null);
 
 public record PrazoServicoResponse(
     Guid Id,
@@ -28,4 +30,7 @@ public record TipoServicoResponse(
     string? Descricao,
     bool Ativo,
     PrazoServicoResponse? Prazo,
-    int ConversasAtivas);
+    int ConversasAtivas,
+    Guid? SetorId = null,
+    string? SetorNome = null,
+    string? DocumentosNecessarios = null);

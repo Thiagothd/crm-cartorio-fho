@@ -48,6 +48,8 @@ export type GatilhoDeMensagem =
   | 'PrazoProximoVencimento'
   | 'PrazoVencido'
   | 'TriagemSemCorrespondencia'
+  | 'TriagemComCorrespondencia'
+  | 'ServicoEscolhido'
 
 export type CategoriaServico =
   | 'Notas'
@@ -186,6 +188,11 @@ export interface Mensagem {
   arquivoNome: string | null
   arquivoTipoMime: string | null
   arquivoTamanhoBytes: number | null
+  /**
+   * A automática veio da Resposta Inteligente (IA), não de uma regra cadastrada.
+   * Sempre acompanha `ehAutomatica`. É o que separa "IA" de "Automática" no rótulo.
+   */
+  geradaPorIa: boolean
 }
 
 /** Conversa candidata a receber um encaminhamento. */
@@ -450,4 +457,7 @@ export interface TipoServico {
   ativo: boolean
   prazo: PrazoServico | null
   conversasAtivas: number
+  setorId: string | null
+  setorNome: string | null
+  documentosNecessarios: string | null
 }

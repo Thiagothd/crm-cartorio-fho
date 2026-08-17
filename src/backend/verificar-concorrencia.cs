@@ -2,14 +2,17 @@
 #:property PublishAot=false
 
 using System.Collections.Concurrent;
+using Anthropic;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 // VERIFICADOR DE CONCORRENCIA
 //
@@ -343,6 +346,11 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
         // perfil isola uma coisa da outra.
         var ctx = new ContextoFixo(tenantId, id, nome, PerfilDeAtendente.Atendente);
 
+        // Habilitada=false: nao e o que este verificador mede, e assim nao precisa
+        // de chave da Anthropic para rodar. Ver o mesmo comentario em
+        // verificar-automacao.cs.
+        var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+
         var mensagens = new MensagemService(
             db,
             ctx,
@@ -351,6 +359,9 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
             new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
             new CanalSilencioso(),
             new AnexosEmMemoria(),
+            new RespostaInteligenteService(
+                db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
+            opcoesDaIA,
             NullLogger<MensagemService>.Instance);
 
         var enviada = await mensagens.EnviarAsync(

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -19,9 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { servicosApi } from '@/lib/api/endpoints'
+import { servicosApi, setoresApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import type { CategoriaServico, TipoServico } from '@/lib/api/tipos'
+
+/** Mesmo limite da coluna (TipoServicoConfiguration.cs). */
+const LIMITE_DO_CHECKLIST = 800
+
+/** Valor do Select para "nenhum setor" — Radix não aceita item com value vazio. */
+const SEM_SETOR = '_nenhum'
 
 const categorias: { valor: CategoriaServico; rotulo: string }[] = [
   { valor: 'Notas', rotulo: 'Tabelionato de Notas' },
@@ -46,6 +54,8 @@ export function DialogoDeServico({
   const [nome, setNome] = useState('')
   const [codigo, setCodigo] = useState('')
   const [categoria, setCategoria] = useState<CategoriaServico>('Outros')
+  const [setorId, setSetorId] = useState(SEM_SETOR)
+  const [documentosNecessarios, setDocumentosNecessarios] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [temPrazo, setTemPrazo] = useState(true)
   const [prazoHoras, setPrazoHoras] = useState('24')
@@ -53,12 +63,20 @@ export function DialogoDeServico({
   const [apenasDiasUteis, setApenasDiasUteis] = useState(true)
   const [salvando, setSalvando] = useState(false)
 
+  const { data: setores } = useQuery({
+    queryKey: ['setores-gestao'],
+    queryFn: () => setoresApi.listar(true),
+    enabled: aberto,
+  })
+
   useEffect(() => {
     if (!aberto) return
 
     setNome(servico?.nome ?? '')
     setCodigo(servico?.codigo ?? '')
     setCategoria(servico?.categoria ?? 'Outros')
+    setSetorId(servico?.setorId ?? SEM_SETOR)
+    setDocumentosNecessarios(servico?.documentosNecessarios ?? '')
     setAtivo(servico?.ativo ?? true)
     setTemPrazo(Boolean(servico?.prazo) || !servico)
     setPrazoHoras(String(servico?.prazo?.prazoHoras ?? 24))
@@ -76,6 +94,8 @@ export function DialogoDeServico({
         categoria,
         descricao: null,
         ativo,
+        setorId: setorId === SEM_SETOR ? null : setorId,
+        documentosNecessarios: documentosNecessarios.trim() || null,
         prazo: temPrazo
           ? {
               prazoHoras: Number(prazoHoras),
@@ -149,6 +169,50 @@ export function DialogoDeServico({
                 placeholder="RC-NASC"
               />
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Setor no menu de atendimento</Label>
+            <Select value={setorId} onValueChange={setSetorId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SEM_SETOR}>Nenhum</SelectItem>
+                {setores?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-tinta-media">
+              Sem setor, este serviço não aparece no menu automático que o cliente vê depois de
+              escolher o setor no WhatsApp — só fica disponível pelo painel.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <Label htmlFor="servico-documentos">Documentos necessários (opcional)</Label>
+              {documentosNecessarios.length > LIMITE_DO_CHECKLIST * 0.8 ? (
+                <span className="font-dado text-[11px] text-tinta-fraca">
+                  {documentosNecessarios.length}/{LIMITE_DO_CHECKLIST}
+                </span>
+              ) : null}
+            </div>
+            <Textarea
+              id="servico-documentos"
+              value={documentosNecessarios}
+              onChange={(e) => setDocumentosNecessarios(e.target.value)}
+              rows={4}
+              maxLength={LIMITE_DO_CHECKLIST}
+              className="resize-none"
+              placeholder="Ex.: RG e CPF originais, comprovante de residência recente."
+            />
+            <p className="text-xs text-tinta-media">
+              Entra no marcador {'{DocumentosNecessarios}'} das mensagens automáticas.
+            </p>
           </div>
 
           <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">

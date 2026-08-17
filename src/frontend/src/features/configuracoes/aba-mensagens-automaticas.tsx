@@ -30,6 +30,7 @@ import { EstadoVazio } from '@/components/layout/shell'
 import { etapasApi, mensagensAutomaticasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { MARCADORES } from '@/features/atendimento/placeholders'
+import { FluxoDeMensagens } from './fluxo-de-mensagens'
 import type { Etapa, GatilhoDeMensagem, MensagemAutomatica } from '@/lib/api/tipos'
 
 /**
@@ -58,6 +59,18 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
       'Sai quando a resposta ao menu não corresponde a nenhum setor. Depois disso o atendimento segue com uma pessoa.',
   },
   {
+    valor: 'TriagemComCorrespondencia',
+    rotulo: 'Setor reconhecido, falta escolher o serviço',
+    explicacao:
+      'Sai logo depois que o cliente acerta o setor no menu. Use {MenuServicos} para o cliente escolher o serviço específico.',
+  },
+  {
+    valor: 'ServicoEscolhido',
+    rotulo: 'Cliente escolheu o serviço',
+    explicacao:
+      'Sai quando o cliente identifica o serviço no menu de 2º nível. Use {DocumentosNecessarios} e {PrazoServico}.',
+  },
+  {
     valor: 'EtapaAlterada',
     rotulo: 'Atendimento muda de etapa',
     explicacao: 'Sai quando a conversa entra na etapa escolhida abaixo.',
@@ -77,6 +90,10 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
 
 export function AbaMensagensAutomaticas() {
   const [emEdicao, setEmEdicao] = useState<MensagemAutomatica | null>(null)
+  const [preenchimento, setPreenchimento] = useState<{
+    gatilho: GatilhoDeMensagem
+    etapaAlvoId: string | null
+  } | null>(null)
   const [aberto, setAberto] = useState(false)
 
   const clienteDeConsultas = useQueryClient()
@@ -97,17 +114,24 @@ export function AbaMensagensAutomaticas() {
 
   function abrirNova() {
     setEmEdicao(null)
+    setPreenchimento(null)
+    setAberto(true)
+  }
+
+  /** Chamado pelo trilho: edita, se o ponto já tem mensagem, ou abre em modo novo já com o gatilho certo. */
+  function abrirPonto(gatilho: GatilhoDeMensagem, etapaAlvoId: string | null, existente: MensagemAutomatica | null) {
+    setEmEdicao(existente)
+    setPreenchimento(existente ? null : { gatilho, etapaAlvoId })
     setAberto(true)
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Mensagens que o sistema envia <strong className="text-tinta">sozinho</strong> quando um
-          evento do atendimento acontece. Na Fase 1 elas ficam na conversa marcadas como
-          automáticas; o envio real ao WhatsApp entra na Fase 2, sem mexer nestas regras. Os textos
-          abaixo são rascunho e aguardam a redação do cartório parceiro.
+          evento do atendimento acontece. Os textos abaixo são rascunho e aguardam a redação do
+          cartório parceiro.
         </p>
 
         <Button size="sm" onClick={abrirNova}>
@@ -115,6 +139,8 @@ export function AbaMensagensAutomaticas() {
           Nova mensagem
         </Button>
       </div>
+
+      <FluxoDeMensagens mensagens={data ?? []} etapas={etapas ?? []} aoClicarPonto={abrirPonto} />
 
       {isLoading ? (
         <div className="flex flex-col gap-2">
@@ -192,6 +218,7 @@ export function AbaMensagensAutomaticas() {
 
       <DialogoDeMensagemAutomatica
         mensagem={emEdicao}
+        preenchimento={preenchimento}
         etapas={etapas ?? []}
         aberto={aberto}
         aoFechar={() => setAberto(false)}
@@ -203,12 +230,15 @@ export function AbaMensagensAutomaticas() {
 
 function DialogoDeMensagemAutomatica({
   mensagem,
+  preenchimento,
   etapas,
   aberto,
   aoFechar,
   aoSalvar,
 }: {
   mensagem: MensagemAutomatica | null
+  /** Gatilho (e etapa, se for o caso) já escolhidos ao abrir em modo "nova" a partir do trilho. */
+  preenchimento: { gatilho: GatilhoDeMensagem; etapaAlvoId: string | null } | null
   etapas: Etapa[]
   aberto: boolean
   aoFechar: () => void
@@ -227,11 +257,11 @@ function DialogoDeMensagemAutomatica({
   useEffect(() => {
     if (!aberto) return
 
-    setGatilho(mensagem?.gatilho ?? 'NovoAtendimento')
-    setEtapaAlvoId(mensagem?.etapaAlvoId ?? '')
+    setGatilho(mensagem?.gatilho ?? preenchimento?.gatilho ?? 'NovoAtendimento')
+    setEtapaAlvoId(mensagem?.etapaAlvoId ?? preenchimento?.etapaAlvoId ?? '')
     setConteudo(mensagem?.conteudo ?? '')
     setAtivo(mensagem?.ativo ?? true)
-  }, [aberto, mensagem])
+  }, [aberto, mensagem, preenchimento])
 
   /**
    * Insere o marcador na posição do cursor.

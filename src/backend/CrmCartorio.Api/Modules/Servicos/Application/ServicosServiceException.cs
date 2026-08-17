@@ -23,4 +23,7 @@ public class ServicosServiceException(string codigo, string mensagem, int status
 
     public static ServicosServiceException SemPermissao() =>
         new("sem_permissao", "Seu perfil nao permite alterar cadastros.", 403);
+
+    public static ServicosServiceException SetorInvalido() =>
+        new("setor_invalido", "O setor informado nao existe neste cartorio.", 400);
 }

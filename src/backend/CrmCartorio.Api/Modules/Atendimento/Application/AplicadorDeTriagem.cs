@@ -3,6 +3,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -40,6 +41,8 @@ public static class AplicadorDeTriagem
     public static async Task<bool> AplicarAsync(
         CrmDbContext db,
         IDisparadorDeMensagemAutomatica automaticas,
+        IRespostaInteligenteService ia,
+        OpcoesDaIA opcoesDaIA,
         Conversa conversa,
         string conteudo,
         DateTime agora,
@@ -61,12 +64,17 @@ public static class AplicadorDeTriagem
 
         if (escolhido is null)
         {
+            // Fase 2B: antes de escalar direto para humano, tenta a Resposta
+            // Inteligente. AplicadorDeRespostaInteligente decide sozinho — IA
+            // desligada, sem resposta, ou pedido de humano caem todos no MESMO
+            // TriagemSemCorrespondencia de sempre; a diferenca e so a chance de
+            // resolver sem esperar um atendente.
             log.LogInformation(
-                "Triagem da conversa {ConversaId} sem correspondencia — encaminhada para atendimento humano",
+                "Triagem da conversa {ConversaId} sem correspondencia no menu — tentando a Resposta Inteligente",
                 conversa.Id);
 
-            await automaticas.EnfileirarAsync(
-                conversa, GatilhoDeMensagem.TriagemSemCorrespondencia, ct: ct);
+            await AplicadorDeRespostaInteligente.AplicarAsync(
+                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
 
             return false;
         }
@@ -103,6 +111,17 @@ public static class AplicadorDeTriagem
             EnviadaEm = agora,
             LidaEm = agora
         });
+
+        // So convida a escolher servico se o setor tiver algum vinculado
+        // (TipoServico.SetorId) — sem isso o menu de 2o nivel sairia vazio.
+        // Servico ainda pode ser capturado pelo painel ou pela IA.
+        var servicosDoSetor = await automaticas.ServicosDoMenuAsync(conversa.TenantId, escolhido.Value, ct);
+
+        if (servicosDoSetor.Count > 0)
+        {
+            await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.TriagemComCorrespondencia, ct: ct);
+            conversa.AguardandoEscolhaDeServico = true;
+        }
 
         log.LogInformation(
             "Triagem da conversa {ConversaId} encaminhou ao setor {SetorId}", conversa.Id, escolhido);

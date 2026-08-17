@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Enums;
+using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Servicos.Application;
@@ -37,11 +38,14 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             .Select(g => new { TipoServicoId = g.Key, Total = g.Count() })
             .ToListAsync(ct);
 
+        var nomesDeSetor = await NomesDeSetorAsync(tenantId, ct);
+
         return
         [
             .. itens.Select(t => Mapear(
                 t,
-                ativasPorServico.FirstOrDefault(x => x.TipoServicoId == t.Id)?.Total ?? 0))
+                ativasPorServico.FirstOrDefault(x => x.TipoServicoId == t.Id)?.Total ?? 0,
+                nomesDeSetor))
         ];
     }
 
@@ -55,8 +59,21 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         var ativas = await db.Conversas.CountAsync(
             c => c.TipoServicoId == id && c.Status == StatusConversa.Ativa, ct);
 
-        return Mapear(tipo, ativas);
+        var nomesDeSetor = await NomesDeSetorAsync(ctx.TenantId, ct);
+
+        return Mapear(tipo, ativas, nomesDeSetor);
     }
+
+    /// <summary>
+    /// TipoServico nao tem propriedade de navegacao para Setor — modulos distintos,
+    /// e so o Id atravessa a fronteira (CLAUDE.md, 7.1). Mesmo padrao de
+    /// DisparadorDeMensagemAutomatica.MontarDadosAsync: consulta direta pelo
+    /// DbContext, nao chamada a um Service de outro modulo.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<Guid, string>> NomesDeSetorAsync(Guid tenantId, CancellationToken ct) =>
+        await db.Setores.AsNoTracking()
+            .Where(s => s.TenantId == tenantId)
+            .ToDictionaryAsync(s => s.Id, s => s.Nome, ct);
 
     public async Task<TipoServicoResponse> CriarAsync(
         SalvarTipoServicoRequest request,
@@ -66,6 +83,7 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
 
         var nome = ValidarNome(request.Nome);
         await GarantirNomeLivreAsync(nome, null, ct);
+        await GarantirSetorValidoAsync(request.SetorId, ct);
 
         var tipo = new TipoServico
         {
@@ -74,7 +92,9 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             Codigo = Limpar(request.Codigo),
             Categoria = request.Categoria,
             Descricao = Limpar(request.Descricao),
-            Ativo = request.Ativo
+            Ativo = request.Ativo,
+            SetorId = request.SetorId,
+            DocumentosNecessarios = Limpar(request.DocumentosNecessarios)
         };
 
         db.TiposServico.Add(tipo);
@@ -113,12 +133,15 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
 
         var nome = ValidarNome(request.Nome);
         await GarantirNomeLivreAsync(nome, id, ct);
+        await GarantirSetorValidoAsync(request.SetorId, ct);
 
         tipo.Nome = nome;
         tipo.Codigo = Limpar(request.Codigo);
         tipo.Categoria = request.Categoria;
         tipo.Descricao = Limpar(request.Descricao);
         tipo.Ativo = request.Ativo;
+        tipo.SetorId = request.SetorId;
+        tipo.DocumentosNecessarios = Limpar(request.DocumentosNecessarios);
 
         if (request.Prazo is { } prazo)
         {
@@ -175,6 +198,22 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         }
     }
 
+    private async Task GarantirSetorValidoAsync(Guid? setorId, CancellationToken ct)
+    {
+        if (setorId is null)
+        {
+            return;
+        }
+
+        var existe = await db.Setores.AsNoTracking()
+            .AnyAsync(s => s.Id == setorId && s.TenantId == ctx.TenantId, ct);
+
+        if (!existe)
+        {
+            throw ServicosServiceException.SetorInvalido();
+        }
+    }
+
     private static void ValidarPrazo(PrazoServicoRequest prazo)
     {
         if (prazo.PrazoHoras < 1)
@@ -200,7 +239,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
     private static string? Limpar(string? valor) =>
         string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
 
-    private static TipoServicoResponse Mapear(TipoServico tipo, int conversasAtivas) =>
+    private static TipoServicoResponse Mapear(
+        TipoServico tipo, int conversasAtivas, IReadOnlyDictionary<Guid, string> nomesDeSetor) =>
         new(tipo.Id,
             tipo.Nome,
             tipo.Codigo,
@@ -216,7 +256,10 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
                     tipo.Prazo.PercentualAlerta,
                     tipo.Prazo.ApenasDiasUteis,
                     DescreverPrazo(tipo.Prazo)),
-            conversasAtivas);
+            conversasAtivas,
+            tipo.SetorId,
+            tipo.SetorId is { } setorId ? nomesDeSetor.GetValueOrDefault(setorId) : null,
+            tipo.DocumentosNecessarios);
 
     private static string DescreverCategoria(CategoriaServico categoria) => categoria switch
     {

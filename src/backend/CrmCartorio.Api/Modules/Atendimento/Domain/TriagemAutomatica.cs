@@ -4,21 +4,27 @@ using System.Text;
 namespace CrmCartorio.Api.Modules.Atendimento.Domain;
 
 /// <summary>
-/// Menu de triagem do primeiro contato e leitura da resposta do cliente.
+/// Menu numerado de escolha (setor, e depois servico) e leitura da resposta do
+/// cliente.
 /// </summary>
 /// <remarks>
 /// Logica pura, sem banco e sem relogio, no mesmo lugar que
 /// <see cref="AvaliadorDeSituacaoPrazo"/> — e regra de dominio, nao consulta.
 ///
 /// O menu e a interpretacao da resposta moram na MESMA classe de proposito: os dois
-/// dependem da mesma lista de setores na mesma ordem. Separados, uma alteracao de
-/// ordenacao em um lado faria "1" levar ao setor errado no outro, e o sintoma
+/// dependem da mesma lista de opcoes na mesma ordem. Separados, uma alteracao de
+/// ordenacao em um lado faria "1" levar a opcao errada no outro, e o sintoma
 /// apareceria semanas depois, na conversa de um cliente real.
+///
+/// Serve os DOIS niveis da triagem automatica — setor (<c>{MenuSetores}</c>) e,
+/// dentro do setor escolhido, servico (<c>{MenuServicos}</c>) — com o mesmo
+/// algoritmo de numero/nome-exato/nome-parcial. Duplicar isso por nivel e o tipo
+/// de risco que o paragrafo acima ja avisa.
 /// </remarks>
 public static class TriagemAutomatica
 {
-    /// <summary>Setor oferecido no menu. A ordem da lista E a numeracao mostrada.</summary>
-    public sealed record OpcaoDeSetor(Guid Id, string Nome);
+    /// <summary>Opcao oferecida no menu. A ordem da lista E a numeracao mostrada.</summary>
+    public sealed record OpcaoDeMenu(Guid Id, string Nome);
 
     /// <summary>
     /// Minimo de caracteres para aceitar correspondencia parcial de nome.
@@ -31,26 +37,26 @@ public static class TriagemAutomatica
     private const int MinimoParaParcial = 3;
 
     /// <summary>
-    /// Lista numerada dos setores, para o marcador {MenuSetores}.
+    /// Lista numerada das opcoes, para os marcadores {MenuSetores}/{MenuServicos}.
     /// </summary>
-    public static string MontarMenu(IReadOnlyList<OpcaoDeSetor> setores) =>
+    public static string MontarMenu(IReadOnlyList<OpcaoDeMenu> opcoes) =>
         string.Join(
             Environment.NewLine,
-            setores.Select((s, i) => $"{i + 1} - {s.Nome}"));
+            opcoes.Select((o, i) => $"{i + 1} - {o.Nome}"));
 
     /// <summary>
-    /// Setor escolhido pelo cliente, ou nulo quando a resposta nao corresponde a
+    /// Opcao escolhida pelo cliente, ou nulo quando a resposta nao corresponde a
     /// nenhuma opcao — ou corresponde a mais de uma.
     /// </summary>
     /// <remarks>
-    /// Ambiguidade devolve nulo de proposito. Chutar entre dois setores manda o
+    /// Ambiguidade devolve nulo de proposito. Chutar entre duas opcoes manda o
     /// cliente para a fila errada e o erro so aparece quando alguem le a conversa;
     /// cair para atendimento humano, no mesmo caminho de quem digitou qualquer
     /// coisa, custa uma mensagem e nao erra.
     /// </remarks>
-    public static Guid? InterpretarResposta(string? resposta, IReadOnlyList<OpcaoDeSetor> setores)
+    public static Guid? InterpretarResposta(string? resposta, IReadOnlyList<OpcaoDeMenu> opcoes)
     {
-        if (setores.Count == 0)
+        if (opcoes.Count == 0)
         {
             return null;
         }
@@ -64,13 +70,13 @@ public static class TriagemAutomatica
         // 1. Numero da opcao. E o caminho que o menu pede, entao vem primeiro.
         if (int.TryParse(texto, NumberStyles.None, CultureInfo.InvariantCulture, out var escolha)
             && escolha >= 1
-            && escolha <= setores.Count)
+            && escolha <= opcoes.Count)
         {
-            return setores[escolha - 1].Id;
+            return opcoes[escolha - 1].Id;
         }
 
-        var normalizados = setores
-            .Select(s => (s.Id, Nome: Normalizar(s.Nome)))
+        var normalizados = opcoes
+            .Select(o => (o.Id, Nome: Normalizar(o.Nome)))
             .ToList();
 
         // 2. Nome exato.

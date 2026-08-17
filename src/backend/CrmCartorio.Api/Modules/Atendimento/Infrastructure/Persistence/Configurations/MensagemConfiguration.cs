@@ -26,6 +26,13 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
                 "CK_Mensagens_AutomaticaEhDoSistema",
                 "([EhAutomatica] = 0) OR ([EhAutomatica] = 1 AND [AutorTipo] = 3)");
 
+            // Mensagem gerada por IA e sempre automatica. GeradaPorIa=1 com
+            // EhAutomatica=0 inverteria a autoria na tela do mesmo jeito que o
+            // constraint acima evita.
+            t.HasCheckConstraint(
+                "CK_Mensagens_IaEhAutomatica",
+                "([GeradaPorIa] = 0) OR ([GeradaPorIa] = 1 AND [EhAutomatica] = 1)");
+
             // Ou o anexo esta inteiro, ou nao ha anexo. Meia linha gravada —
             // caminho sem tipo, tipo sem caminho — daria um fio que promete
             // arquivo e um download que devolve 404.

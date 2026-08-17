@@ -80,6 +80,18 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
+            if (!NumeroPermitido(mensagem.TelefoneE164))
+            {
+                // Piloto restrito a numero de teste (CanalWhatsApp:NumerosDeTeste).
+                // Descartada ANTES de qualquer coisa — nao vira Cliente nem
+                // Conversa, exatamente como o eco e a mensagem de grupo acima.
+                log.LogInformation(
+                    "Piloto restrito a numero de teste: mensagem de {Telefone} descartada.",
+                    mensagem.TelefoneE164);
+
+                return;
+            }
+
             await recebimento.ReceberAsync(
                 tenantId,
                 new MensagemDoCanal(
@@ -148,6 +160,31 @@ public class ProcessadorDeWebhook(
             return null;
         }
     }
+
+    /// <summary>
+    /// Confere a lista de piloto (<see cref="OpcoesDoCanalWhatsApp.NumerosDeTeste"/>).
+    /// </summary>
+    /// <remarks>
+    /// Os dois lados sao normalizados so-digito antes de comparar. O telefone que
+    /// chega ja vem assim de <see cref="TradutorDePayload"/>, mas normalizar de
+    /// novo aqui e barato e evita que um "+55 38 ..." colado com espaco ou
+    /// traco na configuracao vire um numero que nunca bate — o pior jeito de
+    /// descobrir isso seria uma mensagem de teste que some sem motivo aparente.
+    /// </remarks>
+    private bool NumeroPermitido(string telefoneE164)
+    {
+        if (_opcoes.NumerosDeTeste.Length == 0)
+        {
+            return true;
+        }
+
+        return _opcoes.NumerosDeTeste
+            .Select(SomenteDigitos)
+            .Contains(telefoneE164, StringComparer.Ordinal);
+    }
+
+    private static string SomenteDigitos(string valor) =>
+        new(valor.Where(char.IsDigit).ToArray());
 
     /// <summary>
     /// Descobre a serventia pelo nome da instancia.

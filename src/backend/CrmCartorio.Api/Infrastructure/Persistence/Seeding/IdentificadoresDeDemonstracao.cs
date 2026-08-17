@@ -45,6 +45,9 @@ public static class IdentificadoresDeDemonstracao
         public static readonly Guid AtoConcluido = new("0199b2c0-0006-7000-8000-000000000003");
         public static readonly Guid PrazoPerto = new("0199b2c0-0006-7000-8000-000000000004");
         public static readonly Guid PrazoVencido = new("0199b2c0-0006-7000-8000-000000000005");
+        public static readonly Guid TriagemComResposta = new("0199b2c0-0006-7000-8000-000000000006");
+        public static readonly Guid ServicoEscolhido = new("0199b2c0-0006-7000-8000-000000000007");
+        public static readonly Guid EmAndamento = new("0199b2c0-0006-7000-8000-000000000008");
     }
 
     public static class RespostasRapidas

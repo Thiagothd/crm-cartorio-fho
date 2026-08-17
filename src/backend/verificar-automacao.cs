@@ -1,6 +1,7 @@
 #:project CrmCartorio.Api/CrmCartorio.Api.csproj
 #:property PublishAot=false
 
+using Anthropic;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
@@ -8,9 +9,11 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 // VERIFICADOR DE AUTOMACAO DE MENSAGENS
 //
@@ -183,6 +186,14 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
 {
     var ctx = new ContextoFixo(tenantId, quem, nome, PerfilDeAtendente.Administrador);
 
+    // Habilitada=false: o servico real de RespostaInteligente cai direto no
+    // "nao respondeu" sem tentar rede nenhuma (mesma contingencia de producao),
+    // entao o verificador exercita o caminho de sempre — triagem sem
+    // correspondencia escala para humano — sem precisar de chave da Anthropic.
+    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+    var respostaInteligente = new RespostaInteligenteService(
+        db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
+
     return new MensagemService(
         db,
         ctx,
@@ -191,6 +202,8 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         new CanalSilencioso(),
         new AnexosEmMemoria(),
+        respostaInteligente,
+        opcoesDaIA,
         NullLogger<MensagemService>.Instance);
 }
 
@@ -295,6 +308,55 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("historico registrou a mudanca de setor", trilha.Count == 1);
     Checar("historico marca autoria automatica (AtendenteId nulo)",
         trilha.Count == 1 && trilha[0].AtendenteId is null);
+
+    Checar("aguarda escolha de servico (setor tem servico vinculado)", depois.AguardandoEscolhaDeServico);
+}
+
+var perguntaServico = (await FioAsync(conversa1)).LastOrDefault(m => m.Automatica);
+
+Checar("pergunta qual servico foi gerada", perguntaServico.Conteudo is not null);
+Checar("pergunta de servico nao deixou marcador sem resolver",
+    perguntaServico.Conteudo?.Contains('{') != true, perguntaServico.Conteudo);
+
+// Fase 2D: o setor tem servico vinculado (migracao 014), entao a triagem
+// pergunta QUAL antes de fechar — mesmo menu que ServicosDoMenuAsync monta.
+List<(Guid Id, string Nome)> servicosDoSetorEsperado;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    servicosDoSetorEsperado = await db.TiposServico.AsNoTracking()
+        .Where(t => t.TenantId == tenantId && t.SetorId == setorEsperado.Id && t.Ativo)
+        .OrderBy(t => t.Nome)
+        .Select(t => new ValueTuple<Guid, string>(t.Id, t.Nome))
+        .ToListAsync();
+}
+
+Checar("setor escolhido tem ao menos 1 servico vinculado (migracao 014)", servicosDoSetorEsperado.Count > 0);
+
+if (servicosDoSetorEsperado.Count > 0)
+{
+    var servicoEsperado = servicosDoSetorEsperado[0];
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa1, new SimularMensagemDeClienteRequest("1"));
+    }
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoServico = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+
+        Checar($"servico atribuido = \"{servicoEsperado.Nome}\"",
+            depoisDoServico.TipoServicoId == servicoEsperado.Id, $"veio {depoisDoServico.TipoServicoId}");
+        Checar("flag de escolha de servico foi limpa", !depoisDoServico.AguardandoEscolhaDeServico);
+    }
+
+    var confirmacaoDoServico = (await FioAsync(conversa1)).LastOrDefault(m => m.Automatica);
+
+    Checar("confirmacao com checklist/prazo foi gerada", confirmacaoDoServico.Conteudo is not null);
+    Checar("confirmacao nao deixou marcador sem resolver",
+        confirmacaoDoServico.Conteudo?.Contains('{') != true, confirmacaoDoServico.Conteudo);
 }
 
 Console.WriteLine();

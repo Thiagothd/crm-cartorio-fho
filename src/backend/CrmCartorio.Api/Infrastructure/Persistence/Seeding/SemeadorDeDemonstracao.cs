@@ -416,7 +416,7 @@ public class SemeadorDeDemonstracao(
         var menuDeSetores = TriagemAutomatica.MontarMenu(
             [.. CatalogoDeDemonstracao.Setores
                 .OrderBy(s => s.Ordem)
-                .Select(s => new TriagemAutomatica.OpcaoDeSetor(s.Id, s.Nome))]);
+                .Select(s => new TriagemAutomatica.OpcaoDeMenu(s.Id, s.Nome))]);
 
         Cliente NovoCliente(string nome, string telefone, string? documento, int diasAtras)
         {

@@ -46,6 +46,18 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     /// </remarks>
     public bool EhAutomatica { get; set; }
 
+    /// <summary>
+    /// A mensagem automática veio da Resposta Inteligente (IA), não de uma regra de
+    /// <c>MensagemAutomatica</c> cadastrada.
+    /// </summary>
+    /// <remarks>
+    /// Sempre acompanha <see cref="EhAutomatica"/> = true. Sem este campo as duas
+    /// origens ficariam indistinguíveis no banco, e a interface não teria como
+    /// rotular "IA" em vez de "Automática" — distinção que importa: uma é resposta
+    /// de regra fixa, a outra é gerada por modelo de linguagem.
+    /// </remarks>
+    public bool GeradaPorIa { get; set; }
+
     public DateTime EnviadaEm { get; set; } = DateTime.UtcNow;
 
     public DateTime? LidaEm { get; set; }

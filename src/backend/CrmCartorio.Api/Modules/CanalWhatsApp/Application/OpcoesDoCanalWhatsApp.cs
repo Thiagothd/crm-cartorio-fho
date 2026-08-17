@@ -54,6 +54,23 @@ public class OpcoesDoCanalWhatsApp
     public int TimeoutSegundos { get; set; } = 20;
 
     /// <summary>
+    /// Piloto restrito a estes números, quando a lista não estiver vazia. Mensagem
+    /// de qualquer outro número é descartada no webhook — nem vira <c>Cliente</c>,
+    /// nem <c>Conversa</c>, nada entra no sistema.
+    /// </summary>
+    /// <remarks>
+    /// Existe porque o piloto roda no número PESSOAL do Thiago (ver
+    /// docs/DEPLOY-WHATSAPP.md): sem isso, qualquer pessoa que mande mensagem para
+    /// esse número cai na triagem do cartório. Lista vazia = sem restrição — é o
+    /// estado final, para quando o número oficial do cartório entrar.
+    ///
+    /// Só dígitos, com código do país, sem "+" e sem espaço/traço — o mesmo formato
+    /// que <see cref="TradutorDePayload"/> já produz em
+    /// <c>MensagemRecebidaDoCanal.TelefoneE164</c> (ex.: "5538991234567").
+    /// </remarks>
+    public string[] NumerosDeTeste { get; set; } = [];
+
+    /// <summary>
     /// O canal so opera com as tres credenciais no lugar. Configuracao pela
     /// metade e pior que canal desligado: falha no meio do atendimento.
     /// </summary>

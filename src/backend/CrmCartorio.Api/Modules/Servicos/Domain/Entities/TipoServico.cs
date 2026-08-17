@@ -20,6 +20,20 @@ public class TipoServico : EntidadeBase, IEntidadeDeTenant
 
     public string? Descricao { get; set; }
 
+    /// <summary>
+    /// Setor que oferece este servico no menu de 2o nivel da triagem automatica
+    /// (depois que o cliente ja escolheu o setor). Nulo de proposito para servico
+    /// ainda "aguardando confirmacao" de atribuicao (ver <see cref="Descricao"/>) —
+    /// sem SetorId, o servico nao entra em nenhum menu automatico ate confirmado.
+    /// </summary>
+    public Guid? SetorId { get; set; }
+
+    /// <summary>
+    /// Checklist de documento em texto livre, cadastravel pela tela. Populado no
+    /// marcador <c>{DocumentosNecessarios}</c> das mensagens automaticas.
+    /// </summary>
+    public string? DocumentosNecessarios { get; set; }
+
     public bool Ativo { get; set; } = true;
 
     /// <summary>SLA deste servico. Relacao 1:1, opcional.</summary>

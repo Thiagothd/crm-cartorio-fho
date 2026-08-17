@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using Anthropic;
 using CrmCartorio.Api.Infrastructure.Automacao;
 using CrmCartorio.Api.Infrastructure.Identity;
 using CrmCartorio.Api.Infrastructure.Anexos;
@@ -13,11 +14,13 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +33,7 @@ builder.Services.Configure<OpcoesDeConsultaPublica>(
     builder.Configuration.GetSection(OpcoesDeConsultaPublica.Secao));
 builder.Services.Configure<OpcoesDoCanalWhatsApp>(
     builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
+builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
@@ -86,6 +90,17 @@ builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
+
+// Resposta Inteligente (Fase 2B). Sem chave configurada, o SDK sobe do mesmo jeito
+// — GarantirConfigurado nunca chega a chamar a API. O cliente e' singleton porque
+// nao guarda estado de requisicao; o timeout de rede real fica no CancelAfter do
+// proprio servico, nao aqui.
+builder.Services.AddSingleton(sp =>
+{
+    var opcoesDaIA = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value;
+    return new AnthropicClient { ApiKey = opcoesDaIA.ApiKey };
+});
+builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
 
 // Anexo vai para o disco do proprio servidor, nunca para o banco nem para
 // storage de terceiro. Singleton porque nao guarda estado de requisicao —

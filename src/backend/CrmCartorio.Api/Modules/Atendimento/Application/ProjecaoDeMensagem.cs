@@ -81,5 +81,6 @@ public static class ProjecaoDeMensagem
             // de anexos do servidor.
             m.ArquivoNome,
             m.ArquivoTipoMime,
-            m.ArquivoTamanhoBytes));
+            m.ArquivoTamanhoBytes,
+            m.GeradaPorIa));
 }

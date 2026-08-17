@@ -29,7 +29,9 @@ public static class CatalogoDeDemonstracao
         int PrazoHoras,
         int PercentualAlerta,
         bool ApenasDiasUteis,
-        string? Descricao = null);
+        string? Descricao = null,
+        Guid? SetorId = null,
+        string? DocumentosNecessarios = null);
 
     private static Guid IdDeServico(int n) => new($"0199b2c0-0004-7000-8000-{n:D12}");
 
@@ -93,27 +95,118 @@ public static class CatalogoDeDemonstracao
     /// imovel", "Averbacao em matricula", "Certidao de matricula" e "Certidao de
     /// onus reais" sairam do catalogo.
     /// </remarks>
+    /// <summary>
+    /// Checklist de documento por servico. Texto CADASTRO (cliente nao le direto no
+    /// codigo — vira {DocumentosNecessarios} nas mensagens automaticas), calibrado
+    /// contra pratica cartoraria comum, nao dado juridico caso a caso. Suposicao
+    /// defensavel (docs/REQUISITOS.md, 5.7), editavel pelo cartório parceiro na tela de Servicos.
+    /// </summary>
+    private const string DocsCertidao =
+        "Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.";
+
+    private const string DocsHabilitacaoCasamento =
+        "RG e CPF dos dois noivos, certidão de nascimento (ou de casamento anterior já com a averbação de divórcio ou óbito) e comprovante de residência. É preciso também indicar duas testemunhas maiores de idade, com documento de identificação.";
+
+    private const string DocsAverbacao =
+        "Documento de identificação com foto de quem solicita, o registro original a ser averbado e o documento que comprova o fato — sentença, escritura ou certidão, conforme o caso.";
+
+    private const string DocsRegistroNascimento =
+        "Declaração de Nascido Vivo (DNV) fornecida pela maternidade ou hospital, documento de identificação dos pais e comprovante de residência.";
+
+    private const string DocsRegistroObito =
+        "Declaração de Óbito fornecida pelo médico ou pelo IML, documento de identificação do falecido, quando houver, e de quem está declarando.";
+
+    private const string DocsFirma =
+        "Documento de identificação original com foto. É preciso ter ficha de assinatura já aberta neste cartório — sem isso, é necessário comparecer pessoalmente antes.";
+
+    private const string DocsAutenticacao =
+        "Documento original e a cópia a ser autenticada.";
+
+    private const string DocsEscrituraCompraVenda =
+        "RG e CPF das partes, certidão atualizada do imóvel e comprovante de residência. Certidões negativas adicionais podem ser exigidas conforme o caso — confirme com o cartório antes de reunir a documentação.";
+
+    private const string DocsEscrituraDoacao =
+        "RG e CPF do doador e do donatário, documento do bem a ser doado e comprovante de residência.";
+
+    private const string DocsProcuracao =
+        "RG e CPF de quem outorga a procuração. Se possível, informe também nome completo e CPF de quem vai receber os poderes.";
+
+    private const string DocsAtaNotarial =
+        "Documento de identificação com foto e a descrição do fato a ser constatado pelo tabelião.";
+
+    private const string DocsTestamento =
+        "RG e CPF de quem testa, documento de identificação de duas testemunhas, e a relação dos bens e dos herdeiros.";
+
+    private const string DocsInventario =
+        "RG e CPF de todos os herdeiros, certidão de óbito, certidão de casamento do falecido (se houver) e documentos dos bens a partilhar. Também é exigida certidão negativa de débitos do ITCMD.";
+
+    private const string DocsDivorcio =
+        "RG e CPF de ambos os cônjuges e certidão de casamento. O divórcio consensual em cartório só é possível sem filho menor ou incapaz do casal.";
+
+    private const string DocsUniaoEstavel =
+        "RG, CPF e comprovante de residência de ambos, e duas testemunhas com documento de identificação.";
+
     public static readonly ServicoSemeado[] Servicos =
     [
         // --- Registro Civil das Pessoas Naturais ---
-        new(IdDeServico(1), IdDePrazo(1), "Certidão de nascimento", CategoriaServico.RegistroCivil, "RC-NASC", 24, 75, true),
-        new(IdDeServico(2), IdDePrazo(2), "Certidão de casamento", CategoriaServico.RegistroCivil, "RC-CAS", 24, 75, true),
-        new(IdDeServico(3), IdDePrazo(3), "Certidão de óbito", CategoriaServico.RegistroCivil, "RC-OBI", 24, 75, true),
-        new(IdDeServico(4), IdDePrazo(4), "Segunda via de certidão", CategoriaServico.RegistroCivil, "RC-2VIA", 48, 80, true),
+        new(IdDeServico(1), IdDePrazo(1), "Certidão de nascimento", CategoriaServico.RegistroCivil, "RC-NASC", 24, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsCertidao),
+        new(IdDeServico(2), IdDePrazo(2), "Certidão de casamento", CategoriaServico.RegistroCivil, "RC-CAS", 24, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsCertidao),
+        new(IdDeServico(3), IdDePrazo(3), "Certidão de óbito", CategoriaServico.RegistroCivil, "RC-OBI", 24, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsCertidao),
+        new(IdDeServico(4), IdDePrazo(4), "Segunda via de certidão", CategoriaServico.RegistroCivil, "RC-2VIA", 48, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsCertidao),
 
         // --- Tabelionato de Notas ---
-        new(IdDeServico(5), IdDePrazo(5), "Reconhecimento de firma", CategoriaServico.Notas, "NOT-FIRMA", 2, 70, false),
-        new(IdDeServico(6), IdDePrazo(6), "Autenticação de documento", CategoriaServico.Notas, "NOT-AUTEN", 2, 70, false),
-        new(IdDeServico(7), IdDePrazo(7), "Escritura pública de compra e venda", CategoriaServico.Notas, "NOT-ECV", 240, 80, true),
-        new(IdDeServico(8), IdDePrazo(8), "Escritura pública de doação", CategoriaServico.Notas, "NOT-EDOA", 240, 80, true),
-        new(IdDeServico(9), IdDePrazo(9), "Procuração pública", CategoriaServico.Notas, "NOT-PROC", 48, 75, true),
+        new(IdDeServico(5), IdDePrazo(5), "Reconhecimento de firma", CategoriaServico.Notas, "NOT-FIRMA", 2, 70, false,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsFirma),
+        new(IdDeServico(6), IdDePrazo(6), "Autenticação de documento", CategoriaServico.Notas, "NOT-AUTEN", 2, 70, false,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsAutenticacao),
+        new(IdDeServico(7), IdDePrazo(7), "Escritura pública de compra e venda", CategoriaServico.Notas, "NOT-ECV", 240, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsEscrituraCompraVenda),
+        new(IdDeServico(8), IdDePrazo(8), "Escritura pública de doação", CategoriaServico.Notas, "NOT-EDOA", 240, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsEscrituraDoacao),
+        new(IdDeServico(9), IdDePrazo(9), "Procuração pública", CategoriaServico.Notas, "NOT-PROC", 48, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsProcuracao),
+
+        // --- Registro Civil: atos candidatos (docs/REQUISITOS.md, 5.6) ---
+        // Atribuicao ja confirmada (sao Registro Civil das Pessoas Naturais); o que
+        // falta e o cartório parceiro validar prazo e se o nome/redacao batem com o uso daqui.
+        // Habilitacao de casamento usa 360h (15 dias) porque o prazo minimo de
+        // proclamas e LEGAL (Lei 6.015/73, art. 67), nao suposicao solta.
+        new(IdDeServico(10), IdDePrazo(10), "Habilitação de casamento", CategoriaServico.RegistroCivil, "RC-HABIL", 360, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsHabilitacaoCasamento),
+        new(IdDeServico(11), IdDePrazo(11), "Averbação em registro civil", CategoriaServico.RegistroCivil, "RC-AVERB", 48, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsAverbacao),
+        new(IdDeServico(12), IdDePrazo(12), "Registro de nascimento", CategoriaServico.RegistroCivil, "RC-REGNASC", 2, 70, false,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsRegistroNascimento),
+        new(IdDeServico(13), IdDePrazo(13), "Registro de óbito", CategoriaServico.RegistroCivil, "RC-REGOBI", 2, 70, false,
+            SetorId: IdentificadoresDeDemonstracao.Setores.RegistroCivil, DocumentosNecessarios: DocsRegistroObito),
 
         // --- Pendente de confirmacao ---
         // Notificacao extrajudicial costuma correr no Registro de Titulos e
         // Documentos, que nao e atribuicao desta serventia. Fica listado, fora de
-        // categoria e marcado, para o cartório parceiro dizer se atendem isso ou nao.
+        // categoria e marcado, para o cartório parceiro dizer se atendem isso ou nao. Sem
+        // SetorId de proposito: a propria atribuicao esta em duvida, entao nao entra
+        // em nenhum menu automatico ate ser confirmado.
         new(IdDeServico(14), IdDePrazo(14), "Notificação extrajudicial", CategoriaServico.Outros, "TD-NOTIF", 120, 80, true,
-            AguardandoConfirmacao)
+            AguardandoConfirmacao),
+
+        // --- Tabelionato de Notas: atos candidatos (docs/REQUISITOS.md, 5.6) ---
+        // Ata notarial fica entre Procuracao e Escritura em complexidade. Inventario
+        // e partilha e o ato mais longo do catalogo de proposito: reune inventario
+        // extrajudicial de verdade (certidoes, ITCMD, anuencia de todos os herdeiros).
+        new(IdDeServico(15), IdDePrazo(15), "Ata notarial", CategoriaServico.Notas, "NOT-ATA", 72, 75, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsAtaNotarial),
+        new(IdDeServico(16), IdDePrazo(16), "Testamento público", CategoriaServico.Notas, "NOT-TESTAM", 240, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsTestamento),
+        new(IdDeServico(17), IdDePrazo(17), "Escritura de inventário e partilha", CategoriaServico.Notas, "NOT-EINV", 480, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsInventario),
+        new(IdDeServico(18), IdDePrazo(18), "Escritura de divórcio consensual", CategoriaServico.Notas, "NOT-EDIV", 240, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsDivorcio),
+        new(IdDeServico(19), IdDePrazo(19), "Escritura declaratória de união estável", CategoriaServico.Notas, "NOT-EUNI", 240, 80, true,
+            SetorId: IdentificadoresDeDemonstracao.Setores.Notas, DocumentosNecessarios: DocsUniaoEstavel)
     ];
 
     public record MensagemAutomaticaSemeada(
@@ -147,7 +240,7 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.BoasVindas,
             GatilhoDeMensagem.NovoAtendimento,
             null,
-            "Olá, {NomeCliente}! Você está falando com o {NomeCartorio}.\n\n" +
+            "Olá, {NomeCliente}! 👋 Você está falando com o {NomeCartorio}.\n\n" +
             "Para encaminharmos seu atendimento ao setor responsável, responda com o " +
             "número da opção desejada:\n\n" +
             "{MenuSetores}\n\n" +
@@ -157,10 +250,45 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.TriagemSemResposta,
             GatilhoDeMensagem.TriagemSemCorrespondencia,
             null,
-            "Obrigado pelo contato, {NomeCliente}. Um de nossos atendentes assumirá sua " +
+            "Obrigado pelo contato, {NomeCliente}! 🙏 Um de nossos atendentes assumirá sua " +
             "solicitação em instantes.\n\n" +
-            "Seu atendimento foi registrado sob o protocolo {Protocolo}. " +
+            "📋 Protocolo: {Protocolo}\n" +
             "Guarde esse número para acompanhamento.",
+            true),
+
+        // Fase 2D: dispara logo depois que a triagem reconhece o setor, perguntando
+        // qual servico especifico — o passo que faltava e que o teste ao vivo expos
+        // ("digitou 1 e nao aconteceu nada").
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.TriagemComResposta,
+            GatilhoDeMensagem.TriagemComCorrespondencia,
+            null,
+            "Certo, {NomeCliente}! ✅ Qual destes serviços você precisa?\n\n" +
+            "{MenuServicos}\n\n" +
+            "Se preferir, descreva o que precisa que um de nossos atendentes dará continuidade.",
+            true),
+
+        // Fase 2D: fecha o par com a mensagem acima — o cliente escolheu o servico,
+        // e o checklist/prazo chegam sozinhos, sem gastar a IA nem esperar atendente.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.ServicoEscolhido,
+            GatilhoDeMensagem.ServicoEscolhido,
+            null,
+            "Perfeito, {NomeCliente}! ✅ Localizamos seu atendimento de {Servico}, protocolo " +
+            "{Protocolo}.\n\n" +
+            "📄 Documentos necessários:\n{DocumentosNecessarios}\n\n" +
+            "⏱️ Prazo previsto: {PrazoServico}\n\n" +
+            "Assim que possível, providencie a documentação e traga ao {NomeCartorio}. " +
+            "Qualquer dúvida, é só responder por aqui.",
+            true),
+
+        // Fase 2D: preenche a unica etapa do funil que ainda ficava sem mensagem.
+        // Dispara na mudanca manual de etapa pelo atendente (ConversaService), o
+        // mesmo mecanismo que ja move AtoConcluido abaixo.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.EmAndamento,
+            GatilhoDeMensagem.EtapaAlterada,
+            IdentificadoresDeDemonstracao.Etapas.EmProcessamento,
+            "{NomeCliente}, seu atendimento de protocolo {Protocolo} ({Servico}) está em análise. 🔎\n\n" +
+            "⏱️ Prazo previsto: {PrazoServico}\n" +
+            "Se houver alguma pendência, entraremos em contato por aqui.",
             true),
 
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
@@ -168,10 +296,10 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,
             GatilhoDeMensagem.EtapaAlterada,
             IdentificadoresDeDemonstracao.Etapas.ProntoEntrega,
-            "{NomeCliente}, seu atendimento foi concluído.\n\n" +
-            "Protocolo: {Protocolo}\n" +
-            "Serviço: {Servico}\n\n" +
-            "A retirada pode ser feita no {NomeCartorio}, na Praça São Francisco, nº 70, " +
+            "{NomeCliente}, seu atendimento foi concluído! ✅\n\n" +
+            "📋 Protocolo: {Protocolo}\n" +
+            "📄 Serviço: {Servico}\n\n" +
+            "📍 A retirada pode ser feita no {NomeCartorio}, na Praça São Francisco, nº 70, " +
             "Centro, Gameleiras/MG, de segunda a sexta-feira, das 8h às 17h.\n\n" +
             "Pedimos que apresente um documento de identificação com foto no balcão.",
             true),
@@ -180,7 +308,7 @@ public static class CatalogoDeDemonstracao
             GatilhoDeMensagem.PrazoProximoVencimento,
             null,
             "{NomeCliente}, seu atendimento de protocolo {Protocolo} ({Servico}) segue em " +
-            "andamento e se aproxima do prazo previsto para conclusão.\n\n" +
+            "andamento e se aproxima do prazo previsto para conclusão. ⏳\n\n" +
             "Assim que houver novidade, comunicaremos por aqui. " +
             "Se precisar de alguma informação, basta responder a esta mensagem.",
             false),
@@ -192,7 +320,7 @@ public static class CatalogoDeDemonstracao
             GatilhoDeMensagem.PrazoVencido,
             null,
             "{NomeCliente}, seu atendimento de protocolo {Protocolo} ({Servico}) ultrapassou o " +
-            "prazo inicialmente previsto e está com prioridade em nossa fila.\n\n" +
+            "prazo inicialmente previsto e está com prioridade em nossa fila. ⚠️\n\n" +
             "Pedimos desculpas pelo transtorno. Assim que houver definição, informaremos por aqui.",
             false)
     ];
@@ -206,26 +334,26 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Horario,
             "horario",
             "Horário e endereço",
-            "O {NomeCartorio} atende de segunda a sexta-feira, das 8h às 17h, na Praça São " +
+            "📍 O {NomeCartorio} atende de segunda a sexta-feira, das 8h às 17h, na Praça São " +
             "Francisco, nº 70, Centro, Gameleiras/MG, CEP 39505-000."),
 
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Prazo,
             "prazo",
             "Situação do protocolo",
-            "Seu atendimento está registrado sob o protocolo {Protocolo}, referente a: " +
+            "📋 Seu atendimento está registrado sob o protocolo {Protocolo}, referente a: " +
             "{Servico}.\n\nAssim que houver novidade, informaremos por aqui."),
 
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Emolumentos,
             "valor",
             "Emolumentos",
-            "Os valores dos atos seguem a Tabela de Emolumentos do Tribunal de Justiça de " +
+            "💰 Os valores dos atos seguem a Tabela de Emolumentos do Tribunal de Justiça de " +
             "Minas Gerais, definida por lei estadual — não é preço fixado pelo cartório.\n\n" +
             "Vou verificar o valor exato aplicável ao seu caso e retorno em seguida."),
 
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Firma,
             "firma",
             "Reconhecimento de firma",
-            "Para o reconhecimento de firma, é necessário que sua ficha de assinatura esteja " +
+            "✍️ Para o reconhecimento de firma, é necessário que sua ficha de assinatura esteja " +
             "aberta neste cartório.\n\n" +
             "Caso ainda não possua, basta comparecer com documento de identificação original " +
             "com foto para abertura na hora."),
@@ -233,7 +361,7 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Escritura,
             "escritura",
             "Documentos para escritura",
-            "Para lavrarmos uma escritura pública, precisamos de:\n\n" +
+            "📄 Para lavrarmos uma escritura pública, precisamos de:\n\n" +
             "- RG e CPF das partes (e do cônjuge, quando casado)\n" +
             "- Certidão de casamento atualizada, se for o caso\n" +
             "- Comprovante de endereço\n" +
@@ -243,7 +371,7 @@ public static class CatalogoDeDemonstracao
         new(IdentificadoresDeDemonstracao.RespostasRapidas.Certidao,
             "certidao",
             "Dados para emitir certidão",
-            "Para localizarmos o registro e emitirmos a certidão, precisamos de:\n\n" +
+            "📄 Para localizarmos o registro e emitirmos a certidão, precisamos de:\n\n" +
             "- Nome completo do registrado\n" +
             "- Data do fato (nascimento, casamento ou óbito)\n" +
             "- Nome dos pais, se souber\n\n" +

@@ -74,6 +74,33 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoTriagem { get; set; }
 
     /// <summary>
+    /// A triagem não achou setor, a IA respondeu e a conversa segue tentando
+    /// resolver — a próxima mensagem do cliente volta para a Resposta Inteligente
+    /// em vez de cair direto no encaminhamento humano.
+    /// </summary>
+    /// <remarks>
+    /// Limpa quando a IA não sabe responder, quando o cliente pede humano, quando
+    /// <see cref="TentativasRespostaInteligente"/> estoura
+    /// <c>OpcoesDaIA.MaxTrocas</c>, ou quando um atendente assume o setor manualmente.
+    /// </remarks>
+    public bool AguardandoRespostaInteligente { get; set; }
+
+    /// <summary>Quantas vezes a IA já tentou responder nesta sequência sem setor.</summary>
+    public int TentativasRespostaInteligente { get; set; }
+
+    /// <summary>
+    /// O setor já foi reconhecido e a conversa espera a escolha do serviço
+    /// específico dentro dele (menu de 2º nível, {MenuServicos}).
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina de <see cref="AguardandoTriagem"/>: dura UMA mensagem, limpa
+    /// tenha ela correspondido a um serviço ou não. Sem correspondência, cai para
+    /// <see cref="AguardandoRespostaInteligente"/> antes de escalar — mesmo
+    /// contingenciamento do resto do sistema.
+    /// </remarks>
+    public bool AguardandoEscolhaDeServico { get; set; }
+
+    /// <summary>
     /// Quando o aviso de prazo proximo do vencimento foi gerado para esta conversa.
     /// </summary>
     /// <remarks>

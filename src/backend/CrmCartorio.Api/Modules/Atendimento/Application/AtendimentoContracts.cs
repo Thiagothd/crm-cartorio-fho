@@ -177,7 +177,12 @@ public record MensagemResponse(
     /// </remarks>
     string? ArquivoNome = null,
     string? ArquivoTipoMime = null,
-    long? ArquivoTamanhoBytes = null);
+    long? ArquivoTamanhoBytes = null,
+    /// <summary>
+    /// A mensagem automática veio da Resposta Inteligente (IA), não de uma regra de
+    /// mensagem automática cadastrada. Sempre acompanha <see cref="EhAutomatica"/>.
+    /// </summary>
+    bool GeradaPorIa = false);
 
 public record HistoricoEtapaResponse(
     Guid Id,

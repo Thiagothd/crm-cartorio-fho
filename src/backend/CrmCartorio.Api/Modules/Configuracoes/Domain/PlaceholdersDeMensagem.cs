@@ -14,12 +14,29 @@ namespace CrmCartorio.Api.Modules.Configuracoes.Domain;
 /// a numeracao tem de ser a MESMA que a triagem usa para interpretar a resposta do
 /// cliente — se as duas listas divergirem, "1" leva ao setor errado.
 /// </param>
+/// <param name="MenuServicos">
+/// Lista numerada dos servicos ativos do setor da conversa, mesmo papel de
+/// <see cref="MenuSetores"/> um nivel abaixo. Vazia fora do fluxo de escolha de
+/// servico.
+/// </param>
+/// <param name="DocumentosNecessarios">
+/// Checklist do <c>TipoServico</c> da conversa. Nulo enquanto o servico nao foi
+/// captado, ou quando o cadastro nao preencheu — os dois casos caem no mesmo
+/// texto de <see cref="PlaceholdersDeMensagem.DocumentosNaoInformados"/>.
+/// </param>
+/// <param name="PrazoServico">
+/// Prazo do <c>TipoServico</c> da conversa, ja formatado ("ate 2 horas" / "ate 15
+/// dias uteis"). Mesma regra de nulo de <see cref="DocumentosNecessarios"/>.
+/// </param>
 public sealed record DadosParaMensagem(
     string NomeCliente,
     string NomeCartorio,
     string? Servico,
     string Protocolo,
-    string MenuSetores);
+    string MenuSetores,
+    string MenuServicos = "",
+    string? DocumentosNecessarios = null,
+    string? PrazoServico = null);
 
 /// <summary>
 /// Marcadores aceitos no texto de <see cref="Entities.MensagemAutomatica"/> e de
@@ -44,6 +61,12 @@ public static partial class PlaceholdersDeMensagem
     /// </summary>
     public const string ServicoNaoInformado = "não informado";
 
+    /// <summary>Texto que entra em {DocumentosNecessarios} sem checklist cadastrado.</summary>
+    public const string DocumentosNaoInformados = "a confirmar com o atendente";
+
+    /// <summary>Texto que entra em {PrazoServico} sem servico captado ou sem prazo cadastrado.</summary>
+    public const string PrazoNaoInformado = "a confirmar com o atendente";
+
     public sealed record Marcador(string Token, string Descricao);
 
     public static readonly IReadOnlyList<Marcador> Catalogo =
@@ -52,7 +75,10 @@ public static partial class PlaceholdersDeMensagem
         new("{NomeCartorio}", "Nome fantasia da serventia, ou a razao social quando nao houver."),
         new("{Servico}", "Tipo de servico vinculado ao atendimento."),
         new("{Protocolo}", "Protocolo do atendimento, no formato AAAAMM-NNNN."),
-        new("{MenuSetores}", "Lista numerada dos setores ativos. Usada no menu de triagem.")
+        new("{MenuSetores}", "Lista numerada dos setores ativos. Usada no menu de triagem."),
+        new("{MenuServicos}", "Lista numerada dos servicos ativos do setor da conversa. Usada no menu de escolha de servico."),
+        new("{DocumentosNecessarios}", "Checklist de documento do servico vinculado ao atendimento."),
+        new("{PrazoServico}", "Prazo do servico vinculado ao atendimento, em texto ('ate 15 dias uteis').")
     ];
 
     public static string Aplicar(string modelo, DadosParaMensagem dados) =>
@@ -64,7 +90,16 @@ public static partial class PlaceholdersDeMensagem
                 string.IsNullOrWhiteSpace(dados.Servico) ? ServicoNaoInformado : dados.Servico,
                 StringComparison.Ordinal)
             .Replace("{Protocolo}", dados.Protocolo, StringComparison.Ordinal)
-            .Replace("{MenuSetores}", dados.MenuSetores, StringComparison.Ordinal);
+            .Replace("{MenuSetores}", dados.MenuSetores, StringComparison.Ordinal)
+            .Replace("{MenuServicos}", dados.MenuServicos, StringComparison.Ordinal)
+            .Replace(
+                "{DocumentosNecessarios}",
+                string.IsNullOrWhiteSpace(dados.DocumentosNecessarios) ? DocumentosNaoInformados : dados.DocumentosNecessarios,
+                StringComparison.Ordinal)
+            .Replace(
+                "{PrazoServico}",
+                string.IsNullOrWhiteSpace(dados.PrazoServico) ? PrazoNaoInformado : dados.PrazoServico,
+                StringComparison.Ordinal);
 
     /// <summary>
     /// Marcadores presentes no modelo que nao existem no <see cref="Catalogo"/>.

@@ -41,7 +41,16 @@ public interface IDisparadorDeMensagemAutomatica
     /// Vive aqui, e nao em cada chamador, porque e a mesma lista que preenche
     /// {MenuSetores} e que interpreta a resposta do cliente. Uma fonte so.
     /// </remarks>
-    Task<IReadOnlyList<TriagemAutomatica.OpcaoDeSetor>> SetoresDoMenuAsync(
+    Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> SetoresDoMenuAsync(
         Guid tenantId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Servicos ativos do setor, na ordem em que aparecem no menu de 2o nivel —
+    /// mesmo papel de <see cref="SetoresDoMenuAsync"/>, um nivel abaixo.
+    /// </summary>
+    Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> ServicosDoMenuAsync(
+        Guid tenantId,
+        Guid setorId,
         CancellationToken ct = default);
 }

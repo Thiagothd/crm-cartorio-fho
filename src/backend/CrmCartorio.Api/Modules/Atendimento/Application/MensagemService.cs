@@ -4,7 +4,9 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -16,8 +18,12 @@ public class MensagemService(
     IDisparadorDeMensagemAutomatica automaticas,
     IEnviadorDeCanal canal,
     IArmazenamentoDeAnexos anexos,
+    IRespostaInteligenteService respostaInteligente,
+    IOptions<OpcoesDaIA> opcoesDaIA,
     ILogger<MensagemService> log) : IMensagemService, IAcoesDeMensagem
 {
+    private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
+
     public async Task<IReadOnlyList<MensagemResponse>> ListarAsync(
         Guid conversaId,
         CancellationToken ct = default)
@@ -376,6 +382,14 @@ public class MensagemService(
         {
             await ResponderTriagemAsync(conversa, conteudo, agora, ct);
         }
+        else if (conversa.AguardandoEscolhaDeServico)
+        {
+            await ContinuarEscolhaDeServicoAsync(conversa, conteudo, agora, ct);
+        }
+        else if (conversa.AguardandoRespostaInteligente)
+        {
+            await ContinuarRespostaInteligenteAsync(conversa, conteudo, agora, ct);
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -401,7 +415,41 @@ public class MensagemService(
         string conteudo,
         DateTime agora,
         CancellationToken ct) =>
-        AplicadorDeTriagem.AplicarAsync(db, automaticas, conversa, conteudo, agora, log, ct);
+        AplicadorDeTriagem.AplicarAsync(
+            db, automaticas, respostaInteligente, _opcoesDaIA, conversa, conteudo, agora, log, ct);
+
+    /// <summary>
+    /// Segunda troca em diante da Resposta Inteligente, quando a conversa já está em
+    /// sequência (ver <see cref="Conversa.AguardandoRespostaInteligente"/>).
+    /// </summary>
+    /// <remarks>
+    /// Mesmo motivo de <see cref="ResponderTriagemAsync"/> para viver fora do
+    /// serviço: <see cref="AplicadorDeRespostaInteligente"/> é a MESMA regra que o
+    /// webhook do WhatsApp real chama em <c>RecebimentoDeWhatsApp</c>.
+    /// </remarks>
+    private Task ContinuarRespostaInteligenteAsync(
+        Conversa conversa,
+        string conteudo,
+        DateTime agora,
+        CancellationToken ct) =>
+        AplicadorDeRespostaInteligente.AplicarAsync(
+            db, respostaInteligente, automaticas, _opcoesDaIA, conversa, conteudo, agora, log, ct);
+
+    /// <summary>
+    /// Le a resposta do cliente ao menu de 2o nivel (qual servico dentro do setor).
+    /// </summary>
+    /// <remarks>
+    /// Mesmo motivo de <see cref="ResponderTriagemAsync"/> para viver fora do
+    /// servico: <see cref="AplicadorDeEscolhaDeServico"/> e a MESMA regra que o
+    /// webhook do WhatsApp real chama em <c>RecebimentoDeWhatsApp</c>.
+    /// </remarks>
+    private Task ContinuarEscolhaDeServicoAsync(
+        Conversa conversa,
+        string conteudo,
+        DateTime agora,
+        CancellationToken ct) =>
+        AplicadorDeEscolhaDeServico.AplicarAsync(
+            db, automaticas, respostaInteligente, _opcoesDaIA, conversa, conteudo, agora, log, ct);
 
     // ------------------------------------------------- acoes do menu de contexto
 

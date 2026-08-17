@@ -230,6 +230,7 @@ export function FioDeMensagens({
         const dia = separadorDeDia(visiveis, indice)
         const doAtendente = mensagem.autorTipo === 'Atendente'
         const automatica = mensagem.ehAutomatica
+        const geradaPorIa = mensagem.geradaPorIa
 
         // As duas são 'Sistema' no banco, e a diferença muda tudo na tela: a
         // anotação é registro interno e fica à margem; a automática foi endereçada
@@ -310,9 +311,11 @@ export function FioDeMensagens({
                         mensagem.oculta && 'opacity-60',
                       )}
                       aria-label={
-                        automatica
-                          ? 'Mensagem automática do sistema'
-                          : `Mensagem de ${doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}`
+                        geradaPorIa
+                          ? 'Mensagem gerada por inteligência artificial'
+                          : automatica
+                            ? 'Mensagem automática do sistema'
+                            : `Mensagem de ${doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}`
                       }
                     >
                   {/* O nome fica visivel dos dois lados. No atendente, cumpre o
@@ -323,9 +326,13 @@ export function FioDeMensagens({
                     <p className="mb-1">
                       <span
                         className="inline-flex items-center rounded-md border border-linha-forte px-1.5 font-titulo text-[10px] font-semibold uppercase tracking-[0.12em] text-tinta-media"
-                        title="Gerada por uma regra de mensagem automática, não escrita por um atendente."
+                        title={
+                          geradaPorIa
+                            ? 'Resposta gerada por inteligência artificial, com base só em dado cadastrado — não escrita por um atendente.'
+                            : 'Gerada por uma regra de mensagem automática, não escrita por um atendente.'
+                        }
                       >
-                        Automática
+                        {geradaPorIa ? 'IA' : 'Automática'}
                       </span>
                     </p>
                   ) : (

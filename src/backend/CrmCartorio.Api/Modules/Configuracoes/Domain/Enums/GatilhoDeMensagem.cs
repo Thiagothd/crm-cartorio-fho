@@ -39,5 +39,28 @@ public enum GatilhoDeMensagem : byte
     /// le, e deixar essa frase como constante em C# a tornaria a unica mensagem do
     /// sistema que o cartório parceiro nao pode reescrever sozinho.
     /// </remarks>
-    TriagemSemCorrespondencia = 5
+    TriagemSemCorrespondencia = 5,
+
+    /// <summary>
+    /// A triagem reconheceu o setor. Pergunta qual servico dentro dele, com
+    /// {MenuServicos}.
+    /// </summary>
+    /// <remarks>
+    /// Mesmo motivo do valor 5: o convite para escolher o servico e frase que o
+    /// cliente le, entao e cadastro, nao constante em C#.
+    /// </remarks>
+    TriagemComCorrespondencia = 6,
+
+    /// <summary>
+    /// O cliente escolheu o servico no menu de 2o nivel. Confirma com
+    /// {DocumentosNecessarios} e {PrazoServico}.
+    /// </summary>
+    /// <remarks>
+    /// Nao usa <see cref="EtapaAlterada"/> de proposito: EtapaFunil e cadastro sem
+    /// papel fixo nenhum (nome e ordem editaveis pelo cartório parceiro, sem enum), entao nao ha
+    /// GUID estavel de "etapa de captacao" para o codigo depender. Gatilho proprio
+    /// evita acoplar este passo a uma linha de configuracao que pode ser renomeada
+    /// ou reordenada a qualquer momento.
+    /// </remarks>
+    ServicoEscolhido = 7
 }
