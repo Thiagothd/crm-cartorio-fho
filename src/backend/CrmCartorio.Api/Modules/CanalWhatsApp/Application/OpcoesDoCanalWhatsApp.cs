@@ -54,6 +54,31 @@ public class OpcoesDoCanalWhatsApp
     public int TimeoutSegundos { get; set; } = 20;
 
     /// <summary>
+    /// URL publica desta API, usada para montar o endereco do webhook que o
+    /// gateway vai chamar. Vazio = deduz da requisicao de pareamento.
+    /// </summary>
+    /// <remarks>
+    /// Existe porque deduzir de <c>Request.Scheme/Host</c> so funciona quando o
+    /// navegador fala direto com a API. Em producao nao e o caso: o Cloudflare
+    /// Tunnel termina o TLS na borda e entrega HTTP simples ao IIS, entao a
+    /// deducao produz <c>http://crm.crm-cartorio.example</c> — e o webhook fica
+    /// registrado num endereco que redireciona ou recusa.
+    ///
+    /// Tambem resolve o outro lado: em desenvolvimento a deducao reescreve
+    /// <c>localhost</c> para <c>host.docker.internal</c>, que e comportamento do
+    /// Docker DESKTOP. Com Docker CE dentro do WSL2 (o servidor) esse nome nao
+    /// existe por padrao, e a rota de volta ate a maquina hospedeira muda.
+    ///
+    /// Apontar para a URL publica tem uma vantagem que nao e obvia: o webhook
+    /// sai do conteiner, vai ate a Cloudflare e volta pelo tunel. Da uma volta,
+    /// mas e o unico caminho que nao depende de descobrir o IP da maquina
+    /// hospedeira visto de dentro do WSL — e chega cifrado.
+    ///
+    /// Ex.: <c>https://crm.crm-cartorio.example</c>. Sem barra no fim.
+    /// </remarks>
+    public string UrlPublica { get; set; } = string.Empty;
+
+    /// <summary>
     /// Piloto restrito a estes números, quando a lista não estiver vazia. Mensagem
     /// de qualquer outro número é descartada no webhook — nem vira <c>Cliente</c>,
     /// nem <c>Conversa</c>, nada entra no sistema.

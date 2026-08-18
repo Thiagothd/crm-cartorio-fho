@@ -10,25 +10,45 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Painel React compilado dentro da API.
+#
+# Em produção o deploy copia `src/frontend/dist/` para cá e a API serve o painel
+# da mesma origem. É artefato de build: versionar significaria diff de bundle
+# minificado a cada commit, e um painel velho viajando junto do código novo.
+#
+# A pasta precisa EXISTIR (senão `UseStaticFiles` não acha `WebRootPath` e a API
+# não sobe), então o LEIA-ME.md dela fica versionado — e só ele.
+src/backend/CrmCartorio.Api/wwwroot/*
+!src/backend/CrmCartorio.Api/wwwroot/LEIA-ME.md
+
 # Segredos — NUNCA versionar
 .env
 .env.*
 !.env.example
-appsettings.Production.json
-appsettings.Local.json
 secrets.json
 
-# Configuração local de desenvolvimento.
+# Dados de acesso ao servidor: IP público do RDP, IP da VPN, caminho da
+# chave SSH e ID do túnel. Nada disso é segredo criptográfico sozinho, mas
+# junto é o mapa de como entrar na máquina — e o repositório está no GitHub.
+servidor.txt
+
+# Configuração POR AMBIENTE — Development, Teste, Production, o que vier.
 #
-# Fora do versionamento por decisão explícita: o arquivo carrega a connection
-# string da máquina de quem desenvolve e a chave JWT local. Hoje os dois valores
-# são descartáveis (SQL Server local por autenticação do Windows, chave que diz
-# "troque antes de publicar"), mas versionar o arquivo é o que faz um segredo de
-# verdade vazar no dia em que alguém colar um ali sem pensar.
+# Fora do versionamento por decisão explícita: esses arquivos carregam
+# connection string, chave JWT, chave da API do gateway e chave da Anthropic.
+#
+# A regra é por curinga de propósito, e não uma linha por ambiente. Até
+# 2026-08-18 só `Production` e `Development` estavam listados — um
+# `appsettings.Teste.json`, criado ao subir o ambiente de teste, seria
+# versionado com segredo dentro e ninguém perceberia. Curinga cobre o que
+# ainda não existe.
+#
+# `appsettings.json` (sem ambiente) continua versionado: é a base sem segredo,
+# e não casa com o padrão abaixo, que exige um segmento no meio.
 #
 # Quem clonar copia o .example ao lado e preenche — ver README.md.
-appsettings.Development.json
-!appsettings.Development.example.json
+appsettings.*.json
+!appsettings.*.example.json
 
 # Anexos recebidos e enviados pelo WhatsApp.
 #

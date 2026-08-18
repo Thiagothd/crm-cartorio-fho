@@ -30,6 +30,17 @@ services:
       # So no laco local. O gateway nao precisa de porta publica: quem fala com
       # ele e' a API .NET, na mesma maquina.
       - "127.0.0.1:8080:8080"
+    extra_hosts:
+      # `host.docker.internal` NAO existe no Docker CE — e' cortesia do Docker
+      # DESKTOP. No servidor o Docker roda dentro do WSL2, e sem esta linha o
+      # nome simplesmente nao resolve.
+      #
+      # Ressalva que vale saber: dentro do WSL2, "host" e' a VM do WSL, nao o
+      # Windows. Para alcancar a API .NET (que roda no Windows, sob IIS) o
+      # caminho confiavel e' a URL publica pelo tunel — ver
+      # `CanalWhatsApp:UrlPublica`. Esta linha resolve o nome; ela nao promete
+      # que o destino seja o Windows.
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:

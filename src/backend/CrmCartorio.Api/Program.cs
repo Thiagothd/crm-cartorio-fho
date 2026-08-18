@@ -202,14 +202,49 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(PoliticaCors);
 
+// O painel React sai da MESMA origem que a API — o build do Vite e' copiado
+// para wwwroot/ no deploy. Em desenvolvimento wwwroot esta vazio e quem serve o
+// painel continua sendo o dev server do Vite na 5173, entao estas duas linhas
+// nao mudam nada no dia a dia de quem desenvolve.
+//
+// Mesma origem resolve tres coisas de uma vez em producao: CORS deixa de
+// existir, o IIS nao precisa de regra de rewrite para as rotas do react-router,
+// e o WebSocket do SignalR nao e' cross-origin.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<AtendimentoHub>("/hubs/atendimento");
 
+// Vivo: o processo subiu e responde. NAO prova que o banco responde — de
+// proposito, para servir de liveness barato (o IIS e o tunel batem aqui).
 app.MapGet("/health", () => Results.Ok(new { status = "ok", fase = 1 }))
     .AllowAnonymous();
+
+// Pronto: o banco responde de verdade.
+//
+// Existe porque /health mentia no unico momento em que a verdade importa: a
+// connection string nao e' validada na subida (ao contrario de Jwt:Chave), entao
+// um ambiente com connection string errada sobe, responde "ok" no /health, e so
+// quebra quando o primeiro atendente tenta entrar. E' isto que o deploy confere.
+app.MapGet("/health/pronto", async (CrmDbContext db, CancellationToken ct) =>
+        await db.Database.CanConnectAsync(ct)
+            ? Results.Ok(new { status = "pronto", banco = "ok" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable))
+    .AllowAnonymous();
+
+// Toda rota que nao casou com API, hub ou arquivo estatico cai no index.html —
+// e' o react-router que resolve dali. Sem isto, abrir
+// /configuracoes direto na barra de endereco (ou dar F5 numa rota interna)
+// devolveria 404: o BrowserRouter usa History API, e o servidor nunca ouviu
+// falar dessas rotas.
+//
+// Vem DEPOIS de MapControllers e MapHub de proposito: fallback e' ultimo
+// recurso, nunca concorre com /api nem com /hubs.
+app.MapFallbackToFile("index.html");
 
 // O semeador nunca cria schema — o DDL fica em sql/001-schema.sql para execucao
 // manual. Aqui so entram os dados de demonstracao, e apenas se ligado por config.

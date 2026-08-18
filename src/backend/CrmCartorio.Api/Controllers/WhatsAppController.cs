@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Controllers;
 
@@ -15,8 +16,11 @@ public class WhatsAppController(
     IProcessadorDeWebhook processador,
     IPareamentoDoCanal pareamento,
     IContextoDoUsuario ctx,
+    IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<WhatsAppController> log) : ControllerBase
 {
+    private readonly OpcoesDoCanalWhatsApp _opcoes = opcoes.Value;
+
     /// <summary>
     /// Recebe os eventos do gateway.
     /// </summary>
@@ -96,8 +100,22 @@ public class WhatsAppController(
         }
     }
 
+    /// <remarks>
+    /// Configuracao explicita vence deducao, sempre que existir. Ver
+    /// <see cref="OpcoesDoCanalWhatsApp.UrlPublica"/> para o porque — em resumo,
+    /// atras do Cloudflare Tunnel a deducao acerta o host e erra o esquema, e o
+    /// webhook fica registrado num endereco que nao atende.
+    ///
+    /// A deducao continua para o desenvolvimento na propria maquina, onde ela
+    /// funciona e evita ter de configurar uma chave a mais para rodar local.
+    /// </remarks>
     private string UrlBaseParaWebhook()
     {
+        if (!string.IsNullOrWhiteSpace(_opcoes.UrlPublica))
+        {
+            return _opcoes.UrlPublica.TrimEnd('/');
+        }
+
         var host = HttpContext.Request.Host.Host;
         var porta = HttpContext.Request.Host.Port;
         var esquema = HttpContext.Request.Scheme;
