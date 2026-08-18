@@ -51,7 +51,7 @@ export function ItemDeConversa({
           >
             {conversa.clienteNome}
           </span>
-          <span className="shrink-0 font-dado text-[11px] text-tinta-fraca">
+          <span className="shrink-0 whitespace-nowrap font-dado text-[11px] text-tinta-fraca">
             {formatarMomentoRelativo(conversa.ultimaMensagemEm)}
           </span>
         </div>
@@ -69,7 +69,12 @@ export function ItemDeConversa({
           </p>
         ) : null}
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        {/* Tambem nao quebra: a linha da inbox tem ~3 linhas de conteudo por
+            contrato (DESIGN.md, secao 7), e uma quarta linha por etiqueta que nao
+            coube tira conversa da tela sem avisar. Etapa e setor truncam; prazo,
+            trava e nao lidas ficam inteiros porque sao curtos e sao o que se le
+            de relance. */}
+        <div className="mt-1.5 flex items-center gap-x-2 overflow-hidden">
           {/* Mini-pílula da etapa, mesmo tratamento da pílula do funil no topo.
               Isto era um ponto de 6px enquanto "Captação" usava bordô — pílula
               preenchida em cada linha espalhava a cor do selo pela tela. Com a
@@ -77,7 +82,7 @@ export function ItemDeConversa({
               restrição deixou de existir. */}
           {conversa.etapaNome ? (
             <span
-              className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium"
+              className="inline-flex max-w-[11rem] shrink items-center truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium"
               style={{
                 backgroundColor: cores.fundo,
                 color: cores.texto,
@@ -89,23 +94,27 @@ export function ItemDeConversa({
           ) : null}
 
           {conversa.setorNome ? (
-            <span className="text-[11px] text-tinta-fraca">{conversa.setorNome}</span>
+            <span className="min-w-0 shrink truncate text-[11px] text-tinta-fraca">
+              {conversa.setorNome}
+            </span>
           ) : null}
 
-          <EtiquetaDePrazo
-            situacao={conversa.situacaoPrazo}
-            prazoLimite={conversa.prazoLimite}
-            compacta
-          />
+          <span className="shrink-0">
+            <EtiquetaDePrazo
+              situacao={conversa.situacaoPrazo}
+              prazoLimite={conversa.prazoLimite}
+              compacta
+            />
+          </span>
 
           {naFila ? (
-            <span className="inline-flex items-center rounded-md border border-linha-forte px-1.5 py-0.5 text-[11px] font-medium text-tinta-media">
+            <span className="inline-flex shrink-0 items-center rounded-md border border-linha-forte px-1.5 py-0.5 text-[11px] font-medium text-tinta-media">
               Na fila
             </span>
           ) : conversa.atendenteNome ? (
             <span
               className={cn(
-                'inline-flex items-center gap-1 text-[11px]',
+                'inline-flex min-w-0 shrink items-center gap-1 truncate text-[11px]',
                 souOResponsavel ? 'text-verde' : 'text-tinta-fraca',
               )}
             >
@@ -115,7 +124,7 @@ export function ItemDeConversa({
           ) : null}
 
           {conversa.mensagensNaoLidas > 0 ? (
-            <span className="ml-auto inline-flex min-w-4 items-center justify-center rounded-md border border-selo/45 bg-selo/8 px-1 font-dado text-[11px] font-medium text-selo">
+            <span className="ml-auto inline-flex min-w-4 shrink-0 items-center justify-center rounded-md border border-selo/45 bg-selo/8 px-1 font-dado text-[11px] font-medium text-selo">
               {conversa.mensagensNaoLidas}
             </span>
           ) : null}

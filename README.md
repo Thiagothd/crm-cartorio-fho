@@ -3,9 +3,11 @@
 CRM de atendimento via WhatsApp especializado para cartórios (serventias
 extrajudiciais). **Repositório privado.**
 
-> **Fase 1 ✅ concluída em 2026-08-15.** Sistema completo com dados simulados: o
-> WhatsApp real não está conectado, as mensagens ficam numa conversa simulada,
-> prontas para a Fase 2 plugar a Cloud API da Meta sem reescrever a lógica.
+> **Fase 1 ✅ concluída em 2026-08-15. Fase 2 em piloto desde 2026-08-16.** O
+> sistema fala com WhatsApp real por um gateway não oficial, em **número
+> dedicado ao piloto** — nunca o número do cartório. A via oficial (Cloud API da
+> Meta) segue bloqueada por pré-requisitos do cliente. Ver
+> [CLAUDE.md](CLAUDE.md), seção 2, e [docs/DEPLOY-WHATSAPP.md](docs/DEPLOY-WHATSAPP.md).
 
 ## Por onde começar a leitura
 

@@ -104,10 +104,18 @@ mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método).
 
 ## 5. O despacho: "menu" primeiro, dois níveis depois
 
-O ponto de entrada — `MensagemService.SimularRecebimentoAsync` (painel) e
+O ponto de entrada — `MensagemService.SimularRecebimentoAsync` e
 `RecebimentoDeWhatsApp.ReceberAsync` (webhook real) — roda a **mesma** cadeia,
 porque duplicá-la faria as duas divergirem na primeira mudança, e a
 divergência só apareceria na conversa de um cliente de verdade.
+
+> **Desde 2026-08-18 o painel não chama mais o primeiro.** O botão "Simular
+> mensagem do cliente", que ficava sob a caixa de envio, era andaime da Fase 1 —
+> quando não havia WhatsApp nenhum e o painel precisava encenar a chegada de uma
+> mensagem. Com o canal real no ar, mensagem de cliente se testa pelo WhatsApp.
+> **O método e a rota continuam existindo**, e continuam sendo o caminho de
+> `verificar-automacao.cs`: é por ali que os 56 cenários de automação entram no
+> sistema sem depender de gateway.
 
 ```mermaid
 flowchart TD
@@ -460,7 +468,7 @@ num lado exige mexer no outro.
 | Prompt da IA | `Modules/RespostaInteligente/Application/PromptDeSistema.cs` |
 | Grounding da IA | `Modules/RespostaInteligente/Application/MontadorDeContexto.cs` |
 | Opções da IA (chave, modelo, teto diário) | `Modules/RespostaInteligente/Application/OpcoesDaIA.cs` |
-| Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (painel), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
+| Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (rota de simulação, hoje só usada pelo verificador), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
 | Cobertura automatizada | `src/backend/verificar-automacao.cs` |
 
 ---
