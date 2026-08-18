@@ -1,6 +1,7 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
+using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 
@@ -80,7 +81,7 @@ public static class AplicadorDePosAtendimento
 
             if (escolhido is { } id)
             {
-                await AplicarEscolhaDeContinuacaoAsync(db, automaticas, conversa, id, ct);
+                await AplicarEscolhaDeContinuacaoAsync(db, automaticas, conversa, id, agora, ct);
 
                 log.LogInformation(
                     "Conversa {ConversaId} escolheu {Opcao} no menu de continuacao.", conversa.Id, id);
@@ -108,6 +109,7 @@ public static class AplicadorDePosAtendimento
         IDisparadorDeMensagemAutomatica automaticas,
         Conversa conversa,
         Guid escolhido,
+        DateTime agora,
         CancellationToken ct)
     {
         conversa.AguardandoMenuDeContinuacao = false;
@@ -132,6 +134,7 @@ public static class AplicadorDePosAtendimento
         else if (escolhido == OpcaoEncerrar)
         {
             await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.Despedida, ct: ct);
+            EncerrarPeloCliente(db, conversa, agora);
         }
         else
         {
@@ -140,5 +143,38 @@ public static class AplicadorDePosAtendimento
             await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
             conversa.AguardandoTriagem = true;
         }
+    }
+
+    /// <remarks>
+    /// Espelha <see cref="ConversaService.EncerrarAsync"/> — mesma arquivagem
+    /// (RF-015, nunca DELETE) — mas ctx-free: quem fechou foi o proprio cliente
+    /// pelo menu do WhatsApp, nao um atendente logado, entao
+    /// <see cref="Conversa.EncerradaPorAtendenteId"/> fica nulo em vez de vir de
+    /// um <c>ICurrentUserContext</c> que nao existe neste caminho. Achado ao vivo
+    /// em 2026-08-17: o cliente escolhia "Encerrar" no menu de continuacao, a
+    /// despedida saia, mas a conversa continuava Ativa no painel — nunca fechava
+    /// de verdade.
+    /// </remarks>
+    private static void EncerrarPeloCliente(CrmDbContext db, Conversa conversa, DateTime agora)
+    {
+        conversa.Status = StatusConversa.Encerrada;
+        conversa.EncerradaEm = agora;
+        conversa.EncerradaPorAtendenteId = null;
+        conversa.MotivoEncerramento = "Encerrado pelo cliente, via menu do WhatsApp.";
+        conversa.MensagensNaoLidas = 0;
+        conversa.AguardandoRespostaInteligente = false;
+        conversa.TentativasRespostaInteligente = 0;
+
+        db.Mensagens.Add(new Mensagem
+        {
+            TenantId = conversa.TenantId,
+            ConversaId = conversa.Id,
+            AutorTipo = AutorTipo.Sistema,
+            Conteudo = "Atendimento encerrado pelo cliente.",
+            Tipo = TipoMensagem.Texto,
+            StatusEntrega = StatusEntrega.Entregue,
+            EnviadaEm = agora,
+            LidaEm = agora
+        });
     }
 }

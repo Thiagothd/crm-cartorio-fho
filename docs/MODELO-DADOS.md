@@ -1,7 +1,8 @@
 # MODELO DE DADOS
 
-> **Status:** aprovado para a Fase 1 e implementado.
-> **Última atualização:** 2026-08-14
+> **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
+> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E" nas seções abaixo.
+> **Última atualização:** 2026-08-17
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -250,6 +251,8 @@ Catálogo de atos cartorários. Configurável.
 | Codigo | string(30) | não | Código interno do cartório |
 | Categoria | enum | sim | `Notas`, `RegistroCivil`, `RegistroImoveis`, `TitulosDocumentos`, `Protesto`, `Outros` |
 | Descricao | string(500) | não | |
+| SetorId | Guid | não | FK → Setor, `Restrict`. **Fase 2D.** Habilita o serviço no menu de 2º nível da triagem automática (`{MenuServicos}`). Nulo de propósito para serviço `AGUARDANDO CONFIRMAÇÃO` de atribuição — sem `SetorId`, não entra em nenhum menu automático |
+| DocumentosNecessarios | string(800) | não | **Fase 2D.** Checklist em texto livre, cadastrável pela tela. Preenche `{DocumentosNecessarios}` |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
 
@@ -331,7 +334,11 @@ Entidade central. É onde mora a trava.
 | IniciadaEm | datetime2(3) | sim | |
 | UltimaMensagemEm | datetime2(3) | sim | Ordenação da inbox |
 | MensagensNaoLidas | int | sim | Mensagens do cliente ainda não lidas |
-| AguardandoTriagem | bool | sim | Recebeu o menu e espera a escolha do setor. Ver 3.11 |
+| AguardandoTriagem | bool | sim | Recebeu o menu de setor e espera a escolha (nível 1). Ver [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) |
+| AguardandoEscolhaDeServico | bool | sim | **Fase 2D.** Setor reconhecido, espera a escolha do serviço (nível 2) |
+| AguardandoRespostaInteligente | bool | sim | **Fase 2B.** A IA respondeu e a próxima mensagem do cliente volta para ela, em vez de escalar direto |
+| TentativasRespostaInteligente | int | sim | **Fase 2B.** Contador de respostas seguidas da IA nesta sequência. Telemetria — nenhuma decisão de escalonamento lê este número (removido em 2026-08-17, ver FLUXO-AUTOMACAO.md §8) |
+| AguardandoMenuDeContinuacao | bool | sim | **Fase 2E.** Atendimento estruturado terminou; espera a escolha entre continuar, trocar de setor, falar com atendente ou encerrar |
 | PrazoIniciadoEm | datetime2(3) | não | Marcado ao vincular o tipo de serviço |
 | PrazoLimite | datetime2(3) | não | Calculado por `PrazoServico` |
 | PrazoAlertaEm | datetime2(3) | não | Instante em que entra em alerta. Derivado do percentual, ver nota |
@@ -365,9 +372,10 @@ reencontraria a mesma conversa em alerta a cada volta.
 | AutorTipo | enum | sim | `Cliente` / `Atendente` / `Sistema` |
 | AtendenteId | Guid | não | FK → Atendente. **Obrigatório quando `AutorTipo = Atendente`** |
 | Conteudo | string(4000) | sim | |
-| Tipo | enum | sim | `Texto` na Fase 1; mídia entra na Fase 2 |
+| Tipo | enum | sim | `Texto` na Fase 1; `Imagem`/`Documento`/`Audio`/`Video` desde a Fase 2C |
 | StatusEntrega | enum | sim | `Pendente` / `Enviada` / `Entregue` / `Lida` / `Falha` |
-| EhAutomatica | bool | sim | Gerada por regra, não escrita por gente. Ver abaixo |
+| EhAutomatica | bool | sim | Gerada por regra ou pela IA, não escrita por gente. Ver abaixo |
+| GeradaPorIa | bool | sim | **Fase 2B.** A mensagem automática veio da Resposta Inteligente, não de uma regra de `MensagemAutomatica` cadastrada. Sempre acompanha `EhAutomatica = true`; separa o rótulo "IA" do rótulo "Automática" na tela |
 | EnviadaEm | datetime2(3) | sim | |
 | LidaEm | datetime2(3) | não | |
 | IdExternoWhatsapp | string(80) | não | ID da Meta — Fase 2 |
@@ -444,11 +452,20 @@ Configurável, no mesmo padrão de `Setor` e `EtapaFunil`.
 
 | Gatilho | Quando dispara | Quem provoca |
 | --- | --- | --- |
-| `NovoAtendimento` | Conversa aberta **sem setor definido** | `ConversaService.CriarAsync` |
-| `TriagemSemCorrespondencia` | Resposta ao menu não bate com nenhum setor | `MensagemService` |
+| `NovoAtendimento` | Conversa aberta **sem setor definido** | `ConversaService.CriarAsync`, `AplicadorDePosAtendimento` (reabertura por "menu") |
 | `EtapaAlterada` | Conversa entra na etapa alvo | `ConversaService.MoverAsync` |
 | `PrazoProximoVencimento` | `agora ≥ PrazoAlertaEm` e ainda dentro do prazo | Varredura periódica |
 | `PrazoVencido` | `agora > PrazoLimite` | Varredura periódica |
+| `TriagemSemCorrespondencia` | Resposta ao menu de setor não bate com nenhuma opção | `AplicadorDeTriagem`, `AplicadorDeRespostaInteligente` |
+| `TriagemComCorrespondencia` | **Fase 2D.** Setor reconhecido e com ≥1 serviço vinculado — pergunta qual serviço | `AplicadorDeTriagem`, `AplicadorDePosAtendimento` |
+| `ServicoEscolhido` | **Fase 2D.** Cliente escolheu o serviço no menu de 2º nível | `AplicadorDeEscolhaDeServico` |
+| `MenuDeContinuacao` | **Fase 2E.** Atendimento estruturado terminou — oferece continuar, trocar de setor, falar com atendente ou encerrar | `AplicadorDeEscolhaDeServico` |
+| `PedidoDeAtendente` | **Fase 2E.** Encaminha para atendente no meio/fim do atendimento (setor já definido) — texto diferente de `TriagemSemCorrespondencia` | `AplicadorDeRespostaInteligente`, `AplicadorDePosAtendimento` |
+| `Despedida` | **Fase 2E.** Cliente escolheu encerrar pelo menu de continuação — envia a despedida e fecha a conversa (`Status = Encerrada`) | `AplicadorDePosAtendimento` |
+
+Comportamento completo de cada gatilho — a máquina de estado, quando a IA
+entra, quando escala — em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). Esta
+seção descreve só o schema.
 
 **Por que gatilho é enum e o resto é cadastro.** Cada gatilho corresponde a um ponto
 de código que precisa existir para disparar — gatilho novo exige release. Já o
@@ -468,13 +485,18 @@ do que se quer. `CHECK` no banco garante os dois lados da regra.
 | `{Servico}` | `TipoServico.Nome`, ou `"não informado"` quando ainda não captado |
 | `{Protocolo}` | `Conversa.Protocolo` |
 | `{MenuSetores}` | Lista numerada dos setores **ativos**, montada no disparo |
+| `{MenuServicos}` | **Fase 2D.** Lista numerada dos serviços **ativos** do setor da conversa (`TipoServico.SetorId`) |
+| `{DocumentosNecessarios}` | **Fase 2D.** Checklist do `TipoServico` vinculado, ou `"a confirmar com o atendente"` |
+| `{PrazoServico}` | **Fase 2D.** Prazo do `TipoServico` vinculado, formatado (`"até 15 dias úteis"`), ou `"a confirmar com o atendente"` |
 
 Marcador fora dessa lista é **recusado no salvamento**. É a única chance de pegar o
 erro: um `{NomeClinte}` digitado errado não estouraria em lugar nenhum — sairia
 literal na mensagem que o cliente do cartório lê.
 
-`{MenuSetores}` é o que torna o menu de triagem cadastro e não código: adicionar ou
-desativar um setor muda o menu sozinho, sem tocar no texto da mensagem.
+`{MenuSetores}` e `{MenuServicos}` são o que torna os dois níveis do menu de
+triagem cadastro e não código: adicionar, desativar ou vincular um setor/serviço
+muda o menu sozinho, sem tocar no texto da mensagem. Os dois usam a mesma
+numeração que `TriagemAutomatica.InterpretarResposta` espera de volta.
 
 ### 3.12 RespostaRapida
 
@@ -572,11 +594,19 @@ Três coisas diferentes que costumam ser confundidas:
 
 | | Dispara sozinho? | Quem assina | Chega ao cliente? |
 | --- | --- | --- | --- |
-| **Mensagem automática** | sim | o sistema | sim (Fase 2) |
+| **Mensagem automática** | sim | o sistema (regra de cadastro) | sim |
+| **Resposta da IA** | sim | o sistema (modelo de linguagem) — **Fase 2B** | sim |
 | **Anotação de sistema** | sim | ninguém — é registro | nunca |
 | **Resposta rápida** | não | o atendente | sim, depois que ele envia |
 
-### 6.1 Triagem do primeiro contato
+> **A partir da Fase 2D o fluxo tem dois níveis** (setor, depois serviço), mais
+> uma camada de IA de contingência e um piso que garante resposta a qualquer
+> mensagem, em qualquer ponto da conversa. Esta seção documenta só o **nível 1**
+> (schema-adjacente, sem mudança desde a Fase 1); o comportamento completo — os
+> 10 gatilhos, a máquina de estado, quando a IA responde e quando escala — está
+> em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md).
+
+### 6.1 Triagem do primeiro contato — nível 1 (setor)
 
 1. Conversa nasce **sem setor** → dispara `NovoAtendimento` e marca
    `AguardandoTriagem`.
@@ -648,6 +678,7 @@ nunca sairiam se ela mudasse de ideia depois.
 | Setores | `UQ (TenantId, Nome)` | Evita duplicata de cadastro |
 | EtapasFunil | `UQ (TenantId, Nome)` | Idem |
 | TiposServico | `UQ (TenantId, Nome)` | Idem |
+| TiposServico | `IX (TenantId, SetorId, Ativo)` | **Fase 2D.** Consulta do menu de 2º nível por setor |
 | PrazosServico | `UQ TipoServicoId` | Garante o 1:1 |
 | Conversas | `UQ (TenantId, Protocolo)` | Rede de segurança do protocolo |
 | Conversas | `IX (TenantId, Status, UltimaMensagemEm DESC)` | Consulta padrão da inbox |
@@ -696,8 +727,19 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/005-mensagens-automaticas.sql`](../sql/005-mensagens-automaticas.sql) | Cria `MensagensAutomaticas` e `RespostasRapidas`, amplia `Conversas` e `Mensagens`, semeia os cadastros |
 | [`sql/006-encoding-e-textos.sql`](../sql/006-encoding-e-textos.sql) | Repara o texto corrompido por encoding e grava a redação profissional das mensagens |
 | [`sql/007-cargo-do-atendente.sql`](../sql/007-cargo-do-atendente.sql) | Cria `Atendentes.Cargo`, separado do perfil de acesso |
+| [`sql/008-aparencia-da-conversa.sql`](../sql/008-aparencia-da-conversa.sql) | Aparência do fio de mensagens |
+| [`sql/009-acoes-de-mensagem.sql`](../sql/009-acoes-de-mensagem.sql) | Fixar, ocultar e encaminhar mensagem |
+| [`sql/010-canal-whatsapp.sql`](../sql/010-canal-whatsapp.sql) | Vínculo entre instância do gateway e serventia (Fase 2A) |
+| [`sql/011-anexos-de-mensagem.sql`](../sql/011-anexos-de-mensagem.sql) | Anexo de mídia nas mensagens (Fase 2C) |
+| [`sql/012-resposta-inteligente.sql`](../sql/012-resposta-inteligente.sql) | Resposta Inteligente — IA grounded na triagem (Fase 2B) |
+| [`sql/013-catalogo-atos-candidatos.sql`](../sql/013-catalogo-atos-candidatos.sql) | Atos candidatos do catálogo (Registro Civil + Notas) |
+| [`sql/014-servico-por-setor-e-checklist.sql`](../sql/014-servico-por-setor-e-checklist.sql) | `TipoServico.SetorId` + checklist de documento (Fase 2D) |
+| [`sql/015-checklist-e-mensagens-de-servico.sql`](../sql/015-checklist-e-mensagens-de-servico.sql) | Checklist de documento + mensagens do fluxo de serviço |
+| [`sql/016-emoji-nas-mensagens.sql`](../sql/016-emoji-nas-mensagens.sql) | Emoji pontual nas mensagens que o cliente lê |
+| [`sql/017-piso-da-ia-schema.sql`](../sql/017-piso-da-ia-schema.sql) | `AguardandoMenuDeContinuacao` + gatilhos 8/9/10 (Fase 2E) |
+| [`sql/018-piso-da-ia-conteudo.sql`](../sql/018-piso-da-ia-conteudo.sql) | Conteúdo das 3 novas mensagens automáticas do piso da IA |
 
-`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 007
+`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 018
 acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
 
 Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.

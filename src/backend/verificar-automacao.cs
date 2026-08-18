@@ -668,6 +668,71 @@ await using (var db = new CrmDbContext(opcoes))
         fio.Count(m => m.Autor == AutorTipo.Sistema && m.Automatica) == 0);
 }
 
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 7 — "Encerrar" no menu de continuacao fecha a conversa de verdade
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 7 — menu de continuacao, opcao Encerrar");
+
+Guid conversa7;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Encerrar pelo menu"), setores[0].Id, null, "Oi"));
+
+    conversa7 = criada.Id;
+}
+
+// Direto no banco: pula a caminhada por triagem + servico so para chegar no
+// estado "menu de continuacao no ar", que e o unico pre-requisito do que este
+// teste quer provar.
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversa7);
+    c.AguardandoMenuDeContinuacao = true;
+    await db.SaveChangesAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    // "4" = "Encerrar atendimento", a mesma escolha numerica que o cliente
+    // manda no WhatsApp de verdade.
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa7, new SimularMensagemDeClienteRequest("4"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var depoisDoEncerrar = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa7);
+
+    // ACHADO AO VIVO, 2026-08-17: cliente escolhia Encerrar, a despedida saia,
+    // mas a conversa continuava Ativa no painel. Este bloco prova que fechou.
+    Checar("\"Encerrar\" muda o status para Encerrada",
+        depoisDoEncerrar.Status == StatusConversa.Encerrada);
+    Checar("EncerradaEm foi gravado", depoisDoEncerrar.EncerradaEm is not null);
+    Checar("EncerradaPorAtendenteId fica nulo (foi o cliente, nao um atendente logado)",
+        depoisDoEncerrar.EncerradaPorAtendenteId is null);
+    Checar("flag de menu de continuacao foi limpa", !depoisDoEncerrar.AguardandoMenuDeContinuacao);
+}
+
+var fio7 = await FioAsync(conversa7);
+
+var despedida = fio7.LastOrDefault(m => m.Automatica);
+Checar("despedida foi enviada ao cliente", despedida.Conteudo?.Contains("prazer atender") == true,
+    despedida.Conteudo);
+Checar("despedida nao deixou marcador sem resolver", despedida.Conteudo?.Contains('{') != true,
+    despedida.Conteudo);
+
+var anotacaoDeEncerramento = fio7.LastOrDefault(m => m.Autor == AutorTipo.Sistema && !m.Automatica);
+Checar("anotacao interna registra que foi o cliente quem encerrou",
+    anotacaoDeEncerramento.Conteudo?.Contains("encerrado pelo cliente", StringComparison.OrdinalIgnoreCase) == true,
+    anotacaoDeEncerramento.Conteudo);
+
+Console.WriteLine();
+
 // ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------

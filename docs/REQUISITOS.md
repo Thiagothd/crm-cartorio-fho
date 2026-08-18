@@ -1,7 +1,7 @@
 # REQUISITOS
 
 > **Status:** confirmados. Fase 1 implementada e ampliada para a apresentação.
-> **Última atualização:** 2026-08-14
+> **Última atualização:** 2026-08-17
 
 Origem de cada requisito:
 
@@ -81,7 +81,7 @@ Origem de cada requisito:
 | RNF-009 | Concorrência de escrita em `Conversa` controlada por `rowversion` | TEC | ✅ |
 | RNF-010 | Erro de negócio retorna `ProblemDetails` com código estável, não stack trace | TEC | ✅ |
 | RNF-011 | Domínio nomeado em português; termos técnicos em inglês | TEC | ✅ |
-| RNF-012 | Nenhuma biblioteca não oficial de WhatsApp em nenhuma fase | TEC | ✅ |
+| RNF-012 | Nenhuma biblioteca não oficial de WhatsApp **no número do cartório, nem em produção** | TEC | ⚠️ Exceção deliberada e isolada desde 2026-08-16: piloto de demonstração roda sobre Evolution API, em número dedicado — nunca o do cartório. Ver CLAUDE.md, seção 2, "Mudança de direção — 2026-08-16" |
 | RNF-013 | Segredo (JWT, connection string) fora do controle de versão | TEC | ✅ |
 
 ---
@@ -99,9 +99,9 @@ Registrado para defesa contra crescimento de escopo:
 | Funil de vendas / prospecção / oportunidade | "Funil" aqui é progressão de atendimento, não pipeline comercial |
 | Portal de consulta para o cliente final | Não pedido. O canal do cliente é o WhatsApp |
 | App mobile nativo | Web responsivo atende |
-| Chatbot **por IA** | O bot de triagem da Fase 1 é regra de cadastro: número da opção ou nome do setor, uma tentativa, e cai para humano. Interpretar linguagem livre é outra coisa — candidato a Fase 4 |
-| Anexo de arquivo (foto de documento) | Fase 2 — depende do formato de mídia da Cloud API |
-| Confirmação real de entrega e leitura | A interface está pronta, mas o dado verdadeiro vem do webhook da Meta na Fase 2 |
+| Chatbot **por IA de conversação livre** | Implementado, mas **não é isto**: a Resposta Inteligente (Fase 2B) responde só com dado cadastrado (catálogo, respostas rápidas), nunca opina nem conversa livremente, e escala para humano por pedido explícito ou quando não sabe. Ver [docs/FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). O bot de triagem por menu numerado (Fase 1) continua sendo o caminho principal — a IA é o piso, não o padrão |
+| Anexo de arquivo (foto de documento) | ~~Fase 2 — depende do formato de mídia da Cloud API~~ **Implementado no piloto (Fase 2C)**, via Evolution API — entra e sai pelo fio |
+| Confirmação real de entrega e leitura | ~~A interface está pronta, mas o dado verdadeiro vem do webhook da Meta na Fase 2~~ **Implementado no piloto**, via webhook da Evolution API — a via oficial da Meta continua pendente dos pré-requisitos |
 | Relatório para Corregedoria | Não pedido |
 
 ---
@@ -111,6 +111,16 @@ Registrado para defesa contra crescimento de escopo:
 Registrados para não se perderem. **Não implementar agora.**
 
 ### Fase 2 — WhatsApp real
+
+**Esta tabela é sobre a via oficial (Cloud API da Meta), que segue bloqueada
+pelos pré-requisitos abaixo.** Desde 2026-08-16 um piloto não oficial
+(Evolution API, número dedicado) entrega o equivalente funcional de RF-101,
+RF-102, RF-104 e RF-105 — mecanismo diferente, mesmo resultado para quem usa
+o painel. Decisão registrada em CLAUDE.md, seção 2, "Mudança de direção —
+2026-08-16"; comportamento completo em
+[docs/FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). RF-103 (template fora da janela
+de 24h) e RF-106 (painel de custo) são específicos da Cloud API e não se
+aplicam ao piloto.
 
 | ID | Requisito | Bloqueio |
 | --- | --- | --- |

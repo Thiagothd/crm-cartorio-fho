@@ -89,9 +89,10 @@ public enum GatilhoDeMensagem : byte
 
     /// <summary>O cliente escolheu encerrar pelo <see cref="MenuDeContinuacao"/>.</summary>
     /// <remarks>
-    /// Fase 2E.1 so envia a mensagem de despedida — nao fecha a Conversa de
-    /// verdade (Status continua Ativa). Encerramento pelo proprio cliente e
-    /// decisao maior, fica para depois.
+    /// Alem da despedida, fecha a Conversa de verdade (Status vira Encerrada) —
+    /// ver <see cref="Atendimento.Application.AplicadorDePosAtendimento"/>.
+    /// Ate 2026-08-17 so a mensagem saia e a conversa ficava Ativa para sempre;
+    /// achado ao vivo e corrigido no mesmo dia.
     /// </remarks>
     Despedida = 10
 }
