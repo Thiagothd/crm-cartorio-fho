@@ -103,6 +103,17 @@ public class EnviadorPeloWhatsApp(
         }
     }
 
+    /// <remarks>
+    /// Apesar do nome, tambem retenta <see cref="StatusEntrega.Falha"/> — decisao
+    /// do Thiago em 2026-08-17, depois de um envio real falhar (soluco da
+    /// Evolution, nunca confirmado com certeza) e a conversa seguir adiante como
+    /// se a mensagem tivesse saido: o cliente ficava esperando um menu que nunca
+    /// chegou. Chamado nos mesmos 3 pontos de sempre (aviso de prazo, recebimento
+    /// de mensagem, acao do atendente), entao um soluco passageiro se autocorrige
+    /// sozinho na proxima chamada, sem exigir nada do cliente nem do atendente.
+    /// Nao ha risco de martelar destino permanentemente invalido: cada retentativa
+    /// so acontece quando este metodo e chamado de novo, nunca em loop apertado.
+    /// </remarks>
     public async Task EnviarPendentesAsync(Guid conversaId, CancellationToken ct = default)
     {
         if (!_opcoes.EstaConfigurado)
@@ -124,7 +135,7 @@ public class EnviadorPeloWhatsApp(
         var pendentes = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId
                      && m.EhAutomatica
-                     && m.StatusEntrega == StatusEntrega.Pendente)
+                     && (m.StatusEntrega == StatusEntrega.Pendente || m.StatusEntrega == StatusEntrega.Falha))
             .OrderBy(m => m.EnviadaEm)
             .ThenBy(m => m.Id)
             .Select(m => m.Id)

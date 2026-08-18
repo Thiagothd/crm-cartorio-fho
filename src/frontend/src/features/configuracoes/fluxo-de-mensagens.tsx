@@ -24,7 +24,16 @@ interface PontoFixo {
 const PRIMEIRO_CONTATO: PontoFixo = { gatilho: 'NovoAtendimento', rotulo: 'Primeiro contato' }
 const QUAL_SERVICO: PontoFixo = { gatilho: 'TriagemComCorrespondencia', rotulo: 'Qual serviço' }
 const SERVICO_ESCOLHIDO: PontoFixo = { gatilho: 'ServicoEscolhido', rotulo: 'Documentos e prazo' }
-const ATENDENTE_HUMANO: PontoFixo = { gatilho: 'TriagemSemCorrespondencia', rotulo: 'Atendente humano' }
+const MENU_DE_CONTINUACAO: PontoFixo = { gatilho: 'MenuDeContinuacao', rotulo: 'Posso ajudar em mais algo?' }
+const DESPEDIDA: PontoFixo = { gatilho: 'Despedida', rotulo: 'Cliente encerrou' }
+const ATENDENTE_PRIMEIRO_CONTATO: PontoFixo = {
+  gatilho: 'TriagemSemCorrespondencia',
+  rotulo: 'Atendente (1º contato)',
+}
+const ATENDENTE_EM_ATENDIMENTO: PontoFixo = {
+  gatilho: 'PedidoDeAtendente',
+  rotulo: 'Atendente (em atendimento)',
+}
 const PRAZO_ALERTA: PontoFixo = { gatilho: 'PrazoProximoVencimento', rotulo: 'Prazo perto de vencer' }
 const PRAZO_VENCIDO: PontoFixo = { gatilho: 'PrazoVencido', rotulo: 'Prazo vencido' }
 
@@ -54,6 +63,8 @@ export function FluxoDeMensagens({
     { ...PRIMEIRO_CONTATO, etapaAlvoId: null as string | null },
     { ...QUAL_SERVICO, etapaAlvoId: null as string | null },
     { ...SERVICO_ESCOLHIDO, etapaAlvoId: null as string | null },
+    { ...MENU_DE_CONTINUACAO, etapaAlvoId: null as string | null },
+    { ...DESPEDIDA, etapaAlvoId: null as string | null },
     ...etapasOrdenadas.map((etapa) => ({
       gatilho: 'EtapaAlterada' as GatilhoDeMensagem,
       rotulo: etapa.nome,
@@ -88,7 +99,10 @@ export function FluxoDeMensagens({
       <div>
         <div className="flex items-center gap-1.5 text-xs text-tinta-fraca">
           <CornerDownRight className="size-3.5 shrink-0" />
-          <span>Se o cliente sai do roteiro (menu ou serviço) em qualquer ponto acima:</span>
+          <span>
+            Se o cliente sai do roteiro, ou nenhuma flag de fluxo está esperando resposta — a IA
+            nunca deixa passar em branco:
+          </span>
         </div>
 
         <div className="mt-2 pl-5">
@@ -98,15 +112,15 @@ export function FluxoDeMensagens({
                 A IA tenta responder — não é cadastro, é comportamento do sistema.
               </div>
             </PontoComSeta>
-            <PontoComSeta>
-              <Ponto
-                rotulo={ATENDENTE_HUMANO.rotulo}
-                mensagem={encontrar(ATENDENTE_HUMANO.gatilho)}
-                aoClicar={() =>
-                  aoClicarPonto(ATENDENTE_HUMANO.gatilho, null, encontrar(ATENDENTE_HUMANO.gatilho))
-                }
-              />
-            </PontoComSeta>
+            {[ATENDENTE_PRIMEIRO_CONTATO, ATENDENTE_EM_ATENDIMENTO].map((ponto) => (
+              <PontoComSeta key={ponto.gatilho}>
+                <Ponto
+                  rotulo={ponto.rotulo}
+                  mensagem={encontrar(ponto.gatilho)}
+                  aoClicar={() => aoClicarPonto(ponto.gatilho, null, encontrar(ponto.gatilho))}
+                />
+              </PontoComSeta>
+            ))}
           </Trilho>
         </div>
       </div>

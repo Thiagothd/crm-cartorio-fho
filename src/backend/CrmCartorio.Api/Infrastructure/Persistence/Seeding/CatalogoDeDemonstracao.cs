@@ -291,6 +291,42 @@ public static class CatalogoDeDemonstracao
             "Se houver alguma pendência, entraremos em contato por aqui.",
             true),
 
+        // Fase 2E.1: dispara junto com ServicoEscolhido — o atendimento
+        // estruturado terminou, mas a conversa nao pode terminar muda. E o
+        // "else" da mensagem: sem isto, qualquer coisa que o cliente escrevesse
+        // depois do checklist (ate um "obrigada") nao gerava resposta nenhuma —
+        // achado ao vivo, 2026-08-17.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.MenuDeContinuacao,
+            GatilhoDeMensagem.MenuDeContinuacao,
+            null,
+            "Posso ajudar em mais alguma coisa, {NomeCliente}?\n\n" +
+            "1 - Ver outro serviço\n" +
+            "2 - Trocar de setor\n" +
+            "3 - Falar com um atendente\n" +
+            "4 - Encerrar atendimento",
+            true),
+
+        // Fase 2E.1: encaminhamento para humano NO MEIO ou DEPOIS do atendimento —
+        // nao no primeiro contato (esse continua sendo TriagemSemResposta). Texto
+        // proprio para nao repetir "obrigado pelo contato" com quem o sistema ja
+        // esta atendendo ha uma volta inteira de mensagens.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.PedidoDeAtendente,
+            GatilhoDeMensagem.PedidoDeAtendente,
+            null,
+            "Certo, {NomeCliente}! Um de nossos atendentes vai continuar seu atendimento " +
+            "(protocolo {Protocolo}) em instantes.",
+            true),
+
+        // Fase 2E.1: cliente escolheu encerrar pelo MenuDeContinuacao. So a
+        // mensagem — nao fecha a Conversa de verdade ainda (ver o enum).
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.Despedida,
+            GatilhoDeMensagem.Despedida,
+            null,
+            "Foi um prazer atender você, {NomeCliente}! 👋\n\n" +
+            "Seu protocolo {Protocolo} fica registrado — qualquer necessidade, é só mandar " +
+            "mensagem por aqui.",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

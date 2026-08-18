@@ -20,7 +20,7 @@ decidir quando escalar) continua sendo o Atendimento — ver
 | `IRespostaInteligenteService` / `RespostaInteligenteService` | Chama a API da Anthropic com structured output; nunca lança |
 | `MontadorDeContexto` | Monta o texto de grounding: catálogo de `TipoServico` + `RespostaRapida` ativos |
 | `PromptDeSistema` | Prompt fixo, versionado em código — regra de segurança, não redação editável |
-| `OpcoesDaIA` | Habilitada, ApiKey, Modelo, MaxTrocas, TimeoutSegundos |
+| `OpcoesDaIA` | Habilitada, ApiKey, Modelo, TimeoutSegundos, LimiteDiario |
 | `RespostaInteligenteServiceException` | Só para mau uso da própria porta (ex.: tenant vazio) — a falha de chamar a IA em si nunca chega aqui |
 
 ## Decisões que parecem estranhas mas não são
@@ -76,8 +76,9 @@ lugares:
    tentativa.
 2. Direto de `MensagemService.SimularRecebimentoAsync` e
    `RecebimentoDeWhatsApp.ReceberAsync`, quando `Conversa.AguardandoRespostaInteligente`
-   está ligado — trocas seguintes, até `OpcoesDaIA.MaxTrocas` ou até o cliente
-   pedir atendente.
+   está ligado — trocas seguintes, sem limite de contagem: só sai por pedido
+   explícito de atendente ou quando a própria IA não souber responder
+   (`podeResponder=false`).
 
 ## Fronteiras
 

@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
@@ -10,7 +11,7 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// <summary>
 /// Tenta responder com a IA antes de escalar para atendimento humano, quando o
 /// cliente escreve algo que não bate com o menu de triagem — e continua tentando
-/// nas mensagens seguintes, dentro do limite de trocas.
+/// nas mensagens seguintes, enquanto ela conseguir ajudar.
 /// </summary>
 /// <remarks>
 /// Mesma forma de <see cref="AplicadorDeTriagem"/> e pelo mesmo motivo: ctx-free,
@@ -20,21 +21,15 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// menu não bate) quanto nas trocas seguintes, enquanto
 /// <see cref="Conversa.AguardandoRespostaInteligente"/> estiver ligado.
 ///
-/// <b>Nunca deixa o cliente sem resposta.</b> IA desligada, sem responder, ou
-/// respondendo "não sei" caem todos no MESMO encaminhamento humano de sempre
-/// (<see cref="GatilhoDeMensagem.TriagemSemCorrespondencia"/>) — o mesmo princípio
-/// de contingência do resto do sistema.
+/// <b>Escala SÓ por pedido explícito ou porque a IA não sabe — nunca por
+/// contagem de trocas.</b> Decisão do Thiago em 2026-08-17, depois de ver a IA
+/// responder certo e no mesmo fôlego disparar "um atendente vai continuar": um
+/// corte por número de mensagens interrompe conversa que estava indo bem só
+/// porque bateu um número redondo. Contenção de custo é papel do
+/// <c>LimiteDiario</c> (teto por tenant, não por conversa), não deste contador.
 /// </remarks>
 public static class AplicadorDeRespostaInteligente
 {
-    /// <summary>
-    /// Palavras que fazem escalar direto para humano, sem gastar uma chamada à IA.
-    /// Verificação determinística e barata antes de qualquer coisa — pedir para
-    /// falar com gente é o único sinal que não vale a pena deixar o modelo julgar.
-    /// </summary>
-    private static readonly string[] PedidosDeHumano =
-        ["atendente", "humano", "pessoa de verdade", "falar com alguem", "falar com alguém"];
-
     public static async Task AplicarAsync(
         CrmDbContext db,
         IRespostaInteligenteService ia,
@@ -46,7 +41,7 @@ public static class AplicadorDeRespostaInteligente
         ILogger log,
         CancellationToken ct)
     {
-        if (PediuHumano(conteudo))
+        if (TriagemAutomatica.PediuHumano(conteudo))
         {
             log.LogInformation(
                 "Conversa {ConversaId} pediu atendimento humano explicitamente.", conversa.Id);
@@ -97,30 +92,33 @@ public static class AplicadorDeRespostaInteligente
             // lida antes mesmo de ter sido enviada.
         });
 
-        if (conversa.TentativasRespostaInteligente >= opcoes.MaxTrocas)
-        {
-            log.LogInformation(
-                "Resposta inteligente da conversa {ConversaId} atingiu o limite de {MaxTrocas} trocas.",
-                conversa.Id, opcoes.MaxTrocas);
-
-            await EscalarAsync(db, automaticas, conversa, ct);
-            return;
-        }
-
         conversa.AguardandoRespostaInteligente = true;
 
         log.LogInformation(
-            "Resposta inteligente respondeu na conversa {ConversaId} (tentativa {Tentativa} de {MaxTrocas}).",
-            conversa.Id, conversa.TentativasRespostaInteligente, opcoes.MaxTrocas);
+            "Resposta inteligente respondeu na conversa {ConversaId} (tentativa {Tentativa}).",
+            conversa.Id, conversa.TentativasRespostaInteligente);
     }
 
+    /// <remarks>
+    /// O gatilho depende de ONDE a conversa esta: sem setor ainda, e o primeiro
+    /// contato de sempre (<see cref="GatilhoDeMensagem.TriagemSemCorrespondencia"/>,
+    /// com "obrigado pelo contato" e o protocolo como novidade). Com setor ja
+    /// definido, o cliente esta EM ATENDIMENTO — repetir a fala de primeiro contato
+    /// soa como se o sistema tivesse esquecido quem ele e (achado ao vivo,
+    /// 2026-08-17). <see cref="GatilhoDeMensagem.PedidoDeAtendente"/> e o texto
+    /// certo para esse segundo caso.
+    /// </remarks>
     private static async Task EscalarAsync(
         CrmDbContext db, IDisparadorDeMensagemAutomatica automaticas, Conversa conversa, CancellationToken ct)
     {
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
 
-        await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.TriagemSemCorrespondencia, ct: ct);
+        var gatilho = conversa.SetorId is null
+            ? GatilhoDeMensagem.TriagemSemCorrespondencia
+            : GatilhoDeMensagem.PedidoDeAtendente;
+
+        await automaticas.EnfileirarAsync(conversa, gatilho, ct: ct);
     }
 
     /// <summary>
@@ -157,11 +155,5 @@ public static class AplicadorDeRespostaInteligente
         return mensagens
             .Select(m => new TrocaAnterior(m.AutorTipo == AutorTipo.Cliente, m.Conteudo))
             .ToList();
-    }
-
-    private static bool PediuHumano(string conteudo)
-    {
-        var normalizado = conteudo.ToLowerInvariant();
-        return PedidosDeHumano.Any(palavra => normalizado.Contains(palavra, StringComparison.Ordinal));
     }
 }

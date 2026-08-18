@@ -62,5 +62,36 @@ public enum GatilhoDeMensagem : byte
     /// evita acoplar este passo a uma linha de configuracao que pode ser renomeada
     /// ou reordenada a qualquer momento.
     /// </remarks>
-    ServicoEscolhido = 7
+    ServicoEscolhido = 7,
+
+    /// <summary>
+    /// O atendimento estruturado terminou (checklist entregue). Oferece continuar
+    /// (outro servico, outro setor), falar com atendente ou encerrar.
+    /// </summary>
+    /// <remarks>
+    /// E o que fecha o buraco achado ao vivo 2026-08-17: sem isto, qualquer coisa
+    /// que o cliente escrevesse depois do checklist (ate um "obrigada") caia fora
+    /// de toda flag de estado e nao gerava resposta nenhuma.
+    /// </remarks>
+    MenuDeContinuacao = 8,
+
+    /// <summary>
+    /// Encaminha para atendente NO MEIO ou DEPOIS do atendimento — nao no primeiro
+    /// contato, que e <see cref="TriagemSemCorrespondencia"/>.
+    /// </summary>
+    /// <remarks>
+    /// Existe porque o texto de <see cref="TriagemSemCorrespondencia"/> foi escrito
+    /// para o primeiro "obrigado pelo contato, protocolo X" — sair com essa frase no
+    /// meio de um atendimento ja identificado (achado ao vivo) soa como se o sistema
+    /// tivesse esquecido o que ja sabe do cliente.
+    /// </remarks>
+    PedidoDeAtendente = 9,
+
+    /// <summary>O cliente escolheu encerrar pelo <see cref="MenuDeContinuacao"/>.</summary>
+    /// <remarks>
+    /// Fase 2E.1 so envia a mensagem de despedida — nao fecha a Conversa de
+    /// verdade (Status continua Ativa). Encerramento pelo proprio cliente e
+    /// decisao maior, fica para depois.
+    /// </remarks>
+    Despedida = 10
 }

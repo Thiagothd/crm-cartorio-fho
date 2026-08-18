@@ -19,12 +19,6 @@ public class OpcoesDaIA
     /// <summary>Modelo usado para a resposta grounded. Configurável de propósito.</summary>
     public string Modelo { get; set; } = "claude-haiku-4-5";
 
-    /// <summary>
-    /// Trocas consecutivas que a IA pode tentar antes de escalar para humano, mesmo
-    /// quando continua respondendo. Existe para a conversa não virar um loop de robô.
-    /// </summary>
-    public int MaxTrocas { get; set; } = 3;
-
     public int TimeoutSegundos { get; set; } = 20;
 
     /// <summary>

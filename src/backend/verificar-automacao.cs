@@ -357,6 +357,68 @@ if (servicosDoSetorEsperado.Count > 0)
     Checar("confirmacao com checklist/prazo foi gerada", confirmacaoDoServico.Conteudo is not null);
     Checar("confirmacao nao deixou marcador sem resolver",
         confirmacaoDoServico.Conteudo?.Contains('{') != true, confirmacaoDoServico.Conteudo);
+
+    // Fase 2E.1: o checklist dispara TAMBEM o menu de continuacao.
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoChecklist = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+        Checar("aguarda menu de continuacao apos o checklist", depoisDoChecklist.AguardandoMenuDeContinuacao);
+    }
+
+    var menuDeContinuacao = (await FioAsync(conversa1)).LastOrDefault(m => m.Automatica);
+    Checar("menu de continuacao foi gerado", menuDeContinuacao.Conteudo?.Contains("Encerrar") == true,
+        menuDeContinuacao.Conteudo);
+
+    // ACHADO AO VIVO, 2026-08-17: com todas as flags desligadas, uma mensagem
+    // solta do cliente (aqui simulada por "obrigada", fora das 4 opcoes do menu
+    // de continuacao) nao gerava resposta NENHUMA. Este e o teste que prova que
+    // o buraco foi fechado.
+    var automaticasAntesDoObrigada = (await FioAsync(conversa1)).Count(m => m.Automatica);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa1, new SimularMensagemDeClienteRequest("obrigada"));
+    }
+
+    var fioAposObrigada = await FioAsync(conversa1);
+
+    Checar("\"obrigada\" NAO fica sem resposta (piso da IA)",
+        fioAposObrigada.Count(m => m.Automatica) > automaticasAntesDoObrigada);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoObrigada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+        Checar("flag de menu de continuacao foi limpa", !depoisDoObrigada.AguardandoMenuDeContinuacao);
+    }
+
+    var respostaAoObrigada = fioAposObrigada.LastOrDefault(m => m.Automatica);
+
+    // Com Habilitada=false (fixture deste verificador), a IA sempre degrada para
+    // "nao respondeu" — e o setor ja esta definido nesta conversa, entao o texto
+    // certo agora e PedidoDeAtendente, NAO o "obrigado pelo contato" de primeiro
+    // contato (bug achado ao vivo: o texto errado saia no meio do atendimento).
+    Checar("escalonamento no meio do atendimento usa o texto certo (nao repete \"obrigado pelo contato\")",
+        respostaAoObrigada.Conteudo?.Contains("continuar seu atendimento") == true,
+        respostaAoObrigada.Conteudo);
+
+    // "menu" reabre do zero, em qualquer ponto da conversa.
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa1, new SimularMensagemDeClienteRequest("menu"));
+    }
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoMenu = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+        Checar("\"menu\" reabre a triagem (AguardandoTriagem ligada de novo)",
+            depoisDoMenu.AguardandoTriagem);
+    }
+
+    var respostaAoMenu = (await FioAsync(conversa1)).LastOrDefault(m => m.Automatica);
+    Checar("\"menu\" reenviou o menu de setores",
+        respostaAoMenu.Conteudo?.Contains(setorEsperado.Nome) == true, respostaAoMenu.Conteudo);
 }
 
 Console.WriteLine();
@@ -400,15 +462,24 @@ Checar("saiu boas-vindas + fallback (2 automaticas)",
 Checar("nenhum marcador sobrou no fallback",
     fio2.Where(m => m.Automatica).All(m => !m.Conteudo.Contains('{')));
 
-// Segunda mensagem do cliente NAO pode disparar o menu de novo.
+// Segunda mensagem do cliente NAO pode reabrir o MENU (isso sim seria o loop de
+// robo original) — mas TAMBEM nao pode ficar muda: desde a Fase 2E.1, nenhuma
+// flag ligada cai no piso da IA, entao "alguem ai?" (contem "alguem", pedido de
+// humano) gera um reconhecimento novo. Duas coisas diferentes; so a primeira e
+// o que este teste sempre quis garantir.
 await using (var db = new CrmDbContext(opcoes))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa2, new SimularMensagemDeClienteRequest("alguem ai?"));
 }
 
-Checar("cliente nao fica preso em loop de robo",
-    (await FioAsync(conversa2)).Count(m => m.Automatica) == 2);
+var fio2DepoisDoSegundoPedido = await FioAsync(conversa2);
+
+Checar("segunda mensagem nao repete o MENU de boas-vindas",
+    fio2DepoisDoSegundoPedido.Count(m => m.Automatica && m.Conteudo.Contains("responda com o")) == 1);
+
+Checar("mas tambem nao fica muda (piso da IA)",
+    fio2DepoisDoSegundoPedido.Count(m => m.Automatica) > fio2.Count(m => m.Automatica));
 
 Console.WriteLine();
 

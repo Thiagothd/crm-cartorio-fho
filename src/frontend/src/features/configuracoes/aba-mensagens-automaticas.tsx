@@ -71,6 +71,23 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
       'Sai quando o cliente identifica o serviço no menu de 2º nível. Use {DocumentosNecessarios} e {PrazoServico}.',
   },
   {
+    valor: 'MenuDeContinuacao',
+    rotulo: 'Atendimento estruturado terminou',
+    explicacao:
+      'Sai logo depois do checklist de documento, oferecendo continuar, trocar de setor, falar com atendente ou encerrar.',
+  },
+  {
+    valor: 'PedidoDeAtendente',
+    rotulo: 'Pediu atendente no meio do atendimento',
+    explicacao:
+      'Sai quando o cliente pede pessoa/atendente DEPOIS de já identificado — diferente do fallback de primeiro contato.',
+  },
+  {
+    valor: 'Despedida',
+    rotulo: 'Cliente escolheu encerrar',
+    explicacao: 'Sai quando o cliente escolhe "Encerrar atendimento" no menu de continuação.',
+  },
+  {
     valor: 'EtapaAlterada',
     rotulo: 'Atendimento muda de etapa',
     explicacao: 'Sai quando a conversa entra na etapa escolhida abaixo.',

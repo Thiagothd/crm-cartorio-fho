@@ -50,6 +50,9 @@ export type GatilhoDeMensagem =
   | 'TriagemSemCorrespondencia'
   | 'TriagemComCorrespondencia'
   | 'ServicoEscolhido'
+  | 'MenuDeContinuacao'
+  | 'PedidoDeAtendente'
+  | 'Despedida'
 
 export type CategoriaServico =
   | 'Notas'

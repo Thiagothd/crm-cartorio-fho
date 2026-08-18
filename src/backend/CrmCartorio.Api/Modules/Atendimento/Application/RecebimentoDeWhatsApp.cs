@@ -122,6 +122,16 @@ public class RecebimentoDeWhatsApp(
                 db, respostaInteligente, automaticas, _opcoesDaIA,
                 conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
         }
+        else
+        {
+            // Nenhuma flag de fluxo ligada — o atendimento estruturado ja
+            // terminou. Sem este ramo a mensagem so era gravada e nada respondia
+            // (achado ao vivo, 2026-08-17): agora e sempre tratada, nem que seja
+            // pela IA. Mesmo ajuste de um milissegundo dos outros ramos.
+            await AplicadorDePosAtendimento.AplicarAsync(
+                db, automaticas, respostaInteligente, _opcoesDaIA,
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+        }
 
         await db.SaveChangesAsync(ct);
         await transacao.CommitAsync(ct);

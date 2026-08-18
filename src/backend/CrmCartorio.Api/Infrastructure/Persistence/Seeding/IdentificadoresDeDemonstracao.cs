@@ -48,6 +48,9 @@ public static class IdentificadoresDeDemonstracao
         public static readonly Guid TriagemComResposta = new("0199b2c0-0006-7000-8000-000000000006");
         public static readonly Guid ServicoEscolhido = new("0199b2c0-0006-7000-8000-000000000007");
         public static readonly Guid EmAndamento = new("0199b2c0-0006-7000-8000-000000000008");
+        public static readonly Guid MenuDeContinuacao = new("0199b2c0-0006-7000-8000-000000000009");
+        public static readonly Guid PedidoDeAtendente = new("0199b2c0-0006-7000-8000-000000000010");
+        public static readonly Guid Despedida = new("0199b2c0-0006-7000-8000-000000000011");
     }
 
     public static class RespostasRapidas

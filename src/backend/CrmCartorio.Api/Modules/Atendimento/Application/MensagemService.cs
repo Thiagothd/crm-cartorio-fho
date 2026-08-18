@@ -390,6 +390,14 @@ public class MensagemService(
         {
             await ContinuarRespostaInteligenteAsync(conversa, conteudo, agora, ct);
         }
+        else
+        {
+            // Nenhuma flag de fluxo ligada — o atendimento estruturado ja
+            // terminou, ou esta conversa nunca passou pela triagem. Sem este
+            // ramo a mensagem so era gravada e nada respondia (achado ao vivo,
+            // 2026-08-17): agora e sempre tratada, nem que seja pela IA.
+            await ContinuarPosAtendimentoAsync(conversa, conteudo, agora, ct);
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -449,6 +457,22 @@ public class MensagemService(
         DateTime agora,
         CancellationToken ct) =>
         AplicadorDeEscolhaDeServico.AplicarAsync(
+            db, automaticas, respostaInteligente, _opcoesDaIA, conversa, conteudo, agora, log, ct);
+
+    /// <summary>
+    /// Le a mensagem do cliente quando nenhuma flag de fluxo esta ligada.
+    /// </summary>
+    /// <remarks>
+    /// Mesmo motivo dos outros Continuar*: <see cref="AplicadorDePosAtendimento"/>
+    /// e a MESMA regra que o webhook do WhatsApp real chama em
+    /// <c>RecebimentoDeWhatsApp</c>.
+    /// </remarks>
+    private Task ContinuarPosAtendimentoAsync(
+        Conversa conversa,
+        string conteudo,
+        DateTime agora,
+        CancellationToken ct) =>
+        AplicadorDePosAtendimento.AplicarAsync(
             db, automaticas, respostaInteligente, _opcoesDaIA, conversa, conteudo, agora, log, ct);
 
     // ------------------------------------------------- acoes do menu de contexto

@@ -101,6 +101,18 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoEscolhaDeServico { get; set; }
 
     /// <summary>
+    /// O atendimento estruturado terminou e a conversa espera a escolha do
+    /// <see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.MenuDeContinuacao"/>
+    /// (ver outro serviço, trocar de setor, falar com atendente, encerrar).
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina das outras "Aguardando": dura UMA mensagem. Sem
+    /// correspondência, cai para <see cref="AguardandoRespostaInteligente"/> — a
+    /// IA nunca fica sem ser tentada.
+    /// </remarks>
+    public bool AguardandoMenuDeContinuacao { get; set; }
+
+    /// <summary>
     /// Quando o aviso de prazo proximo do vencimento foi gerado para esta conversa.
     /// </summary>
     /// <remarks>

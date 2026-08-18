@@ -105,6 +105,39 @@ public static class TriagemAutomatica
     }
 
     /// <summary>
+    /// Palavras que pedem atendimento humano explicitamente — a IA nem chega a
+    /// ser chamada quando o cliente ja disse isso.
+    /// </summary>
+    private static readonly string[] PalavrasDePedidoDeHumano =
+        ["atendente", "humano", "pessoa de verdade", "falar com alguem"];
+
+    /// <summary>
+    /// Palavras que pedem para reabrir o atendimento do zero, a qualquer momento
+    /// da conversa — nao so quando uma flag especifica esta esperando resposta.
+    /// </summary>
+    private static readonly string[] PalavrasDeReabrirMenu =
+        ["menu", "voltar", "inicio", "reiniciar", "recomecar"];
+
+    /// <summary>O cliente pediu, em texto livre, para falar com uma pessoa.</summary>
+    /// <remarks>
+    /// Normalizado pelo mesmo <see cref="Normalizar"/> do resto da classe — "Falar
+    /// com Alguém!", "ALGUEM" e "alguem" caem no mesmo texto comparavel, sem
+    /// precisar listar cada variante de acentuacao a mao.
+    /// </remarks>
+    public static bool PediuHumano(string? conteudo)
+    {
+        var normalizado = Normalizar(conteudo);
+        return PalavrasDePedidoDeHumano.Any(palavra => normalizado.Contains(palavra, StringComparison.Ordinal));
+    }
+
+    /// <summary>O cliente pediu, em texto livre, para voltar ao menu inicial.</summary>
+    public static bool PediuMenu(string? conteudo)
+    {
+        var normalizado = Normalizar(conteudo);
+        return PalavrasDeReabrirMenu.Any(palavra => normalizado.Contains(palavra, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Minusculas, sem acento, sem pontuacao e com espaco colapsado.
     /// </summary>
     /// <remarks>

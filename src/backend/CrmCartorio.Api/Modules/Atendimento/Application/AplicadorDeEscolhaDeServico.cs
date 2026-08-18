@@ -83,6 +83,12 @@ public static class AplicadorDeEscolhaDeServico
 
         await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.ServicoEscolhido, ct: ct);
 
+        // Fase 2E.1: o atendimento estruturado termina aqui, mas a conversa nao
+        // pode terminar muda. Oferece continuar em vez de esperar o cliente
+        // adivinhar o que fazer depois do checklist.
+        await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.MenuDeContinuacao, ct: ct);
+        conversa.AguardandoMenuDeContinuacao = true;
+
         log.LogInformation(
             "Escolha de servico da conversa {ConversaId} identificou {TipoServicoId}", conversa.Id, escolhido);
     }
