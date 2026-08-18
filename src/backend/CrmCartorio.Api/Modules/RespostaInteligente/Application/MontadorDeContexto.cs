@@ -16,6 +16,11 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
 /// CONTEXTO.md. Reusar RespostaRapida evita duplicar esse dado em outro lugar, e
 /// continua "editável pela tela" sem nenhuma tela nova.
 ///
+/// Cada serviço leva o nome do <c>Setor</c> entre parênteses (achado ao vivo,
+/// 2026-08-18: sem isso, "quais os serviços de notas?" não tinha como ser
+/// respondido — a lista de nomes chegava sem nenhuma pista de a qual setor cada
+/// um pertence, e a IA, corretamente, recusava adivinhar).
+///
 /// <c>RespostaRapida.Conteudo</c> aceita os marcadores de
 /// <see cref="Configuracoes.Domain.PlaceholdersDeMensagem"/>. Só {NomeCartorio} é
 /// resolvido aqui — é o único que faz sentido fora de uma conversa específica; os
@@ -34,7 +39,15 @@ public static partial class MontadorDeContexto
         var servicos = await db.TiposServico.AsNoTracking()
             .Where(t => t.TenantId == tenantId && t.Ativo)
             .OrderBy(t => t.Nome)
-            .Select(t => new { t.Nome, t.Descricao })
+            .Select(t => new
+            {
+                t.Nome,
+                t.Descricao,
+                SetorNome = db.Setores
+                    .Where(s => s.Id == t.SetorId)
+                    .Select(s => s.Nome)
+                    .FirstOrDefault()
+            })
             .ToListAsync(ct);
 
         var respostas = await db.RespostasRapidas.AsNoTracking()
@@ -54,6 +67,11 @@ public static partial class MontadorDeContexto
         foreach (var servico in servicos)
         {
             texto.Append("- ").Append(servico.Nome);
+
+            if (!string.IsNullOrWhiteSpace(servico.SetorNome))
+            {
+                texto.Append(" (").Append(servico.SetorNome).Append(')');
+            }
 
             if (!string.IsNullOrWhiteSpace(servico.Descricao))
             {

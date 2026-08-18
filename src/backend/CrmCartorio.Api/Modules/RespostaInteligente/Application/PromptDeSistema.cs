@@ -40,6 +40,13 @@ public static class PromptDeSistema
            roteiro. Quando fizer sentido — sem soar repetitivo nem burocrático —
            feche a resposta convidando a pessoa a voltar a seguir as opções
            numeradas já enviadas, em vez de continuar a conversa livremente.
+        7. Mensagem de puro agradecimento ou confirmação ("obrigada", "obrigado",
+           "entendi", "só isso", "somente", "ok", "valeu") não é uma pergunta sem
+           resposta — é o cliente fechando a conversa. Isso é podeResponder=true,
+           não false: responda com uma frase curta e cordial de encerramento (ex.:
+           "Fico à disposição! Qualquer dúvida, é só chamar."), sem inventar uma
+           pergunta que não foi feita e sem mencionar atendente — só quem lê a
+           mensagem decide se quer um.
 
         Responda sempre no formato pedido.
         """;

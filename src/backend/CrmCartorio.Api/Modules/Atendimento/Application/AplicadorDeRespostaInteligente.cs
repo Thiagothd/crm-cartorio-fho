@@ -21,12 +21,18 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// menu não bate) quanto nas trocas seguintes, enquanto
 /// <see cref="Conversa.AguardandoRespostaInteligente"/> estiver ligado.
 ///
-/// <b>Escala SÓ por pedido explícito ou porque a IA não sabe — nunca por
-/// contagem de trocas.</b> Decisão do Thiago em 2026-08-17, depois de ver a IA
-/// responder certo e no mesmo fôlego disparar "um atendente vai continuar": um
-/// corte por número de mensagens interrompe conversa que estava indo bem só
-/// porque bateu um número redondo. Contenção de custo é papel do
-/// <c>LimiteDiario</c> (teto por tenant, não por conversa), não deste contador.
+/// <b>Escala para atendente SÓ por pedido explícito do cliente — nunca por
+/// contagem de trocas, nunca só porque a IA não sabia responder desta vez.</b>
+/// Decisão do Thiago em 2026-08-17 (contagem) e reforçada em 2026-08-18, depois
+/// de dois clientes reais no mesmo dia receberem "um atendente vai continuar"
+/// sem terem pedido nada — um disse só "somente" (queria dizer "só isso,
+/// obrigado"), outra perguntou algo que a IA não sabia. Quando
+/// `podeResponder=false` e não houve pedido explícito, o gatilho é
+/// <see cref="GatilhoDeMensagem.RespostaSemCorrespondencia"/> — nunca promete
+/// atendente, convida a pedir um se quiser, e a conversa continua com a IA
+/// ouvindo (<see cref="Conversa.AguardandoRespostaInteligente"/> permanece
+/// ligada). Contenção de custo é papel do <c>LimiteDiario</c> (teto por tenant),
+/// não deste caminho.
 /// </remarks>
 public static class AplicadorDeRespostaInteligente
 {
@@ -56,10 +62,15 @@ public static class AplicadorDeRespostaInteligente
         if (!resposta.PodeResponder)
         {
             log.LogInformation(
-                "Resposta inteligente da conversa {ConversaId} nao respondeu: {Motivo}",
+                "Resposta inteligente da conversa {ConversaId} nao encontrou resposta especifica: " +
+                "{Motivo}. Cliente nao pediu atendente — nao escala.",
                 conversa.Id, resposta.Motivo);
 
-            await EscalarAsync(db, automaticas, conversa, ct);
+            await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.RespostaSemCorrespondencia, ct: ct);
+
+            // Ao contrario de EscalarAsync: a IA nao desiste da conversa so
+            // porque nao teve o que dizer desta vez. Continua ouvindo.
+            conversa.AguardandoRespostaInteligente = true;
             return;
         }
 

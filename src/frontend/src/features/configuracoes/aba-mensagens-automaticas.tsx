@@ -88,6 +88,12 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
     explicacao: 'Sai quando o cliente escolhe "Encerrar atendimento" no menu de continuação.',
   },
   {
+    valor: 'RespostaSemCorrespondencia',
+    rotulo: 'IA sem resposta específica',
+    explicacao:
+      'Sai quando a IA não encontra resposta no catálogo cadastrado E o cliente não pediu atendente. Nunca promete atendente — convida a pedir um se quiser.',
+  },
+  {
     valor: 'EtapaAlterada',
     rotulo: 'Atendimento muda de etapa',
     explicacao: 'Sai quando a conversa entra na etapa escolhida abaixo.',

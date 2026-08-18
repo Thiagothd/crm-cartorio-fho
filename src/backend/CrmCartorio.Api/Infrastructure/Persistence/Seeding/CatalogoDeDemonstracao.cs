@@ -327,6 +327,17 @@ public static class CatalogoDeDemonstracao
             "mensagem por aqui.",
             true),
 
+        // Achado ao vivo, 2026-08-18: a IA escalava para atendente so por nao ter
+        // resposta especifica, mesmo sem o cliente ter pedido nada — esta mensagem
+        // e o que ela usa no lugar disso. NUNCA promete atendente; convida a pedir
+        // um, sem empurrar.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.RespostaSemCorrespondencia,
+            GatilhoDeMensagem.RespostaSemCorrespondencia,
+            null,
+            "Não tenho essa informação específica por aqui, {NomeCliente}, mas fico à " +
+            "disposição! Se quiser, é só pedir para falar com um de nossos atendentes. 😊",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

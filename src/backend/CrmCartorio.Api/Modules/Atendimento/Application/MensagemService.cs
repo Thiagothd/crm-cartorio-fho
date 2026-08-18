@@ -378,7 +378,19 @@ public class MensagemService(
         // A mensagem do cliente ja esta na frente da fila de insercao, entao a
         // resposta da triagem aparece DEPOIS dela no fio — Guid v7 e sequencial, e o
         // fio ordena por EnviadaEm e depois por Id.
-        if (conversa.AguardandoTriagem)
+        //
+        // "menu"/"voltar" e checado ANTES de qualquer flag — achado ao vivo,
+        // 2026-08-18: checar isso so dentro de AplicadorDePosAtendimento deixava
+        // a saida de emergencia refem de AguardandoRespostaInteligente estar
+        // desligada, o que deixou de ser garantido quando a IA passou a manter
+        // essa flag ligada mesmo sem saber responder (mesmo dia, ver
+        // AplicadorDeRespostaInteligente). Cliente pedindo "menu" no meio de uma
+        // troca com a IA ia direto para ela, que nao entende "menu" como comando.
+        if (TriagemAutomatica.PediuMenu(conteudo))
+        {
+            await ReabrirMenuInicialAsync(conversa, agora, ct);
+        }
+        else if (conversa.AguardandoTriagem)
         {
             await ResponderTriagemAsync(conversa, conteudo, agora, ct);
         }
@@ -474,6 +486,13 @@ public class MensagemService(
         CancellationToken ct) =>
         AplicadorDePosAtendimento.AplicarAsync(
             db, automaticas, respostaInteligente, _opcoesDaIA, conversa, conteudo, agora, log, ct);
+
+    /// <summary>
+    /// "menu"/"voltar" — reabre do zero, verificado ANTES de qualquer flag de
+    /// fluxo. Ver <see cref="AplicadorDePosAtendimento.ReabrirDoZeroAsync"/>.
+    /// </summary>
+    private Task ReabrirMenuInicialAsync(Conversa conversa, DateTime agora, CancellationToken ct) =>
+        AplicadorDePosAtendimento.ReabrirDoZeroAsync(db, automaticas, conversa, agora, ct);
 
     // ------------------------------------------------- acoes do menu de contexto
 

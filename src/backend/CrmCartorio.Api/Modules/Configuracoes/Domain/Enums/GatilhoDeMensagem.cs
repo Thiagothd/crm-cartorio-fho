@@ -94,5 +94,24 @@ public enum GatilhoDeMensagem : byte
     /// Ate 2026-08-17 so a mensagem saia e a conversa ficava Ativa para sempre;
     /// achado ao vivo e corrigido no mesmo dia.
     /// </remarks>
-    Despedida = 10
+    Despedida = 10,
+
+    /// <summary>
+    /// A IA nao encontrou, no catalogo cadastrado, como responder — e o cliente
+    /// NAO pediu atendente explicitamente.
+    /// </summary>
+    /// <remarks>
+    /// Achado ao vivo em 2026-08-18: ate entao, `podeResponder=false` da IA
+    /// escalava direto para <see cref="TriagemSemCorrespondencia"/> ou
+    /// <see cref="PedidoDeAtendente"/> — e dois clientes reais, no mesmo dia,
+    /// receberam "um atendente vai continuar" por terem dito soh "somente" ou
+    /// perguntado algo que a IA nao sabia, sem nunca ter pedido atendente. A
+    /// regra agora e literal: essas duas mensagens SO disparam por
+    /// <see cref="Atendimento.Domain.TriagemAutomatica.PediuHumano"/> explicito.
+    /// Este gatilho e o que a IA usa no lugar disso — nao promete atendente,
+    /// convida a pedir um se quiser, e mantem
+    /// <see cref="Atendimento.Domain.Entities.Conversa.AguardandoRespostaInteligente"/>
+    /// ligada: a IA continua ouvindo, nao desiste da conversa.
+    /// </remarks>
+    RespostaSemCorrespondencia = 11
 }

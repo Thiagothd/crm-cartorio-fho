@@ -8,13 +8,15 @@ using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
 /// <summary>
-/// Trata a mensagem do cliente quando NENHUMA das outras flags de fluxo esta
-/// ligada — o atendimento estruturado ja terminou (ou nunca chegou a comecar
-/// via triagem, ex.: conversa aberta pelo painel).
+/// Duas coisas: <see cref="AplicarAsync"/> trata a mensagem do cliente quando
+/// NENHUMA das outras flags de fluxo esta ligada — o atendimento estruturado
+/// ja terminou (ou nunca chegou a comecar via triagem, ex.: conversa aberta
+/// pelo painel). <see cref="ReabrirDoZeroAsync"/> e a saida de emergencia
+/// "menu"/"voltar", chamada pelo despacho ANTES de olhar qualquer flag.
 /// </summary>
 /// <remarks>
-/// <b>E o "else" que faltava.</b> Achado ao vivo em 2026-08-17: sem esta classe,
-/// o `if/else if` de <see cref="RecebimentoDeWhatsApp"/> e
+/// <b>`AplicarAsync` e o "else" que faltava.</b> Achado ao vivo em 2026-08-17:
+/// sem esta classe, o `if/else if` de <see cref="RecebimentoDeWhatsApp"/> e
 /// <see cref="MensagemService"/> simplesmente acabava quando nenhuma flag batia
 /// — a mensagem era gravada e nada respondia. Um "obrigada" depois do checklist,
 /// ou qualquer mensagem numa conversa aberta pelo painel sem passar pela triagem,
@@ -56,25 +58,10 @@ public static class AplicadorDePosAtendimento
         ILogger log,
         CancellationToken ct)
     {
-        // 1. "menu", "voltar" — reabre do zero, em QUALQUER ponto da conversa.
-        // Verificado antes de tudo: e a saida de emergencia do cliente, e nao
-        // pode depender de nenhuma flag estar (ou nao) ligada.
-        if (TriagemAutomatica.PediuMenu(conteudo))
-        {
-            conversa.AguardandoMenuDeContinuacao = false;
-            conversa.AguardandoRespostaInteligente = false;
-            conversa.TentativasRespostaInteligente = 0;
+        // "menu"/"voltar" ja foi tratado no despacho, antes desta classe ser
+        // chamada (ver ReabrirDoZeroAsync) — nao precisa checar de novo aqui.
 
-            await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
-            conversa.AguardandoTriagem = true;
-
-            log.LogInformation(
-                "Conversa {ConversaId} reabriu o menu inicial a pedido do cliente.", conversa.Id);
-
-            return;
-        }
-
-        // 2. Menu de continuacao no ar — le a escolha 1-4.
+        // 1. Menu de continuacao no ar — le a escolha 1-4.
         if (conversa.AguardandoMenuDeContinuacao)
         {
             var escolhido = TriagemAutomatica.InterpretarResposta(conteudo, OpcoesDoMenuDeContinuacao);
@@ -97,11 +84,67 @@ public static class AplicadorDePosAtendimento
             conversa.AguardandoMenuDeContinuacao = false;
         }
 
-        // 3. Piso: a IA tenta responder, e escala pra humano sozinha quando pedem
-        // atendente, ou nao sabe, ou estoura o limite de trocas. Nunca sobra
-        // mensagem sem passar por aqui.
+        // 2. Piso: a IA tenta responder; sem sucesso, responde sem escalar
+        // sozinha (so por pedido explicito). Nunca sobra mensagem sem passar
+        // por aqui.
         await AplicadorDeRespostaInteligente.AplicarAsync(
             db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+    }
+
+    /// <summary>
+    /// Reabre o atendimento do zero — "menu", "voltar" e sinônimos, em
+    /// QUALQUER ponto da conversa, mesmo com uma flag de fluxo já ligada.
+    /// </summary>
+    /// <remarks>
+    /// Achado ao vivo em 2026-08-18: até então isto só era checado dentro de
+    /// <see cref="AplicarAsync"/>, que só roda quando NENHUMA das três flags do
+    /// despacho externo está ligada. Com <see cref="Conversa.AguardandoRespostaInteligente"/>
+    /// permanecendo ligada mesmo sem resposta (2026-08-18, ver
+    /// <see cref="AplicadorDeRespostaInteligente"/>), uma conversa podia ficar
+    /// presa indo direto para a IA — e "quero voltar ao menu inicial" nunca
+    /// chegava a esta classe, porque a IA respondia primeiro, sem entender
+    /// "menu" como comando. Agora quem chama primeiro é o despacho externo
+    /// (<see cref="MensagemService"/>, <see cref="RecebimentoDeWhatsApp"/>),
+    /// antes de olhar qualquer flag — é a saída de emergência de verdade,
+    /// nunca refém de onde a conversa está.
+    ///
+    /// <b>Limpa `SetorId` e `TipoServicoId`.</b> Segundo achado no mesmo dia,
+    /// num teste automatizado: sem isto, um cliente que já tinha setor definido
+    /// e pedia "menu" ficava com `SetorId` preenchido mesmo depois de
+    /// "recomeçar" — e <see cref="AplicadorDeTriagem"/>, ao ver `SetorId != null`
+    /// com `AguardandoTriagem` ligada, interpreta isso como "atendente já
+    /// assumiu manualmente" (guarda pensada para OUTRO cenário) e não faz
+    /// NADA — nem responde, nem escala. Cliente ficava mudo na mensagem
+    /// seguinte ao "menu". "Do zero" agora é literal.
+    /// </remarks>
+    public static async Task ReabrirDoZeroAsync(
+        CrmDbContext db,
+        IDisparadorDeMensagemAutomatica automaticas,
+        Conversa conversa,
+        DateTime agora,
+        CancellationToken ct)
+    {
+        conversa.AguardandoMenuDeContinuacao = false;
+        conversa.AguardandoEscolhaDeServico = false;
+        conversa.AguardandoRespostaInteligente = false;
+        conversa.TentativasRespostaInteligente = 0;
+        conversa.SetorId = null;
+        conversa.TipoServicoId = null;
+
+        db.Mensagens.Add(new Mensagem
+        {
+            TenantId = conversa.TenantId,
+            ConversaId = conversa.Id,
+            AutorTipo = AutorTipo.Sistema,
+            Conteudo = "Cliente reabriu o atendimento pelo menu.",
+            Tipo = TipoMensagem.Texto,
+            StatusEntrega = StatusEntrega.Entregue,
+            EnviadaEm = agora,
+            LidaEm = agora
+        });
+
+        await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
+        conversa.AguardandoTriagem = true;
     }
 
     private static async Task AplicarEscolhaDeContinuacaoAsync(

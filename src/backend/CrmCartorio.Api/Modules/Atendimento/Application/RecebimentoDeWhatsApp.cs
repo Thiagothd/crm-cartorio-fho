@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
@@ -91,6 +92,17 @@ public class RecebimentoDeWhatsApp(
             // menu e o "vou encaminhar para um atendente" na mesma tacada, sem
             // chance de escolher.
             await EnfileirarBoasVindasAsync(conversa, ct);
+        }
+        else if (TriagemAutomatica.PediuMenu(mensagem.Conteudo))
+        {
+            // Checado ANTES de qualquer flag — achado ao vivo, 2026-08-18: so
+            // dentro de AplicadorDePosAtendimento deixava a saida de emergencia
+            // refem de AguardandoRespostaInteligente estar desligada, o que
+            // deixou de ser garantido quando a IA passou a manter essa flag
+            // ligada mesmo sem saber responder (mesmo dia). Ver
+            // AplicadorDePosAtendimento.ReabrirDoZeroAsync.
+            await AplicadorDePosAtendimento.ReabrirDoZeroAsync(
+                db, automaticas, conversa, agora.AddMilliseconds(1), ct);
         }
         else if (conversa.AguardandoTriagem)
         {

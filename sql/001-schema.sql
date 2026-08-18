@@ -544,7 +544,7 @@ CREATE TABLE dbo.MensagensAutomaticas
     CONSTRAINT PK_MensagensAutomaticas PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_MensagensAutomaticas_Tenants     FOREIGN KEY (TenantId)    REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_MensagensAutomaticas_EtapasFunil FOREIGN KEY (EtapaAlvoId) REFERENCES dbo.EtapasFunil (Id),
-    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)),
+    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)),
 
     -- Gatilho de etapa SEM etapa alvo dispararia mensagem ao cliente em toda
     -- movimentacao interna do funil; etapa alvo em gatilho que nao e de etapa e

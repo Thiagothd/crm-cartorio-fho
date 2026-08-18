@@ -26,6 +26,10 @@ const QUAL_SERVICO: PontoFixo = { gatilho: 'TriagemComCorrespondencia', rotulo: 
 const SERVICO_ESCOLHIDO: PontoFixo = { gatilho: 'ServicoEscolhido', rotulo: 'Documentos e prazo' }
 const MENU_DE_CONTINUACAO: PontoFixo = { gatilho: 'MenuDeContinuacao', rotulo: 'Posso ajudar em mais algo?' }
 const DESPEDIDA: PontoFixo = { gatilho: 'Despedida', rotulo: 'Cliente encerrou' }
+const IA_SEM_CORRESPONDENCIA: PontoFixo = {
+  gatilho: 'RespostaSemCorrespondencia',
+  rotulo: 'IA sem resposta específica',
+}
 const ATENDENTE_PRIMEIRO_CONTATO: PontoFixo = {
   gatilho: 'TriagemSemCorrespondencia',
   rotulo: 'Atendente (1º contato)',
@@ -112,8 +116,31 @@ export function FluxoDeMensagens({
                 A IA tenta responder — não é cadastro, é comportamento do sistema.
               </div>
             </PontoComSeta>
-            {[ATENDENTE_PRIMEIRO_CONTATO, ATENDENTE_EM_ATENDIMENTO].map((ponto) => (
-              <PontoComSeta key={ponto.gatilho}>
+            <PontoComSeta>
+              <Ponto
+                rotulo={IA_SEM_CORRESPONDENCIA.rotulo}
+                mensagem={encontrar(IA_SEM_CORRESPONDENCIA.gatilho)}
+                aoClicar={() =>
+                  aoClicarPonto(
+                    IA_SEM_CORRESPONDENCIA.gatilho,
+                    null,
+                    encontrar(IA_SEM_CORRESPONDENCIA.gatilho),
+                  )
+                }
+              />
+            </PontoComSeta>
+          </Trilho>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
+          <CornerDownRight className="size-3.5 shrink-0" />
+          <span>Chama atendente só quando o cliente pede — nunca por a IA não saber responder:</span>
+        </div>
+
+        <div className="mt-2 pl-5">
+          <Trilho>
+            {[ATENDENTE_PRIMEIRO_CONTATO, ATENDENTE_EM_ATENDIMENTO].map((ponto, indice) => (
+              <PontoComSeta key={ponto.gatilho} primeiro={indice === 0}>
                 <Ponto
                   rotulo={ponto.rotulo}
                   mensagem={encontrar(ponto.gatilho)}

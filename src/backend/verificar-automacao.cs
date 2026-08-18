@@ -390,17 +390,89 @@ if (servicosDoSetorEsperado.Count > 0)
     {
         var depoisDoObrigada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("flag de menu de continuacao foi limpa", !depoisDoObrigada.AguardandoMenuDeContinuacao);
+
+        // ACHADO AO VIVO, 2026-08-18: ate aqui, "obrigada" (nao e pedido de
+        // atendente) escalava do mesmo jeito que um pedido explicito, so porque
+        // a IA (Habilitada=false neste verificador) nunca "sabe responder". A
+        // conversa precisa continuar OUVINDO a IA, nao desistir dela so porque
+        // esta mensagem em especifico nao tinha o que responder.
+        Checar("\"obrigada\" NAO desiste da IA — continua aguardando",
+            depoisDoObrigada.AguardandoRespostaInteligente);
     }
 
     var respostaAoObrigada = fioAposObrigada.LastOrDefault(m => m.Automatica);
 
-    // Com Habilitada=false (fixture deste verificador), a IA sempre degrada para
-    // "nao respondeu" — e o setor ja esta definido nesta conversa, entao o texto
-    // certo agora e PedidoDeAtendente, NAO o "obrigado pelo contato" de primeiro
-    // contato (bug achado ao vivo: o texto errado saia no meio do atendimento).
-    Checar("escalonamento no meio do atendimento usa o texto certo (nao repete \"obrigado pelo contato\")",
-        respostaAoObrigada.Conteudo?.Contains("continuar seu atendimento") == true,
+    // So escala para atendente por PEDIDO EXPLICITO desde 2026-08-18 —
+    // "obrigada" nao e isso. O texto certo agora e RespostaSemCorrespondencia,
+    // que nunca promete atendente.
+    Checar("\"obrigada\" recebe o texto que nao promete atendente",
+        respostaAoObrigada.Conteudo?.Contains("fico à disposição") == true,
         respostaAoObrigada.Conteudo);
+    Checar("\"obrigada\" NAO recebe o texto de escalonamento (bug achado ao vivo, 2026-08-18)",
+        respostaAoObrigada.Conteudo?.Contains("continuar seu atendimento") != true,
+        respostaAoObrigada.Conteudo);
+
+    // ACHADO AO VIVO, 2026-08-18 (segunda rodada): neste ponto exato,
+    // AguardandoRespostaInteligente esta true (confirmado acima). "menu" so era
+    // checado dentro de AplicadorDePosAtendimento, que so roda quando essa flag
+    // esta DESLIGADA — cliente pedindo para voltar ao menu ia direto para a IA,
+    // que respondia (mal) em vez de reabrir. Frase identica a que o cliente
+    // real mandou.
+    var automaticasAntesDoMenuPreso = (await FioAsync(conversa1)).Count(m => m.Automatica);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa1, new SimularMensagemDeClienteRequest("quero voltar ao menu inicial"));
+    }
+
+    var fioAposMenuPreso = await FioAsync(conversa1);
+    var respostaAoMenuPreso = fioAposMenuPreso.LastOrDefault(m => m.Automatica);
+
+    Checar("\"voltar ao menu inicial\" gera mensagem nova mesmo com a IA no meio de uma troca",
+        fioAposMenuPreso.Count(m => m.Automatica) > automaticasAntesDoMenuPreso);
+    Checar("\"voltar ao menu inicial\" reenvia o MENU (nao a resposta generica da IA)",
+        respostaAoMenuPreso.Conteudo?.Contains(setorEsperado.Nome) == true,
+        respostaAoMenuPreso.Conteudo);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoMenuPreso = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+        Checar("\"voltar ao menu inicial\" reabriu a triagem (AguardandoTriagem ligada)",
+            depoisDoMenuPreso.AguardandoTriagem);
+        Checar("\"voltar ao menu inicial\" desligou AguardandoRespostaInteligente",
+            !depoisDoMenuPreso.AguardandoRespostaInteligente);
+    }
+
+    // Pedido EXPLICITO de atendente, ao contrario de "obrigada", ainda escala —
+    // prova que o caminho antigo continua existindo, so que agora exige a
+    // palavra do cliente em vez de disparar sozinho. O "menu" logo acima ja
+    // limpou SetorId (reabriu do zero de verdade), entao o texto certo agora e
+    // o de PRIMEIRO CONTATO — nao o de meio-de-atendimento, que so faz sentido
+    // com setor definido.
+    var automaticasAntesDoPedido = (await FioAsync(conversa1)).Count(m => m.Automatica);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa1, new SimularMensagemDeClienteRequest("quero falar com um atendente"));
+    }
+
+    var fioAposPedido = await FioAsync(conversa1);
+    var respostaAoPedido = fioAposPedido.LastOrDefault(m => m.Automatica);
+
+    Checar("pedido explicito de atendente ainda gera mensagem nova",
+        fioAposPedido.Count(m => m.Automatica) > automaticasAntesDoPedido);
+    Checar("pedido explicito, com setor ja limpo pelo \"menu\", usa o texto de primeiro contato",
+        respostaAoPedido.Conteudo?.Contains("assumirá sua solicitação") == true,
+        respostaAoPedido.Conteudo);
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var depoisDoPedido = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
+        Checar("pedido explicito desliga AguardandoRespostaInteligente (escalou de verdade, desta vez)",
+            !depoisDoPedido.AguardandoRespostaInteligente);
+    }
 
     // "menu" reabre do zero, em qualquer ponto da conversa.
     await using (var db = new CrmDbContext(opcoes))
@@ -463,10 +535,11 @@ Checar("nenhum marcador sobrou no fallback",
     fio2.Where(m => m.Automatica).All(m => !m.Conteudo.Contains('{')));
 
 // Segunda mensagem do cliente NAO pode reabrir o MENU (isso sim seria o loop de
-// robo original) — mas TAMBEM nao pode ficar muda: desde a Fase 2E.1, nenhuma
-// flag ligada cai no piso da IA, entao "alguem ai?" (contem "alguem", pedido de
-// humano) gera um reconhecimento novo. Duas coisas diferentes; so a primeira e
-// o que este teste sempre quis garantir.
+// robo original) — mas TAMBEM nao pode ficar muda: nenhuma flag ligada cai no
+// piso da IA. "alguem ai?" NAO contem nenhuma das frases de PediuHumano
+// ("atendente"/"humano"/"pessoa de verdade"/"falar com alguem" — a palavra
+// solta "alguem" nao basta), entao desde 2026-08-18 ela NAO escala de novo:
+// recebe RespostaSemCorrespondencia, que nunca promete atendente.
 await using (var db = new CrmDbContext(opcoes))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
@@ -480,6 +553,10 @@ Checar("segunda mensagem nao repete o MENU de boas-vindas",
 
 Checar("mas tambem nao fica muda (piso da IA)",
     fio2DepoisDoSegundoPedido.Count(m => m.Automatica) > fio2.Count(m => m.Automatica));
+
+Checar("\"alguem ai?\" nao escala de novo — nao e pedido explicito de atendente",
+    fio2DepoisDoSegundoPedido.LastOrDefault(m => m.Automatica).Conteudo?.Contains("fico à disposição") == true,
+    fio2DepoisDoSegundoPedido.LastOrDefault(m => m.Automatica).Conteudo);
 
 Console.WriteLine();
 
@@ -730,6 +807,30 @@ var anotacaoDeEncerramento = fio7.LastOrDefault(m => m.Autor == AutorTipo.Sistem
 Checar("anotacao interna registra que foi o cliente quem encerrou",
     anotacaoDeEncerramento.Conteudo?.Contains("encerrado pelo cliente", StringComparison.OrdinalIgnoreCase) == true,
     anotacaoDeEncerramento.Conteudo);
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 8 — grounding da IA leva o setor de cada servico
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 8 — catalogo da IA inclui o setor de cada servico");
+
+// ACHADO AO VIVO, 2026-08-18: cliente perguntou "quais os servicos de
+// tabelionato de notas" e a IA nao soube responder — o catalogo listava nome e
+// descricao de cada TipoServico, mas nunca o setor, entao nao havia como a IA
+// filtrar por setor sem inventar. Testa direto o texto que MontadorDeContexto
+// monta, sem precisar da chamada real a Anthropic (Habilitada=false).
+await using (var db = new CrmDbContext(opcoes))
+{
+    var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
+    var setoresNoCatalogo = setores.Count(s => contexto.Contains($"({s.Nome})"));
+
+    Checar($"catalogo cita o servico \"{servicoNome}\"", contexto.Contains(servicoNome));
+    Checar("catalogo cita o setor de CADA servico ativo (os 2 setores aparecem entre parenteses)",
+        setoresNoCatalogo == setores.Count,
+        $"setores citados: {setoresNoCatalogo}/{setores.Count}");
+}
 
 Console.WriteLine();
 

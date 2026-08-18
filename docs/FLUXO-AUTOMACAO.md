@@ -1,7 +1,8 @@
 # FLUXO DE AUTOMAÇÃO — MENSAGENS AUTOMÁTICAS E IA
 
-> **Status:** implementado e verificado (Fase 2E — "piso da IA").
-> **Última atualização:** 2026-08-17
+> **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
+> só escala por pedido explícito).
+> **Última atualização:** 2026-08-18
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -47,7 +48,7 @@ próximo atendente sem virar mensagem ao cliente.
 
 ---
 
-## 3. Os 10 gatilhos
+## 3. Os 11 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -67,8 +68,9 @@ automáticas, sem release.
 | 8 | `MenuDeContinuacao` | O atendimento estruturado terminou (checklist entregue) — oferece continuar, trocar de setor, falar com atendente ou encerrar | `AplicadorDeEscolhaDeServico`, logo após o gatilho 7 |
 | 9 | `PedidoDeAtendente` | Encaminha para atendente **no meio ou depois** do atendimento (setor já definido) — texto diferente do gatilho 5 de propósito, ver §8 | `AplicadorDeRespostaInteligente.EscalarAsync`, `AplicadorDePosAtendimento` (opção "falar com atendente") |
 | 10 | `Despedida` | O cliente escolheu encerrar pelo menu de continuação — envia a despedida **e fecha a conversa de verdade** (`Status = Encerrada`), ver §9 | `AplicadorDePosAtendimento` |
+| 11 | `RespostaSemCorrespondencia` | A IA não encontrou, no catálogo cadastrado, como responder — e o cliente **não** pediu atendente. Nunca promete atendente; convida a pedir um se quiser, ver §8 | `AplicadorDeRespostaInteligente` |
 
-Os gatilhos 5, 6, 7, 8, 9 e 10 são texto que o **cliente do cartório lê** —
+Os gatilhos 5, 6, 7, 8, 9, 10 e 11 são texto que o **cliente do cartório lê** —
 por isso nenhum deles é constante fixa em C#: virariam a única mensagem do
 sistema que o cartório parceiro não poderia reescrever sozinho pela tela.
 
@@ -90,9 +92,9 @@ atendimento por WhatsApp.
 | --- | --- | --- | --- |
 | `AguardandoTriagem` | `NovoAtendimento`, reabertura por "menu" | `AplicadorDeTriagem` | A próxima mensagem do cliente chega, corresponda ou não |
 | `AguardandoEscolhaDeServico` | `AplicadorDeTriagem`, quando o setor tem ≥1 serviço vinculado | `AplicadorDeEscolhaDeServico` | Idem |
-| `AguardandoRespostaInteligente` | Qualquer resposta bem-sucedida da IA | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala (pedido explícito ou `podeResponder=false`), ou o cliente pede "menu" |
+| `AguardandoRespostaInteligente` | Qualquer resposta da IA, com sucesso ou sem (`RespostaSemCorrespondencia`) | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala — **só por pedido explícito**, desde 2026-08-18 — ou o cliente pede "menu" |
 | `AguardandoMenuDeContinuacao` | `ServicoEscolhido`, logo após o checklist | `AplicadorDePosAtendimento` | A próxima mensagem do cliente chega, corresponda ou não a uma das 4 opções |
-| `TentativasRespostaInteligente` | Incrementado a cada resposta bem-sucedida da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §7) — contador informativo |
+| `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
 
 Se um atendente rotear a conversa manualmente enquanto `AguardandoTriagem`
 está ligada, a escolha da pessoa vale: a flag é limpa em silêncio, sem
@@ -100,7 +102,7 @@ mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método).
 
 ---
 
-## 5. O despacho: dois níveis, não um
+## 5. O despacho: "menu" primeiro, dois níveis depois
 
 O ponto de entrada — `MensagemService.SimularRecebimentoAsync` (painel) e
 `RecebimentoDeWhatsApp.ReceberAsync` (webhook real) — roda a **mesma** cadeia,
@@ -109,7 +111,9 @@ divergência só apareceria na conversa de um cliente de verdade.
 
 ```mermaid
 flowchart TD
-    A[Mensagem do cliente chega] --> B{AguardandoTriagem?}
+    A[Mensagem do cliente chega] --> Z{"pediu 'menu' / 'voltar'?"}
+    Z -- sim --> Z1[ReabrirDoZeroAsync —<br/>limpa SetorId e TipoServicoId,<br/>reabre NovoAtendimento]
+    Z -- não --> B{AguardandoTriagem?}
     B -- sim --> B1[AplicadorDeTriagem<br/>nível 1: setor]
     B -- não --> C{AguardandoEscolhaDeServico?}
     C -- sim --> C1[AplicadorDeEscolhaDeServico<br/>nível 2: serviço]
@@ -117,21 +121,40 @@ flowchart TD
     D -- sim --> D1[AplicadorDeRespostaInteligente<br/>continua a troca]
     D -- não --> E[AplicadorDePosAtendimento<br/>o piso]
 
-    E --> F{"pediu 'menu' / 'voltar'?"}
-    F -- sim --> F1[Reabre do zero<br/>NovoAtendimento]
-    F -- não --> G{AguardandoMenuDeContinuacao<br/>e bateu 1-4?}
+    E --> G{AguardandoMenuDeContinuacao<br/>e bateu 1-4?}
     G -- sim --> G1[Aplica a escolha<br/>ver outro serviço / trocar setor /<br/>falar com atendente / encerrar]
     G -- não --> H[Piso: AplicadorDeRespostaInteligente]
 
-    H --> I{PediuHumano explícito<br/>ou podeResponder=false?}
+    H --> I{PediuHumano<br/>explícito?}
     I -- sim --> J[Escala — gatilho 5 ou 9,<br/>conforme SetorId]
-    I -- não --> K[IA responde, grounded<br/>no catálogo cadastrado]
+    I -- não --> L{podeResponder?}
+    L -- sim --> K[IA responde, grounded<br/>no catálogo cadastrado]
+    L -- não --> M[Gatilho 11 — não promete<br/>atendente, continua ouvindo]
 
+    style Z fill:#f4ead5,stroke:#8a6516
     style E fill:#f4ead5,stroke:#8a6516
     style H fill:#f4ead5,stroke:#8a6516
 ```
 
-**A primeira caixa (B/C/D) é o nível externo** — três flags específicas, cada
+**"menu"/"voltar" (`Z`) é checado ANTES de qualquer flag — literalmente a
+primeira coisa do despacho.** Não foi sempre assim: até 2026-08-18 isso só era
+verificado dentro de `AplicadorDePosAtendimento`, que só roda quando nenhuma
+das três flags do nível externo está ligada. Um cliente com
+`AguardandoRespostaInteligente` ligada (o normal depois de qualquer troca com
+a IA, inclusive sem sucesso — ver §8) digitava "menu" e a mensagem ia direto
+para a IA, que não entende "menu" como comando e respondia qualquer coisa. Ver
+`AplicadorDePosAtendimento.ReabrirDoZeroAsync` para o código — hoje é chamado
+pelos dois pontos de entrada, antes de olhar qualquer flag.
+
+`ReabrirDoZeroAsync` também **limpa `SetorId` e `TipoServicoId`** — segundo
+achado no mesmo dia: sem isso, um cliente que já tinha setor definido e pedia
+"menu" ficava com o campo preenchido mesmo depois de "recomeçar", e
+`AplicadorDeTriagem` — ao ver `SetorId != null` com `AguardandoTriagem` ligada
+— interpreta isso como "um atendente já assumiu manualmente" (guarda pensada
+para outro cenário, ver §6) e **não faz nada**: nem responde, nem escala.
+"Do zero" agora é literal.
+
+**A segunda caixa (B/C/D) é o nível externo** — três flags específicas, cada
 uma com um `Aplicador*` próprio. **`AplicadorDePosAtendimento` é o `else`** —
 roda quando nenhuma das três está ligada, o que acontece em três situações
 reais:
@@ -144,12 +167,10 @@ reais:
   respondeu já foi `AplicadorDeRespostaInteligente` dentro do nível externo
   (`D`), e a próxima mensagem do cliente é que cairá aqui.
 
-Dentro do `else`, **há um segundo nível de decisão** (`AplicadorDePosAtendimento`
-por dentro): "menu" é a saída de emergência, verificada primeiro e
-incondicional; depois vem a interpretação do menu de continuação, se estiver
-no ar; e só então o piso. Uma mensagem que não bate em nada do meio ainda cai
-para a IA **na mesma passada** — não custa um turno extra pedindo "responda 1,
-2, 3 ou 4".
+Dentro do `else`, **há um segundo nível de decisão**: a interpretação do menu
+de continuação, se estiver no ar; e só então o piso. Uma mensagem que não bate
+em nada do meio ainda cai para a IA **na mesma passada** — não custa um turno
+extra pedindo "responda 1, 2, 3 ou 4".
 
 ---
 
@@ -229,10 +250,13 @@ inventa. Ver também o `README` do módulo
 
 ### O que ela vê (`MontadorDeContexto`)
 
-- **Catálogo:** nome e descrição de cada `TipoServico` ativo. **Não** inclui
-  `DocumentosNecessarios` nem prazo — esses só aparecem nas mensagens
-  automáticas estruturadas (`{DocumentosNecessarios}`, `{PrazoServico}`), não
-  no grounding da IA.
+- **Catálogo:** nome, **setor** (entre parênteses) e descrição de cada
+  `TipoServico` ativo. O setor entrou em 2026-08-18 — sem ele, "quais os
+  serviços de notas?" não tinha como ser respondido: a lista de nomes chegava
+  sem nenhuma pista de a qual setor cada um pertence, e a IA, corretamente,
+  recusava adivinhar. **Não** inclui `DocumentosNecessarios` nem prazo — esses
+  só aparecem nas mensagens automáticas estruturadas (`{DocumentosNecessarios}`,
+  `{PrazoServico}`), não no grounding da IA.
 - **Respostas rápidas ativas**, com `{NomeCartorio}` resolvido e qualquer
   outro marcador removido (não fazem sentido fora de uma conversa específica).
 - **Histórico da própria troca**: mensagens do cliente (exceto a primeiríssima,
@@ -247,7 +271,7 @@ do tenant atual.
 
 Ver [`PromptDeSistema.cs`](../src/backend/CrmCartorio.Api/Modules/RespostaInteligente/Application/PromptDeSistema.cs) —
 texto completo, versionado, não editável pela tela de propósito (é regra de
-segurança, não redação). Resumo das seis regras:
+segurança, não redação). Resumo das sete regras:
 
 1. Responde só com base no contexto — nunca inventa prazo, valor, documento
    ou qualquer dado ausente.
@@ -265,22 +289,52 @@ segurança, não redação). Resumo das seis regras:
    nunca mais de um por ideia.
 6. Se posiciona como exceção, não caminho principal: quando fizer sentido,
    fecha convidando a pessoa a voltar às opções numeradas já enviadas.
+7. **(2026-08-18)** Puro agradecimento ou confirmação ("obrigada", "entendi",
+   "só isso", "somente") não é pergunta sem resposta — é fechamento de
+   conversa. `podeResponder=true`, frase curta e cordial, sem inventar
+   pergunta nem mencionar atendente.
 
 ### Quando ela escala — e quando NÃO escala
 
-**Só escala por pedido explícito do cliente (`TriagemAutomatica.PediuHumano`)
-ou porque ela mesma não sabe responder (`podeResponder=false`). Nunca por
-contagem de trocas.**
+**Só escala por pedido EXPLÍCITO do cliente (`TriagemAutomatica.PediuHumano`).
+Nunca por contagem de trocas, e — desde 2026-08-18 — nunca só porque ela
+mesma não sabia responder desta vez.**
 
-Isto é uma decisão explícita, não omissão: até 2026-08-17 existia um
-`OpcoesDaIA.MaxTrocas` (padrão 3) que forçava escalonamento após N respostas
-bem-sucedidas seguidas — **mesmo quando a IA tinha acabado de responder
-certo**. Removido depois de aparecer ao vivo: cliente recebia a resposta
-correta e, no mesmo fôlego, uma mensagem de "um atendente vai continuar" sem
-ele ter pedido nada. `TentativasRespostaInteligente` continua existindo e
-sendo incrementado (telemetria), mas **nenhuma decisão lê esse número hoje**.
+Duas correções, na mesma direção, em dias diferentes:
 
-Quando escala, o texto varia por contexto — ver §9.
+- **2026-08-17 — contagem de trocas.** Até então existia um
+  `OpcoesDaIA.MaxTrocas` (padrão 3) que forçava escalonamento após N respostas
+  bem-sucedidas seguidas — **mesmo quando a IA tinha acabado de responder
+  certo**. Removido depois de aparecer ao vivo: cliente recebia a resposta
+  correta e, no mesmo fôlego, uma mensagem de "um atendente vai continuar" sem
+  ele ter pedido nada. `TentativasRespostaInteligente` continua existindo e
+  sendo incrementado (telemetria), mas **nenhuma decisão lê esse número hoje**.
+
+- **2026-08-18 — `podeResponder=false` sozinho.** Até então, quando a IA não
+  encontrava resposta no catálogo — mesmo sem o cliente ter pedido nada —
+  o sistema escalava do mesmo jeito. Dois clientes reais, no mesmo dia,
+  receberam "um atendente vai continuar" por terem dito só "somente" (queria
+  dizer "só isso, obrigado") ou por terem perguntado algo que a IA não sabia.
+  Um caso ainda pior: depois de escalar, QUALQUER mensagem seguinte do
+  cliente ("ok, obrigada", "obrigada") reabria o mesmo ciclo — a IA era
+  chamada de novo (sem memória de ter acabado de escalar, porque a mensagem
+  de escalonamento não é `GeradaPorIa`), não tinha o que responder de novo, e
+  escalava de novo, repetindo o texto verbatim várias vezes na mesma conversa.
+  Agora `podeResponder=false` sem `PediuHumano` dispara
+  `GatilhoDeMensagem.RespostaSemCorrespondencia` (§3) — nunca promete
+  atendente, convida a pedir um se quiser — e mantém
+  `AguardandoRespostaInteligente` ligada: a IA não desiste da conversa só por
+  não ter tido o que dizer desta vez em particular.
+
+O prompt (`PromptDeSistema`, regra 7) também foi ajustado no mesmo dia: puro
+agradecimento ou confirmação ("obrigada", "entendi", "só isso") não é mais
+tratado como pergunta sem resposta — é fechamento de conversa, e a IA deve
+responder com `podeResponder=true` e uma frase cordial, sem escalar. Isso
+reduz a frequência do caminho `RespostaSemCorrespondencia` para esses casos
+específicos, mas o caminho continua existindo como rede de segurança para
+perguntas genuinamente fora do catálogo.
+
+Quando escala de verdade, o texto varia por contexto — ver §10.
 
 ### O teto de segurança: `LimiteDiario`
 
@@ -297,17 +351,13 @@ em silêncio, só troca "IA responde" por "atendente responde".
 A peça que fecha o buraco encontrado ao vivo em 2026-08-17: sem ela, o
 despacho externo (§5) simplesmente terminava quando nenhuma das três flags
 batia, e a mensagem ficava gravada sem gerar resposta nenhuma. Roda **sempre**
-que chega aqui — nunca decide "não vou responder isso".
+que chega aqui — nunca decide "não vou responder isso". Desde 2026-08-18,
+`ReabrirDoZeroAsync` ("menu"/"voltar") não mora mais aqui — é checado no
+despacho, antes desta classe ser chamada (§5).
 
 Cascata, em ordem:
 
-1. **`TriagemAutomatica.PediuMenu`** (`"menu"`, `"voltar"`, `"início"`,
-   `"reiniciar"`, `"recomeçar"`) — saída de emergência, verificada **antes**
-   de qualquer flag, em qualquer ponto da conversa. Zera
-   `AguardandoMenuDeContinuacao`, `AguardandoRespostaInteligente` e
-   `TentativasRespostaInteligente`, dispara `NovoAtendimento` de novo e liga
-   `AguardandoTriagem` — reabre do zero.
-2. **`AguardandoMenuDeContinuacao` ligada:** interpreta a resposta contra as 4
+1. **`AguardandoMenuDeContinuacao` ligada:** interpreta a resposta contra as 4
    opções fixas (não são cadastro — GUIDs constantes, únicos, nunca mudam):
 
    | # | Opção | Efeito |
@@ -319,8 +369,9 @@ Cascata, em ordem:
 
    Sem corresponder a nenhuma das 4, **não trava pedindo de novo**: desliga a
    flag e deixa a mesma mensagem cair para o piso da IA, na mesma passada.
-3. **Piso final:** delega para `AplicadorDeRespostaInteligente` (§8) — a IA
-   tenta responder, e escala sozinha se não conseguir. É o que garante que
+2. **Piso final:** delega para `AplicadorDeRespostaInteligente` (§8) — a IA
+   tenta responder; sem sucesso, responde com `RespostaSemCorrespondencia`
+   (não escala sozinha — só por pedido explícito). É o que garante que
    literalmente nenhuma mensagem do cliente saia sem resposta, seja qual for
    o conteúdo ou o momento da conversa.
 
@@ -348,8 +399,9 @@ Coberto por teste — `verificar-automacao.cs`, TESTE 7.
 ## 10. Texto de escalonamento: por que dois gatilhos parecidos
 
 `TriagemSemCorrespondencia` (5) e `PedidoDeAtendente` (9) escalam para
-atendimento humano, mas em momentos diferentes da conversa — e por isso têm
-textos diferentes no cadastro:
+atendimento humano — desde 2026-08-18, **só por pedido explícito do cliente**
+(§8) — mas em momentos diferentes da conversa, e por isso têm textos
+diferentes no cadastro:
 
 | | `TriagemSemCorrespondencia` (5) | `PedidoDeAtendente` (9) |
 | --- | --- | --- |

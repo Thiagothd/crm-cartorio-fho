@@ -196,6 +196,7 @@ public class MensagemAutomaticaService(CrmDbContext db, IContextoDoUsuario ctx) 
         GatilhoDeMensagem.PrazoProximoVencimento => "Prazo perto de vencer",
         GatilhoDeMensagem.PrazoVencido => "Prazo vencido",
         GatilhoDeMensagem.TriagemSemCorrespondencia => "Cliente nao escolheu setor no menu",
+        GatilhoDeMensagem.RespostaSemCorrespondencia => "IA sem resposta especifica (cliente nao pediu atendente)",
         _ => gatilho.ToString()
     };
 }

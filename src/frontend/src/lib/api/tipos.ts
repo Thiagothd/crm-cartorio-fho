@@ -53,6 +53,7 @@ export type GatilhoDeMensagem =
   | 'MenuDeContinuacao'
   | 'PedidoDeAtendente'
   | 'Despedida'
+  | 'RespostaSemCorrespondencia'
 
 export type CategoriaServico =
   | 'Notas'
