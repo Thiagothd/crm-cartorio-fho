@@ -105,7 +105,7 @@ export function FiltrosDaInbox({
           aria-expanded
           aria-label="Recolher a lista de conversas"
           title="Recolher a lista de conversas"
-          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta"
+          className="hidden size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:flex"
         >
           <ChevronsLeft className="size-4" />
         </button>

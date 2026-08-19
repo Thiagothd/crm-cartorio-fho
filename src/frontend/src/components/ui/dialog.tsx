@@ -9,14 +9,24 @@ export const DialogClose = DialogPrimitive.Close
 
 export const DialogContent = React.forwardRef<
   React.ComponentRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    /**
+     * O X padrão, no canto superior direito. Sai só quando o conteúdo desenha o
+     * próprio cabeçalho com um fechar dentro dele — dois X na mesma tela é bug,
+     * não estilo. Nasce ligado, então nenhum diálogo existente muda.
+     */
+    mostrarFechar?: boolean
+  }
+>(({ className, children, mostrarFechar = true, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
+        // Largura com folga lateral em vez de w-full: num celular de 360px o
+        // diálogo encostava nas duas bordas. Acima de 512px+margem nada muda,
+        // porque o max-w-lg continua sendo quem manda.
+        'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
         'rounded-lg border border-border bg-card p-5',
         'max-h-[90vh] overflow-y-auto',
         className,
@@ -24,10 +34,12 @@ export const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-60 transition-opacity hover:opacity-100 ">
-        <X className="size-4" />
-        <span className="sr-only">Fechar</span>
-      </DialogPrimitive.Close>
+      {mostrarFechar ? (
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-60 transition-opacity hover:opacity-100 ">
+          <X className="size-4" />
+          <span className="sr-only">Fechar</span>
+        </DialogPrimitive.Close>
+      ) : null}
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
 ))

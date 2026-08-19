@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import {
+  ArrowLeft,
   ArrowRightLeft,
   CircleCheck,
   Hand,
   History,
+  Images,
   Lock,
   MoreVertical,
   RotateCcw,
@@ -45,6 +47,9 @@ import type { Atendente, Conversa, Etapa, Setor, TipoServico } from '@/lib/api/t
 
 const SEM_VALOR = '__nenhum__'
 
+/** Qual painel lateral está aberto — `null` quando o fio ocupa a coluna toda. */
+export type PainelDaConversa = 'historico' | 'midias' | null
+
 export function CabecalhoDaConversa({
   conversa,
   souOResponsavel,
@@ -62,8 +67,9 @@ export function CabecalhoDaConversa({
   aoTransferir,
   aoEncerrar,
   aoReabrir,
-  aoAlternarHistorico,
-  historicoVisivel,
+  aoVoltar,
+  painelAtivo,
+  aoAlternarPainel,
 }: {
   conversa: Conversa
   souOResponsavel: boolean
@@ -81,8 +87,15 @@ export function CabecalhoDaConversa({
   aoTransferir: (atendenteId: string) => void
   aoEncerrar: (motivo?: string) => void
   aoReabrir: () => void
-  aoAlternarHistorico: () => void
-  historicoVisivel: boolean
+  /** Só existe no celular, onde lista e conversa não cabem lado a lado. */
+  aoVoltar: () => void
+  /**
+   * Um painel lateral por vez. Dois de 256px abertos juntos num monitor de
+   * 1366px deixariam ~250px de fio — exatamente o aperto que a inbox compacta
+   * veio resolver.
+   */
+  painelAtivo: PainelDaConversa
+  aoAlternarPainel: (qual: Exclude<PainelDaConversa, null>) => void
 }) {
   const [dialogoEncerrar, setDialogoEncerrar] = useState(false)
   const [dialogoTransferir, setDialogoTransferir] = useState(false)
@@ -94,14 +107,29 @@ export function CabecalhoDaConversa({
   const naFila = conversa.atendenteId === null && ativa
 
   return (
-    <header className="flex shrink-0 items-start justify-between gap-4 border-b border-linha-forte bg-branco px-6 py-2.5">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        {/* Cor da etapa atual, igual à mini-pílula da lista e à pílula do funil. */}
+    <header className="flex shrink-0 items-start justify-between gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:gap-4 md:px-6 md:py-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+        {/* Voltar só no celular: no desktop a lista está do lado, e um botão de
+            voltar para uma coluna que nunca saiu da tela é ruído. */}
+        <button
+          type="button"
+          onClick={aoVoltar}
+          aria-label="Voltar para a lista de conversas"
+          title="Voltar"
+          className="-ml-1 flex size-9 shrink-0 items-center justify-center rounded-md border border-transparent text-tinta-media transition-colors hover:border-linha hover:bg-superficie hover:text-tinta md:hidden"
+        >
+          <ArrowLeft className="size-4" />
+        </button>
+
+        {/* Cor da etapa atual, igual à mini-pílula da lista e à pílula do funil.
+            Cede o lugar ao botão de voltar no celular: a cor da etapa continua
+            na pílula do funil, na mini-pílula da lista e no seletor ao lado. */}
         <Avatar
           nome={conversa.clienteNome}
           fotoUrl={conversa.clienteFotoPerfilUrl}
           tamanho="md"
           corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
+          className="hidden md:inline-flex"
         />
 
         <div className="min-w-0 flex-1">
@@ -127,14 +155,21 @@ export function CabecalhoDaConversa({
               Neutras de proposito: cor de etapa e status passivo e nao entra em
               controle (DESIGN.md, 2.2). A cor da etapa continua no avatar ao
               lado. */}
-          {/* NAO quebra linha: encolhe, e no aperto extremo esconde.
-              Quebrar aqui custa mais 24px na faixa fixa do topo, que e exatamente
-              o que esta tela nao tem. A ordem de sacrificio e deliberada:
+          {/* NO DESKTOP nao quebra linha: encolhe, e no aperto extremo esconde.
+              Quebrar la custa mais 24px na faixa fixa do topo, que e exatamente
+              o que aquela tela nao tem. A ordem de sacrificio e deliberada:
                 1. o nome de quem atende trunca (o inteiro fica no title);
                 2. as pilulas truncam (o valor cheio esta no title e na lista);
                 3. o telefone some abaixo de 42rem de coluna;
-                4. o PROTOCOLO nunca sai — e o identificador do atendimento. */}
-          <div className="mt-0.5 flex min-w-0 items-center gap-x-1.5 overflow-hidden text-xs text-tinta-media">
+                4. o PROTOCOLO nunca sai — e o identificador do atendimento.
+
+              NO CELULAR volta a quebrar. A regra acima e sobre FAIXA DE ALTURA
+              FIXA num monitor, e o proprio DESIGN.md diz que onde o container
+              nao tem altura fixa o flex-wrap continua certo. Em 360px de
+              largura nao existe truncamento honesto que caiba protocolo,
+              cadeado e tres pilulas numa linha so — o que sobraria seria o
+              protocolo cortado, justamente o item que nunca pode sair. */}
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-tinta-media md:flex-nowrap md:gap-y-0 md:overflow-hidden">
             {/* Container query, nao breakpoint de tela: quem aperta esta linha
                 e o painel de historico abrindo ao lado, com a janela do mesmo
                 tamanho. Abaixo de 42rem de COLUNA o telefone sai e o protocolo
@@ -173,7 +208,9 @@ export function CabecalhoDaConversa({
               </>
             ) : null}
 
-            <span className="mx-0.5 h-3.5 w-px shrink-0 bg-linha-forte" />
+            {/* Some no celular: num inicio de linha quebrada o divisor fica
+                orfao, separando nada de nada. */}
+            <span className="mx-0.5 hidden h-3.5 w-px shrink-0 bg-linha-forte md:block" />
 
             <PilulaDeSelecao
               valor={conversa.etapaId}
@@ -233,7 +270,7 @@ export function CabecalhoDaConversa({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-1.5 md:gap-2.5">
         {/* Mini, e nao o de 68px: o cabecalho virou uma linha so, e o selo
             cheio sozinho devolveria a altura que a linha unica economizou.
             Continua sendo um selo por conversa (DESIGN.md, secao 6). */}
@@ -247,31 +284,76 @@ export function CabecalhoDaConversa({
 
         <EtiquetaDePrazo situacao={conversa.situacaoPrazo} prazoLimite={conversa.prazoLimite} />
 
+        {/* Assumir, Histórico e Mídias saem da linha no celular e reaparecem
+            como item do menu ⋮ logo abaixo. Em 360px o cluster inteiro não cabe
+            junto do nome, e o que se perde primeiro é o que tem outro caminho. */}
         {naFila ? (
-          <Button size="sm" onClick={aoAssumir} disabled={assumindo}>
+          <Button size="sm" className="hidden md:inline-flex" onClick={aoAssumir} disabled={assumindo}>
             <Hand />
             Assumir
           </Button>
         ) : null}
 
         <Button
-          variant={historicoVisivel ? 'secondary' : 'ghost'}
+          variant={painelAtivo === 'historico' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          onClick={aoAlternarHistorico}
+          className="hidden md:inline-flex"
+          aria-pressed={painelAtivo === 'historico'}
+          onClick={() => aoAlternarPainel('historico')}
           title="Histórico de etapas"
         >
           <History />
+          <span className="sr-only">Histórico de etapas</span>
+        </Button>
+
+        {/* Container query, e nao breakpoint de tela: quem aperta esta linha e
+            a largura QUE SOBRA para a coluna — o painel lateral abrindo ao lado
+            muda isso com a janela do mesmo tamanho. Em coluna estreita o acesso
+            continua pelo menu ⋮, que nunca sai. */}
+        <Button
+          variant={painelAtivo === 'midias' ? 'secondary' : 'ghost'}
+          size="icon-sm"
+          className="hidden @2xl:inline-flex"
+          aria-pressed={painelAtivo === 'midias'}
+          onClick={() => aoAlternarPainel('midias')}
+          title="Mídias e arquivos"
+        >
+          <Images />
+          <span className="sr-only">Mídias e arquivos</span>
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
+            <Button variant="ghost" size="icon-sm" className="size-9 md:size-8">
               <MoreVertical />
               <span className="sr-only">Ações</span>
             </Button>
           </DropdownMenuTrigger>
 
           <DropdownMenuContent align="end" className="w-56">
+            {/* Consulta, não ação sobre o atendimento: fica fora do bloco de
+                Transferir/Devolver/Encerrar e vale também para conversa
+                encerrada — reler o arquivo de um atendimento fechado é
+                justamente um dos casos de uso. */}
+            <DropdownMenuItem onSelect={() => aoAlternarPainel('midias')}>
+              <Images />
+              Mídias e arquivos
+            </DropdownMenuItem>
+
+            <DropdownMenuItem className="md:hidden" onSelect={() => aoAlternarPainel('historico')}>
+              <History />
+              Histórico de etapas
+            </DropdownMenuItem>
+
+            {naFila ? (
+              <DropdownMenuItem className="md:hidden" disabled={assumindo} onSelect={aoAssumir}>
+                <Hand />
+                Assumir atendimento
+              </DropdownMenuItem>
+            ) : null}
+
+            <DropdownMenuSeparator />
+
             {ativa ? (
               <>
                 <DropdownMenuItem

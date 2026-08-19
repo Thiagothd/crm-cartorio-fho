@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   Check,
   CheckCheck,
@@ -127,6 +127,9 @@ export function FioDeMensagens({
   aoFixar,
   aoOcultar,
   aoEncaminhar,
+  aoAbrirImagem,
+  mostrarOcultas,
+  aoAlternarOcultas,
 }: {
   mensagens: Mensagem[]
   clienteNome: string
@@ -139,16 +142,26 @@ export function FioDeMensagens({
   aoFixar: (mensagem: Mensagem) => void
   aoOcultar: (ids: string[], ocultar: boolean) => void
   aoEncaminhar: (ids: string[]) => void
+  /** Clicar na imagem amplia no visualizador da pagina — nunca baixa. */
+  aoAbrirImagem: (mensagemId: string) => void
+  /**
+   * Interruptor de ocultas, compartilhado com a galeria de midias.
+   *
+   * Vive na PAGINA, e nao aqui, porque a galeria aplica a mesma regra e o
+   * visualizador navega por uma lista derivada dela. Com dois interruptores
+   * independentes, clicar numa imagem oculta que o fio esta exibindo abriria um
+   * visualizador cuja lista nao a contem — e ele fecharia na hora.
+   */
+  mostrarOcultas: boolean
+  aoAlternarOcultas: () => void
 }) {
   const fim = useRef<HTMLDivElement>(null)
 
+  const fixada = mensagens.find((m) => m.fixada && !m.oculta)
+  const totalOcultas = mensagens.filter((m) => m.oculta).length
   // Ocultas ficam escondidas atrás de um aviso, não somem da tela. O registro
   // continua existindo e o atendente sabe que existe — é o que separa ocultar de
   // apagar, e apagar não é uma operação deste sistema.
-  const [mostrarOcultas, setMostrarOcultas] = useState(false)
-
-  const fixada = mensagens.find((m) => m.fixada && !m.oculta)
-  const totalOcultas = mensagens.filter((m) => m.oculta).length
   const visiveis = mostrarOcultas ? mensagens : mensagens.filter((m) => !m.oculta)
 
   // Rola para a última mensagem sempre que o fio cresce — comportamento
@@ -209,7 +222,7 @@ export function FioDeMensagens({
           </p>
           <button
             type="button"
-            onClick={() => setMostrarOcultas((v) => !v)}
+            onClick={aoAlternarOcultas}
             aria-pressed={mostrarOcultas}
             className="shrink-0 rounded-md border border-linha-forte bg-branco px-2 py-0.5 text-[11px] text-tinta-media transition-colors hover:text-tinta"
           >
@@ -362,7 +375,9 @@ export function FioDeMensagens({
                     </div>
                   ) : null}
 
-                  {mensagem.arquivoNome ? <AnexoDaMensagem mensagem={mensagem} /> : null}
+                  {mensagem.arquivoNome ? (
+                    <AnexoDaMensagem mensagem={mensagem} aoAbrirImagem={aoAbrirImagem} />
+                  ) : null}
 
                   {temLegendaPropria(mensagem) ? (
                     <p className="whitespace-pre-wrap break-words text-[13px] leading-snug text-tinta">
@@ -462,7 +477,13 @@ function AcoesDaMensagem({
   aoResponder: (mensagem: Mensagem) => void
 }) {
   return (
-    <div className="flex shrink-0 items-center rounded-md border border-linha bg-branco opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+    /* O critério é TER HOVER, não ser largo. Com `sm:opacity-0` o esconder
+       valia para toda tela acima de 640px, mas o `sm:group-hover:` que
+       devolvia a visibilidade já vem embrulhado em `@media (hover: hover)` no
+       Tailwind v4 — num tablet de 768px sem mouse, Copiar e Responder ficavam
+       invisíveis e inalcançáveis. É o que o DESIGN.md sempre descreveu por
+       escrito: permanentes onde não há hover. */
+    <div className="flex shrink-0 items-center rounded-md border border-linha bg-branco opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
       <button
         type="button"
         onClick={() => void aoCopiar(mensagem)}
