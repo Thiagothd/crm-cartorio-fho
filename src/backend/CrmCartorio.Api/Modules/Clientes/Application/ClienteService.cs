@@ -2,13 +2,21 @@ using System.Text.RegularExpressions;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CrmCartorio.Api.Modules.Clientes.Application;
 
-public partial class ClienteService(CrmDbContext db, IContextoDoUsuario ctx) : IClienteService
+public partial class ClienteService(
+    CrmDbContext db,
+    IContextoDoUsuario ctx,
+    IEvolutionClient gateway,
+    IHttpClientFactory httpFactory,
+    IMemoryCache cache,
+    ILogger<ClienteService> log) : IClienteService
 {
     public async Task<ResultadoPaginadoDeClientes> ListarAsync(
         FiltroDeClientes filtro,
@@ -190,6 +198,100 @@ public partial class ClienteService(CrmDbContext db, IContextoDoUsuario ctx) : I
             .ToListAsync(ct);
 
         return new OpcoesDeClientesResponse(cidades);
+    }
+
+    public async Task<byte[]?> ObterFotoPerfilAsync(Guid id, CancellationToken ct = default)
+    {
+        var tenantId = ctx.TenantId;
+        var cacheKey = $"foto_cliente_{tenantId}_{id}";
+
+        if (cache.TryGetValue(cacheKey, out byte[]? cachedBytes))
+        {
+            return cachedBytes;
+        }
+
+        var cliente = await db.Clientes
+            .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tenantId, ct);
+
+        if (cliente is null)
+        {
+            return null;
+        }
+
+        var agora = DateTime.UtcNow;
+        var url = cliente.FotoPerfilUrl;
+
+        // Se nunca consultamos ou expirou (24h), tenta renovar junto a Evolution API
+        if (string.IsNullOrWhiteSpace(url) || cliente.FotoPerfilAtualizadaEm is null || cliente.FotoPerfilAtualizadaEm < agora.AddHours(-24))
+        {
+            var novaUrl = await gateway.ObterFotoPerfilUrlAsync(cliente.TelefoneWhatsapp, ct);
+            if (!string.IsNullOrWhiteSpace(novaUrl) && novaUrl != cliente.FotoPerfilUrl)
+            {
+                cliente.FotoPerfilUrl = novaUrl;
+                cliente.FotoPerfilAtualizadaEm = agora;
+                cliente.AtualizadoEm = agora;
+                await db.SaveChangesAsync(ct);
+                url = novaUrl;
+            }
+            else if (cliente.FotoPerfilAtualizadaEm is null || cliente.FotoPerfilAtualizadaEm < agora.AddHours(-24))
+            {
+                cliente.FotoPerfilAtualizadaEm = agora;
+                await db.SaveChangesAsync(ct);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        // Baixa a imagem do CDN do WhatsApp de forma defensiva
+        try
+        {
+            using var http = httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(5);
+            using var resposta = await http.GetAsync(url, ct);
+
+            if (resposta.IsSuccessStatusCode)
+            {
+                var bytes = await resposta.Content.ReadAsByteArrayAsync(ct);
+                if (bytes.Length > 0)
+                {
+                    // Cache em memoria por 1 hora
+                    cache.Set(cacheKey, bytes, TimeSpan.FromHours(1));
+                    return bytes;
+                }
+            }
+            else if (resposta.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
+            {
+                // URL expirou no CDN do WhatsApp. Tenta consultar a Evolution API mais uma vez
+                var urlFresca = await gateway.ObterFotoPerfilUrlAsync(cliente.TelefoneWhatsapp, ct);
+                if (!string.IsNullOrWhiteSpace(urlFresca) && urlFresca != url)
+                {
+                    cliente.FotoPerfilUrl = urlFresca;
+                    cliente.FotoPerfilAtualizadaEm = agora;
+                    cliente.AtualizadoEm = agora;
+                    await db.SaveChangesAsync(ct);
+
+                    using var resposta2 = await http.GetAsync(urlFresca, ct);
+                    if (resposta2.IsSuccessStatusCode)
+                    {
+                        var bytes2 = await resposta2.Content.ReadAsByteArrayAsync(ct);
+                        if (bytes2.Length > 0)
+                        {
+                            cache.Set(cacheKey, bytes2, TimeSpan.FromHours(1));
+                            return bytes2;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception falha) when (falha is not OperationCanceledException)
+        {
+            log.LogDebug(falha, "Nao foi possivel baixar foto de perfil do CDN para o cliente {Id}.", id);
+        }
+
+        return null;
     }
 
     // ------------------------------------------------------------- auxiliares
@@ -455,7 +557,8 @@ public partial class ClienteService(CrmDbContext db, IContextoDoUsuario ctx) : I
             totalConversas,
             temConversaAtiva,
             c.PercentualDeQualificacao(),
-            idade);
+            idade,
+            c.FotoPerfilUrl is { Length: > 0 } ? $"/api/clientes/{c.Id}/foto-perfil" : null);
     }
 
     [GeneratedRegex(@"\D")]

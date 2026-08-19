@@ -54,4 +54,10 @@ public interface IEvolutionClient
 
     /// <summary>Baixa a midia de uma mensagem recebida, em base64.</summary>
     Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct);
+
+    /// <summary>
+    /// Consulta a URL da foto de perfil do contato no WhatsApp.
+    /// Devolve nulo se o contato nao tiver foto, se a privacidade bloquear ou se o canal estiver desligado.
+    /// </summary>
+    Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct);
 }

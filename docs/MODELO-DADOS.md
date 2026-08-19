@@ -177,6 +177,8 @@ Contato final que manda mensagem. **Não é usuário do sistema.**
 | Cep / Logradouro / Numero / Complemento | string | não | Endereço |
 | Bairro / Cidade / Uf | string | não | Endereço |
 | Observacoes | string(1000) | não | |
+| FotoPerfilUrl | string(500) | não | URL da foto de perfil no WhatsApp (temporária) |
+| FotoPerfilAtualizadaEm | datetime2(3) | não | Instante UTC da última consulta/atualização |
 | PrimeiroContatoEm | datetime2(3) | sim | |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |

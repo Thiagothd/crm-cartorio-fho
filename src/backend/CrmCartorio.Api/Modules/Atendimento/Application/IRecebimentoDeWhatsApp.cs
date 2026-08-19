@@ -28,7 +28,8 @@ public record MensagemDoCanal(
     string Conteudo,
     TipoMensagem Tipo,
     string IdExterno,
-    ArquivoDoCanal? Arquivo = null);
+    ArquivoDoCanal? Arquivo = null,
+    string? FotoPerfilUrl = null);
 
 /// <summary>
 /// Porta de ENTRADA do canal real: transforma mensagem de fora em atendimento.

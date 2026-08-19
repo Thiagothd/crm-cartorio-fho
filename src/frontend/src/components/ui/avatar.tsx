@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { iniciaisDe } from '@/lib/formatacao'
 
@@ -8,33 +9,56 @@ const tamanhos = {
 }
 
 /**
- * Iniciais em caixa quadrada.
+ * Iniciais em caixa quadrada ou foto de perfil real quando disponível.
  *
- * Dois tratamentos:
- *
- * - Sem `corDeFundo`: caixa clara com borda 1px e iniciais em tinta. E o padrao
- *   para avatar sem etapa associada — cliente na listagem de cadastro, atendente.
- *
- * - Com `corDeFundo`: fundo solido e iniciais em branco. Usado no atendimento,
- *   onde a cor identifica a ETAPA da conversa (docs/DESIGN.md, secao 2.2).
- *
- * A versao original gerava a cor por hash do NOME. Isso foi removido e nao deve
- * voltar: era cor arbitraria fora da paleta, e pior, dizia respeito a nada — duas
- * conversas do mesmo cliente em etapas diferentes ficavam iguais. Cor por etapa
- * carrega informacao; cor por hash so enfeitava.
+ * Tratamento:
+ * - Com `fotoUrl` válido: exibe a imagem de perfil do WhatsApp. Caso falhe ao
+ *   carregar ou retorne 404, faz fallback automático e gracioso para as iniciais.
+ * - Sem `corDeFundo`: caixa clara com borda 1px e iniciais em tinta. É o padrão
+ *   para avatar sem etapa associada (ex.: cliente na listagem de cadastro, atendente).
+ * - Com `corDeFundo`: fundo sólido e iniciais em branco. Usado no atendimento,
+ *   onde a cor identifica a ETAPA da conversa (docs/DESIGN.md, seção 2.2).
  */
 export function Avatar({
   nome,
+  fotoUrl,
   tamanho = 'md',
   corDeFundo,
   className,
 }: {
   nome: string
+  fotoUrl?: string | null
   tamanho?: keyof typeof tamanhos
   corDeFundo?: string | null
   className?: string
 }) {
+  const [erroAoCarregar, setErroAoCarregar] = useState(false)
   const solido = Boolean(corDeFundo)
+
+  useEffect(() => {
+    setErroAoCarregar(false)
+  }, [fotoUrl])
+
+  if (fotoUrl && !erroAoCarregar) {
+    return (
+      <span
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-linha-forte bg-superficie transition-colors',
+          tamanhos[tamanho],
+          className,
+        )}
+        title={nome}
+      >
+        <img
+          src={fotoUrl}
+          alt={nome}
+          className="size-full object-cover"
+          loading="lazy"
+          onError={() => setErroAoCarregar(true)}
+        />
+      </span>
+    )
+  }
 
   return (
     <span
@@ -53,3 +77,4 @@ export function Avatar({
     </span>
   )
 }
+

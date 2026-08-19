@@ -102,7 +102,8 @@ public record ClienteResponse(
     /// <summary>0 a 100. Quanto da qualificacao ja foi coletado.</summary>
     int PercentualDeQualificacao,
     /// <summary>Idade em anos, quando ha data de nascimento.</summary>
-    int? Idade);
+    int? Idade,
+    string? FotoPerfilUrl = null);
 
 public record ResultadoPaginadoDeClientes(
     IReadOnlyList<ClienteResponse> Itens,

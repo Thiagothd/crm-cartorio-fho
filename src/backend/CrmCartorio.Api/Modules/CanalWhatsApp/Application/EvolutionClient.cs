@@ -190,6 +190,39 @@ public class EvolutionClient(
         }
     }
 
+    public async Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct)
+    {
+        if (!_opcoes.EstaConfigurado)
+        {
+            return null;
+        }
+
+        try
+        {
+            var resposta = await EnviarAsync(
+                HttpMethod.Post,
+                $"chat/fetchProfilePictureUrl/{_opcoes.NomeDaInstancia}",
+                new { number = telefoneE164 },
+                ct);
+
+            if (resposta is not { } r)
+            {
+                return null;
+            }
+
+            var url = LerTexto(r, "profilePictureUrl")
+                ?? LerTexto(r, "picture")
+                ?? LerTexto(r, "url");
+
+            return string.IsNullOrWhiteSpace(url) ? null : url;
+        }
+        catch (Exception falha) when (falha is not OperationCanceledException)
+        {
+            log.LogDebug(falha, "Nao foi possivel obter foto de perfil para {Telefone}.", telefoneE164);
+            return null;
+        }
+    }
+
     private async Task RegistrarWebhookAsync(string urlDoWebhook, CancellationToken ct)
     {
         await EnviarAsync(

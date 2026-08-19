@@ -99,6 +99,7 @@ export function CabecalhoDaConversa({
         {/* Cor da etapa atual, igual à mini-pílula da lista e à pílula do funil. */}
         <Avatar
           nome={conversa.clienteNome}
+          fotoUrl={conversa.clienteFotoPerfilUrl}
           tamanho="md"
           corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
         />

@@ -37,6 +37,7 @@ export function ItemDeConversa({
       {/* Avatar do cliente na cor da etapa atual. Muda junto com a etapa. */}
       <Avatar
         nome={conversa.clienteNome}
+        fotoUrl={conversa.clienteFotoPerfilUrl}
         tamanho="md"
         corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
       />

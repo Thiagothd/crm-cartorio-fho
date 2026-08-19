@@ -131,7 +131,8 @@ public record ConversaResumoResponse(
     DateTime? EncerradaEm,
     string? EncerradaPorNome,
     string? MotivoEncerramento,
-    DateTime? ReabertaEm);
+    DateTime? ReabertaEm,
+    string? ClienteFotoPerfilUrl = null);
 
 public record MensagemResponse(
     Guid Id,

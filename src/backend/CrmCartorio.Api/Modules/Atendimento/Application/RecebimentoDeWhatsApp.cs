@@ -310,6 +310,13 @@ public class RecebimentoDeWhatsApp(
                 cliente.AtualizadoEm = agora;
             }
 
+            if (!string.IsNullOrWhiteSpace(mensagem.FotoPerfilUrl) && cliente.FotoPerfilUrl != mensagem.FotoPerfilUrl)
+            {
+                cliente.FotoPerfilUrl = mensagem.FotoPerfilUrl;
+                cliente.FotoPerfilAtualizadaEm = agora;
+                cliente.AtualizadoEm = agora;
+            }
+
             return cliente;
         }
 
@@ -320,6 +327,8 @@ public class RecebimentoDeWhatsApp(
                 ? mensagem.TelefoneE164
                 : mensagem.NomeDoPerfil,
             TelefoneWhatsapp = mensagem.TelefoneE164,
+            FotoPerfilUrl = mensagem.FotoPerfilUrl,
+            FotoPerfilAtualizadaEm = mensagem.FotoPerfilUrl is not null ? agora : null,
             Ativo = true,
             CriadoEm = agora,
             AtualizadoEm = agora

@@ -43,7 +43,8 @@ public sealed record ProjecaoDeConversa(
     DateTime? EncerradaEm,
     string? EncerradaPorNome,
     string? MotivoEncerramento,
-    DateTime? ReabertaEm)
+    DateTime? ReabertaEm,
+    string? ClienteFotoPerfilUrl)
 {
     /// <summary>
     /// Projeta conversas com os nomes resolvidos.
@@ -86,7 +87,8 @@ public sealed record ProjecaoDeConversa(
             c.EncerradaEm,
             db.Atendentes.Where(x => x.Id == c.EncerradaPorAtendenteId).Select(x => x.Nome).FirstOrDefault(),
             c.MotivoEncerramento,
-            c.ReabertaEm));
+            c.ReabertaEm,
+            db.Clientes.Where(x => x.Id == c.ClienteId).Select(x => x.FotoPerfilUrl).FirstOrDefault()));
 
     /// <summary>
     /// A situacao de prazo depende do relogio, entao e resolvida aqui, na memoria,
@@ -119,5 +121,6 @@ public sealed record ProjecaoDeConversa(
             EncerradaEm,
             EncerradaPorNome,
             MotivoEncerramento,
-            ReabertaEm);
+            ReabertaEm,
+            ClienteFotoPerfilUrl is { Length: > 0 } ? $"/api/clientes/{ClienteId}/foto-perfil" : null);
 }

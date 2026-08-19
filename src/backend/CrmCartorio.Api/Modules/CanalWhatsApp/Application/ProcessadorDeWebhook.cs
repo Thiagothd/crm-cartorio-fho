@@ -92,6 +92,8 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
+            var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(tenantId, mensagem.TelefoneE164, ct);
+
             await recebimento.ReceberAsync(
                 tenantId,
                 new MensagemDoCanal(
@@ -100,7 +102,8 @@ public class ProcessadorDeWebhook(
                     mensagem.Conteudo,
                     mensagem.Tipo,
                     mensagem.IdExterno,
-                    await BaixarArquivoAsync(mensagem, ct)),
+                    await BaixarArquivoAsync(mensagem, ct),
+                    fotoPerfilUrl),
                 ct);
 
             return;
@@ -157,6 +160,33 @@ public class ProcessadorDeWebhook(
                 "Falha ao baixar a midia da mensagem {IdExterno}; a mensagem entra sem anexo.",
                 mensagem.IdExterno);
 
+            return null;
+        }
+    }
+
+    private async Task<string?> ObterFotoPerfilSeNecessarioAsync(
+        Guid tenantId,
+        string telefoneE164,
+        CancellationToken ct)
+    {
+        try
+        {
+            var cliente = await db.Clientes.AsNoTracking()
+                .Where(c => c.TenantId == tenantId && c.TelefoneWhatsapp == telefoneE164)
+                .Select(c => new { c.FotoPerfilUrl, c.FotoPerfilAtualizadaEm })
+                .FirstOrDefaultAsync(ct);
+
+            var agora = DateTime.UtcNow;
+            if (cliente is null || cliente.FotoPerfilAtualizadaEm is null || cliente.FotoPerfilAtualizadaEm < agora.AddHours(-24))
+            {
+                return await gateway.ObterFotoPerfilUrlAsync(telefoneE164, ct);
+            }
+
+            return cliente.FotoPerfilUrl;
+        }
+        catch (Exception falha) when (falha is not OperationCanceledException)
+        {
+            log.LogDebug(falha, "Falha ao resolver foto de perfil para {Telefone}.", telefoneE164);
             return null;
         }
     }

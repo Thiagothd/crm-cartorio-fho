@@ -77,6 +77,7 @@ export function TrilhoDeConversas({
             >
               <Avatar
                 nome={conversa.clienteNome}
+                fotoUrl={conversa.clienteFotoPerfilUrl}
                 tamanho="md"
                 corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
               />

@@ -12,4 +12,7 @@ public interface IClienteService
 
     /// <summary>Cidades ja cadastradas, para o filtro da tela.</summary>
     Task<OpcoesDeClientesResponse> ObterOpcoesAsync(CancellationToken ct = default);
+
+    /// <summary>Bytes da foto de perfil do WhatsApp do cliente, ou nulo quando indisponivel.</summary>
+    Task<byte[]?> ObterFotoPerfilAsync(Guid id, CancellationToken ct = default);
 }

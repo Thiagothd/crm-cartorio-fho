@@ -89,6 +89,7 @@ builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();
 builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
+builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
 // Resposta Inteligente (Fase 2B). Sem chave configurada, o SDK sobe do mesmo jeito

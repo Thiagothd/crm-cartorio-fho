@@ -240,7 +240,7 @@ export function PaginaClientes() {
                   <tr key={cliente.id} className="border-t border-linha hover:bg-superficie">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2.5">
-                        <Avatar nome={cliente.nome} tamanho="sm" />
+                        <Avatar nome={cliente.nome} fotoUrl={cliente.fotoPerfilUrl} tamanho="sm" />
                         <div className="min-w-0">
                           <span className="block truncate font-medium text-tinta">{cliente.nome}</span>
                           <span className="text-xs text-tinta-fraca">

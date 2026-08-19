@@ -49,6 +49,8 @@ public class ClienteConfiguration : IEntityTypeConfiguration<Cliente>
 
         // --- controle ---
         builder.Property(c => c.Observacoes).HasMaxLength(1000);
+        builder.Property(c => c.FotoPerfilUrl).HasMaxLength(500);
+        builder.Property(c => c.FotoPerfilAtualizadaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.PrimeiroContatoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.AtualizadoEm).HasColumnType("datetime2(3)");

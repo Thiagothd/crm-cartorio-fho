@@ -92,6 +92,14 @@ public class Cliente : EntidadeBase, IEntidadeDeTenant
 
     public string? Observacoes { get; set; }
 
+    /// <summary>
+    /// URL direta da foto de perfil no WhatsApp, quando disponivel. Temporaria.
+    /// </summary>
+    public string? FotoPerfilUrl { get; set; }
+
+    /// <summary>Instante UTC da ultima consulta/atualizacao da foto de perfil.</summary>
+    public DateTime? FotoPerfilAtualizadaEm { get; set; }
+
     public DateTime PrimeiroContatoEm { get; set; } = DateTime.UtcNow;
 
     public bool Ativo { get; set; } = true;

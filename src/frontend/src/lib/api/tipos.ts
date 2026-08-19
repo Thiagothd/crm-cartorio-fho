@@ -145,6 +145,7 @@ export interface Conversa {
   encerradaPorNome: string | null
   motivoEncerramento: string | null
   reabertaEm: string | null
+  clienteFotoPerfilUrl: string | null
 }
 
 export interface Mensagem {
@@ -303,6 +304,7 @@ export interface Cliente {
   temConversaAtiva: boolean
   percentualDeQualificacao: number
   idade: number | null
+  fotoPerfilUrl: string | null
 }
 
 /** Espelha DadosDeCliente do backend — entrada de criação e edição. */

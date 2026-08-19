@@ -1,4 +1,4 @@
-﻿/* =============================================================================
+/* =============================================================================
    CRM-Cartorio — Schema da Fase 1
    -----------------------------------------------------------------------------
    Status ....... NAO EXECUTADO. Revisar antes de rodar.
@@ -206,6 +206,8 @@ CREATE TABLE dbo.Clientes
     Uf                VARCHAR(2)       NULL,
 
     Observacoes       NVARCHAR(1000)   NULL,
+    FotoPerfilUrl     NVARCHAR(500)    NULL,
+    FotoPerfilAtualizadaEm DATETIME2(3) NULL,
     PrimeiroContatoEm DATETIME2(3)     NOT NULL,
     Ativo             BIT              NOT NULL CONSTRAINT DF_Clientes_Ativo DEFAULT (1),
     CriadoEm          DATETIME2(3)     NOT NULL,

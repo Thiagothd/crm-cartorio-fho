@@ -24,6 +24,25 @@ public class ClientesController(IClienteService servico) : ControllerBase
     public async Task<ActionResult<ClienteResponse>> Obter(Guid id, CancellationToken ct) =>
         Ok(await servico.ObterAsync(id, ct));
 
+    /// <summary>
+    /// Devolve os bytes da foto de perfil real do WhatsApp do cliente.
+    /// Retorna 404 se o cliente nao possui foto, permitindo fallback imediato para as iniciais.
+    /// </summary>
+    [HttpGet("{id:guid}/foto-perfil")]
+    public async Task<IActionResult> ObterFotoPerfil(Guid id, CancellationToken ct)
+    {
+        var bytes = await servico.ObterFotoPerfilAsync(id, ct);
+        if (bytes is null || bytes.Length == 0)
+        {
+            return NotFound();
+        }
+
+        Response.Headers.CacheControl = "private, max-age=3600";
+        Response.Headers.XContentTypeOptions = "nosniff";
+
+        return File(bytes, "image/jpeg");
+    }
+
     [HttpPost]
     public async Task<ActionResult<ClienteResponse>> Criar(
         [FromBody] DadosDeCliente dados,
