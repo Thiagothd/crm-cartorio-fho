@@ -197,13 +197,18 @@ public class EvolutionClient(
             return null;
         }
 
+        // Timeout curto: foto de perfil e opcional. Em ambientes sem Evolution API
+        // (ex: desenvolvimento local) nao queremos travar a UI por varios segundos.
+        using var limite = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limite.CancelAfter(TimeSpan.FromSeconds(3));
+
         try
         {
             var resposta = await EnviarAsync(
                 HttpMethod.Post,
                 $"chat/fetchProfilePictureUrl/{_opcoes.NomeDaInstancia}",
                 new { number = telefoneE164 },
-                ct);
+                limite.Token);
 
             if (resposta is not { } r)
             {
@@ -216,12 +221,13 @@ public class EvolutionClient(
 
             return string.IsNullOrWhiteSpace(url) ? null : url;
         }
-        catch (Exception falha) when (falha is not OperationCanceledException)
+        catch (Exception falha) when (falha is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             log.LogDebug(falha, "Nao foi possivel obter foto de perfil para {Telefone}.", telefoneE164);
             return null;
         }
     }
+
 
     private async Task RegistrarWebhookAsync(string urlDoWebhook, CancellationToken ct)
     {

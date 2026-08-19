@@ -122,5 +122,6 @@ public sealed record ProjecaoDeConversa(
             EncerradaPorNome,
             MotivoEncerramento,
             ReabertaEm,
-            ClienteFotoPerfilUrl is { Length: > 0 } ? $"/api/clientes/{ClienteId}/foto-perfil" : null);
+            $"/api/clientes/{ClienteId}/foto-perfil");
 }
+

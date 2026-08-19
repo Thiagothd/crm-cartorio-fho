@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { iniciaisDe } from '@/lib/formatacao'
+import { api } from '@/lib/api/cliente-http'
 
 const tamanhos = {
   sm: 'size-7 text-[10px]',
@@ -8,12 +9,52 @@ const tamanhos = {
   lg: 'size-11 text-xs',
 }
 
+// Cache em memória para os object URLs criados (evita múltiplos downloads da mesma foto)
+const cacheDeUrls = new Map<string, string>()
+const fotosComFalha = new Set<string>()
+const promessasEmAndamento = new Map<string, Promise<string | null>>()
+
+function carregarFoto(url: string): Promise<string | null> {
+  if (cacheDeUrls.has(url)) {
+    return Promise.resolve(cacheDeUrls.get(url)!)
+  }
+  if (fotosComFalha.has(url)) {
+    return Promise.resolve(null)
+  }
+  if (promessasEmAndamento.has(url)) {
+    return promessasEmAndamento.get(url)!
+  }
+
+  // Se já for blob, data URI ou url externa pública
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
+    return Promise.resolve(url)
+  }
+
+  const promessa = api
+    .blob(url)
+    .then((blob) => {
+      const objetoUrl = URL.createObjectURL(blob)
+      cacheDeUrls.set(url, objetoUrl)
+      promessasEmAndamento.delete(url)
+      return objetoUrl
+    })
+    .catch(() => {
+      fotosComFalha.add(url)
+      promessasEmAndamento.delete(url)
+      return null
+    })
+
+  promessasEmAndamento.set(url, promessa)
+  return promessa
+}
+
 /**
  * Iniciais em caixa quadrada ou foto de perfil real quando disponível.
  *
  * Tratamento:
- * - Com `fotoUrl` válido: exibe a imagem de perfil do WhatsApp. Caso falhe ao
- *   carregar ou retorne 404, faz fallback automático e gracioso para as iniciais.
+ * - Com `fotoUrl` válido: busca o binário autenticado via Bearer JWT e exibe a
+ *   imagem. Caso retorne 404 (sem foto), faz fallback automático e gracioso
+ *   para as iniciais.
  * - Sem `corDeFundo`: caixa clara com borda 1px e iniciais em tinta. É o padrão
  *   para avatar sem etapa associada (ex.: cliente na listagem de cadastro, atendente).
  * - Com `corDeFundo`: fundo sólido e iniciais em branco. Usado no atendimento,
@@ -32,14 +73,34 @@ export function Avatar({
   corDeFundo?: string | null
   className?: string
 }) {
-  const [erroAoCarregar, setErroAoCarregar] = useState(false)
+  const [src, setSrc] = useState<string | null>(() => (fotoUrl && cacheDeUrls.get(fotoUrl)) || null)
   const solido = Boolean(corDeFundo)
 
   useEffect(() => {
-    setErroAoCarregar(false)
+    if (!fotoUrl) {
+      setSrc(null)
+      return
+    }
+
+    if (cacheDeUrls.has(fotoUrl)) {
+      setSrc(cacheDeUrls.get(fotoUrl)!)
+      return
+    }
+
+    let cancelado = false
+
+    carregarFoto(fotoUrl).then((urlCarregada) => {
+      if (!cancelado) {
+        setSrc(urlCarregada)
+      }
+    })
+
+    return () => {
+      cancelado = true
+    }
   }, [fotoUrl])
 
-  if (fotoUrl && !erroAoCarregar) {
+  if (src) {
     return (
       <span
         className={cn(
@@ -50,11 +111,11 @@ export function Avatar({
         title={nome}
       >
         <img
-          src={fotoUrl}
+          src={src}
           alt={nome}
           className="size-full object-cover"
           loading="lazy"
-          onError={() => setErroAoCarregar(true)}
+          onError={() => setSrc(null)}
         />
       </span>
     )
@@ -77,4 +138,3 @@ export function Avatar({
     </span>
   )
 }
-

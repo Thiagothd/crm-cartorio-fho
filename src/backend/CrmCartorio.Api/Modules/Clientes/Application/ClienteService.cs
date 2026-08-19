@@ -558,8 +558,9 @@ public partial class ClienteService(
             temConversaAtiva,
             c.PercentualDeQualificacao(),
             idade,
-            c.FotoPerfilUrl is { Length: > 0 } ? $"/api/clientes/{c.Id}/foto-perfil" : null);
+            $"/api/clientes/{c.Id}/foto-perfil");
     }
+
 
     [GeneratedRegex(@"\D")]
     private static partial Regex RegexDeDigitos();
