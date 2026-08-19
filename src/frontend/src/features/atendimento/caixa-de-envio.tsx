@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Inbox, Lock, MessageSquarePlus, Paperclip, Reply, Send, X, Zap } from 'lucide-react'
+import { Lock, Paperclip, Reply, Send, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -201,27 +201,6 @@ export function CaixaDeEnvio({
     }
   }
 
-  async function simularCliente() {
-    const conteudo = texto.trim()
-    if (!conteudo) {
-      toast.info('Escreva o texto que o cliente enviaria.')
-      return
-    }
-
-    setEnviando(true)
-
-    try {
-      await conversasApi.simularMensagemDeCliente(conversa.id, conteudo)
-      setTexto('')
-      aoCancelarResposta()
-      invalidar(conversa.id)
-    } catch (falha) {
-      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível simular.')
-    } finally {
-      setEnviando(false)
-    }
-  }
-
   function aoTeclar(evento: KeyboardEvent<HTMLTextAreaElement>) {
     // Com o seletor aberto, as teclas pertencem a ele. Enter precisa INSERIR, não
     // enviar: sem esta ordem, quem digitasse "/prazo" e apertasse Enter mandaria
@@ -263,17 +242,7 @@ export function CaixaDeEnvio({
   const naFila = conversa.atendenteId === null
 
   return (
-    <div className="flex flex-col gap-2 border-t border-linha px-6 py-3">
-      {/* Avisa ANTES de digitar, não depois de enviar: enviar aqui não é só
-          enviar, é assumir o atendimento. Quem só quer reservar a conversa sem
-          responder ainda continua tendo o botão "Assumir" no cabeçalho. */}
-      {naFila ? (
-        <p className="flex items-center gap-1.5 text-[11px] text-tinta-media">
-          <Inbox className="size-3.5 shrink-0" />
-          Esta conversa está na fila — ao enviar, você assume o atendimento.
-        </p>
-      ) : null}
-
+    <div className="flex flex-col gap-2 border-t border-linha px-6 py-2.5">
       {mensagemRespondida ? (
         <div className="flex items-start gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
           <Reply className="mt-0.5 size-3.5 shrink-0 text-tinta-media" />
@@ -385,36 +354,26 @@ export function CaixaDeEnvio({
           <span className="sr-only">Anexar arquivo</span>
         </Button>
 
+        {/* O aviso de que enviar TAMBEM assume o atendimento saiu da tela e
+            virou title: a informacao continua a um passe de mouse, e as duas
+            linhas que ela ocupava voltaram para o fio. O botao "Assumir" no
+            cabecalho segue sendo o caminho de quem so quer reservar a conversa.
+
+            A dica do "/" tambem saiu: o placeholder do campo ja diz, e dizer
+            duas vezes custava mais uma linha. */}
         <Button
           onClick={() => void enviar()}
           disabled={enviando || (!texto.trim() && !arquivo)}
           size="icon"
+          title={
+            naFila
+              ? 'Enviar — ao enviar, você assume o atendimento'
+              : 'Enviar'
+          }
         >
           <Send />
           <span className="sr-only">Enviar</span>
         </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        {/* FASE 1: sem WhatsApp real, o painel precisa de um jeito de encenar a
-            chegada de mensagem do cliente. Este botão sai quando o webhook entrar. */}
-        <button
-          type="button"
-          onClick={() => void simularCliente()}
-          disabled={enviando}
-          className="inline-flex w-fit items-center gap-1.5 text-[11px] text-tinta-media transition-colors hover:text-tinta disabled:opacity-50"
-          title="Fase 1: encena uma mensagem chegando do cliente"
-        >
-          <MessageSquarePlus className="size-3.5" />
-          Simular mensagem do cliente
-        </button>
-
-        {(respostasRapidas?.length ?? 0) > 0 ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-tinta-fraca">
-            <Zap className="size-3.5" />
-            Digite <span className="font-dado">/</span> para as respostas rápidas
-          </span>
-        ) : null}
       </div>
     </div>
   )

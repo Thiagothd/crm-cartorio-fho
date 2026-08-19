@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { CabecalhoDaPagina, EstadoVazio } from '@/components/layout/shell'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { conversasApi } from '@/lib/api/endpoints'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
@@ -24,9 +25,11 @@ import {
 import {
   FiltrosDaInbox,
   filtrosParaConsulta,
+  temFiltroAplicado,
   type FiltrosVisiveis,
 } from '@/features/atendimento/filtros-da-inbox'
 import { ItemDeConversa } from '@/features/atendimento/item-de-conversa'
+import { TrilhoDeConversas } from '@/features/atendimento/trilho-de-conversas'
 import { ResumoDoPainelAtendimento } from '@/features/atendimento/resumo-do-painel'
 import type { IndicadorDoPainel } from '@/features/atendimento/resumo-do-painel'
 import { CabecalhoDaConversa } from '@/features/atendimento/cabecalho-da-conversa'
@@ -66,6 +69,14 @@ export function PaginaInbox() {
   const [painelRecolhido, alternarPainel] = usarPreferenciaLocal(
     'crm-cartorio.painel-recolhido.v2',
     true,
+  )
+
+  // Recolher a lista devolve 300px de largura para o fio e para a caixa de
+  // resposta. Nasce ABERTA: quem esta satisfeito com a tela de hoje nao pode
+  // encontrar a lista sumida sem ter pedido nada.
+  const [listaRecolhida, alternarLista] = usarPreferenciaLocal(
+    'crm-cartorio.lista-recolhida',
+    false,
   )
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
@@ -311,49 +322,74 @@ export function PaginaInbox() {
       ) : null}
 
       <div className="flex min-h-0 flex-1">
-        <section className="flex w-[360px] shrink-0 flex-col overflow-hidden border-r border-linha">
-          <FiltrosDaInbox
-            filtros={filtros}
-            setores={setores ?? []}
-            etapas={etapas ?? []}
-            aoMudar={setFiltros}
-          />
-
-          <div className="flex-1 overflow-y-auto">
-            {carregandoLista ? (
-              <div className="flex flex-col gap-3 p-3">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full" />
-                ))}
-              </div>
-            ) : lista?.itens.length ? (
-              lista.itens.map((item) => (
-                <ItemDeConversa
-                  key={item.id}
-                  conversa={item}
-                  selecionada={item.id === selecionadaId}
-                  souOResponsavel={item.atendenteId === atendente?.id}
-                  etapaEhFinal={item.etapaId !== null && etapasFinais.has(item.etapaId)}
-                  aoSelecionar={selecionar}
-                />
-              ))
-            ) : (
-              <EstadoVazio
-                icone={Inbox}
-                titulo="Nenhuma conversa aqui"
-                descricao="Ajuste os filtros ou abra um novo atendimento."
+        {/* So a LARGURA muda ao recolher. shrink-0 e overflow-hidden continuam
+            aqui, e o irmao continua com min-w-0 flex-1 — e essa combinacao que
+            segura a rolagem interna das duas colunas. */}
+        <section
+          className={cn(
+            'flex shrink-0 flex-col overflow-hidden border-r border-linha',
+            listaRecolhida ? 'w-14' : 'w-[360px]',
+          )}
+        >
+          {listaRecolhida ? (
+            <TrilhoDeConversas
+              conversas={lista?.itens ?? []}
+              total={lista?.total ?? 0}
+              selecionadaId={selecionadaId}
+              temFiltro={temFiltroAplicado(filtros)}
+              aoSelecionar={selecionar}
+              aoAbrir={alternarLista}
+            />
+          ) : (
+            <>
+              <FiltrosDaInbox
+                filtros={filtros}
+                setores={setores ?? []}
+                etapas={etapas ?? []}
+                aoMudar={setFiltros}
+                aoRecolher={alternarLista}
               />
-            )}
-          </div>
 
-          {lista ? (
-            <div className="shrink-0 border-t border-linha px-3 py-2 text-[11px] text-tinta-media">
-              {lista.itens.length} de {lista.total}
-            </div>
-          ) : null}
+              <div className="flex-1 overflow-y-auto">
+                {carregandoLista ? (
+                  <div className="flex flex-col gap-3 p-3">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-20 w-full" />
+                    ))}
+                  </div>
+                ) : lista?.itens.length ? (
+                  lista.itens.map((item) => (
+                    <ItemDeConversa
+                      key={item.id}
+                      conversa={item}
+                      selecionada={item.id === selecionadaId}
+                      souOResponsavel={item.atendenteId === atendente?.id}
+                      etapaEhFinal={item.etapaId !== null && etapasFinais.has(item.etapaId)}
+                      aoSelecionar={selecionar}
+                    />
+                  ))
+                ) : (
+                  <EstadoVazio
+                    icone={Inbox}
+                    titulo="Nenhuma conversa aqui"
+                    descricao="Ajuste os filtros ou abra um novo atendimento."
+                  />
+                )}
+              </div>
+
+              {lista ? (
+                <div className="shrink-0 border-t border-linha px-3 py-2 text-[11px] text-tinta-media">
+                  {lista.itens.length} de {lista.total}
+                </div>
+              ) : null}
+            </>
+          )}
         </section>
 
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* @container: o que aperta o cabecalho da conversa nao e o tamanho da
+            janela, e a largura QUE SOBRA para esta coluna — a lista aberta e o
+            painel de historico mudam isso sem a janela mudar de tamanho. */}
+        <section className="@container flex min-w-0 flex-1 flex-col overflow-hidden">
           {!selecionadaId ? (
             <EstadoVazio
               icone={MessagesSquare}

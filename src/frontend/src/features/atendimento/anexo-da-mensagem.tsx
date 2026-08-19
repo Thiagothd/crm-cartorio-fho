@@ -136,7 +136,9 @@ export function AnexoDaMensagem({ mensagem }: { mensagem: Mensagem }) {
         className="mb-2 block overflow-hidden rounded-md border border-linha-forte"
         title={`${nome}${tamanho ? ` — ${tamanho}` : ''}. Clique para baixar.`}
       >
-        <img src={url} alt={nome} className="max-h-72 w-auto max-w-full object-contain" />
+        {/* 208px, e nao 288px: uma foto sozinha comia o espaco de quatro
+            mensagens no fio de um monitor pequeno. */}
+        <img src={url} alt={nome} className="max-h-52 w-auto max-w-full object-contain" />
       </button>
     )
   }
@@ -146,7 +148,7 @@ export function AnexoDaMensagem({ mensagem }: { mensagem: Mensagem }) {
   }
 
   if (ehVideo && url) {
-    return <video src={url} controls className="mb-2 max-h-72 w-full rounded-md" />
+    return <video src={url} controls className="mb-2 max-h-52 w-full rounded-md" />
   }
 
   return (

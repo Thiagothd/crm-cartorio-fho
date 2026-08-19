@@ -1,4 +1,4 @@
-import { Search, X } from 'lucide-react'
+import { ChevronsLeft, Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +37,26 @@ export function filtrosParaConsulta(filtros: FiltrosVisiveis): FiltroDeConversas
   }
 }
 
+/**
+ * Ha algum filtro em vigor, alem do padrao "ativas, todas, sem busca"?
+ *
+ * Vive aqui, e nao na pagina, porque quem define o padrao e este arquivo: o dia
+ * que FILTROS_INICIAIS mudar, a resposta muda junto sem ninguem lembrar de dois
+ * lugares. O trilho recolhido usa isto para avisar que a lista esta filtrada —
+ * com os filtros escondidos, lista curta sem explicacao parece defeito.
+ */
+export function temFiltroAplicado(filtros: FiltrosVisiveis) {
+  return (
+    filtros.status !== 'Ativa' ||
+    filtros.escopo !== 'todas' ||
+    filtros.busca.trim().length > 0 ||
+    Boolean(filtros.setorId) ||
+    Boolean(filtros.etapaId) ||
+    Boolean(filtros.situacaoPrazo) ||
+    Boolean(filtros.apenasEncerradasHoje)
+  )
+}
+
 const escopos: { valor: FiltrosVisiveis['escopo']; rotulo: string }[] = [
   { valor: 'todas', rotulo: 'Todas' },
   { valor: 'minhas', rotulo: 'Minhas' },
@@ -48,11 +68,13 @@ export function FiltrosDaInbox({
   setores,
   etapas,
   aoMudar,
+  aoRecolher,
 }: {
   filtros: FiltrosVisiveis
   setores: Setor[]
   etapas: Etapa[]
   aoMudar: (filtros: FiltrosVisiveis) => void
+  aoRecolher: () => void
 }) {
   function atualizar(parcial: Partial<FiltrosVisiveis>) {
     aoMudar({ ...filtros, ...parcial })
@@ -63,14 +85,30 @@ export function FiltrosDaInbox({
 
   return (
     <div className="flex shrink-0 flex-col gap-2.5 border-b border-linha p-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-tinta-media" />
-        <Input
-          value={filtros.busca}
-          onChange={(e) => atualizar({ busca: e.target.value })}
-          placeholder="Nome, telefone ou protocolo"
-          className="pl-8"
-        />
+      {/* O botao de recolher divide a LINHA da busca, em vez de ganhar uma
+          linha propria: linha nova aqui sairia da altura da lista, que e
+          exatamente o que esta mudanca veio devolver. */}
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-tinta-media" />
+          <Input
+            value={filtros.busca}
+            onChange={(e) => atualizar({ busca: e.target.value })}
+            placeholder="Nome, telefone ou protocolo"
+            className="pl-8"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={aoRecolher}
+          aria-expanded
+          aria-label="Recolher a lista de conversas"
+          title="Recolher a lista de conversas"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta"
+        >
+          <ChevronsLeft className="size-4" />
+        </button>
       </div>
 
       {/* Grupo segmentado. O estado ativo antes era bg-card sobre bg-muted —

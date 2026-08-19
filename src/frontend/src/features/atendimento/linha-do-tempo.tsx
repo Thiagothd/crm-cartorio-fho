@@ -7,8 +7,10 @@ import type { EventoDeHistorico } from '@/lib/api/tipos'
  * ocasional — o fluxo normal do atendente e o fio de mensagens.
  */
 export function LinhaDoTempo({ eventos }: { eventos: EventoDeHistorico[] }) {
+  // 256px ate 1280px de tela. O historico abre POR CIMA do espaco do fio, e num
+  // monitor pequeno cada pixel que ele toma sai da conversa.
   return (
-    <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-l border-linha bg-superficie">
+    <aside className="flex w-64 shrink-0 flex-col overflow-hidden border-l border-linha bg-superficie xl:w-72">
       <div className="border-b border-linha px-4 py-3">
         <p className="text-sm font-semibold">Histórico</p>
         <p className="text-xs text-tinta-media">Mudanças de etapa e setor</p>

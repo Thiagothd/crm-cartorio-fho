@@ -1,7 +1,7 @@
 # IDENTIDADE VISUAL
 
 > **Status:** direção aprovada pelo cliente. Implementada na Fase 1.
-> **Última atualização:** 2026-08-15
+> **Última atualização:** 2026-08-18
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -268,6 +268,36 @@ infinita.
 Denso não é apertado: a respiração vem do espaço entre grupos, não de padding
 grande em cada item.
 
+### 7.1 O fio de mensagens é mais apertado que o resto da tela
+
+Decidido em 2026-08-18, depois de ver a tela num monitor de 1366×768: **duas
+mensagens visíveis por vez**. A tabela acima continua valendo para a aplicação
+inteira; o fio é a exceção, e tem motivo.
+
+A altura do fio é o que sobra depois de tudo que é fixo — cabeçalho da página,
+resumo/funil, cabeçalho da conversa e caixa de envio. Num monitor pequeno isso é
+~320px, e cada mensagem custava ~92px. A escala do fio desceu para:
+
+| Peça | Antes | Agora |
+| --- | --- | --- |
+| Espaço entre mensagens | `gap-3`, `py-4` | `gap-1.5`, `py-2.5` |
+| Interior do balão | `px-3 py-2.5` | `px-2.5 py-1.5` |
+| Corpo da mensagem | 14px, `leading-relaxed` | 13px, `leading-snug` |
+| Citação | `mb-2 px-2 py-1.5` | `mb-1.5 px-2 py-1` |
+| Imagem e vídeo | `max-h-72` (288px) | `max-h-52` (208px) |
+| **Custo por mensagem curta** | **~92px** | **~68px** |
+
+**Muda espaço, não identidade.** Cor, borda de 1px, raio de 6px, família
+tipográfica, lado de cada autor e nome em Spectral continuam idênticos.
+
+**O metadado de 10px e 11px não encolheu.** Ele já é o piso de legibilidade, e
+encolher metadado é justamente o que faz uma tela parecer esmagada em vez de
+compacta.
+
+**É fixo, não uma preferência.** Houve uma versão com botão de alternar entre duas
+densidades; foi recusada pelo cliente e removida. Controle a mais numa tela que
+já é densa é custo, não recurso — a tela certa é uma só.
+
 ---
 
 ## 8. Como aplicar no código
@@ -427,6 +457,90 @@ painel da aplicação: a separação vem da borda, não de elevação falsa.
   `aria-activedescendant` — foco de verdade na lista interromperia a digitação a
   cada seta.
 - Escolher **insere no campo**. Nunca envia. A revisão do atendente é o ponto.
+
+### 10.7 Lista de conversas recolhível
+
+Decidido em 2026-08-18, mesma família da 10.3: o que recolhe, recolhe para uma
+faixa que ainda serve para alguma coisa.
+
+A coluna da esquerda ocupa 360px fixos o tempo todo, inclusive depois que o
+atendente já escolheu a conversa e só quer ler e responder. Um botão ao lado da
+busca recolhe a coluna para **56px**; o botão de voltar fica no topo da faixa.
+
+O que sobra na faixa recolhida:
+
+- **Os avatares das conversas, clicáveis.** Recolher não pode custar a troca de
+  atendimento. O avatar já carrega a cor da etapa (seção 2.2) e o nome vai no
+  `title` — é o mesmo arranjo do menu principal recolhido, que mantém os ícones e
+  joga os rótulos para o `title`.
+- **A marca da conversa aberta**, idêntica à da lista aberta: barra de 2px em
+  `tinta` à esquerda, fundo `superficie`.
+- **O ponto de não lidas em `selo`.** Não é uma quarta ocorrência de bordô: é a
+  contagem que a linha da lista já mostrava, no lugar dela, já que a lista não
+  está na tela.
+- **O total de conversas** no rodapé, e um ponto discreto em `tinta-media` quando
+  há filtro aplicado — com os filtros escondidos, uma lista curta sem explicação
+  parece defeito.
+
+Recolher é **só largura**: não muda filtro, não muda rota, não desmonta a
+consulta da lista e não mexe na conversa aberta. Mesma regra da 10.3. A escolha
+fica no `localStorage` (`crm-cartorio.lista-recolhida`), padrão **aberta**.
+
+Sem animação de largura, como no menu principal: animar uma coluna que tem fio
+rolando dentro rende repaint torto, não sofisticação.
+
+### 10.8 Cabeçalho da conversa em uma linha
+
+Decidido em 2026-08-18, na mesma medição da 7.1. Tudo que é faixa fixa no topo
+sai da altura do fio, e o cabeçalho da conversa tinha duas: identificação em
+cima, três seletores de 32px logo abaixo. Virou **uma linha**.
+
+**Etapa, setor e serviço viraram pílulas na linha da identificação.** São os
+**mesmos** `Select` — mesmas opções, mesma trava de permissão, mesma ação. Só o
+tamanho mudou: `text-[11px]`, `px-1.5 py-0.5`, chevron de 12px.
+
+- **Neutras**, nunca na cor da etapa: cor de etapa é status passivo e não entra em
+  controle (seção 2.2). A cor da etapa continua onde sempre esteve — no avatar ao
+  lado, na mini-pílula da inbox e na pílula do funil.
+- Não vira texto sem ação. Setor e serviço quase sempre já chegam preenchidos pela
+  triagem automática, mas cliente erra opção de menu, e **etapa não é automática
+  em fase nenhuma**: quem move é o atendente. Tirar o controle seria tirar
+  trabalho de cima da mesa, não ruído da tela.
+
+**O selo do ato pronto passa a ser o mini** (2,5rem) neste cabeçalho. O de 4,25rem
+sozinho devolveria a altura que a linha única economizou. Continua um selo por
+conversa (seção 6).
+
+**Linha de metadado não quebra — encolhe.** Faixa fixa que ganha uma segunda
+linha tira altura do fio sem avisar, e foi o primeiro defeito que a linha única
+mostrou num monitor pequeno. A ordem de sacrifício, tanto aqui quanto na linha da
+inbox, é sempre a mesma:
+
+1. **Trunca** o que tem o valor inteiro em outro lugar — nome de quem atende
+   (fica no `title`), nome de etapa e de setor (ficam na lista e no seletor).
+2. **Esconde** o telefone quando a coluna fica menor que 42rem. É
+   `@container`, não breakpoint de tela: quem aperta essa linha é o painel de
+   histórico abrindo ao lado, com a janela do mesmo tamanho.
+3. **Nunca sai o protocolo.** É o identificador que o cliente repete ao telefone
+   e que o atendente procura na lista.
+
+"Atendido por Fulano" virou **cadeado + nome**, o mesmo tratamento que a linha da
+inbox já usava — mesma informação, ~70px a menos de linha.
+
+Onde o container **não** tem altura fixa — painel de histórico, funil, telas de
+configuração — `flex-wrap` continua certo e não foi mexido. A regra é sobre faixa
+de altura fixa, não sobre a aplicação inteira.
+
+**A caixa de envio perdeu duas linhas de texto de apoio:**
+
+- O aviso "esta conversa está na fila — ao enviar, você assume o atendimento"
+  virou `title` do botão de enviar. A informação continua a um passe de mouse, e
+  o botão "Assumir" no cabeçalho segue sendo o caminho de quem só quer reservar.
+- A dica do `/` saiu: o `placeholder` do campo já diz a mesma coisa, e dizer duas
+  vezes custava uma linha.
+- O botão "Simular mensagem do cliente" saiu de vez. Era andaime da Fase 1, quando
+  não havia WhatsApp; com o canal real no ar, mensagem de cliente se testa pelo
+  WhatsApp.
 
 ---
 

@@ -222,7 +222,12 @@ export function FioDeMensagens({
           nem posição de mensagem alguma (DESIGN.md, seção 10). */}
       <div
         className={cn(
-          'flex flex-1 flex-col gap-3 overflow-y-auto bg-papel px-3 py-4 sm:px-6',
+          /* Escala apertada de proposito. Num monitor de 1366x768 sobram ~320px
+             de altura para o fio depois das faixas fixas da tela, e no respiro
+             antigo cada mensagem custava ~92px: uma ou duas a vista. Aqui muda
+             ESPACO — cor, borda, raio e familia tipografica continuam iguais
+             (DESIGN.md, secao 7). */
+          'flex flex-1 flex-col gap-1.5 overflow-y-auto bg-papel px-3 py-2.5 sm:px-5',
           TEXTURA_DO_FUNDO[aparencia] ?? TEXTURA_DO_FUNDO.PapelLiso,
         )}
       >
@@ -241,7 +246,7 @@ export function FioDeMensagens({
         const selecionada = selecionadas.has(mensagem.id)
 
         return (
-          <div key={mensagem.id} id={`mensagem-${mensagem.id}`} className="flex flex-col gap-2.5">
+          <div key={mensagem.id} id={`mensagem-${mensagem.id}`} className="flex flex-col gap-1.5">
             {dia ? (
               <div className="my-0.5 flex justify-center">
                 <time
@@ -295,7 +300,7 @@ export function FioDeMensagens({
 
                     <article
                       className={cn(
-                        'max-w-[82%] rounded-md border px-3 py-2.5 sm:max-w-[72%]',
+                        'max-w-[82%] rounded-md border px-2.5 py-1.5 sm:max-w-[72%]',
                         doAtendente ? 'border-verde/20 bg-verde/10' : null,
 
                         /* Neutra, e não a diluição de verde do atendente: verde é a
@@ -323,7 +328,7 @@ export function FioDeMensagens({
                       Na automática não há nome — o rótulo ocupa essa linha, que é
                       exatamente a informação que falta ao atendente ali. */}
                   {automatica ? (
-                    <p className="mb-1">
+                    <p className="mb-0.5">
                       <span
                         className="inline-flex items-center rounded-md border border-linha-forte px-1.5 font-titulo text-[10px] font-semibold uppercase tracking-[0.12em] text-tinta-media"
                         title={
@@ -338,7 +343,7 @@ export function FioDeMensagens({
                   ) : (
                     <p
                       className={cn(
-                        'mb-1 font-titulo text-[10px] font-semibold uppercase tracking-[0.12em]',
+                        'mb-0.5 font-titulo text-[10px] font-semibold uppercase tracking-[0.12em]',
                         doAtendente ? 'text-verde' : 'text-tinta-media',
                       )}
                     >
@@ -347,7 +352,7 @@ export function FioDeMensagens({
                   )}
 
                   {mensagem.respondidaConteudo ? (
-                    <div className="mb-2 border-l-2 border-linha-forte bg-papel/70 px-2 py-1.5">
+                    <div className="mb-1.5 border-l-2 border-linha-forte bg-papel/70 px-2 py-1">
                       <p className="text-[11px] font-medium text-tinta-media">
                         {mensagem.respondidaAutor ?? 'Mensagem'}
                       </p>
@@ -360,7 +365,7 @@ export function FioDeMensagens({
                   {mensagem.arquivoNome ? <AnexoDaMensagem mensagem={mensagem} /> : null}
 
                   {temLegendaPropria(mensagem) ? (
-                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-tinta">
+                    <p className="whitespace-pre-wrap break-words text-[13px] leading-snug text-tinta">
                       {mensagem.conteudo}
                     </p>
                   ) : null}
@@ -378,7 +383,7 @@ export function FioDeMensagens({
                         </p>
                       ) : null}
 
-                      <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1 font-dado text-[10px] text-tinta-fraca">
+                      <div className="mt-1 flex flex-wrap items-center justify-end gap-1 font-dado text-[10px] text-tinta-fraca">
                         {mensagem.oculta && mensagem.ocultaPorNome ? (
                           <span className="mr-auto font-corpo italic">
                             oculta por {mensagem.ocultaPorNome}
