@@ -5,6 +5,10 @@ obj/
 *.suo
 .vs/
 
+# Artefato local de `dotnet publish` usado para levar o build ao servidor.
+# Nunca é fonte de verdade — refazer é sempre mais barato que versionar.
+publish/
+
 # Node
 node_modules/
 dist/
@@ -58,8 +62,14 @@ appsettings.*.json
 # histórico do git para sempre.
 #
 # A pasta é recriada sozinha; o caminho sai de CanalWhatsApp:RaizDosAnexos.
+#
+# ATENÇÃO: não usar o padrão solto "anexos/" aqui — no Windows o git ignora
+# maiúscula/minúscula por padrão, e "anexos/" também casava com a pasta de
+# CÓDIGO src/backend/CrmCartorio.Api/Infrastructure/Anexos/, escondendo-a do
+# git silenciosamente. Foi assim que Infrastructure/Anexos/ nunca chegou a
+# ser commitada (descoberto em 2026-08-18). O caminho completo abaixo evita
+# a ambiguidade.
 src/backend/CrmCartorio.Api/anexos/
-anexos/
 
 # Sessão pareada do gateway Evolution (volume do Docker).
 # Quem tem esses arquivos manda mensagem como o número pareado.

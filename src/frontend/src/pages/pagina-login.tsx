@@ -134,10 +134,6 @@ export function PaginaLogin() {
             </form>
           </CardContent>
         </Card>
-
-        <p className="mt-4 text-center text-xs text-tinta-media">
-          Fase 1 — dados de demonstração, sem WhatsApp real.
-        </p>
       </div>
     </div>
   )
