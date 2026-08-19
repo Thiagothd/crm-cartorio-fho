@@ -119,3 +119,58 @@ export function iniciaisDe(nome: string) {
 
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
+
+/**
+ * Tamanho de arquivo legivel. Cartorio recebe foto de documento o dia todo, e
+ * "2,4 MB" diz mais a quem vai abrir num computador de balcao do que "2517483".
+ *
+ * Nasceu dentro de `anexo-da-mensagem.tsx`, e subiu para ca quando o terceiro
+ * lugar precisou dele: o balao do fio, a lista de documentos da galeria e o
+ * cabecalho do visualizador. Tres copias divergiriam na virgula decimal.
+ */
+export function formatarTamanhoDeArquivo(bytes: number | null): string | null {
+  if (bytes === null || bytes <= 0) {
+    return null
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+
+  const kb = bytes / 1024
+  if (kb < 1024) {
+    return `${Math.round(kb)} KB`
+  }
+
+  const mb = kb / 1024
+  if (mb < 1024) {
+    return `${mb.toFixed(1).replace('.', ',')} MB`
+  }
+
+  // Um degrau a mais que a versao original, para nao existir "1024,0 MB" na
+  // tela. Anexo desse tamanho nao passa pelo teto de 16MB do envio, mas pode
+  // ter entrado por outro caminho amanha.
+  return `${(mb / 1024).toFixed(1).replace('.', ',')} GB`
+}
+
+/**
+ * "certidao-nascimento.PDF" -> "PDF". Nulo quando nao ha extensao reconhecivel.
+ *
+ * Teto de 5 caracteres de proposito: nome com ponto no meio ("Joao S. Silva
+ * procuracao") nao pode virar uma "extensao" de trinta letras na tela.
+ */
+export function extensaoDoArquivo(nome: string | null): string | null {
+  if (!nome) {
+    return null
+  }
+
+  const ponto = nome.lastIndexOf('.')
+
+  if (ponto <= 0 || ponto === nome.length - 1) {
+    return null
+  }
+
+  const extensao = nome.slice(ponto + 1)
+
+  return extensao.length <= 5 ? extensao.toUpperCase() : null
+}

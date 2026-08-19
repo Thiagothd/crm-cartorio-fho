@@ -2,7 +2,13 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- interactive-widget: sem ele o teclado virtual do Android sobe POR CIMA da
+         caixa de resposta, porque a raiz e h-dvh com overflow escondido.
+         viewport-fit=cover habilita o env(safe-area-inset-*) do iPhone. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="light dark" />
     <title>CRM Cartório — Atendimento</title>
   </head>

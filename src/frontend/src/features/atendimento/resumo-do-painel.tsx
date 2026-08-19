@@ -27,7 +27,7 @@ function Indicador({
       onClick={aoSelecionar}
       aria-pressed={ativo}
       className={cn(
-        'flex min-h-11 flex-col gap-0.5 border border-transparent border-l-linha-forte px-3 py-1 text-left transition-colors hover:bg-branco',
+        'flex min-h-11 flex-col gap-0.5 border border-transparent border-l-linha-forte px-2.5 py-1 text-left transition-colors hover:bg-branco md:px-3',
         ativo && 'border-linha-forte bg-branco',
       )}
       title={`Filtrar por ${rotulo.toLocaleLowerCase('pt-BR')}`}
@@ -93,6 +93,7 @@ export function ResumoDoPainelAtendimento({
   aoSelecionarEtapa,
   recolhido,
   aoAlternarRecolhido,
+  className,
 }: {
   resumo: ResumoDoPainel
   etapaSelecionada?: string
@@ -101,13 +102,14 @@ export function ResumoDoPainelAtendimento({
   aoSelecionarEtapa: (etapaId?: string) => void
   recolhido: boolean
   aoAlternarRecolhido: () => void
+  className?: string
 }) {
   // Recolhido, o painel vira uma linha. O objetivo é altura: indicadores e funil
   // ocupam ~110px fixos no topo, e num notebook isso sai direto do fio de
   // mensagens — que é onde o atendimento realmente acontece.
   if (recolhido) {
     return (
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-linha bg-superficie px-6 py-1.5">
+      <div className={cn('flex shrink-0 items-center justify-between gap-4 border-b border-linha bg-superficie px-3 py-1.5 md:px-6', className)}>
         {/* Duas contagens, em tinta. "Atrasadas" ficou de fora de propósito: em
             bordô seria a quarta ocorrência da inbox — o limite é três
             (DESIGN.md, 2.1) —, e em qualquer outra cor contrariaria o
@@ -125,7 +127,7 @@ export function ResumoDoPainelAtendimento({
   }
 
   return (
-    <div className="flex shrink-0 flex-col gap-3 border-b border-linha bg-superficie px-6 py-3.5">
+    <div className={cn('flex shrink-0 flex-col gap-3 border-b border-linha bg-superficie px-3 py-3.5 md:px-6', className)}>
       <div className="flex flex-wrap gap-y-2">
         <Indicador rotulo="Ativas" valor={resumo.totalAtivas} ativo={indicadorSelecionado === 'ativas'} aoSelecionar={() => aoSelecionarIndicador('ativas')} />
         <Indicador rotulo="Na fila" valor={resumo.naFila} ativo={indicadorSelecionado === 'fila'} aoSelecionar={() => aoSelecionarIndicador('fila')} />

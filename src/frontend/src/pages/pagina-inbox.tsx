@@ -33,9 +33,15 @@ import { TrilhoDeConversas } from '@/features/atendimento/trilho-de-conversas'
 import { ResumoDoPainelAtendimento } from '@/features/atendimento/resumo-do-painel'
 import type { IndicadorDoPainel } from '@/features/atendimento/resumo-do-painel'
 import { CabecalhoDaConversa } from '@/features/atendimento/cabecalho-da-conversa'
+import type { PainelDaConversa } from '@/features/atendimento/cabecalho-da-conversa'
 import { FioDeMensagens } from '@/features/atendimento/fio-de-mensagens'
 import { CaixaDeEnvio } from '@/features/atendimento/caixa-de-envio'
 import { LinhaDoTempo } from '@/features/atendimento/linha-do-tempo'
+import { PainelLateralDaConversa } from '@/features/atendimento/painel-lateral-da-conversa'
+import { PainelDeMidias } from '@/features/atendimento/painel-de-midias'
+import { VisualizadorDeImagem } from '@/features/atendimento/visualizador-de-imagem'
+import { usarMidiasDaConversa } from '@/features/atendimento/midias-da-conversa'
+import { descartarOutrasConversas } from '@/features/atendimento/cache-de-anexos'
 import { DialogoNovaConversa } from '@/features/atendimento/dialogo-nova-conversa'
 import { DialogoEncaminhar } from '@/features/atendimento/dialogo-encaminhar'
 import { BarraDeSelecao } from '@/features/atendimento/barra-de-selecao'
@@ -80,9 +86,24 @@ export function PaginaInbox() {
   )
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
-  const [historicoVisivel, setHistoricoVisivel] = useState(false)
   const [assumindo, setAssumindo] = useState(false)
   const [mensagemRespondida, setMensagemRespondida] = useState<Mensagem | null>(null)
+
+  // Histórico e mídias dividem UM estado, e não dois booleanos: os dois painéis
+  // ocupam a mesma coluna de 256px, e abrir os dois juntos num monitor de
+  // 1366px deixaria ~250px de fio. Um estado só também dispensa decidir "qual
+  // ganha" quando os dois estivessem ligados.
+  const [painelLateral, setPainelLateral] = useState<PainelDaConversa>(null)
+
+  // UM interruptor de ocultas para o fio E para a galeria. Vive aqui porque a
+  // lista que o visualizador navega e derivada dele: com dois independentes,
+  // clicar numa imagem oculta que o fio esta exibindo abriria um visualizador
+  // cuja lista nao a contem, e ele fecharia na hora.
+  const [mostrarOcultas, setMostrarOcultas] = useState(false)
+
+  // Identidade por ID da mensagem, nunca por índice: o array de mensagens cresce
+  // com o tempo real, e um índice guardado passaria a apontar para outra foto.
+  const [imagemAberta, setImagemAberta] = useState<string | null>(null)
 
   // Seleção múltipla e encaminhamento vivem aqui, e não no fio, porque as duas
   // coisas atravessam componentes: a barra fica acima do fio e o diálogo abre
@@ -110,6 +131,15 @@ export function PaginaInbox() {
 
   const conversa = detalhe?.conversa ?? null
   const souOResponsavel = conversa?.atendenteId === atendente?.id
+
+  // A galeria e a navegação do visualizador saem das MESMAS mensagens que o fio
+  // já tem na tela — sem endpoint novo e sem segunda fonte de verdade. Como é a
+  // consulta que o SignalR invalida, a galeria acompanha o tempo real de graça.
+  const midias = usarMidiasDaConversa(
+    detalhe?.mensagens ?? [],
+    conversa?.clienteNome ?? '',
+    mostrarOcultas,
+  )
 
   const indicadorSelecionado = useMemo<IndicadorDoPainel | undefined>(() => {
     if (filtros.apenasEncerradasHoje) return 'encerradas-hoje'
@@ -173,12 +203,25 @@ export function PaginaInbox() {
     // e agir sobre elas em outro seria o pior erro possível aqui.
     setSelecionadas(new Set())
     setModoSelecao(false)
+
+    // Pela mesma razão, a foto ampliada e o interruptor de ocultas não podem
+    // atravessar a troca: um modal continuar exibindo o documento do cliente
+    // anterior é exatamente o erro que a limpeza acima existe para evitar.
+    setImagemAberta(null)
+    setMostrarOcultas(false)
+
+    // Os binários da conversa que ficou para trás não têm por que continuar
+    // ocupando memória. Só sai o que ninguém está usando.
+    descartarOutrasConversas(selecionadaId)
   }, [selecionadaId])
 
   // Escape sai do modo de seleção. Toda entrada precisa de saída óbvia, e o
   // teclado é a saída que não exige mirar num botão.
+  //
+  // Cede a vez ao visualizador: com a foto aberta, um Escape que fizesse as duas
+  // coisas fecharia o modal E derrubaria a seleção múltipla de uma vez só.
   useEffect(() => {
-    if (!modoSelecao) return
+    if (!modoSelecao || imagemAberta) return
 
     function aoTeclar(evento: KeyboardEvent) {
       if (evento.key === 'Escape') {
@@ -189,7 +232,7 @@ export function PaginaInbox() {
 
     window.addEventListener('keydown', aoTeclar)
     return () => window.removeEventListener('keydown', aoTeclar)
-  }, [modoSelecao])
+  }, [modoSelecao, imagemAberta])
 
   function alternarSelecao(id: string) {
     setSelecionadas((atual) => {
@@ -301,10 +344,15 @@ export function PaginaInbox() {
 
   return (
     <>
+      {/* No celular, com a conversa aberta, o cabeçalho da página e o painel de
+          indicadores não dizem nada que a conversa não diga — e juntos comem
+          ~80px dos 780 disponíveis. Somem, e voltam ao fechar a conversa.
+          `hidden md:flex`, nunca `md:block`: o justify-between depende do flex. */}
       <CabecalhoDaPagina
         titulo="Atendimento"
         descricao="Conversas do WhatsApp do cartório"
         acoes={<DialogoNovaConversa aoCriar={selecionar} />}
+        className={selecionadaId ? 'hidden md:flex' : undefined}
       />
 
       {resumo ? (
@@ -318,17 +366,26 @@ export function PaginaInbox() {
           }
           recolhido={painelRecolhido}
           aoAlternarRecolhido={alternarPainel}
+          className={selecionadaId ? 'hidden md:flex' : undefined}
         />
       ) : null}
 
       <div className="flex min-h-0 flex-1">
         {/* So a LARGURA muda ao recolher. shrink-0 e overflow-hidden continuam
             aqui, e o irmao continua com min-w-0 flex-1 — e essa combinacao que
-            segura a rolagem interna das duas colunas. */}
+            segura a rolagem interna das duas colunas.
+
+            NO CELULAR e uma coluna so, e quem decide qual aparece e a ROTA que
+            ja existe: "/" mostra a lista, "/conversas/:id" mostra a conversa.
+            Nada de matchMedia — trocar layout por estado de JS desmontaria os
+            componentes e perderia a rolagem da lista ao voltar. Escondida por
+            `display`, a lista continua montada e volta onde estava. */}
         <section
           className={cn(
-            'flex shrink-0 flex-col overflow-hidden border-r border-linha',
-            listaRecolhida ? 'w-14' : 'w-[360px]',
+            'flex-col overflow-hidden border-r border-linha',
+            selecionadaId ? 'hidden' : 'flex w-full',
+            'md:flex md:w-auto md:shrink-0',
+            listaRecolhida ? 'md:w-14' : 'md:w-[360px]',
           )}
         >
           {listaRecolhida ? (
@@ -388,8 +445,15 @@ export function PaginaInbox() {
 
         {/* @container: o que aperta o cabecalho da conversa nao e o tamanho da
             janela, e a largura QUE SOBRA para esta coluna — a lista aberta e o
-            painel de historico mudam isso sem a janela mudar de tamanho. */}
-        <section className="@container flex min-w-0 flex-1 flex-col overflow-hidden">
+            painel lateral mudam isso sem a janela mudar de tamanho. NAO trocar
+            por breakpoint de tela: em 1024x768 esta coluna tem ~424px, quase o
+            mesmo que um celular de 430px, e a tela grande regrediria junto. */}
+        <section
+          className={cn(
+            '@container min-w-0 flex-1 flex-col overflow-hidden',
+            selecionadaId ? 'flex' : 'hidden md:flex',
+          )}
+        >
           {!selecionadaId ? (
             <EstadoVazio
               icone={MessagesSquare}
@@ -447,8 +511,11 @@ export function PaginaInbox() {
                 atendentes={atendentes ?? []}
                 assumindo={assumindo}
                 etapaEhFinal={conversa.etapaId !== null && etapasFinais.has(conversa.etapaId)}
-                historicoVisivel={historicoVisivel}
-                aoAlternarHistorico={() => setHistoricoVisivel((v) => !v)}
+                painelAtivo={painelLateral}
+                aoAlternarPainel={(qual) =>
+                  setPainelLateral((atual) => (atual === qual ? null : qual))
+                }
+                aoVoltar={() => navegar('/')}
                 aoAssumir={() => void assumir()}
                 aoLiberar={() =>
                   void executar(() => conversasApi.liberar(conversa.id), 'Conversa devolvida à fila.')
@@ -511,6 +578,9 @@ export function PaginaInbox() {
                     aoFixar={(m) => void fixarMensagem(m)}
                     aoOcultar={(ids, ocultar) => void ocultarMensagens(ids, ocultar)}
                     aoEncaminhar={setIdsParaEncaminhar}
+                    aoAbrirImagem={setImagemAberta}
+                    mostrarOcultas={mostrarOcultas}
+                    aoAlternarOcultas={() => setMostrarOcultas((v) => !v)}
                   />
 
                   <CaixaDeEnvio
@@ -523,12 +593,48 @@ export function PaginaInbox() {
                   />
                 </div>
 
-                {historicoVisivel ? <LinhaDoTempo eventos={detalhe.historico} /> : null}
+                {painelLateral === 'historico' ? (
+                  <PainelLateralDaConversa
+                    titulo="Histórico"
+                    descricao="Mudanças de etapa e setor"
+                    aoFechar={() => setPainelLateral(null)}
+                    escapeAtivo={!imagemAberta}
+                  >
+                    <LinhaDoTempo eventos={detalhe.historico} />
+                  </PainelLateralDaConversa>
+                ) : null}
+
+                {painelLateral === 'midias' ? (
+                  <PainelLateralDaConversa
+                    titulo="Mídias e arquivos"
+                    descricao="Anexos trocados nesta conversa"
+                    aoFechar={() => setPainelLateral(null)}
+                    escapeAtivo={!imagemAberta}
+                  >
+                    <PainelDeMidias
+                      conversa={conversa}
+                      colecao={midias}
+                      mostrarOcultas={mostrarOcultas}
+                      aoAlternarOcultas={() => setMostrarOcultas((v) => !v)}
+                      aoAbrirImagem={setImagemAberta}
+                    />
+                  </PainelLateralDaConversa>
+                ) : null}
               </div>
             </>
           )}
         </section>
       </div>
+
+      {/* Uma instância só, aqui em cima: o fio e a galeria abrem o MESMO
+          visualizador, com a mesma lista de navegação. Dois modais competindo
+          pelo foco seria o resultado de montar um em cada lugar. */}
+      <VisualizadorDeImagem
+        imagens={midias.imagens}
+        mensagemAberta={imagemAberta}
+        aoFechar={() => setImagemAberta(null)}
+        aoNavegar={setImagemAberta}
+      />
 
       {selecionadaId ? (
         <DialogoEncaminhar

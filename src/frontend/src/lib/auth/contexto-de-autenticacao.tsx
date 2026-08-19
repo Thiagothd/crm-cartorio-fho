@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { autenticacaoApi } from '@/lib/api/endpoints'
 import { gravarToken, lerToken, limparToken } from '@/lib/api/cliente-http'
+import { limparCacheDeAnexos } from '@/features/atendimento/cache-de-anexos'
 import type { Atendente, Tenant } from '@/lib/api/tipos'
 
 export interface EstadoDeAutenticacao {
@@ -59,6 +60,12 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
 
   const sair = useCallback(() => {
     limparToken()
+
+    // Anexo de cartorio e documento de cliente. Deixar os blobs vivos depois do
+    // logout anularia a razao de o endpoint ser autenticado — a proxima pessoa
+    // no computador de balcao veria o RG do atendimento anterior.
+    limparCacheDeAnexos()
+
     setAtendente(null)
     setTenant(null)
   }, [])

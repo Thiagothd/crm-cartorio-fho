@@ -94,7 +94,7 @@ export function CaixaDeEnvio({
 
   if (conversa.status === 'Encerrada') {
     return (
-      <div className="border-t border-linha px-6 py-4 text-center text-sm text-tinta-media">
+      <div className="border-t border-linha px-3 py-3 md:px-6 md:py-4 text-center text-sm text-tinta-media">
         Atendimento encerrado. O histórico continua disponível — reabra para voltar a responder.
       </div>
     )
@@ -105,7 +105,7 @@ export function CaixaDeEnvio({
   // backend faz isso com o mesmo UPDATE condicional de sempre.
   if (!souOResponsavel && conversa.atendenteId !== null) {
     return (
-      <div className="flex items-center justify-between gap-3 border-t border-linha bg-superficie px-6 py-4">
+      <div className="flex items-center justify-between gap-3 border-t border-linha bg-superficie px-3 py-3 md:px-6 md:py-4">
         <p className="flex items-center gap-2 text-sm text-tinta-media">
           <Lock className="size-4 shrink-0" />
           Em atendimento por {conversa.atendenteNome}.
@@ -242,7 +242,7 @@ export function CaixaDeEnvio({
   const naFila = conversa.atendenteId === null
 
   return (
-    <div className="flex flex-col gap-2 border-t border-linha px-6 py-2.5">
+    <div className="flex flex-col gap-2 border-t border-linha px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-2.5 md:pb-2.5">
       {mensagemRespondida ? (
         <div className="flex items-start gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
           <Reply className="mt-0.5 size-3.5 shrink-0 text-tinta-media" />
