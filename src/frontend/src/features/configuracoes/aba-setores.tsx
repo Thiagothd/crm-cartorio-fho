@@ -38,7 +38,7 @@ export function AbaSetores() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Setor é <strong className="text-tinta">quem atende</strong> — o eixo de roteamento da
           conversa. Não confundir com etapa, que é o ponto do atendimento no funil. Os nomes abaixo
@@ -47,6 +47,7 @@ export function AbaSetores() {
 
         <Button
           size="sm"
+          className="sm:shrink-0"
           onClick={() => {
             setEmEdicao(null)
             setAberto(true)
@@ -65,22 +66,22 @@ export function AbaSetores() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm md:table-auto">
             <thead className="bg-superficie text-xs text-tinta-media">
               <tr>
-                <th className="w-16 px-4 py-2.5 text-left font-medium">Ordem</th>
-                <th className="px-4 py-2.5 text-left font-medium">Setor</th>
-                <th className="px-4 py-2.5 text-left font-medium">Conversas ativas</th>
-                <th className="w-10" />
+                <th className="w-16 px-3 py-2.5 text-left font-medium md:px-4">Ordem</th>
+                <th className="px-3 py-2.5 text-left font-medium md:px-4">Setor</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Conversas ativas</th>
+                <th className="w-14 md:w-12" />
               </tr>
             </thead>
 
             <tbody>
               {data?.map((setor) => (
                 <tr key={setor.id} className="border-t border-linha hover:bg-superficie">
-                  <td className="px-4 py-2.5 tabular-nums text-tinta-media">{setor.ordem}</td>
+                  <td className="px-3 py-3 tabular-nums text-tinta-media md:px-4 md:py-2.5">{setor.ordem}</td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-3 md:px-4 md:py-2.5">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{setor.nome}</span>
                       {!setor.ativo ? <Badge variant="secondary">Inativo</Badge> : null}
@@ -88,13 +89,17 @@ export function AbaSetores() {
                     {setor.descricao ? (
                       <p className="text-xs text-tinta-media">{setor.descricao}</p>
                     ) : null}
+                    <p className="mt-1 text-[11px] text-tinta-fraca md:hidden">
+                      {setor.conversasAtivas}{' '}
+                      {setor.conversasAtivas === 1 ? 'conversa ativa' : 'conversas ativas'}
+                    </p>
                   </td>
 
-                  <td className="px-4 py-2.5 tabular-nums text-tinta-media">
+                  <td className="hidden px-4 py-2.5 tabular-nums text-tinta-media md:table-cell">
                     {setor.conversasAtivas}
                   </td>
 
-                  <td className="px-2 py-2.5">
+                  <td className="px-1 py-2.5 md:px-2">
                     <Button
                       variant="ghost"
                       size="icon-sm"

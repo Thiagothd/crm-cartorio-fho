@@ -1,7 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Inbox, LogOut, Menu, Scale, Settings2, UserRound, Users, X, type LucideIcon } from 'lucide-react'
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { usarAbaixoDe } from '@/lib/usar-abaixo-de'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import {
   DropdownMenu,
@@ -33,54 +34,111 @@ const itens: ItemDeMenu[] = [
  * cada página o renderiza dentro de `children`. Alternativa seria acrescentar
  * uma prop em todas as páginas para um botão que só aparece no celular.
  */
-const ContextoDoMenu = createContext<(() => void) | null>(null)
+const ContextoDoMenu = createContext<((gatilho?: HTMLElement) => void) | null>(null)
 
 export function Shell({ children }: { children: ReactNode }) {
   const { atendente, tenant, sair, podeGerirCadastros } = usarAutenticacao()
   const navegar = useNavigate()
   const [menuRecolhido, setMenuRecolhido] = useState(false)
 
+  // Abaixo de 1280px o notebook já não sobra espaço para o menu de 240px E a
+  // lista de conversas de 360px ao mesmo tempo — recolhe sozinho, sem esperar
+  // o clique. `recolhido` é o que a tela de fato usa; `menuRecolhido` continua
+  // sendo só a escolha manual, que o botão alterna e que reaparece assim que a
+  // janela volta a alargar.
+  const estreito = usarAbaixoDe(1280)
+  const recolhido = menuRecolhido || estreito
+
   // Recolher (desktop) e abrir a gaveta (celular) são coisas diferentes: uma é
   // preferência de largura, a outra é presença na tela. Um estado só faria o
   // menu do celular nascer com 64px de rail.
   const [menuAberto, setMenuAberto] = useState(false)
+  const menu = useRef<HTMLElement>(null)
+  const ultimoGatilhoDoMenu = useRef<HTMLElement | null>(null)
 
   const visiveis = itens.filter((item) => !item.exigeGestao || podeGerirCadastros)
+
+  function fecharMenu() {
+    setMenuAberto(false)
+
+    requestAnimationFrame(() => {
+      ultimoGatilhoDoMenu.current?.focus()
+    })
+  }
+
+  function abrirMenu(gatilho?: HTMLElement) {
+    ultimoGatilhoDoMenu.current = gatilho ?? (document.activeElement as HTMLElement | null)
+    setMenuAberto(true)
+  }
 
   useEffect(() => {
     if (!menuAberto) return
 
     function aoTeclar(evento: KeyboardEvent) {
       if (evento.key === 'Escape') {
-        setMenuAberto(false)
+        fecharMenu()
+        return
+      }
+
+      if (evento.key === 'Tab') {
+        const elementos = menu.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )
+
+        if (!elementos?.length) return
+
+        const primeiro = elementos[0]
+        const ultimo = elementos[elementos.length - 1]
+
+        if (evento.shiftKey && document.activeElement === primeiro) {
+          evento.preventDefault()
+          ultimo.focus()
+        } else if (!evento.shiftKey && document.activeElement === ultimo) {
+          evento.preventDefault()
+          primeiro.focus()
+        }
       }
     }
 
+    const overflowAnterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', aoTeclar)
-    return () => window.removeEventListener('keydown', aoTeclar)
+
+    requestAnimationFrame(() => {
+      menu.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus()
+    })
+
+    return () => {
+      window.removeEventListener('keydown', aoTeclar)
+      document.body.style.overflow = overflowAnterior
+    }
   }, [menuAberto])
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-papel">
+    <div className="flex h-dvh min-h-dvh overflow-hidden bg-papel">
       {menuAberto ? (
         <button
           type="button"
-          onClick={() => setMenuAberto(false)}
+          onClick={fecharMenu}
           aria-label="Fechar o menu principal"
           className="fixed inset-0 z-40 bg-tinta/40 md:hidden"
         />
       ) : null}
 
       <aside
+        ref={menu}
+        aria-label="Menu principal"
+        aria-modal={menuAberto || undefined}
+        role={menuAberto ? 'dialog' : undefined}
         className={cn(
-          'flex-col border-r border-linha-forte bg-tinta',
+          'flex-col border-r border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]',
           // Celular: fora da tela por padrão, e por cima do conteúdo quando
           // aberto. Continua sendo a única superfície escura da aplicação —
           // ela é a navegação, e a navegação não divide espaço aqui.
-          menuAberto ? 'fixed inset-y-0 left-0 z-50 flex w-64' : 'hidden',
+          menuAberto ? 'fixed inset-y-0 left-0 z-50 flex w-[min(20rem,calc(100vw-2rem))]' : 'hidden',
           // md+: exatamente o de sempre.
           'md:static md:z-auto md:flex md:shrink-0',
-          menuRecolhido ? 'md:w-16' : 'md:w-60',
+          recolhido ? 'md:w-16' : 'md:w-60',
         )}
       >
         {/* Cabecalho: nome da serventia em Spectral. Sem logotipo — a serventia
@@ -89,12 +147,12 @@ export function Shell({ children }: { children: ReactNode }) {
         <div
           className={cn(
             'flex min-h-[72px] items-start border-b border-linha-forte/35',
-            menuRecolhido
+            recolhido
               ? 'justify-between gap-2 px-4 py-4 md:justify-center md:px-2 md:py-3'
               : 'justify-between gap-2 px-4 py-4',
           )}
         >
-          <div className={cn('min-w-0', menuRecolhido && 'md:hidden')}>
+          <div className={cn('min-w-0', recolhido && 'md:hidden')}>
             <p className="font-titulo text-[15px] font-semibold leading-tight text-branco">
               {tenant?.nomeFantasia ?? tenant?.razaoSocial ?? 'Cartório'}
             </p>
@@ -107,7 +165,7 @@ export function Shell({ children }: { children: ReactNode }) {
               de 64px não faz sentido numa gaveta que cobre a tela. */}
           <button
             type="button"
-            onClick={() => setMenuAberto(false)}
+            onClick={fecharMenu}
             className="flex size-9 shrink-0 items-center justify-center rounded-md border border-linha-forte/40 text-papel transition-colors hover:border-linha-forte hover:bg-branco/10 hover:text-branco md:hidden"
             aria-label="Fechar menu principal"
             title="Fechar menu"
@@ -115,16 +173,21 @@ export function Shell({ children }: { children: ReactNode }) {
             <X className="size-4" />
           </button>
 
-          <button
-            type="button"
-            onClick={() => setMenuRecolhido((valor) => !valor)}
-            className="hidden size-9 shrink-0 items-center justify-center rounded-md border border-linha-forte/40 text-papel transition-colors hover:border-linha-forte hover:bg-branco/10 hover:text-branco md:flex"
-            aria-label={menuRecolhido ? 'Abrir menu principal' : 'Recolher menu principal'}
-            aria-expanded={!menuRecolhido}
-            title={menuRecolhido ? 'Abrir menu' : 'Recolher menu'}
-          >
-            <Menu className="size-4" />
-          </button>
+          {/* Some quando o recolhimento é automático: não há nada para o
+              atendente decidir numa largura que já forçou o rail sozinha. O
+              botão volta assim que a janela alarga passa de 1280px. */}
+          {!estreito ? (
+            <button
+              type="button"
+              onClick={() => setMenuRecolhido((valor) => !valor)}
+              className="hidden size-9 shrink-0 items-center justify-center rounded-md border border-linha-forte/40 text-papel transition-colors hover:border-linha-forte hover:bg-branco/10 hover:text-branco md:flex"
+              aria-label={menuRecolhido ? 'Abrir menu principal' : 'Recolher menu principal'}
+              aria-expanded={!menuRecolhido}
+              title={menuRecolhido ? 'Abrir menu' : 'Recolher menu'}
+            >
+              <Menu className="size-4" />
+            </button>
+          ) : null}
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
@@ -135,21 +198,21 @@ export function Shell({ children }: { children: ReactNode }) {
               end={para === '/'}
               // Escolher um destino fecha a gaveta. No desktop já está fechada,
               // então a chamada é inócua lá.
-              onClick={() => setMenuAberto(false)}
+              onClick={fecharMenu}
               className={({ isActive }) =>
                 cn(
                   'flex h-9 items-center gap-2.5 rounded-md border px-2.5 text-sm transition-colors',
-                  menuRecolhido && 'md:justify-center md:gap-0 md:px-2',
+                  recolhido && 'md:justify-center md:gap-0 md:px-2',
                   isActive
                     ? // Item ativo: uma das ocorrencias de bordo permitidas.
                       'border-linha-forte bg-branco font-medium text-selo'
                     : 'border-transparent text-linha hover:bg-branco/10 hover:text-branco',
                 )
               }
-              title={menuRecolhido ? rotulo : undefined}
+              title={recolhido ? rotulo : undefined}
             >
               <Icone className="size-4 shrink-0" />
-              <span className={cn(menuRecolhido && 'md:sr-only')}>{rotulo}</span>
+              <span className={cn(recolhido && 'md:sr-only')}>{rotulo}</span>
             </NavLink>
           ))}
         </nav>
@@ -160,18 +223,18 @@ export function Shell({ children }: { children: ReactNode }) {
               <button
                 className={cn(
                   'flex min-h-9 w-full flex-col items-start gap-0.5 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors hover:border-linha-forte/40 hover:bg-branco/10',
-                  menuRecolhido && 'md:flex-row md:items-center md:justify-center md:px-2 md:text-linha',
+                  recolhido && 'md:flex-row md:items-center md:justify-center md:px-2 md:text-linha',
                 )}
-                title={menuRecolhido ? atendente?.nome : undefined}
+                title={recolhido ? atendente?.nome : undefined}
               >
-                {menuRecolhido ? (
+                {recolhido ? (
                   <UserRound className="hidden size-4 md:block" />
                 ) : null}
 
                 <span
                   className={cn(
                     'w-full truncate text-sm font-medium text-branco',
-                    menuRecolhido && 'md:sr-only',
+                    recolhido && 'md:sr-only',
                   )}
                 >
                   {atendente?.nome}
@@ -184,7 +247,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <span
                   className={cn(
                     'w-full truncate text-[11px] uppercase tracking-wider text-linha',
-                    menuRecolhido && 'md:hidden',
+                    recolhido && 'md:hidden',
                   )}
                 >
                   {atendente?.cargo && atendente.cargo !== 'NaoInformado'
@@ -221,8 +284,8 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <ContextoDoMenu.Provider value={() => setMenuAberto(true)}>
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+      <ContextoDoMenu.Provider value={abrirMenu}>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
       </ContextoDoMenu.Provider>
     </div>
   )
@@ -244,7 +307,7 @@ export function CabecalhoDaPagina({
   return (
     <header
       className={cn(
-        'flex shrink-0 items-center justify-between gap-3 border-b border-linha-forte bg-branco px-3 py-2.5 md:gap-4 md:px-6 md:py-3.5',
+        'flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-linha-forte bg-branco px-3 py-2.5 md:flex-nowrap md:gap-4 md:px-6 md:py-3.5',
         className,
       )}
     >
@@ -254,7 +317,7 @@ export function CabecalhoDaPagina({
       {abrirMenu ? (
         <button
           type="button"
-          onClick={abrirMenu}
+          onClick={(evento) => abrirMenu(evento.currentTarget)}
           aria-label="Abrir o menu principal"
           title="Menu"
           className="flex size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:hidden"
@@ -271,7 +334,7 @@ export function CabecalhoDaPagina({
           <p className="mt-0.5 hidden text-xs text-tinta-media sm:block">{descricao}</p>
         ) : null}
       </div>
-      {acoes ? <div className="flex shrink-0 items-center gap-2">{acoes}</div> : null}
+      {acoes ? <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">{acoes}</div> : null}
     </header>
   )
 }

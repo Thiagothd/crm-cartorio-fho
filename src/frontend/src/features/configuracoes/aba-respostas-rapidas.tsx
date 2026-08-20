@@ -50,7 +50,7 @@ export function AbaRespostasRapidas() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Textos prontos para o dia a dia. Na conversa, o atendente digita{' '}
           <span className="font-dado">/</span> seguido do atalho, escolhe e o texto entra no campo.
@@ -58,7 +58,7 @@ export function AbaRespostasRapidas() {
           sozinho.
         </p>
 
-        <Button size="sm" onClick={abrirNova}>
+        <Button size="sm" className="sm:shrink-0" onClick={abrirNova}>
           <Plus />
           Nova resposta
         </Button>
@@ -72,13 +72,13 @@ export function AbaRespostasRapidas() {
         </div>
       ) : data?.length ? (
         <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm md:table-auto">
             <thead className="bg-superficie text-xs text-tinta-media">
               <tr>
-                <th className="w-32 px-4 py-2.5 text-left font-medium">Atalho</th>
-                <th className="w-64 px-4 py-2.5 text-left font-medium">Título</th>
-                <th className="px-4 py-2.5 text-left font-medium">Texto</th>
-                <th className="w-10" />
+                <th className="hidden w-32 px-4 py-2.5 text-left font-medium md:table-cell">Atalho</th>
+                <th className="px-3 py-2.5 text-left font-medium md:w-64 md:px-4">Título</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Texto</th>
+                <th className="w-14 md:w-10" />
               </tr>
             </thead>
 
@@ -87,22 +87,30 @@ export function AbaRespostasRapidas() {
                 <tr key={resposta.id} className="border-t border-linha align-top hover:bg-superficie">
                   {/* Mono: é um literal que o atendente digita caractere a caractere,
                       igual ao protocolo (DESIGN.md, seção 3). */}
-                  <td className="px-4 py-2.5 font-dado text-xs text-tinta-media">
+                  <td className="hidden px-4 py-2.5 font-dado text-xs text-tinta-media md:table-cell">
                     /{resposta.atalho}
                   </td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-3 md:px-4 md:py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{resposta.titulo}</span>
                       {!resposta.ativo ? <Badge variant="secondary">Inativa</Badge> : null}
                     </div>
+                    {/* Atalho e texto voltam aqui embaixo no celular, onde as
+                        colunas dedicadas somem. */}
+                    <p className="mt-1 font-dado text-[11px] text-tinta-fraca md:hidden">
+                      /{resposta.atalho}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-[11px] text-tinta-fraca md:hidden">
+                      {resposta.conteudo}
+                    </p>
                   </td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="hidden px-4 py-2.5 md:table-cell">
                     <p className="line-clamp-2 text-xs text-tinta-media">{resposta.conteudo}</p>
                   </td>
 
-                  <td className="px-2 py-2.5">
+                  <td className="px-1 py-2.5 md:px-2">
                     <Button
                       variant="ghost"
                       size="icon-sm"

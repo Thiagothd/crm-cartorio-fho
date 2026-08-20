@@ -214,11 +214,11 @@ export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string)
             {modoNovoCliente ? 'Escolher cliente já cadastrado' : 'Cadastrar cliente novo'}
           </button>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label>Etapa inicial</Label>
               <Select value={etapaId} onValueChange={setEtapaId}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger>
                   <SelectValue placeholder="Primeira etapa" />
                 </SelectTrigger>
                 <SelectContent>
@@ -235,7 +235,7 @@ export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string)
             <div className="flex flex-col gap-1.5">
               <Label>Setor</Label>
               <Select value={setorId} onValueChange={setSetorId}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger>
                   <SelectValue placeholder="Setor" />
                 </SelectTrigger>
                 <SelectContent>

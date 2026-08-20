@@ -323,7 +323,12 @@ export function DialogoDeCliente({
         </DialogHeader>
 
         <Tabs value={aba} onValueChange={(valor) => setAba(valor as Aba)}>
-          <TabsList className="grid h-auto w-full grid-cols-4">
+          {/* Duas colunas no celular, não rolagem: com scroll horizontal a
+              última aba ("Observações") ficava com a palavra cortada na borda
+              do diálogo, parecendo defeito em vez de convite pra arrastar. Em
+              duas linhas de duas, as quatro ficam inteiras e visíveis de uma
+              vez. Do sm em diante a largura sobra e volta a ser uma linha só. */}
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
             <TabsTrigger value="contato">Contato</TabsTrigger>
             <TabsTrigger value="qualificacao">Qualificação</TabsTrigger>
             <TabsTrigger value="endereco">Endereço</TabsTrigger>

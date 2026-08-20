@@ -1,6 +1,14 @@
-import { ChevronsLeft, Search, X } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronsLeft, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -82,6 +90,7 @@ export function FiltrosDaInbox({
 
   const temFiltroAvancado =
     Boolean(filtros.setorId) || Boolean(filtros.etapaId) || Boolean(filtros.situacaoPrazo)
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
 
   return (
     <div className="flex shrink-0 flex-col gap-2.5 border-b border-linha p-3">
@@ -98,6 +107,18 @@ export function FiltrosDaInbox({
             className="pl-8"
           />
         </div>
+
+        <Button
+          variant={temFiltroAvancado ? 'secondary' : 'outline'}
+          size="icon"
+          className="md:hidden"
+          onClick={() => setFiltrosAbertos(true)}
+          aria-label="Abrir filtros avançados"
+          title="Filtros"
+        >
+          <SlidersHorizontal />
+          <span className="sr-only">Filtros</span>
+        </Button>
 
         <button
           type="button"
@@ -138,7 +159,7 @@ export function FiltrosDaInbox({
                 atualizar({ escopo: valor, status: 'Ativa', apenasEncerradasHoje: false })
               }
               className={cn(
-                'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+                'flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 py-1 text-xs transition-colors md:min-h-0',
                 ativo
                   ? 'border-linha-forte bg-branco font-semibold text-tinta'
                   : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
@@ -159,7 +180,7 @@ export function FiltrosDaInbox({
             })
           }
           className={cn(
-            'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+            'flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 py-1 text-xs transition-colors md:min-h-0',
             filtros.status === 'Encerrada'
               ? 'border-linha-forte bg-branco font-semibold text-tinta'
               : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
@@ -170,12 +191,61 @@ export function FiltrosDaInbox({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="hidden md:block">
+        <CamposDeFiltroAvancado
+          filtros={filtros}
+          etapas={etapas}
+          setores={setores}
+          aoMudar={atualizar}
+          temFiltroAvancado={temFiltroAvancado}
+        />
+      </div>
+
+      <Dialog open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
+        <DialogContent className="md:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Filtrar atendimentos</DialogTitle>
+            <DialogDescription>
+              Refine a lista sem perder a busca e o escopo que já estão selecionados.
+            </DialogDescription>
+          </DialogHeader>
+          <CamposDeFiltroAvancado
+            filtros={filtros}
+            etapas={etapas}
+            setores={setores}
+            aoMudar={atualizar}
+            temFiltroAvancado={temFiltroAvancado}
+          />
+          <Button variant="outline" onClick={() => setFiltrosAbertos(false)}>
+            Concluir
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function CamposDeFiltroAvancado({
+  filtros,
+  etapas,
+  setores,
+  aoMudar,
+  temFiltroAvancado,
+}: {
+  filtros: FiltrosVisiveis
+  etapas: Etapa[]
+  setores: Setor[]
+  aoMudar: (parcial: Partial<FiltrosVisiveis>) => void
+  temFiltroAvancado: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Select
           value={filtros.etapaId ?? TODOS}
-          onValueChange={(v) => atualizar({ etapaId: v === TODOS ? undefined : v })}
+          onValueChange={(v) => aoMudar({ etapaId: v === TODOS ? undefined : v })}
         >
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="text-xs md:text-xs">
             <SelectValue placeholder="Etapa" />
           </SelectTrigger>
           <SelectContent>
@@ -190,9 +260,9 @@ export function FiltrosDaInbox({
 
         <Select
           value={filtros.setorId ?? TODOS}
-          onValueChange={(v) => atualizar({ setorId: v === TODOS ? undefined : v })}
+          onValueChange={(v) => aoMudar({ setorId: v === TODOS ? undefined : v })}
         >
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="text-xs md:text-xs">
             <SelectValue placeholder="Setor" />
           </SelectTrigger>
           <SelectContent>
@@ -210,10 +280,10 @@ export function FiltrosDaInbox({
         <Select
           value={filtros.situacaoPrazo ?? TODOS}
           onValueChange={(v) =>
-            atualizar({ situacaoPrazo: v === TODOS ? undefined : (v as SituacaoPrazo) })
+            aoMudar({ situacaoPrazo: v === TODOS ? undefined : (v as SituacaoPrazo) })
           }
         >
-          <SelectTrigger className="h-8 flex-1 text-xs">
+          <SelectTrigger className="flex-1 text-xs md:text-xs">
             <SelectValue placeholder="Prazo" />
           </SelectTrigger>
           <SelectContent>
@@ -228,11 +298,12 @@ export function FiltrosDaInbox({
         {temFiltroAvancado ? (
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             title="Limpar filtros"
-            onClick={() => atualizar({ setorId: undefined, etapaId: undefined, situacaoPrazo: undefined })}
+            onClick={() => aoMudar({ setorId: undefined, etapaId: undefined, situacaoPrazo: undefined })}
           >
             <X />
+            <span className="sr-only">Limpar filtros</span>
           </Button>
         ) : null}
       </div>

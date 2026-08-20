@@ -54,8 +54,8 @@ export function PaginaServicos() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mb-4 rounded-md border border-linha bg-superficie px-4 py-3 text-sm text-tinta-media">
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
+        <div className="mb-4 rounded-md border border-linha bg-superficie px-3 py-3 text-sm text-tinta-media md:px-4">
           Os serviços e prazos abaixo vieram do padrão de mercado e{' '}
           <strong className="font-medium text-tinta">aguardam validação do cartório parceiro</strong>. Tudo
           aqui é cadastro — trocar nome, prazo ou categoria não exige alteração de código.
@@ -74,47 +74,51 @@ export function PaginaServicos() {
                 <h2 className="mb-2 text-sm font-semibold text-tinta-media">{categoria}</h2>
 
                 <div className="overflow-hidden rounded-md border border-linha">
-                  <table className="w-full text-sm">
+                  <table className="w-full table-fixed text-sm md:table-auto">
                     <thead className="bg-superficie text-xs text-tinta-media">
                       <tr>
-                        <th className="px-4 py-2.5 text-left font-medium">Serviço</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Código</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Prazo</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Alerta</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Em aberto</th>
-                        <th className="w-10" />
+                        <th className="px-3 py-2.5 text-left font-medium md:px-4">Serviço</th>
+                        <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Código</th>
+                        <th className="w-24 px-3 py-2.5 text-left font-medium md:w-auto md:px-4">Prazo</th>
+                        <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Alerta</th>
+                        <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Em aberto</th>
+                        <th className="w-14 md:w-12" />
                       </tr>
                     </thead>
 
                     <tbody>
                       {servicos.map((servico) => (
                         <tr key={servico.id} className="border-t border-linha hover:bg-superficie">
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-2">
+                          <td className="px-3 py-3 md:px-4 md:py-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="font-medium">{servico.nome}</span>
                               {!servico.ativo ? (
                                 <Badge variant="secondary">Inativo</Badge>
                               ) : null}
                             </div>
+                            <p className="mt-1 text-[11px] text-tinta-fraca md:hidden">
+                              {servico.conversasAtivas}{' '}
+                              {servico.conversasAtivas === 1 ? 'atendimento em aberto' : 'atendimentos em aberto'}
+                            </p>
                           </td>
 
-                          <td className="px-4 py-2.5 font-mono text-xs text-tinta-media">
+                          <td className="hidden px-4 py-2.5 font-mono text-xs text-tinta-media md:table-cell">
                             {servico.codigo ?? '—'}
                           </td>
 
-                          <td className="px-4 py-2.5 text-tinta-media">
+                          <td className="px-3 py-3 text-xs text-tinta-media md:px-4 md:py-2.5 md:text-sm">
                             {servico.prazo?.prazoDescrito ?? 'sem prazo'}
                           </td>
 
-                          <td className="px-4 py-2.5 text-tinta-media">
+                          <td className="hidden px-4 py-2.5 text-tinta-media md:table-cell">
                             {servico.prazo ? `${servico.prazo.percentualAlerta}%` : '—'}
                           </td>
 
-                          <td className="px-4 py-2.5 tabular-nums text-tinta-media">
+                          <td className="hidden px-4 py-2.5 tabular-nums text-tinta-media md:table-cell">
                             {servico.conversasAtivas}
                           </td>
 
-                          <td className="px-2 py-2.5">
+                          <td className="px-1 py-2.5 md:px-2">
                             <Button
                               variant="ghost"
                               size="icon-sm"
