@@ -22,6 +22,7 @@ export function TrilhoDeConversas({
   temFiltro,
   aoSelecionar,
   aoAbrir,
+  permiteExpandir = true,
 }: {
   conversas: Conversa[]
   total: number
@@ -29,20 +30,29 @@ export function TrilhoDeConversas({
   temFiltro: boolean
   aoSelecionar: (id: string) => void
   aoAbrir: () => void
+  /**
+   * false quando o recolhimento é automático (janela abaixo de 1024px) — não
+   * há o que abrir manualmente numa largura que já forçou o trilho sozinha.
+   * O botão volta assim que a janela alarga e a escolha manual passa a mandar
+   * de novo.
+   */
+  permiteExpandir?: boolean
 }) {
   return (
     <>
       <div className="flex shrink-0 flex-col items-center gap-1.5 border-b border-linha p-2">
-        <button
-          type="button"
-          onClick={aoAbrir}
-          aria-expanded={false}
-          aria-label="Abrir a lista de conversas"
-          title="Abrir a lista de conversas"
-          className="flex size-9 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta"
-        >
-          <ChevronsRight className="size-4" />
-        </button>
+        {permiteExpandir ? (
+          <button
+            type="button"
+            onClick={aoAbrir}
+            aria-expanded={false}
+            aria-label="Abrir a lista de conversas"
+            title="Abrir a lista de conversas"
+            className="flex size-9 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta"
+          >
+            <ChevronsRight className="size-4" />
+          </button>
+        ) : null}
 
         {/* Com os filtros escondidos, uma lista curta parece defeito. O ponto
             avisa que ela esta curta de proposito. Em tinta-media, nao em ambar:

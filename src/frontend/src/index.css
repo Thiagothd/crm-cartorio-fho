@@ -145,6 +145,10 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  #root {
+    min-height: 100dvh;
+  }
+
   /* Spectral so em titulo e cabecalho. Nunca no corpo. DESIGN.md, secao 3. */
   h1,
   h2,

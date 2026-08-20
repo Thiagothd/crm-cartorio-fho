@@ -11,6 +11,7 @@ import { conversasApi } from '@/lib/api/endpoints'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { usarHubDeAtendimento } from '@/lib/realtime/usar-hub-de-atendimento'
 import { usarPreferenciaLocal } from '@/lib/usar-preferencia-local'
+import { usarAbaixoDe } from '@/lib/usar-abaixo-de'
 import {
   usarAparenciaDaConversa,
   usarAtendentes,
@@ -84,6 +85,14 @@ export function PaginaInbox() {
     'crm-cartorio.lista-recolhida',
     false,
   )
+
+  // Abaixo de 1024px — mais estreito que o gatilho do menu principal (1280px),
+  // porque o menu já recolheu primeiro e sobrou mais coluna aqui — a lista
+  // recolhe sozinha para devolver espaço ao fio. `listaRecolhidaEfetiva` é o
+  // que a tela usa para decidir o que mostrar; `listaRecolhida` continua sendo
+  // só a escolha manual, salva, que volta a valer assim que a janela alarga.
+  const estreitoParaLista = usarAbaixoDe(1024)
+  const listaRecolhidaEfetiva = listaRecolhida || estreitoParaLista
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
   const [assumindo, setAssumindo] = useState(false)
@@ -385,62 +394,73 @@ export function PaginaInbox() {
             'flex-col overflow-hidden border-r border-linha',
             selecionadaId ? 'hidden' : 'flex w-full',
             'md:flex md:w-auto md:shrink-0',
-            listaRecolhida ? 'md:w-14' : 'md:w-[360px]',
+            listaRecolhidaEfetiva ? 'md:w-14' : 'md:w-[360px]',
           )}
         >
-          {listaRecolhida ? (
-            <TrilhoDeConversas
-              conversas={lista?.itens ?? []}
-              total={lista?.total ?? 0}
-              selecionadaId={selecionadaId}
-              temFiltro={temFiltroAplicado(filtros)}
-              aoSelecionar={selecionar}
-              aoAbrir={alternarLista}
+          {/* A lista completa. SEMPRE no celular: o trilho só existe para
+              poupar largura quando a coluna divide a tela com o fio, o que
+              nunca acontece numa única coluna móvel. Sem o `md:hidden`
+              condicional, recolher a lista no desktop e depois cruzar o
+              breakpoint `md` — redimensionar a janela, girar um tablet —
+              travava o celular no trilho de 56px, sem busca nem filtro. */}
+          <div className={cn('flex min-h-0 flex-1 flex-col', listaRecolhidaEfetiva && 'md:hidden')}>
+            <FiltrosDaInbox
+              filtros={filtros}
+              setores={setores ?? []}
+              etapas={etapas ?? []}
+              aoMudar={setFiltros}
+              aoRecolher={alternarLista}
             />
-          ) : (
-            <>
-              <FiltrosDaInbox
-                filtros={filtros}
-                setores={setores ?? []}
-                etapas={etapas ?? []}
-                aoMudar={setFiltros}
-                aoRecolher={alternarLista}
-              />
 
-              <div className="flex-1 overflow-y-auto">
-                {carregandoLista ? (
-                  <div className="flex flex-col gap-3 p-3">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <Skeleton key={i} className="h-20 w-full" />
-                    ))}
-                  </div>
-                ) : lista?.itens.length ? (
-                  lista.itens.map((item) => (
-                    <ItemDeConversa
-                      key={item.id}
-                      conversa={item}
-                      selecionada={item.id === selecionadaId}
-                      souOResponsavel={item.atendenteId === atendente?.id}
-                      etapaEhFinal={item.etapaId !== null && etapasFinais.has(item.etapaId)}
-                      aoSelecionar={selecionar}
-                    />
-                  ))
-                ) : (
-                  <EstadoVazio
-                    icone={Inbox}
-                    titulo="Nenhuma conversa aqui"
-                    descricao="Ajuste os filtros ou abra um novo atendimento."
-                  />
-                )}
-              </div>
-
-              {lista ? (
-                <div className="shrink-0 border-t border-linha px-3 py-2 text-[11px] text-tinta-media">
-                  {lista.itens.length} de {lista.total}
+            <div className="flex-1 overflow-y-auto">
+              {carregandoLista ? (
+                <div className="flex flex-col gap-3 p-3">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-20 w-full" />
+                  ))}
                 </div>
-              ) : null}
-            </>
-          )}
+              ) : lista?.itens.length ? (
+                lista.itens.map((item) => (
+                  <ItemDeConversa
+                    key={item.id}
+                    conversa={item}
+                    selecionada={item.id === selecionadaId}
+                    souOResponsavel={item.atendenteId === atendente?.id}
+                    etapaEhFinal={item.etapaId !== null && etapasFinais.has(item.etapaId)}
+                    aoSelecionar={selecionar}
+                  />
+                ))
+              ) : (
+                <EstadoVazio
+                  icone={Inbox}
+                  titulo="Nenhuma conversa aqui"
+                  descricao="Ajuste os filtros ou abra um novo atendimento."
+                />
+              )}
+            </div>
+
+            {lista ? (
+              <div className="shrink-0 border-t border-linha px-3 py-2 text-[11px] text-tinta-media">
+                {lista.itens.length} de {lista.total}
+              </div>
+            ) : null}
+          </div>
+
+          {/* O trilho recolhido. Só a partir de `md` — abaixo disso a lista e a
+              conversa nunca dividem a tela, e recolher não teria o que poupar. */}
+          {listaRecolhidaEfetiva ? (
+            <div className="hidden min-h-0 md:flex md:flex-1 md:flex-col">
+              <TrilhoDeConversas
+                conversas={lista?.itens ?? []}
+                total={lista?.total ?? 0}
+                selecionadaId={selecionadaId}
+                temFiltro={temFiltroAplicado(filtros)}
+                aoSelecionar={selecionar}
+                aoAbrir={alternarLista}
+                permiteExpandir={!estreitoParaLista}
+              />
+            </div>
+          ) : null}
         </section>
 
         {/* @container: o que aperta o cabecalho da conversa nao e o tamanho da

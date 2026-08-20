@@ -19,7 +19,7 @@ export const DialogContent = React.forwardRef<
   }
 >(({ className, children, mostrarFechar = true, ...props }, ref) => (
   <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-tinta/50 data-[state=open]:animate-in data-[state=closed]:animate-out" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
@@ -27,8 +27,8 @@ export const DialogContent = React.forwardRef<
         // diálogo encostava nas duas bordas. Acima de 512px+margem nada muda,
         // porque o max-w-lg continua sendo quem manda.
         'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
-        'rounded-lg border border-border bg-card p-5',
-        'max-h-[90vh] overflow-y-auto',
+        'rounded-md border border-border bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5',
+        'max-h-[calc(100dvh-1.5rem)] overflow-y-auto sm:max-h-[90dvh]',
         className,
       )}
       {...props}

@@ -142,7 +142,7 @@ export function PainelDeMidias({
 
 function Aba({ valor, rotulo, total }: { valor: string; rotulo: string; total: number }) {
   return (
-    <TabsTrigger value={valor} className="px-1.5 text-xs">
+    <TabsTrigger value={valor} className="px-1.5 text-xs md:text-xs">
       {rotulo}
       <span className="font-dado text-[10px] text-tinta-fraca">{total}</span>
     </TabsTrigger>
