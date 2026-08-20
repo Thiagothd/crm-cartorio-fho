@@ -68,7 +68,7 @@ export function AbaEtapas() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Etapa é <strong className="text-tinta">em que ponto está</strong> o atendimento — o
           eixo de progressão. A ordem abaixo define a sequência do funil no painel. Os nomes são
@@ -77,6 +77,7 @@ export function AbaEtapas() {
 
         <Button
           size="sm"
+          className="sm:shrink-0"
           onClick={() => {
             setEmEdicao(null)
             setAberto(true)
@@ -95,20 +96,20 @@ export function AbaEtapas() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm md:table-auto">
             <thead className="bg-superficie text-xs text-tinta-media">
               <tr>
-                <th className="w-24 px-4 py-2.5 text-left font-medium">Ordem</th>
-                <th className="px-4 py-2.5 text-left font-medium">Etapa</th>
-                <th className="px-4 py-2.5 text-left font-medium">Conversas ativas</th>
-                <th className="w-10" />
+                <th className="w-28 px-2 py-2.5 text-left font-medium md:w-24 md:px-4">Ordem</th>
+                <th className="px-3 py-2.5 text-left font-medium md:px-4">Etapa</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Conversas ativas</th>
+                <th className="w-14 md:w-12" />
               </tr>
             </thead>
 
             <tbody>
               {data?.map((etapa, indice) => (
                 <tr key={etapa.id} className="border-t border-linha hover:bg-superficie">
-                  <td className="px-4 py-2.5">
+                  <td className="px-1 py-2.5 md:px-4">
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -129,7 +130,7 @@ export function AbaEtapas() {
                     </div>
                   </td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-3 md:px-4 md:py-2.5">
                     <div className="flex items-center gap-2">
                       <span
                         className="size-3 shrink-0 rounded-full"
@@ -147,13 +148,17 @@ export function AbaEtapas() {
                     {etapa.descricao ? (
                       <p className="text-xs text-tinta-media">{etapa.descricao}</p>
                     ) : null}
+                    <p className="mt-1 text-[11px] text-tinta-fraca md:hidden">
+                      {etapa.conversasAtivas}{' '}
+                      {etapa.conversasAtivas === 1 ? 'conversa ativa' : 'conversas ativas'}
+                    </p>
                   </td>
 
-                  <td className="px-4 py-2.5 tabular-nums text-tinta-media">
+                  <td className="hidden px-4 py-2.5 tabular-nums text-tinta-media md:table-cell">
                     {etapa.conversasAtivas}
                   </td>
 
-                  <td className="px-2 py-2.5">
+                  <td className="px-1 py-2.5 md:px-2">
                     <Button
                       variant="ghost"
                       size="icon-sm"

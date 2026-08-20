@@ -29,6 +29,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -107,7 +108,7 @@ export function CabecalhoDaConversa({
   const naFila = conversa.atendenteId === null && ativa
 
   return (
-    <header className="flex shrink-0 items-start justify-between gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:gap-4 md:px-6 md:py-2.5">
+    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:gap-4 md:px-6 md:py-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
         {/* Voltar só no celular: no desktop a lista está do lado, e um botão de
             voltar para uma coluna que nunca saiu da tela é ruído. */}
@@ -133,65 +134,43 @@ export function CabecalhoDaConversa({
         />
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate font-titulo text-base leading-tight text-tinta">
+          {/* Linha 1 — identidade: quem é o cliente e quem atende. Nome,
+              telefone e cadeado+atendente ficam juntos aqui porque respondem à
+              mesma pergunta ("quem"); a etapa/setor/serviço, que respondem
+              "em que pé está", moram na linha 2. Antes tudo — telefone,
+              cadeado, TRÊS pílulas — dividia uma faixa só embaixo do nome; a
+              pílula de serviço em particular perdia a disputa e cortava até
+              virar 3 caracteres. Separar por PERGUNTA, não por caber, deixou
+              cada linha com menos coisa competindo pelo mesmo espaço.
+
+              Nunca quebra — o nome do cliente é quem cede, truncando com
+              reticências antes que a linha precise de uma segunda altura. */}
+          <div className="flex flex-nowrap items-center gap-x-2 overflow-hidden">
+            <h2 className="min-w-0 shrink truncate font-titulo text-base leading-tight text-tinta">
               {conversa.clienteNome}
             </h2>
             {!ativa ? <Badge variant="secondary">Encerrada</Badge> : null}
-          </div>
 
-          {/* Identificacao e os tres eixos na MESMA linha.
-              Etapa, setor e servico ocupavam uma faixa inteira logo abaixo, com
-              tres seletores de 32px de altura; num monitor de 1366x768 essa
-              faixa saia direto do fio de mensagens. Viraram pilulas — continuam
-              sendo os MESMOS <Select>, com as mesmas opcoes e a mesma trava de
-              permissao, so que do tamanho do dado que mostram.
-
-              Setor e servico, na maioria das conversas, ja chegam preenchidos
-              pela triagem automatica (FLUXO-AUTOMACAO, secoes 6 e 7). Continuam
-              editaveis porque cliente erra opcao de menu — e a etapa nao e
-              automatica em fase nenhuma: quem move e o atendente.
-
-              Neutras de proposito: cor de etapa e status passivo e nao entra em
-              controle (DESIGN.md, 2.2). A cor da etapa continua no avatar ao
-              lado. */}
-          {/* NO DESKTOP nao quebra linha: encolhe, e no aperto extremo esconde.
-              Quebrar la custa mais 24px na faixa fixa do topo, que e exatamente
-              o que aquela tela nao tem. A ordem de sacrificio e deliberada:
-                1. o nome de quem atende trunca (o inteiro fica no title);
-                2. as pilulas truncam (o valor cheio esta no title e na lista);
-                3. o telefone some abaixo de 42rem de coluna;
-                4. o PROTOCOLO nunca sai — e o identificador do atendimento.
-
-              NO CELULAR volta a quebrar. A regra acima e sobre FAIXA DE ALTURA
-              FIXA num monitor, e o proprio DESIGN.md diz que onde o container
-              nao tem altura fixa o flex-wrap continua certo. Em 360px de
-              largura nao existe truncamento honesto que caiba protocolo,
-              cadeado e tres pilulas numa linha so — o que sobraria seria o
-              protocolo cortado, justamente o item que nunca pode sair. */}
-          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-tinta-media md:flex-nowrap md:gap-y-0 md:overflow-hidden">
-            {/* Container query, nao breakpoint de tela: quem aperta esta linha
-                e o painel de historico abrindo ao lado, com a janela do mesmo
-                tamanho. Abaixo de 42rem de COLUNA o telefone sai e o protocolo
-                fica — protocolo e o que o atendente procura na lista e o que o
-                cliente repete ao telefone. O numero continua no cadastro e na
-                linha da inbox. */}
-            <span className="hidden shrink-0 font-dado @2xl:inline">
+            {/* Container query, nao breakpoint de tela: quem aperta esta
+                linha e o painel de historico abrindo ao lado, com a janela do
+                mesmo tamanho. Abaixo de 42rem de COLUNA o telefone some. */}
+            <span className="hidden shrink-0 font-dado text-xs text-tinta-media @2xl:inline">
               {formatarTelefone(conversa.clienteTelefone)}
             </span>
-            <span className="hidden shrink-0 text-tinta-fraca @2xl:inline">·</span>
-            {/* Etiqueta com borda — DESIGN.md, secao 10. */}
-            <span className="etiqueta-protocolo shrink-0">{conversa.protocolo}</span>
+
             {/* Cadeado no lugar de "Atendido por": mesma informacao, ~70px a
                 menos de linha, e o mesmo tratamento que a linha da inbox ja usa
                 (verde para quem atende, DESIGN.md secao 5). O texto inteiro fica
                 no title. */}
             {conversa.atendenteNome ? (
               <>
-                <span className="shrink-0 text-tinta-fraca">·</span>
+                {/* Só aparece junto do telefone (mesmo @2xl): sem isso, o
+                    cadeado vira o primeiro item da linha em coluna estreita, e
+                    um separador sem nada antes fica órfão. */}
+                <span className="hidden shrink-0 text-xs text-tinta-fraca @2xl:inline">·</span>
                 <span
                   className={cn(
-                    'flex min-w-0 shrink items-center gap-1',
+                    'flex min-w-0 shrink items-center gap-1 text-xs',
                     souOResponsavel ? 'text-verde' : 'text-tinta-media',
                   )}
                   title={
@@ -207,11 +186,29 @@ export function CabecalhoDaConversa({
                 </span>
               </>
             ) : null}
+          </div>
 
-            {/* Some no celular: num inicio de linha quebrada o divisor fica
-                orfao, separando nada de nada. */}
-            <span className="mx-0.5 hidden h-3.5 w-px shrink-0 bg-linha-forte md:block" />
+          {/* Linha 2 — em que pé está: os três eixos do atendimento.
+              Continuam sendo os MESMOS <Select>, com as mesmas opções e a
+              mesma trava de permissão, só que do tamanho do dado que mostram.
 
+              Setor e servico, na maioria das conversas, ja chegam preenchidos
+              pela triagem automatica (FLUXO-AUTOMACAO, secoes 6 e 7). Continuam
+              editaveis porque cliente erra opcao de menu — e a etapa nao e
+              automatica em fase nenhuma: quem move e o atendente.
+
+              Neutras de proposito: cor de etapa e status passivo e nao entra em
+              controle (DESIGN.md, 2.2). A cor da etapa continua no avatar ao
+              lado.
+
+              Nunca quebra. Etapa e Setor ficam no tamanho natural
+              (`shrink-0`) — nomes curtos, raramente cortam; Serviço é
+              `flexivel` e cede o espaço que sobrar, truncando por último. É
+              o eixo com nome mais comprido em geral ("Escritura pública de
+              compra e venda...") e o único dos três cujo valor completo não
+              precisa de leitura instantânea — etapa e setor guiam a
+              triagem, serviço só confirma o que a triagem já decidiu. */}
+          <div className="mt-1 flex flex-nowrap items-center gap-1.5 overflow-hidden">
             <PilulaDeSelecao
               valor={conversa.etapaId}
               rotulo="Etapa do atendimento"
@@ -251,8 +248,10 @@ export function CabecalhoDaConversa({
             <PilulaDeSelecao
               valor={conversa.tipoServicoId}
               rotulo="Serviço solicitado"
+              rotuloExibido={servicos.find((s) => s.id === conversa.tipoServicoId)?.nome}
               desabilitado={!podeEditar || !ativa}
               aoMudar={aoVincularServico}
+              flexivel
             >
               {conversa.tipoServicoId === null ? (
                 <SelectItem value={SEM_VALOR} disabled>
@@ -271,9 +270,10 @@ export function CabecalhoDaConversa({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 md:gap-2.5">
-        {/* Mini, e nao o de 68px: o cabecalho virou uma linha so, e o selo
-            cheio sozinho devolveria a altura que a linha unica economizou.
-            Continua sendo um selo por conversa (DESIGN.md, secao 6). */}
+        {/* Mini, e nao o de 68px: o cabecalho e deliberadamente so duas
+            linhas (identidade + status), e o selo cheio sozinho devolveria a
+            altura que essa compactacao economizou. Continua sendo um selo por
+            conversa (DESIGN.md, secao 6). */}
         {etapaEhFinal ? (
           <span className="selo-concluido selo-concluido-mini mr-1" aria-label="Ato concluído">
             Ato
@@ -282,7 +282,7 @@ export function CabecalhoDaConversa({
           </span>
         ) : null}
 
-        <EtiquetaDePrazo situacao={conversa.situacaoPrazo} prazoLimite={conversa.prazoLimite} />
+        <EtiquetaDePrazo situacao={conversa.situacaoPrazo} prazoLimite={conversa.prazoLimite} compacta />
 
         {/* Assumir, Histórico e Mídias saem da linha no celular e reaparecem
             como item do menu ⋮ logo abaixo. Em 360px o cluster inteiro não cabe
@@ -331,6 +331,16 @@ export function CabecalhoDaConversa({
           </DropdownMenuTrigger>
 
           <DropdownMenuContent align="end" className="w-56">
+            {/* O protocolo morava na linha de identificação e disputava
+                espaço com telefone, cadeado e as três pílulas — saiu de lá e
+                ficou aqui, sempre a um toque de distância. Não é ação, por
+                isso não é DropdownMenuItem — é dado, igual o e-mail no menu
+                do atendente (components/layout/shell.tsx). */}
+            <DropdownMenuLabel className="font-dado text-xs font-normal normal-case tracking-normal text-tinta-media">
+              Protocolo {conversa.protocolo}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+
             {/* Consulta, não ação sobre o atendimento: fica fora do bloco de
                 Transferir/Devolver/Encerrar e vale também para conversa
                 encerrada — reler o arquivo de um atendimento fechado é
@@ -490,14 +500,32 @@ export function CabecalhoDaConversa({
 function PilulaDeSelecao({
   valor,
   rotulo,
+  rotuloExibido,
   desabilitado,
   aoMudar,
+  flexivel = false,
   children,
 }: {
   valor: string | null
   rotulo: string
+  /**
+   * Texto mostrado na pílula fechada, quando é diferente do item selecionado.
+   * Sem isso, o Radix espelha o conteúdo do SelectItem escolhido — certo para
+   * etapa e setor (só o nome), rico demais para serviço, cujo item também
+   * carrega o prazo ("Certidão · 5 dias úteis") para fazer sentido na lista
+   * aberta. Fechada, a pílula só precisa do nome; o prazo continua ao abrir.
+   */
+  rotuloExibido?: string
   desabilitado: boolean
   aoMudar: (valor: string) => void
+  /**
+   * true faz esta pílula ceder espaço (e truncar primeiro) quando a linha
+   * não cabe todo mundo; false (padrão) mantém o tamanho natural e nunca
+   * encolhe. A linha inteira nunca quebra — alguém precisa ceder, e só uma
+   * pílula por linha deve fazer isso, senão as três cortam um pouco cada
+   * uma e nenhuma sobra legível.
+   */
+  flexivel?: boolean
   children: ReactNode
 }) {
   return (
@@ -505,9 +533,20 @@ function PilulaDeSelecao({
       <SelectTrigger
         title={rotulo}
         aria-label={rotulo}
-        className="h-auto w-auto min-w-[4.5rem] max-w-[13rem] shrink gap-1 rounded-md border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta [&>svg]:size-3 [&>svg]:opacity-60"
+        /* md:h-auto e md:text-[11px] repetem o valor de base de propósito: o
+           select.tsx global despacha h-11/text-base no celular e md:h-9/
+           md:text-sm no desktop para o campo comum, e um regra COM modificador
+           só perde para outra COM o MESMO modificador — texto sem prefixo
+           nunca derruba `md:text-sm` no CSS final, só o texto sem prefixo de
+           baixo. Sem o par `md:`, a pílula nascia pequena e virava um select de
+           36px/14px assim que a tela passava de 768px, truncando cedo demais
+           ("Atendimen...") dentro do mesmo max-w-[13rem]. */
+        className={cn(
+          'h-auto w-auto min-w-[4.5rem] max-w-[13rem] gap-1 rounded-md border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta md:h-auto md:text-[11px] [&>svg]:size-3 [&>svg]:opacity-60',
+          flexivel ? 'shrink' : 'shrink-0',
+        )}
       >
-        <SelectValue placeholder={rotulo} />
+        <SelectValue placeholder={rotulo}>{rotuloExibido}</SelectValue>
       </SelectTrigger>
       <SelectContent>{children}</SelectContent>
     </Select>

@@ -27,6 +27,22 @@ import type { Conversa } from '@/lib/api/tipos'
  *   "Você" continua por extenso, porque é curto e é a distinção que mais
  *   importa ao escanear a lista.
  */
+/**
+ * Nome de etapa para a linha compacta da inbox.
+ *
+ * Etapas como "Em processamento / exigência" e "Pronto / entrega" seguem o
+ * padrão "principal / detalhe" — o pedaço depois da barra qualifica, mas quem
+ * escaneia a lista precisa do principal. Na coluna de 360px do desktop e nos
+ * ~375px do celular, o nome inteiro ao lado do protocolo e do prazo (os dois
+ * nunca encolhem) sobrava pouco espaço e cortava no meio da palavra. Etapa sem
+ * "/" no nome sai exatamente como está — isto é só um corte de exibição, não
+ * mexe no cadastro nem no que aparece no seletor do cabeçalho.
+ */
+function nomeCompactoDaEtapa(nome: string) {
+  const [principal] = nome.split(' / ')
+  return principal
+}
+
 export function ItemDeConversa({
   conversa,
   selecionada,
@@ -88,15 +104,19 @@ export function ItemDeConversa({
           </span>
         </div>
 
-        {/* Linha 2 — protocolo e etapa à esquerda (identidade e status), prazo
-            à direita (o que exige atenção). Protocolo em etiqueta com borda
-            (DESIGN.md, seção 10.1); etapa na mesma cor da pílula do funil e do
-            avatar (seção 2.2). */}
-        <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-          <span className="etiqueta-protocolo shrink-0">{conversa.protocolo}</span>
+        {/* Linha 2 — etapa à esquerda (status), prazo à direita (o que exige
+            atenção). Etapa na mesma cor da pílula do funil e do avatar
+            (DESIGN.md, seção 2.2).
 
+            O protocolo saiu daqui por pedido — competia por espaço com a
+            etapa e, com nomes de etapa mais longos, cortava um dos dois de
+            forma feia. Continua acessível: a busca da inbox aceita protocolo
+            ("Nome, telefone ou protocolo"), e o cabeçalho da conversa mostra
+            o número assim que ela abre. */}
+        <div className="mt-1 flex items-center gap-1 overflow-hidden">
           {conversa.etapaNome ? (
             <span
+              title={conversa.etapaNome}
               className="inline-flex min-w-0 shrink items-center truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium"
               style={{
                 backgroundColor: cores.fundo,
@@ -104,7 +124,7 @@ export function ItemDeConversa({
                 borderColor: cores.borda,
               }}
             >
-              {conversa.etapaNome}
+              {nomeCompactoDaEtapa(conversa.etapaNome)}
             </span>
           ) : null}
 

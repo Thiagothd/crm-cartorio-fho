@@ -150,14 +150,14 @@ export function AbaMensagensAutomaticas() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Mensagens que o sistema envia <strong className="text-tinta">sozinho</strong> quando um
           evento do atendimento acontece. Os textos abaixo são rascunho e aguardam a redação do
           cartório parceiro.
         </p>
 
-        <Button size="sm" onClick={abrirNova}>
+        <Button size="sm" className="sm:shrink-0" onClick={abrirNova}>
           <Plus />
           Nova mensagem
         </Button>
@@ -173,19 +173,19 @@ export function AbaMensagensAutomaticas() {
         </div>
       ) : data?.length ? (
         <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm md:table-auto">
             <thead className="bg-superficie text-xs text-tinta-media">
               <tr>
-                <th className="w-72 px-4 py-2.5 text-left font-medium">Quando dispara</th>
-                <th className="px-4 py-2.5 text-left font-medium">Mensagem</th>
-                <th className="w-10" />
+                <th className="px-3 py-2.5 text-left font-medium md:w-72 md:px-4">Quando dispara</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Mensagem</th>
+                <th className="w-14 md:w-10" />
               </tr>
             </thead>
 
             <tbody>
               {data.map((mensagem) => (
                 <tr key={mensagem.id} className="border-t border-linha align-top hover:bg-superficie">
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-3 md:px-4 md:py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{mensagem.gatilhoDescrito}</span>
                       {!mensagem.ativo ? <Badge variant="secondary">Inativa</Badge> : null}
@@ -195,15 +195,20 @@ export function AbaMensagensAutomaticas() {
                         Etapa: {mensagem.etapaAlvoNome}
                       </p>
                     ) : null}
+                    {/* A coluna Mensagem some no celular — o texto volta aqui,
+                        embaixo do gatilho que já identifica a linha. */}
+                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[11px] text-tinta-fraca md:hidden">
+                      {mensagem.conteudo}
+                    </p>
                   </td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="hidden px-4 py-2.5 md:table-cell">
                     <p className="line-clamp-2 whitespace-pre-wrap text-xs text-tinta-media">
                       {mensagem.conteudo}
                     </p>
                   </td>
 
-                  <td className="px-2 py-2.5">
+                  <td className="px-1 py-2.5 md:px-2">
                     <Button
                       variant="ghost"
                       size="icon-sm"

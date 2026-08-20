@@ -11,20 +11,20 @@ const variantesDoBotao = cva(
     variants: {
       variant: {
         // Bordo. Conta para o limite de 3 ocorrencias por tela (DESIGN.md 2.1).
-        default: 'border-selo bg-selo text-branco hover:bg-[#68272a]',
+        default: 'border-selo bg-selo text-branco hover:bg-selo/90',
 
-        destructive: 'border-selo bg-selo text-branco hover:bg-[#68272a]',
+        destructive: 'border-selo bg-selo text-branco hover:bg-selo/90',
         outline: 'border-linha-forte bg-branco text-tinta hover:bg-superficie',
         secondary: 'border-linha bg-superficie text-tinta hover:bg-papel',
         ghost: 'border-transparent text-tinta-media hover:bg-superficie hover:text-tinta',
         link: 'border-transparent text-selo underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-6',
-        icon: 'h-9 w-9',
-        'icon-sm': 'h-8 w-8',
+        default: 'h-11 px-4 py-2 md:h-9',
+        sm: 'h-10 rounded-md px-3 text-xs md:h-8',
+        lg: 'h-11 rounded-md px-6 md:h-10',
+        icon: 'size-11 md:size-9',
+        'icon-sm': 'size-10 md:size-8',
       },
     },
     defaultVariants: {

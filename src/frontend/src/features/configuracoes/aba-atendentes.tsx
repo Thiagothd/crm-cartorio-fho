@@ -85,7 +85,7 @@ export function AbaAtendentes() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <p className="max-w-2xl text-sm text-tinta-media">
           Quem acessa o sistema. <strong className="text-tinta">Cargo</strong> é a função na
           serventia; <strong className="text-tinta">perfil</strong> é o que a pessoa pode fazer
@@ -96,6 +96,7 @@ export function AbaAtendentes() {
 
         <Button
           size="sm"
+          className="sm:shrink-0"
           onClick={() => {
             setEmEdicao(null)
             setAberto(true)
@@ -114,30 +115,35 @@ export function AbaAtendentes() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm md:table-auto">
             <thead className="bg-superficie text-xs text-tinta-media">
               <tr>
-                <th className="px-4 py-2.5 text-left font-medium">Atendente</th>
-                <th className="px-4 py-2.5 text-left font-medium">Cargo</th>
-                <th className="px-4 py-2.5 text-left font-medium">Perfil</th>
-                <th className="px-4 py-2.5 text-left font-medium">Setor padrão</th>
-                <th className="px-4 py-2.5 text-left font-medium">Último acesso</th>
-                <th className="w-20" />
+                <th className="px-3 py-2.5 text-left font-medium md:px-4">Atendente</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Cargo</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Perfil</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Setor padrão</th>
+                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Último acesso</th>
+                <th className="w-28 md:w-20" />
               </tr>
             </thead>
 
             <tbody>
               {data?.map((atendente) => (
                 <tr key={atendente.id} className="border-t border-linha hover:bg-superficie">
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-3 md:px-4 md:py-2.5">
                     <div className="flex items-center gap-2.5">
                       <Avatar nome={atendente.nome} tamanho="sm" />
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{atendente.nome}</span>
                           {!atendente.ativo ? <Badge variant="secondary">Inativo</Badge> : null}
                         </div>
-                        <span className="text-xs text-tinta-media">{atendente.email}</span>
+                        <span className="block truncate text-xs text-tinta-media">{atendente.email}</span>
+                        <span className="mt-1 block text-[11px] text-tinta-fraca md:hidden">
+                          {atendente.cargo === 'NaoInformado' ? 'Cargo não informado' : atendente.cargoDescrito}
+                          {' · '}
+                          {atendente.perfil}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -145,23 +151,23 @@ export function AbaAtendentes() {
                   {/* Cargo é texto e perfil é etiqueta: o cargo descreve a pessoa,
                       o perfil concede permissão. Tratamentos diferentes evitam que
                       as duas colunas se confundam de relance. */}
-                  <td className="px-4 py-2.5 text-tinta-media">
+                  <td className="hidden px-4 py-2.5 text-tinta-media md:table-cell">
                     {atendente.cargo === 'NaoInformado' ? '—' : atendente.cargoDescrito}
                   </td>
 
-                  <td className="px-4 py-2.5">
+                  <td className="hidden px-4 py-2.5 md:table-cell">
                     <Badge variant="outline">{atendente.perfil}</Badge>
                   </td>
 
-                  <td className="px-4 py-2.5 text-tinta-media">
+                  <td className="hidden px-4 py-2.5 text-tinta-media md:table-cell">
                     {atendente.setorPadraoNome ?? '—'}
                   </td>
 
-                  <td className="px-4 py-2.5 text-tinta-media">
+                  <td className="hidden px-4 py-2.5 text-tinta-media md:table-cell">
                     {atendente.ultimoAcessoEm ? formatarDataHora(atendente.ultimoAcessoEm) : 'nunca'}
                   </td>
 
-                  <td className="px-2 py-2.5">
+                  <td className="px-1 py-2.5 md:px-2">
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"

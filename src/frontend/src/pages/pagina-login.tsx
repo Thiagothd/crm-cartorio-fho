@@ -62,9 +62,9 @@ export function PaginaLogin() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-superficie p-4">
+    <div className="flex min-h-dvh items-center justify-center bg-superficie px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+        <div className="mb-5 flex flex-col items-center gap-3 text-center sm:mb-6">
           <div className="flex size-11 items-center justify-center rounded-md border border-linha-forte bg-branco text-tinta-media">
             <Building2 className="size-5" />
           </div>
@@ -127,7 +127,7 @@ export function PaginaLogin() {
                 </p>
               ) : null}
 
-              <Button type="submit" disabled={enviando} className="mt-1">
+              <Button type="submit" disabled={enviando} className="mt-1 w-full">
                 {enviando ? <Loader2 className="animate-spin" /> : null}
                 Entrar
               </Button>
