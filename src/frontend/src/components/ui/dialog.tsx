@@ -19,7 +19,7 @@ export const DialogContent = React.forwardRef<
   }
 >(({ className, children, mostrarFechar = true, ...props }, ref) => (
   <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-tinta/50 data-[state=open]:animate-in data-[state=closed]:animate-out" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
@@ -27,7 +27,7 @@ export const DialogContent = React.forwardRef<
         // diálogo encostava nas duas bordas. Acima de 512px+margem nada muda,
         // porque o max-w-lg continua sendo quem manda.
         'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
-        'rounded-md border border-border bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5',
+        'rounded-card border border-border bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-card-hover sm:p-5',
         'max-h-[calc(100dvh-1.5rem)] overflow-y-auto sm:max-h-[90dvh]',
         className,
       )}
@@ -35,7 +35,10 @@ export const DialogContent = React.forwardRef<
     >
       {children}
       {mostrarFechar ? (
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-60 transition-opacity hover:opacity-100 ">
+        <DialogPrimitive.Close
+          aria-label="Fechar diálogo"
+          className="absolute right-2 top-2 flex size-11 touch-manipulation items-center justify-center rounded-lg border border-transparent text-tinta-media transition-colors duration-[var(--duracao-rapida)] hover:border-linha hover:bg-superficie hover:text-tinta md:right-3 md:top-3 md:size-9"
+        >
           <X className="size-4" />
           <span className="sr-only">Fechar</span>
         </DialogPrimitive.Close>

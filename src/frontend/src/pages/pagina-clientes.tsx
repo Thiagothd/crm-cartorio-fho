@@ -1,4 +1,5 @@
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Building2,
@@ -11,7 +12,8 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { CabecalhoDaPagina, EstadoVazio } from '@/components/layout/shell'
+import { EstadoVazio } from '@/components/layout/shell'
+import { AcoesDaPagina } from '@/components/layout/contexto-de-acoes-da-pagina'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,10 +62,21 @@ const tipoDescrito: Record<TipoDePessoa, string> = {
 }
 
 export function PaginaClientes() {
+  const location = useLocation()
   const [filtros, setFiltros] = useState<FiltroDeClientes>({ ordenar: 'nome', tamanho: 100 })
   const [emEdicao, setEmEdicao] = useState<Cliente | null>(null)
   const [dialogoAberto, setDialogoAberto] = useState(false)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+
+  // A busca global (cabeçalho) manda o cliente encontrado para aqui via
+  // `?busca=`. Sem parâmetro, nada muda do comportamento de sempre.
+  useEffect(() => {
+    const buscaDaUrl = new URLSearchParams(location.search).get('busca')
+    if (buscaDaUrl) {
+      setFiltros((atuais) => ({ ...atuais, busca: buscaDaUrl, pagina: 1 }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search])
 
   const buscaAdiada = useDeferredValue(filtros.busca)
   const clienteDeConsultas = useQueryClient()
@@ -111,16 +124,15 @@ export function PaginaClientes() {
 
   return (
     <>
-      <CabecalhoDaPagina
-        titulo="Clientes"
-        descricao="Contatos e qualificação das partes atendidas pelo cartório"
-        acoes={
-          <Button size="sm" onClick={abrirNovo}>
-            <Plus />
-            Novo cliente
-          </Button>
-        }
-      />
+      {/* "cliente" sai no celular: o título do módulo ao lado já diz onde se
+          está, e a palavra custava ~55px de um cabeçalho que também carrega
+          marca, título, busca e sino em 360px. */}
+      <AcoesDaPagina>
+        <Button size="sm" onClick={abrirNovo}>
+          <Plus />
+          Novo<span className="hidden sm:inline">&nbsp;cliente</span>
+        </Button>
+      </AcoesDaPagina>
 
       {/* Filtro e lista dividem UM scroll só no celular: a barra de filtros sai
           da tela ao rolar, devolvendo altura para a lista — que é justamente o

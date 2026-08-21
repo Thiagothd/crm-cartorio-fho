@@ -58,6 +58,29 @@ type Opcoes = {
   sinal?: AbortSignal
 }
 
+/** A rota onde 401 significa "credencial recusada", não "sessão expirada". */
+const ROTA_DE_ENTRADA = '/api/autenticacao/login'
+
+/**
+ * O tratamento global de 401 existe para um caso só: o token morreu no meio do
+ * uso. Ele limpa a sessão, joga para o login e troca a mensagem do servidor por
+ * "Sessão expirada."
+ *
+ * No PRÓPRIO login isso está errado em tudo. Não há sessão para expirar, não há
+ * para onde redirecionar (já se está no login), e a mensagem substituída era a
+ * única informação útil: o backend responde "E-mail ou senha inválidos." com
+ * `codigo: credenciais_invalidas`, e quem digitou a senha errada lia que a
+ * sessão havia expirado — dava a entender que o problema era do sistema, não do
+ * que foi digitado.
+ *
+ * Decidido pela ROTA e não por uma opção no chamador de propósito: é uma
+ * propriedade do endpoint, não da chamada. Como opção, qualquer chamador novo do
+ * login poderia esquecer de passá-la e o defeito voltaria em silêncio.
+ */
+function ehTentativaDeEntrar(caminho: string) {
+  return caminho.startsWith(ROTA_DE_ENTRADA)
+}
+
 async function requisitar<T>(caminho: string, opcoes: Opcoes = {}): Promise<T> {
   const { metodo = 'GET', corpo, sinal } = opcoes
 
@@ -84,7 +107,7 @@ async function requisitar<T>(caminho: string, opcoes: Opcoes = {}): Promise<T> {
     signal: sinal,
   })
 
-  if (resposta.status === 401) {
+  if (resposta.status === 401 && !ehTentativaDeEntrar(caminho)) {
     // Token expirado ou usuario desativado: derruba a sessao e volta ao login.
     limparToken()
     if (!location.pathname.startsWith('/login')) {

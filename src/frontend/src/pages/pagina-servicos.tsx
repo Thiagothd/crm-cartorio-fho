@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Plus, Scale } from 'lucide-react'
-import { CabecalhoDaPagina, EstadoVazio } from '@/components/layout/shell'
+import { Eye, EyeOff, Pencil, Plus, Scale } from 'lucide-react'
+import { EstadoVazio } from '@/components/layout/shell'
+import { AcoesDaPagina } from '@/components/layout/contexto-de-acoes-da-pagina'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -28,31 +29,38 @@ export function PaginaServicos() {
 
   return (
     <>
-      <CabecalhoDaPagina
-        titulo="Serviços"
-        descricao="Catálogo de atos e prazo de cada um"
-        acoes={
-          <>
-            <Button
-              variant={incluirInativos ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => setIncluirInativos((v) => !v)}
-            >
-              {incluirInativos ? 'Mostrando inativos' : 'Só ativos'}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEmEdicao(null)
-                setDialogoAberto(true)
-              }}
-            >
-              <Plus />
-              Novo serviço
-            </Button>
-          </>
-        }
-      />
+      {/* Duas ações no cabeçalho global custam caro em 360px: somadas à marca,
+          ao título do módulo, à busca e ao sino, elas empurravam o cabeçalho
+          para duas ou três linhas justamente na tela que tem menos altura.
+          No celular o filtro fica só como ícone (com `aria-label`, e o olho
+          aberto/fechado é a metáfora certa para "mostrando/escondendo"), e
+          "Novo serviço" perde a palavra "serviço" — o contexto já está no
+          título do módulo ao lado. */}
+      <AcoesDaPagina>
+        <Button
+          variant={incluirInativos ? 'secondary' : 'outline'}
+          size="sm"
+          onClick={() => setIncluirInativos((v) => !v)}
+          aria-pressed={incluirInativos}
+          aria-label={incluirInativos ? 'Mostrando inativos' : 'Mostrando só ativos'}
+          title={incluirInativos ? 'Mostrando inativos' : 'Mostrando só ativos'}
+        >
+          {incluirInativos ? <Eye /> : <EyeOff />}
+          <span className="hidden sm:inline">
+            {incluirInativos ? 'Mostrando inativos' : 'Só ativos'}
+          </span>
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            setEmEdicao(null)
+            setDialogoAberto(true)
+          }}
+        >
+          <Plus />
+          Novo<span className="hidden sm:inline">&nbsp;serviço</span>
+        </Button>
+      </AcoesDaPagina>
 
       <div className="flex-1 overflow-y-auto p-3 md:p-6">
         <div className="mb-4 rounded-md border border-linha bg-superficie px-3 py-3 text-sm text-tinta-media md:px-4">

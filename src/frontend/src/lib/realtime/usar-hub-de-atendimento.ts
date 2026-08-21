@@ -1,20 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { HubConnectionBuilder, HubConnectionState, LogLevel, type HubConnection } from '@microsoft/signalr'
-import { baseDaApi, lerToken } from '@/lib/api/cliente-http'
-import type { Conversa, Mensagem } from '@/lib/api/tipos'
+import { usarContextoDoHub, type EventosDoAtendimento } from './contexto-do-hub-de-atendimento'
 
-export interface EventosDoAtendimento {
-  onConversaAtribuida?: (conversa: Conversa) => void
-  onConversaLiberada?: (conversa: Conversa) => void
-  onConversaTransferida?: (conversa: Conversa) => void
-  onConversaAtualizada?: (conversa: Conversa) => void
-  onConversaEncerrada?: (conversa: Conversa) => void
-  onConversaReaberta?: (conversa: Conversa) => void
-  onMensagemRecebida?: (dados: { mensagem: Mensagem; conversa: Conversa }) => void
-}
+export type { EventosDoAtendimento }
 
 /**
- * Liga o painel ao hub de atendimento.
+ * Liga o consumidor ao hub de atendimento — a conexão em si vive uma vez só,
+ * no `ProvedorDoHubDeAtendimento` (ver `contexto-do-hub-de-atendimento.tsx`).
+ * Esta função só assina e desassina; a assinatura pública não mudou, então
+ * quem já chamava `usarHubDeAtendimento(eventos, habilitado)` — a inbox — não
+ * precisa mudar nada.
  *
  * E o que faz a trava de conversa aparecer na tela: quando alguem assume, o
  * evento chega em todos os paineis e o botao "Assumir" some antes de o segundo
@@ -22,49 +16,29 @@ export interface EventosDoAtendimento {
  * real — isto aqui evita que a corrida chegue a acontecer.
  */
 export function usarHubDeAtendimento(eventos: EventosDoAtendimento, habilitado: boolean) {
-  // Os handlers vao numa ref para que trocar callback nao derrube a conexao.
+  const { inscrever, conexaoRef } = usarContextoDoHub()
+
+  // Os handlers vao numa ref para que trocar callback nao precise reinscrever.
   const eventosRef = useRef(eventos)
   eventosRef.current = eventos
-
-  const conexaoRef = useRef<HubConnection | null>(null)
 
   useEffect(() => {
     if (!habilitado) {
       return
     }
 
-    const conexao = new HubConnectionBuilder()
-      .withUrl(`${baseDaApi}/hubs/atendimento`, {
-        accessTokenFactory: () => lerToken() ?? '',
-      })
-      .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-      .configureLogging(LogLevel.Warning)
-      .build()
-
-    conexaoRef.current = conexao
-
-    conexao.on('ConversaAtribuida', (c: Conversa) => eventosRef.current.onConversaAtribuida?.(c))
-    conexao.on('ConversaLiberada', (c: Conversa) => eventosRef.current.onConversaLiberada?.(c))
-    conexao.on('ConversaTransferida', (c: Conversa) => eventosRef.current.onConversaTransferida?.(c))
-    conexao.on('ConversaAtualizada', (c: Conversa) => eventosRef.current.onConversaAtualizada?.(c))
-    conexao.on('ConversaEncerrada', (c: Conversa) => eventosRef.current.onConversaEncerrada?.(c))
-    conexao.on('ConversaReaberta', (c: Conversa) => eventosRef.current.onConversaReaberta?.(c))
-    conexao.on('MensagemRecebida', (dados: { mensagem: Mensagem; conversa: Conversa }) =>
-      eventosRef.current.onMensagemRecebida?.(dados),
-    )
-
-    conexao.start().catch(() => {
-      // Sem tempo real o painel ainda funciona por refetch — nao vale derrubar
-      // a tela por causa disso.
+    const desinscrever = inscrever({
+      onConversaAtribuida: (c) => eventosRef.current.onConversaAtribuida?.(c),
+      onConversaLiberada: (c) => eventosRef.current.onConversaLiberada?.(c),
+      onConversaTransferida: (c) => eventosRef.current.onConversaTransferida?.(c),
+      onConversaAtualizada: (c) => eventosRef.current.onConversaAtualizada?.(c),
+      onConversaEncerrada: (c) => eventosRef.current.onConversaEncerrada?.(c),
+      onConversaReaberta: (c) => eventosRef.current.onConversaReaberta?.(c),
+      onMensagemRecebida: (d) => eventosRef.current.onMensagemRecebida?.(d),
     })
 
-    return () => {
-      if (conexao.state !== HubConnectionState.Disconnected) {
-        void conexao.stop()
-      }
-      conexaoRef.current = null
-    }
-  }, [habilitado])
+    return desinscrever
+  }, [habilitado, inscrever])
 
   return conexaoRef
 }

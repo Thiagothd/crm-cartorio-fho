@@ -9,20 +9,23 @@ export const Switch = React.forwardRef<
   <SwitchPrimitive.Root
     ref={ref}
     className={cn(
-      'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
-      '',
+      'group peer inline-flex size-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center rounded-md border border-transparent transition-colors duration-[var(--duracao-rapida)] md:size-9',
       'disabled:cursor-not-allowed disabled:opacity-50',
-      'data-[state=checked]:bg-primary data-[state=unchecked]:bg-input',
       className,
     )}
     {...props}
   >
-    <SwitchPrimitive.Thumb
-      className={cn(
-        'pointer-events-none block size-4 rounded-full bg-white ring-0 transition-transform',
-        'data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0',
-      )}
-    />
+    <span
+      aria-hidden="true"
+      className="pointer-events-none relative inline-flex h-5 w-9 items-center rounded-full bg-input transition-colors duration-[var(--duracao-rapida)] group-data-[state=checked]:bg-primary"
+    >
+      <SwitchPrimitive.Thumb
+        className={cn(
+          'pointer-events-none block size-4 rounded-full bg-white transition-transform duration-[var(--duracao-rapida)]',
+          'data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0',
+        )}
+      />
+    </span>
   </SwitchPrimitive.Root>
 ))
 

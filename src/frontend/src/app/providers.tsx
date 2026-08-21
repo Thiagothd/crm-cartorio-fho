@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import type { ReactNode } from 'react'
 import { ProvedorDeAutenticacao } from '@/lib/auth/contexto-de-autenticacao'
+import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { ProvedorDoHubDeAtendimento } from '@/lib/realtime/contexto-do-hub-de-atendimento'
 
 const clienteDeConsultas = new QueryClient({
   defaultOptions: {
@@ -25,12 +28,43 @@ const clienteDeConsultas = new QueryClient({
   },
 })
 
+/**
+ * A conexão do hub só faz sentido depois de saber se há sessão — por isso este
+ * componente vem DEPOIS de `ProvedorDeAutenticacao` na árvore, não dentro dele.
+ */
+function ProvedorDoHubComAutenticacao({ children }: { children: ReactNode }) {
+  const { atendente } = usarAutenticacao()
+
+  return (
+    <ProvedorDoHubDeAtendimento habilitado={Boolean(atendente)}>{children}</ProvedorDoHubDeAtendimento>
+  )
+}
+
 export function Provedores({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={clienteDeConsultas}>
       <ProvedorDeAutenticacao>
-        {children}
-        <Toaster position="top-right" richColors closeButton />
+        <ProvedorDoHubComAutenticacao>
+          <TooltipProvider delayDuration={500} skipDelayDuration={300}>
+            {children}
+          </TooltipProvider>
+          <Toaster
+            position="top-right"
+            duration={5_000}
+            visibleToasts={4}
+            closeButton
+            toastOptions={{
+              classNames: {
+                toast: '!rounded-md !border-linha-forte !bg-branco !text-tinta !shadow-none',
+                title: '!font-medium',
+                description: '!text-tinta-media',
+                actionButton: '!rounded-md !bg-tinta !text-branco',
+                cancelButton: '!rounded-md !bg-superficie !text-tinta',
+                closeButton: '!size-8 !border-linha-forte !bg-branco !text-tinta',
+              },
+            }}
+          />
+        </ProvedorDoHubComAutenticacao>
       </ProvedorDeAutenticacao>
     </QueryClientProvider>
   )

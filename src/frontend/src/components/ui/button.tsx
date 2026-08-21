@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 // Sem sombra, sem gradiente, borda 1px, raio unico. docs/DESIGN.md, secao 4.
 // O foco usa outline (definido em index.css), nao ring — ring e box-shadow.
 const variantesDoBotao = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-md border text-sm font-medium transition-colors duration-[var(--duracao-rapida)] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {

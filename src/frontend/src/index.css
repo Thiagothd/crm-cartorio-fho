@@ -25,7 +25,11 @@
     --cor-superficie: #f7f6f3;
     --cor-branco: #fcfbf9;
 
-    /* --- tinta --- */
+    /* --- tinta ---
+       Paleta original mantida por pedido do usuario (2026-08-21): as
+       referencias de inspiracao (Vercel/Linear/Attio) trazem tipografia,
+       curva de grafico e profundidade de card — nao a cor. Nada de preto/
+       dark mode; o sistema continua na mesma familia de cor de sempre. */
     --cor-tinta: #1f1d1a;
     --cor-tinta-media: #5c5852;
     --cor-tinta-fraca: #8e8981;
@@ -39,9 +43,45 @@
     --cor-ambar: #8a6516;
     --cor-verde: #3d5c3a;
 
+    /* Azul-ardosia dessaturado, adicionado em 2026-08-21 SO para serie de
+       grafico. Nao e' cor semantica e nao entra em botao, badge ou estado: os
+       tres acentos acima ja carregam significado (bordo = atraso, ambar =
+       alerta, verde = concluido), e uma linha de tendencia pintada com
+       qualquer um deles herdaria um sentido que ela nao tem. Fica fora do teto
+       de 3 bordos por tela pela mesma razao — nao compete com eles. */
+    --cor-tendencia: #2f5d7c;
+
+    /* --- papeis semanticos ---
+       Mantem a paleta curta, mas impede que componentes decidam sozinhos qual
+       cor representa foco, erro ou confirmacao. */
+    --cor-foco: var(--cor-tinta-media);
+    --cor-erro: var(--cor-selo);
+    --cor-sucesso: var(--cor-verde);
+    --cor-alerta: var(--cor-ambar);
+    --cor-informacao: var(--cor-tinta-media);
+    --cor-desabilitado: var(--cor-tinta-fraca);
+    --cor-overlay: rgb(31 29 26 / 50%);
+
     /* --- forma --- */
     --raio: 6px;
     --borda: 1px;
+    --alvo-toque: 2.75rem;
+
+    /* --- Fase 3.1: superficie elevada (shell/Visao Geral/Indicadores) ---
+       O conceito "papel nunca flutua" (DESIGN.md 4) foi suspenso por decisao
+       explicita do usuario em 2026-08-21 para esta area — as referencias
+       (Vercel/Linear/Attio) usam sombra sutil e raio maior para dar
+       profundidade real, nao decorativa. Ficam como tokens PROPRIOS, nao
+       reaproveitados pelos componentes antigos (Atendimento, Clientes,
+       Servicos), que continuam planos. */
+    --raio-card: 14px;
+    --sombra-card: 0 1px 2px rgba(11, 11, 15, 0.04), 0 4px 16px -4px rgba(11, 11, 15, 0.08);
+    --sombra-card-hover: 0 2px 4px rgba(11, 11, 15, 0.05), 0 12px 28px -8px rgba(11, 11, 15, 0.14);
+
+    /* Movimento funcional e curto. A preferencia do sistema operacional pode
+       desliga-lo no bloco `prefers-reduced-motion` ao fim deste arquivo. */
+    --duracao-rapida: 120ms;
+    --duracao-padrao: 180ms;
 
     /* --- texturas de fundo do fio de mensagens ---
        SVG embutido, uma definicao por textura, referenciadas pelas classes
@@ -77,11 +117,11 @@
     --muted-foreground: var(--cor-tinta-media);
     --accent: var(--cor-superficie);
     --accent-foreground: var(--cor-tinta);
-    --destructive: var(--cor-selo);
+    --destructive: var(--cor-erro);
     --destructive-foreground: var(--cor-branco);
     --border: var(--cor-linha);
     --input: var(--cor-linha-forte);
-    --ring: var(--cor-tinta-media);
+    --ring: var(--cor-foco);
   }
 }
 
@@ -100,6 +140,15 @@
   --color-selo: var(--cor-selo);
   --color-ambar: var(--cor-ambar);
   --color-verde: var(--cor-verde);
+  --color-tendencia: var(--cor-tendencia);
+
+  --color-foco: var(--cor-foco);
+  --color-erro: var(--cor-erro);
+  --color-sucesso: var(--cor-sucesso);
+  --color-alerta: var(--cor-alerta);
+  --color-informacao: var(--cor-informacao);
+  --color-desabilitado: var(--cor-desabilitado);
+  --color-overlay: var(--cor-overlay);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -130,6 +179,11 @@
   --radius-md: var(--raio);
   --radius-lg: var(--raio);
   --radius-xl: var(--raio);
+
+  /* Fase 3.1 — superficie elevada, so para o shell/dashboard novo. */
+  --radius-card: var(--raio-card);
+  --shadow-card: var(--sombra-card);
+  --shadow-card-hover: var(--sombra-card-hover);
 }
 
 @layer base {
@@ -149,13 +203,18 @@
     min-height: 100dvh;
   }
 
-  /* Spectral so em titulo e cabecalho. Nunca no corpo. DESIGN.md, secao 3. */
+  /* Fase 3.1 (2026-08-21): titulos passam a usar a mesma sans-serif do corpo,
+     em peso alto e tracking fechado — a leitura "manchete" de Vercel/Linear/
+     Attio, nao mais a serifa "documento oficial". Decisao do usuario, registra
+     em DESIGN.md. Spectral continua carregada e disponivel via `.font-titulo`
+     para o selo/carimbo de conversa concluida (DESIGN.md secao 6), que
+     continua sendo a excecao deliberada com personalidade propria. */
   h1,
   h2,
   h3 {
-    font-family: var(--font-titulo);
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-family: var(--font-corpo);
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   /* Icones em stroke 1.6px, sem preenchimento. DESIGN.md, secao 4. */
@@ -169,8 +228,8 @@
      quem navega por teclado. Sombra decorativa e removida componente por
      componente; o foco abaixo usa outline, que e imune a essa regra. */
   :focus-visible {
-    outline: 2px solid var(--cor-tinta-media);
-    outline-offset: 1px;
+    outline: 2px solid var(--cor-foco);
+    outline-offset: 2px;
   }
 
   ::placeholder {
@@ -196,7 +255,142 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =============================================================================
+   ANIMACOES DO SHELL — Fase 3.
+   `animate-in`/`animate-out` do Radix nao geram CSS neste projeto (nao usamos
+   tailwindcss-animate). Estas classes existem para o painel do sino e a folha
+   do celular terem entrada/saida real, sem adicionar dependencia.
+
+   Ja cobertas pelo bloco global `prefers-reduced-motion` no fim deste arquivo
+   — reduzir movimento zera a duracao de QUALQUER animacao, estas inclusive.
+   ========================================================================== */
+@keyframes crm-esmaecer-entrada {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes crm-descer-e-esmaecer {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes crm-subir-do-rodape {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* Barras de "Servicos mais procurados" e afins — crescem da esquerda. */
+@keyframes crm-crescer-barra {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Histograma de horarios — crescem de baixo para cima. */
+@keyframes crm-crescer-barra-vertical {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Cartao entrando na tela — a Visao Geral "ganha vida" ao carregar. */
+@keyframes crm-subir-e-esmaecer {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* A linha do grafico de fluxo se revelando da esquerda para a direita.
+   `clip-path`, nao `stroke-dashoffset`: a linha e' feita de VARIOS segmentos
+   (ela interrompe onde nao houve medicao) e cada um teria comprimento proprio,
+   entao dash exigiria medir cada path em JS. Recortar o container revela todos
+   em conjunto, no mesmo ritmo, e e' composto pela GPU.
+   Comeca depois das barras (300ms) para a leitura ser "o volume, e entao o
+   tempo de resposta". */
+@keyframes crm-revelar-esquerda-direita {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
 @layer components {
+  .anima-esmaecer {
+    animation: crm-esmaecer-entrada var(--duracao-padrao) ease-out;
+  }
+
+  .anima-descer {
+    animation: crm-descer-e-esmaecer var(--duracao-padrao) ease-out;
+  }
+
+  .anima-subir-do-rodape {
+    animation: crm-subir-do-rodape var(--duracao-padrao) ease-out;
+  }
+
+  .anima-revelar-linha {
+    animation: crm-revelar-esquerda-direita 800ms cubic-bezier(0.65, 0, 0.35, 1) 300ms both;
+  }
+
+  /* Cada filho direto entra subindo e esmaecendo, escalonado por posicao —
+     usado nas grades da Visao Geral e Indicadores para o painel inteiro
+     parecer vivo ao entrar, nao um recorte estatico.
+     Passo curto (40ms) e teto no 4o filho de proposito: escalonar demais
+     ATRASA a leitura e a tela passa a PARECER lenta, que e o oposto do
+     objetivo. O ultimo cartao termina de entrar em ~360ms. */
+  .grade-com-vida > * {
+    animation: crm-subir-e-esmaecer 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .grade-com-vida > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+
+  .grade-com-vida > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+
+  .grade-com-vida > *:nth-child(n + 4) {
+    animation-delay: 120ms;
+  }
+}
+
+@layer components {
+  /* O login usa a fotografia como plano inteiro. A composição reserva madeira
+     escura à esquerda para o formulário e mantém o atendimento por mensagens
+     visível à direita. O master WebP tem 1536px e apenas 82KB; usá-lo em todas
+     as larguras evita ampliar os recortes menores no eixo vertical. */
+  .login-tela {
+    background-color: var(--cor-tinta);
+    background-image: url('/brand/login-atendimento-mensagens-1536.webp');
+    background-position: 68% center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  @media (min-width: 48rem) {
+    .login-tela {
+      background-position: center;
+    }
+  }
+
   /* --- utilitarios de tipografia --- */
   .font-titulo {
     font-family: var(--font-titulo);

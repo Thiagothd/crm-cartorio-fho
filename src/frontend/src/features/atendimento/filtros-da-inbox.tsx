@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { DialogoNovaConversa } from './dialogo-nova-conversa'
 import type { Etapa, FiltroDeConversas, Setor, SituacaoPrazo, StatusConversa } from '@/lib/api/tipos'
 
 const TODOS = '__todos__'
@@ -77,12 +78,20 @@ export function FiltrosDaInbox({
   etapas,
   aoMudar,
   aoRecolher,
+  aoCriarConversa,
 }: {
   filtros: FiltrosVisiveis
   setores: Setor[]
   etapas: Etapa[]
   aoMudar: (filtros: FiltrosVisiveis) => void
   aoRecolher: () => void
+  /**
+   * "+ Novo atendimento" saiu do cabeçalho global na Fase 3 — o cabeçalho é
+   * o mesmo em toda a aplicação, e essa ação só faz sentido aqui. Mora na
+   * barra de filtros, não como botão isolado: é onde o atendente já está
+   * olhando quando decide abrir um atendimento manual.
+   */
+  aoCriarConversa: (conversaId: string) => void
 }) {
   function atualizar(parcial: Partial<FiltrosVisiveis>) {
     aoMudar({ ...filtros, ...parcial })
@@ -97,8 +106,8 @@ export function FiltrosDaInbox({
       {/* O botao de recolher divide a LINHA da busca, em vez de ganhar uma
           linha propria: linha nova aqui sairia da altura da lista, que e
           exatamente o que esta mudanca veio devolver. */}
-      <div className="flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-32 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-tinta-media" />
           <Input
             value={filtros.busca}
@@ -107,6 +116,8 @@ export function FiltrosDaInbox({
             className="pl-8"
           />
         </div>
+
+        <DialogoNovaConversa aoCriar={aoCriarConversa} />
 
         <Button
           variant={temFiltroAvancado ? 'secondary' : 'outline'}
@@ -138,10 +149,10 @@ export function FiltrosDaInbox({
 
           A distinção agora vem de BORDA + PESO, não de matiz: é o mesmo
           tratamento que tabs.tsx e o Indicador do painel já usam. Bordô ficou
-          fora de propósito — a inbox já tem três ocorrências (menu ativo, Nova
-          conversa, Enviar) e DESIGN.md 2.1 manda usar tinta ou linha-forte a
-          partir daí. `aria-pressed` deixa o estado audível para leitor de tela,
-          já que cor sozinha nunca é sinal suficiente. */}
+          fora de propósito — a inbox já tem três ocorrências (item de menu
+          ativo, Novo atendimento, Enviar) e DESIGN.md 2.1 manda usar tinta ou
+          linha-forte a partir daí. `aria-pressed` deixa o estado audível para
+          leitor de tela, já que cor sozinha nunca é sinal suficiente. */}
       <div
         role="group"
         aria-label="Escopo das conversas"
