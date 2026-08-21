@@ -1,10 +1,19 @@
 # IDENTIDADE VISUAL
 
-> **Status:** direção aprovada pelo cliente. Implementada na Fase 1.
-> **Última atualização:** 2026-08-18
+> **Status:** Fase 1 aprovada. Shell global, navegação e Visão Geral entregues
+> na Fase 3 (seção 14). **Fase 3.1 (2026-08-21) redirecionou a linguagem visual
+> do painel — ver seção 15 antes de aplicar as seções 1 a 4.**
+> **Última atualização:** 2026-08-21
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
+>
+> ⚠️ **LEIA A SEÇÃO 15 PRIMEIRO.** As seções 1 a 4 descrevem o conceito
+> "documento oficial" da Fase 1, que a Fase 3.1 **substituiu nas superfícies de
+> painel** por decisão explícita do Thiago. Aplicar as seções 1 a 4 na Visão
+> Geral, em Relatórios, no shell ou no login reconstrói um visual que já foi
+> recusado. A seção 15 diz exatamente o que valeu, onde, e o que continua
+> intacto.
 
 ---
 
@@ -60,6 +69,18 @@ Nomes em português; os tokens CSS usam os mesmos nomes.
 | `selo` | `#7A2E32` | Bordô. Ação primária e ênfase — **uso contido, ver 2.1** |
 | `ambar` | `#8A6516` | Alerta, pendência, prazo apertado |
 | `verde` | `#3D5C3A` | Concluído, em dia, sucesso |
+
+### Série de gráfico
+
+| Token | Hex | Uso |
+| --- | --- | --- |
+| `tendencia` | `#2F5D7C` | Azul-ardósia. **Somente série de gráfico** — ver 15.3 |
+
+`tendencia` entrou na Fase 3.1 e **não é cor semântica**: não vai em botão,
+badge, borda de estado nem texto de aviso. Os três acentos acima já carregam
+significado (bordô = atraso, âmbar = alerta, verde = concluído), e uma linha de
+gráfico pintada com qualquer um deles herdaria um sentido que ela não tem. Por
+isso também **não conta para o teto de 3 bordôs** (2.1): não compete com eles.
 
 ### 2.1 A regra do bordô
 
@@ -158,24 +179,32 @@ próprio dado não deveria depender de servidor de terceiro para desenhar texto.
 
 ## 4. Regras rígidas
 
+> **Parcialmente substituída pela seção 15.** Gradiente, sombra, `blur` e o raio
+> de 6px valem como escrito nas telas operacionais herdadas da Fase 1 (inbox,
+> fio de mensagens, cadastros, configurações). **Nas superfícies de painel
+> listadas em 15.1 a proibição foi levantada.** As linhas de emoji e de "cor
+> fora dos tokens" continuam valendo em toda parte, sem exceção.
+
 Não são preferências. São restrições.
 
-| Proibido | Por quê |
-| --- | --- |
-| **Gradiente** | Nenhum documento oficial tem gradiente |
-| **Sombra** (`box-shadow`) | Profundidade falsa. Papel não flutua |
-| **Glow**, `blur` decorativo | Idem |
-| **Emoji** no painel (botão, ícone, badge, menu) | Quebra o registro formal na hora — exceção para mensagem ao cliente, ver abaixo |
-| **Cor fora dos tokens** | Se não está na seção 2, não entra |
+| Proibido | Por quê | Situação |
+| --- | --- | --- |
+| **Gradiente** | Nenhum documento oficial tem gradiente | Levantado em 15.1 |
+| **Sombra** (`box-shadow`) | Profundidade falsa. Papel não flutua | Levantado em 15.1 |
+| **Glow**, `blur` decorativo | Idem | Levantado em 15.1 |
+| **Emoji** no painel (botão, ícone, badge, menu) | Quebra o registro formal na hora — exceção para mensagem ao cliente, ver abaixo | **Continua** |
+| **Cor fora dos tokens** | Se não está na seção 2, não entra | **Continua** |
 
-| Obrigatório | Valor |
-| --- | --- |
-| Espessura de borda | **1px**. Sempre |
-| Raio de canto | **6px** |
-| Ícones | Stroke **1.6px**, sem preenchimento |
+| Obrigatório | Valor | Situação |
+| --- | --- | --- |
+| Espessura de borda | **1px**. Sempre | Continua |
+| Raio de canto | **6px** | Convive com `--raio-card` (15.2) |
+| Ícones | Stroke **1.6px**, sem preenchimento | Continua |
 
-Separação entre áreas é feita com **linha**, não com sombra. Hierarquia é feita
-com **tipografia e espaço**, não com elevação.
+Nas telas operacionais herdadas, separação entre áreas é feita com **linha**,
+não com sombra, e hierarquia é feita com **tipografia e espaço**, não com
+elevação. Nas superfícies de 15.1 a elevação passou a ser permitida — e o motivo
+está registrado lá, não é liberdade geral.
 
 Sobre ícones: usamos `lucide-react`, que é stroke por natureza. A espessura vai
 no `strokeWidth` global — nunca `fill`.
@@ -321,8 +350,9 @@ Tokens definidos em [`src/frontend/src/index.css`](../src/frontend/src/index.css
   não inversão de tokens.
 - **Impressão.** Nenhuma tela foi pensada para imprimir. Quando houver relatório,
   entra aqui uma seção própria.
-- **Logo.** A serventia não passou identidade gráfica. Hoje o cabeçalho usa o
-  nome em Spectral. Se houver logo, substitui.
+- **Variações vetoriais da marca.** A assinatura oficial foi fornecida em imagem
+  raster na Fase 2. As aplicações atuais usam recortes fiéis do original; uma
+  futura entrega em SVG deve substituí-los sem alterar proporção, cor ou desenho.
 
 ---
 
@@ -382,17 +412,23 @@ visível e não acompanha a rolagem do fio.
 
 ### 10.3 Menu como lombada do livro
 
-O menu principal usa `tinta` como fundo, `branco` no título e `linha` nos itens.
-É a única grande superfície escura da aplicação: separa navegação e conteúdo como
-a lombada escura separa a capa das folhas de um livro de registro.
+> **Substituída pela 14.2 no que é mecânica.** O CONCEITO abaixo — navegação como
+> lombada escura, e única superfície escura da aplicação — continua sendo a regra.
+> O que mudou: não existe mais botão de três linhas (o rail abre por hover com
+> intenção), e o rótulo recolhido usa `opacity-0` em vez de `title`. A marca
+> também não mora mais no topo do menu; subiu para o cabeçalho claro (seção 13).
 
-- Item ativo continua em `branco` com texto `selo`; conta como uma ocorrência de
-  bordô.
-- O botão de três linhas recolhe o menu para 64px. Recolhido, ficam somente os
-  ícones; rótulos continuam disponíveis por `title` e texto para leitor de tela.
+O menu principal usa `tinta` como fundo e `linha` nos itens. É a única grande
+superfície escura da aplicação: separa navegação e conteúdo como a lombada escura
+separa a capa das folhas de um livro de registro.
+
+- Item ativo continua em `branco` com texto `selo` quando o painel está aberto;
+  conta como uma ocorrência de bordô. Recolhido, é só a lombada `selo` de 2px —
+  **nunca `bg-branco` ali**, ou o ícone branco fica branco sobre branco.
 - Abrir/recolher não muda rota, filtro nem estado da página.
 - Não criar uma segunda superfície escura na área de conteúdo: a distinção só
-  funciona porque é exclusiva da navegação.
+  funciona porque é exclusiva da navegação. A folha "Mais" do celular (14.5) é a
+  única outra, e é a mesma navegação em outro formato.
 
 ### 10.4 Autoria e ações no fio
 
@@ -633,3 +669,449 @@ Regra de implementação em `lib/mascaras.ts`: **nunca emitir separador à direi
 (`38` vira `(38`, não `(38) `), senão o backspace trava.
 
 ---
+
+## 12. Fundação compartilhada de interface
+
+Esta seção transforma as decisões anteriores em contrato para os componentes
+reutilizáveis. Ela não cria uma identidade nova e não autoriza cor ou medida
+fora das seções 2 a 4.
+
+### 12.1 Tokens semânticos
+
+Os papéis abaixo apontam para a paleta curta já aprovada:
+
+| Papel | Token CSS | Origem |
+| --- | --- | --- |
+| Foco | `--cor-foco` | `tinta-media` |
+| Erro | `--cor-erro` | `selo` |
+| Sucesso | `--cor-sucesso` | `verde` |
+| Alerta | `--cor-alerta` | `ambar` |
+| Informação | `--cor-informacao` | `tinta-media` |
+| Desabilitado | `--cor-desabilitado` | `tinta-fraca` |
+| Overlay | `--cor-overlay` | `tinta` a 50% |
+
+Componente consome o papel, não repete hexadecimal. Erro, sucesso e alerta
+sempre têm texto; cor nunca carrega o significado sozinha.
+
+O alvo móvel padrão é `--alvo-toque: 2.75rem` (44px). Durações funcionais são
+`--duracao-rapida` (120ms) e `--duracao-padrao` (180ms). Quem solicita menos
+movimento no sistema recebe transições e animações reduzidas globalmente.
+
+### 12.2 Controles e formulário
+
+- Botão, input e select têm 44px no celular e retornam à densidade de balcão a
+  partir de `md`.
+- **Botão só de ícone precisa de nome acessível** — isto não se negocia, e o nome
+  vem de `aria-label` ou de texto no DOM (inclusive `opacity-0`, que leitor de
+  tela continua lendo).
+  O tooltip é reforço opcional, **não** requisito: no rail ele foi removido em
+  2026-08-21 por ser defeituoso ali (14.2), e nenhum nome acessível se perdeu,
+  porque tooltip nunca foi o nome — é descrição (`aria-describedby`). Onde a
+  legenda não estiver visível e o hover for a única pista, o tooltip continua
+  recomendado.
+- `aria-invalid="true"` aplica o papel de erro no controle. A mensagem explica
+  o problema e é ligada ao campo por `aria-describedby` no formulário.
+- Switch mantém trilho compacto, mas a área clicável chega a 44px no celular.
+- Foco de teclado nunca é removido. O outline global tem 2px e offset de 2px.
+- Desabilitado é estado real (`disabled`), não apenas opacidade visual.
+
+### 12.3 Feedback e estados
+
+`EstadoDaInterface` é a base de carregamento, vazio, sem resultados e erro. Todo
+estado tem título textual; carregamento usa `role="status"` e `aria-busy`, erro
+usa `role="alert"`, e uma ação de recuperação aparece quando existe.
+
+Toast é reservado a confirmação ou falha sem campo específico. Usa superfície
+de papel, borda, sem sombra e duração padrão de 5 segundos. Operação crítica ou
+erro que exige decisão não pode existir apenas num toast temporário.
+
+Tooltip complementa um nome acessível; nunca o substitui, nunca contém ação e
+nunca guarda informação indispensável. Abre por mouse e foco de teclado.
+
+### 12.4 Tabelas e responsividade
+
+- Cabeçalho identifica a coluna mesmo quando o conteúdo parece óbvio.
+- Número, protocolo e documento usam alinhamento tabular e `font-dado` quando a
+  conferência caractere a caractere importa.
+- Estado não depende só de cor. Texto ou ícone com nome acompanha a célula.
+- Em largura insuficiente, a prioridade é preservar ação e dado, nesta ordem:
+  quebrar texto seguro, ocultar metadado secundário e, por último, permitir
+  rolagem horizontal dentro da região da tabela — nunca na página inteira.
+- Estado vazio e erro ficam dentro da mesma região da tabela, para que título,
+  filtros e ações permaneçam no lugar.
+
+As larguras de referência para revisão são 360px, 768px, 1024px e 1440px. Não
+são quatro layouts separados: são pontos de inspeção do mesmo fluxo responsivo.
+
+---
+
+## 13. Marca do produto
+
+A identidade oficial recebida em 2026-08-20 é preservada em
+`src/frontend/src/assets/logo-original.png`. Os ativos de uso são extrações
+determinísticas desse original, sem redesenho, vetorização automática ou geração
+por IA:
+
+| Variante | Arquivo | Uso |
+| --- | --- | --- |
+| Assinatura horizontal transparente | `public/brand/crm-cartorio-logo-horizontal.webp` | Login e cabeçalho global, a partir de `sm` — somente em superfície clara |
+| Assinatura horizontal (mestre) | `public/brand/crm-cartorio-logo-horizontal.png` | Não é servido. Origem para regerar o WebP |
+| Símbolo oficial isolado e transparente | `public/brand/crm-cartorio-simbolo.png` | Cabeçalho global abaixo de `sm` e folha "Mais" do celular |
+| Favicons 16, 32 e 48px | `public/brand/favicon-*.png` | Aba do navegador na densidade adequada |
+| Ícones 180 e 192px | `public/brand/apple-touch-icon-180.png` e `public/brand/icon-192.png` | Atalho de dispositivo e alta densidade |
+
+**A assinatura é servida em WebP sem perdas** (820×186, recortada na moldura
+transparente do mestre): 73KB contra 173KB do PNG, e a mesma imagem serve o login
+e o cabeçalho — carregada uma vez, reaproveitada do cache depois de entrar. Sem
+perdas, e não lossy: é ativo de marca exibido grande no login, e artefato de
+compressão em serifa não se desfaz. 820px de largura cobre o maior uso real (272
+CSS px no login, em tela de densidade 3×).
+
+**O símbolo saiu do rail.** Na Fase 3.1 a marca subiu para o cabeçalho claro e o
+rail ficou navegação pura — o que, de quebra, resolveu o problema de contraste
+descrito abaixo em vez de contorná-lo: a assinatura escura não precisa mais
+conviver com o fundo `tinta`.
+
+**CRM Cartório é a marca do produto.** O nome da serventia identifica o ambiente
+e aparece como contexto secundário. Não trocar essa hierarquia nem repetir a
+marca em todas as regiões da mesma tela.
+
+O fundo externo dos ativos deve ser transparente. Nunca recortar partes do
+símbolo, recolorir, deformar nem recriar a tipografia. A assinatura horizontal
+escura não tem contraste suficiente sobre `tinta` — por isso ela **nunca** entra
+em superfície escura; onde antes isso era um problema (a sidebar), a marca deixou
+de morar lá. Uma assinatura reversa só pode entrar se for fornecida ou aprovada
+formalmente.
+
+Recorte da moldura transparente **é permitido e desejável**: é o que faz o
+desenho preencher a caixa em vez de aparecer pequeno dentro dela. Foi assim que
+o favicon subiu de 85–88% para 100% da altura útil. Recortar moldura vazia não é
+recortar o desenho.
+
+O favicon deriva do símbolo oficial isolado, sem simplificação silenciosa. Cada
+tamanho é rasterizado diretamente do recorte nativo com reamostragem de alta
+qualidade; não ampliar um derivado pequeno para gerar outro maior.
+
+O login usa a fotografia editorial sobre atendimento por mensagens como plano
+full-screen, com o tablet à direita e o cartão à esquerda. A serventia não
+aparece nessa tela, e não há frase institucional, kicker, legenda, texto sobre a
+fotografia ou marca de terceiro. A fotografia usa o WebP de 1536px em todas as
+larguras, para evitar ampliação dos recortes menores.
+
+**O cartão foi redesenhado na Fase 3.1** e as regras antigas dele não valem mais:
+
+| Antes (Fase 2.1) | Agora (Fase 3.1) |
+| --- | --- |
+| Bloco sólido em `branco`, sem transparência nem sombra | `branco` a 96% com `backdrop-blur`, sombra funda |
+| Cabeçalho próprio em `superficie` com linha superior em `selo` | Sem faixa de cabeçalho; a assinatura abre o corpo |
+| Título "Entrar no CRM" só para tecnologia assistiva | Título **visível**, em Inter bold |
+| Raio de 6px | `--raio-card` |
+| Largura fixa | 27rem, subindo para 30rem em `xl` e 33rem em `2xl` |
+
+A translucidez é o ponto: branco 100% opaco recorta a fotografia como adesivo
+colado, e a 96% a textura da madeira atravessa de leve nas bordas. Um véu escuro
+em gradiente cobre a faixa do cartão para garantir contraste em qualquer recorte
+da imagem — o recorte muda com a largura da janela, e sem o véu o cartão podia
+cair sobre a parte clara do aparelho.
+
+O teto de 33rem existe porque campo de formulário largo demais piora a leitura: o
+olho percorre a linha inteira para achar um `input` que continua com o mesmo
+conteúdo. Quem cresce com a tela é o espaço interno e a tipografia, não só a
+largura.
+
+---
+
+## 14. Shell global (Fase 3)
+
+A Fase 3 substituiu o menu de quatro itens e o `CabecalhoDaPagina` por navegação
+em rail, cabeçalho global e Visão Geral. Esta seção documenta o que mudou de
+estrutural — o vocabulário de cor, tipografia e forma das seções 1 a 4 continua
+valendo sem excepção.
+
+### 14.1 Navegação como dado
+
+`src/frontend/src/app/navegacao.ts` é a única lista de itens de menu. Rotas
+(`rotas.tsx`), o rail, o cabeçalho, a barra inferior do celular e a folha
+"Mais" leem dali — nunca existe uma segunda árvore de menu escrita à mão num
+componente. Mudar o menu é editar esse arquivo, não quatro.
+
+### 14.2 Rail de navegação — exceção deliberada ao "sem animação de largura"
+
+O rail (`components/layout/rail-de-navegacao.tsx`) é a mesma "lombada do
+livro" da seção 10.3 — única grande superfície escura, item ativo em `branco`
+com texto `selo` contando para o limite de 3 ocorrências de bordô. O que muda:
+
+- **Fechado, 64px, só ícones.** Abre por hover com intenção (**160ms** para
+  abrir, **320ms** para fechar — cada evento cancela o timer contrário) e por
+  foco de teclado, que TRAVA o painel aberto enquanto o foco estiver dentro.
+  Os 90ms originais abriam o painel com o ponteiro só atravessando a borda, e o
+  resultado era sensação de coisa brusca; 160ms absorve a passagem acidental e
+  ainda fica dentro da janela em que o movimento se lê como resposta.
+- **Escolher um destino recolhe o painel na hora.** Fica num efeito sobre
+  `location.pathname`, não num `onClick` dos itens: a navegação também acontece
+  por submenu, por teclado e pelo histórico do navegador, e o `onClick` cobriria
+  só um dos caminhos.
+- **O painel aberto (256px) é OVERLAY sobre o conteúdo**, não uma coluna em
+  fluxo — por isso ele **pode** animar largura, ao contrário das colunas das
+  seções 10.3 e 10.7 (lista de conversas, menu antigo), que continuam sem
+  animação porque são colunas em fluxo e reflow no meio de uma tela com fio de
+  mensagens rolando fica torto. Aqui não há reflow: o rail expandido cobre o
+  conteúdo, e os ícones da faixa de 64px não se movem 1 pixel.
+- **Fixar aberto** é um botão de 24px no rodapé do painel, sem hambúrguer.
+  Preferência em `localStorage` (`crm-cartorio.menu-fixado`), ignorada abaixo
+  de 1280px pela mesma razão do menu antigo (a lista de 360px não cabe do
+  lado de um rail de 256px fixo).
+- **Não existe tooltip no rail**, e a ausência é deliberada — removida em
+  2026-08-21 por ser defeituosa por construção. O rail abre no hover em 160ms,
+  então a única janela em que o tooltip podia aparecer eram esses 160ms antes de
+  o painel mostrar o rótulo de verdade: com o atraso de 500ms do
+  `TooltipProvider` ele nunca aparecia, e com o `skipDelayDuration` de 300ms
+  piscava. Pior, ele **ficava preso** na tela, porque o componente alternava
+  entre controlado (`open={false}`) e não controlado (`open={undefined}`), e
+  voltar para não controlado restaura o estado interno do Radix.
+- **`className` do `NavLink` nunca é função.** A regra nasceu do `Slot` do Radix
+  estringificando a função ao mesclar classes; o tooltip saiu, a forma fica —
+  o estado ativo é calculado fora (`pathname` comparado à rota) e passado como
+  booleano, mantendo o cálculo num lugar só.
+- Rótulo de item recolhido usa **`opacity-0`, nunca `sr-only` condicional nem
+  `display:none`**: `opacity: 0` continua legível para leitor de tela, então
+  esse `<span>` **é** o nome acessível do link. E opacidade esmaece junto com a
+  animação de largura, enquanto `sr-only` some do layout de um quadro para o
+  outro e o rótulo popa na tela no fim da abertura.
+- **`border-l-2` em todos os estados, variando só a cor.** Com `border` de 1px no
+  estado base e 2px só no ativo, cada item deslocava 1px ao ficar ativo ou ao
+  painel abrir — numa coluna de dez itens isso lê como tremida.
+- **Nunca `transition-all` nos itens.** A largura do item é ditada pela largura
+  do `aside`, que está animando; com `all`, o item anima a própria largura
+  perseguindo um alvo que muda a cada quadro e fica sempre atrás da borda do
+  painel. Só cor e sombra transicionam.
+- **`overflow-x-hidden` no `<nav>` é obrigatório.** Com `overflow-y-auto`
+  sozinho, o CSS promove o eixo X de `visible` para `auto`, e os rótulos (que
+  seguem ocupando largura mesmo em `opacity-0`) transbordam os 64px — o
+  navegador desenhava uma barra de rolagem horizontal no pé do rail, que o tema
+  de scrollbar do projeto ainda estilizava como pílula clara e parecia elemento
+  da interface.
+
+### 14.3 Cabeçalho global
+
+Um cabeçalho só, presente em toda área autenticada
+(`components/layout/cabecalho-global.tsx`), lendo título e descrição da rota
+ativa em `navegacao.ts`. `CabecalhoDaPagina` (uma instância por página) não
+existe mais. Ordem à direita: ações da página → busca → sino → perfil.
+
+- **Ações da página** chegam por portal (`AcoesDaPagina`, em
+  `contexto-de-acoes-da-pagina.tsx`): a página manda o botão, o cabeçalho
+  desenha o slot. Vazio, o slot some (`empty:hidden`) sem reservar espaço.
+- **Perfil e Sair** moram só aqui (desktop) e no rodapé da folha "Mais"
+  (celular) — não mais no rodapé do rail. Duas superfícies de logout na
+  mesma tela seria redundância.
+- Em `/atendimentos/:id`, some no celular (a conversa já tem cabeçalho e
+  "voltar" próprios); continua visível no desktop.
+
+### 14.4 Busca global e sino de alertas
+
+Nenhum dos dois criou endpoint novo de escrita nem schema.
+
+- **Busca** (`Ctrl/Cmd+K`) usa `conversasApi.listar`/`clientesApi.listar`, os
+  mesmos endpoints já abertos a qualquer autenticado.
+- **Sino** chama `GET /api/indicadores/alertas` — atrasados, próximos do
+  prazo, fila sem responsável, WhatsApp desconectado (só Administrador) e
+  teto diário da IA (só gestão). É honesto sobre não ter "lido" persistido:
+  o badge conta o que é mais novo que a última vez que o painel abriu **neste
+  navegador** (`localStorage`), e a própria tela diz isso.
+
+### 14.5 Navegação do celular
+
+Barra inferior fixa (`< md`), quatro células: Visão Geral, Atendimento,
+Clientes, Mais — sem hambúrguer. Ativo marcado por uma lombada `selo` de 2px
+no topo da célula, não pelo preenchimento inteiro. "Mais" abre uma folha que
+sobe do rodapé (`components/layout/folha-mais.tsx`) com o menu inteiro,
+filtrado pela mesma permissão de `navegacao.ts`, e o rodapé com perfil e Sair.
+
+A folha usa primitivos crus do Radix Dialog, não o `DialogContent`
+compartilhado: sobrepor classes utilitárias de posição/tamanho num componente
+que já define as suas próprias arrisca uma perder para a outra sem
+previsibilidade em Tailwind v4. Mesmo cuidado na busca global.
+
+Barra inferior e cabeçalho global somem juntos em `/atendimentos/:id` — a
+conversa não deve dividir altura com nenhum dos dois num aparelho de 360px.
+
+### 14.6 Visão Geral e gráficos
+
+Gráfico é feito em casa, **sem biblioteca**. O motivo mudou de forma na Fase 3.1
+mas não de conclusão: não é mais "biblioteca traz gradiente e sombra" (isso
+agora é permitido em painel, 15.1) — é que o produto é self-hosted num lugar de
+internet instável e já decidiu empacotar até fonte (seção 3), e 100KB+ de
+dependência para barras e uma curva não se paga. Os componentes vivem
+encapsulados em `components/graficos/`: trocar por biblioteca depois é
+substituir o miolo desses arquivos, sem nenhuma tela saber.
+
+**A forma segue a natureza da grandeza, e isso não é estilo:**
+
+- **Barra para fluxo** (abertos, encerrados por dia). Contagem diária é discreta
+  e esparsa — num cartório a maioria dos dias é zero, e uma linha ligando essas
+  contagens afirmaria que existiu meio atendimento na terça.
+- **Linha para estoque** (em aberto ao fim do dia). Estoque tem valor em todo
+  dia, mesmo sem movimento, então a curva é contínua por natureza, sem um único
+  ponto interpolado.
+- Juntas respondem o que nenhuma responde sozinha: **está dando conta ou está
+  acumulando?** Duas barras altas lado a lado podem ser "movimentou e empatou"
+  ou "entrou o dobro do que saiu"; é a linha que desempata.
+
+**Um eixo só**, à esquerda: fluxo e estoque estão na mesma unidade, então dois
+eixos seriam mentira sobre haver duas escalas.
+
+Duas tentativas de linha foram descartadas antes, e o registro evita repeti-las:
+**média móvel dos próprios abertos** (derivável de olho da própria série — a
+linha só repetia as barras) e **mediana do tempo de primeira resposta** (dado
+valioso, mas indefinido nos dias sem resposta, o que quebrava a linha em
+pedaços). O tempo de resposta ficou na dica de hover, onde não precisa de
+continuidade.
+
+Regras de implementação que custaram bug para descobrir:
+
+- **Marcador de ponto em HTML, nunca `<circle>` SVG.** O `viewBox` usa
+  `preserveAspectRatio="none"` e o eixo X é esticado ~11× mais que o Y: um
+  círculo SVG ali vira elipse deitada. A curva sobrevive ao esticamento porque
+  `vector-effect="non-scaling-stroke"` protege a espessura.
+- **A caixa das barras precisa de altura DEFINIDA** (`absolute inset`).
+  `height: X%` num filho de pai com altura automática é referência circular: o
+  navegador resolve como zero e o gráfico sai só com eixo e grade.
+- **Barra de valor zero não desenha nada.** Um "toco" de 2px faria zero parecer
+  "quase um".
+- Teto do eixo é arredondado para 1/2/5/10 × magnitude, para nenhuma marca cair
+  em fração — contagem de atendimento é inteira por natureza.
+
+Outras decisões da tela que continuam:
+
+- Indicador "Atrasados" é a única ocorrência de bordô do número — o cabeçalho
+  do grupo "Requer atenção" usa ícone, não cor, para não gastar o orçamento
+  duas vezes pela mesma informação na mesma tela.
+- Mediana, não média, para "1ª resposta humana": no volume de um cartório, um
+  único caso respondido tarde distorce a média sem dizer nada do resto do
+  período. Média e amostra continuam disponíveis no tooltip.
+- **"Atividade recente" foi removida** e o espaço virou "Carga da equipe agora".
+  O painel anterior era um log retrospectivo — vinte linhas de "Etapa alterada
+  para X", sem nada a fazer com a informação. A carga responde uma pergunta de
+  gestão que a tela não respondia, e é ordenada por NOME, nunca por volume:
+  ordenar por quantidade transforma o painel em quadro de comparação entre
+  colegas. Só aparece para gestão — expor carga alheia a todo atendente seria
+  ampliar permissão.
+
+### 14.7 Rotas preservadas
+
+`/` deixou de ser a inbox — agora é a Visão Geral. Atendimento vive em
+`/atendimentos` e `/atendimentos/:id`. `/conversas/:id` (link antigo) e
+`/configuracoes` continuam resolvendo por redirect permanente, para nenhum
+link salvo ou compartilhado quebrar.
+
+Indicadores e Relatórios (`/indicadores`) tem quatro seções — Dashboard,
+Atendimentos, Atendentes, Clientes — e **a seção vive na URL**
+(`/indicadores/atendentes`), não em estado local: F5 volta na mesma aba, link
+compartilhado abre onde o colega quer mostrar, e o "voltar" do navegador faz o
+esperado. Ficam **fora** de `navegacao.ts` de propósito: são subdivisões de uma
+tela, e inflariam o menu do rail com detalhe de uma página só. A permissão é
+lida da própria entrada `/indicadores` em `navegacao.ts`, para não haver duas
+verdades sobre quem entra.
+
+---
+
+## 15. Fase 3.1 — a linguagem visual do painel
+
+**Decisão do Thiago, 2026-08-21.** O conceito da seção 1 — "documento oficial,
+não dashboard de startup" — foi aplicado na Visão Geral da Fase 3 e **recusado
+na revisão**: a palavra usada foi "design de site criado em 2010". O pedido foi
+explícito, e está registrado aqui porque contraria as seções 1 a 4 deste
+documento: *"pode ignorar esse design, talvez seja por isso que ficou tão ruim"*,
+e a direção pedida foi algo *"moderno, que chame atenção, bem tecnológico"*,
+com **a paleta existente preservada** — sem preto, sem tema escuro.
+
+Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está em 15.1.
+
+### 15.1 Onde vale
+
+| Superfície | Linguagem |
+| --- | --- |
+| Login | **Fase 3.1** |
+| Shell: rail, cabeçalho global, busca, sino, folha "Mais" | **Fase 3.1** |
+| Visão Geral (`/`) | **Fase 3.1** |
+| Indicadores e Relatórios (`/indicadores/*`) | **Fase 3.1** |
+| Componentes compartilhados de `components/ui/` | **Fase 3.1** |
+| Inbox, fio de mensagens, conversa | Fase 1 — seções 1 a 12, **intactas** |
+| Clientes, Serviços, telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
+
+A fronteira não é capricho: as telas operacionais são onde o atendente passa o
+dia, foram medidas em monitor de 1366×768 (7.1, 10.8) e a densidade delas é
+resultado de trabalho de ajuste que elevação e raio maior desfariam. Painel é
+tela de leitura; balcão é tela de trabalho.
+
+**O que continua valendo em toda parte, sem exceção:** a paleta da seção 2, o
+teto de 3 bordôs (2.1), as cores de etapa (2.2), o mapeamento de significado
+(seção 5), a proibição de emoji no painel e de cor fora de token (seção 4), o
+selo (seção 6) e as regras de acessibilidade da seção 12.
+
+### 15.2 Tokens novos
+
+Definidos em `index.css` e expostos ao Tailwind por `@theme inline`:
+
+| Token | Valor | Uso |
+| --- | --- | --- |
+| `--raio-card` | `14px` | Cartão, painel, diálogo, dica de gráfico |
+| `--sombra-card` | dupla, baixa opacidade | Repouso de cartão elevado |
+| `--sombra-card-hover` | dupla, mais aberta | Hover de cartão e camada flutuante |
+| `--cor-tendencia` | `#2F5D7C` | Série de gráfico — ver 15.3 |
+
+O raio de 6px da seção 4 **não foi substituído**: ele continua em botão, campo,
+pílula e badge. `--raio-card` é para a caixa que contém, não para o controle que
+está dentro dela.
+
+### 15.3 O que a direção nova autoriza, e o limite de cada coisa
+
+- **Elevação** (`shadow-card`) em cartão de painel. Não em campo, não em botão de
+  barra, não em linha de lista. Hierarquia por elevação é para separar o cartão
+  do fundo `papel`, não para destacar item dentro do cartão.
+- **Gradiente**, e só de duas formas: vertical sutil numa barra de gráfico ou no
+  botão primário (`from-selo to-selo/90`), sempre **entre opacidades do mesmo
+  token** — nunca entre dois tokens diferentes, que é o que produz o "gradiente
+  roxo de SaaS" que a seção 1 recusa com razão.
+- **`backdrop-blur`** apenas no cartão do login sobre a fotografia. Não é efeito
+  de painel.
+- **Tipografia de título em Inter bold** com `tracking` negativo, no lugar da
+  Spectral. A Spectral **não saiu do produto**: ela continua no selo (seção 6),
+  na linha de autoria do fio (10.4) e dentro do lockup da marca. O que mudou é
+  que título de painel deixou de ser serifado.
+- **Animação de entrada** escalonada (`grade-com-vida`, `crm-crescer-barra*`,
+  `crm-revelar-esquerda-direita`). Teto curto de propósito: escalonar demais
+  ATRASA a leitura e a tela passa a *parecer* lenta, que é o oposto do objetivo.
+  O último cartão termina de entrar em ~360ms.
+- **Micro-interação de hover** que levanta 1px com sombra maior. Em cartão e
+  linha clicável; nunca em elemento sem ação, que prometeria clique.
+
+### 15.4 O que continua proibido, e por quê
+
+- **Tema escuro e superfície escura nova.** O rail e a folha do celular seguem
+  sendo as únicas superfícies escuras (10.3). Foi pedido explicitamente: *"não
+  quero o preto, não quero essa referência"* — as telas de referência
+  (Vercel, Linear) são dark-mode, e a inspiração pedida foi de forma e ritmo, não
+  de esquema de cor.
+- **Cor fora de token.** Vale igual. `tendencia` entrou como token, não como
+  hexadecimal solto num componente.
+- **Emoji no painel.** Inalterado.
+- **Gastar bordô além de 3 por tela.** A direção nova não afrouxa 2.1 — pelo
+  contrário, os cartões de indicador pintam só o número, nunca o fundo,
+  justamente porque são quatro por linha.
+
+### 15.5 Referências que orientaram, e o que NÃO se copiou
+
+O Thiago trouxe três telas: **Linear** (menu, transições, sensação de
+velocidade), **Attio** (estrutura de CRM, organização dos módulos) e **Vercel**
+(gráficos, indicadores, leitura operacional). O pedido foi textual: *"não quero
+que copie nada, pegue referências"*.
+
+Do que veio: hover-intent no menu com transição de largura, cartão elevado com
+raio maior, número de indicador grande e bold, realce de coluna no gráfico,
+pílulas segmentadas de filtro.
+
+Do que **não** veio: o fundo escuro, a paleta fria, o glow neon e o tipo de
+letra dessas telas. A paleta de papel e tinta da seção 2 é o que diferencia o
+produto de "SaaS genérico" — e é argumento comercial (seção 1), não gosto.

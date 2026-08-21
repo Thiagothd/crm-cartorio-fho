@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Inbox, MessagesSquare, RefreshCw, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
-import { CabecalhoDaPagina, EstadoVazio } from '@/components/layout/shell'
+import { EstadoVazio } from '@/components/layout/shell'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -43,10 +43,9 @@ import { PainelDeMidias } from '@/features/atendimento/painel-de-midias'
 import { VisualizadorDeImagem } from '@/features/atendimento/visualizador-de-imagem'
 import { usarMidiasDaConversa } from '@/features/atendimento/midias-da-conversa'
 import { descartarOutrasConversas } from '@/features/atendimento/cache-de-anexos'
-import { DialogoNovaConversa } from '@/features/atendimento/dialogo-nova-conversa'
 import { DialogoEncaminhar } from '@/features/atendimento/dialogo-encaminhar'
 import { BarraDeSelecao } from '@/features/atendimento/barra-de-selecao'
-import type { Mensagem } from '@/lib/api/tipos'
+import type { Mensagem, SituacaoPrazo, StatusConversa } from '@/lib/api/tipos'
 
 const FILTROS_INICIAIS: FiltrosVisiveis = {
   status: 'Ativa',
@@ -57,6 +56,7 @@ const FILTROS_INICIAIS: FiltrosVisiveis = {
 export function PaginaInbox() {
   const { id: idDaRota } = useParams<{ id: string }>()
   const navegar = useNavigate()
+  const location = useLocation()
 
   const { atendente, tenant, podeOperarConversaDeTerceiro } = usarAutenticacao()
   const invalidar = usarInvalidarAtendimento()
@@ -97,6 +97,39 @@ export function PaginaInbox() {
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
   const [assumindo, setAssumindo] = useState(false)
   const [mensagemRespondida, setMensagemRespondida] = useState<Mensagem | null>(null)
+
+  // Semeia o filtro a partir da query string — é o que faz os números e as
+  // etapas da Visão Geral não serem decorativos: clicar neles leva para a
+  // inbox JÁ filtrada. Sem parâmetro, comportamento idêntico a antes. Só
+  // roda quando a própria query string muda, para não sobrescrever um ajuste
+  // manual do atendente feito depois de chegar aqui.
+  useEffect(() => {
+    if (!location.search) return
+
+    const parametros = new URLSearchParams(location.search)
+    const etapaId = parametros.get('etapa') ?? undefined
+    const setorId = parametros.get('setor') ?? undefined
+    const situacaoPrazo = (parametros.get('situacao') as SituacaoPrazo | null) ?? undefined
+    const escopo = (parametros.get('escopo') as FiltrosVisiveis['escopo'] | null) ?? undefined
+    const status = (parametros.get('status') as StatusConversa | null) ?? undefined
+
+    if (!etapaId && !setorId && !situacaoPrazo && !escopo && !status) return
+
+    setFiltros({
+      ...FILTROS_INICIAIS,
+      ...(etapaId ? { etapaId } : {}),
+      ...(setorId ? { setorId } : {}),
+      ...(situacaoPrazo ? { situacaoPrazo } : {}),
+      ...(escopo ? { escopo } : {}),
+      ...(status ? { status } : {}),
+    })
+
+    // Limpa a query string depois de consumida: sem isso, voltar a esta
+    // MESMA URL pelo histórico do navegador (ou uma aba duplicada) reaplica
+    // o filtro antigo por cima de qualquer ajuste manual feito depois.
+    navegar(idDaRota ? `/atendimentos/${idDaRota}` : '/atendimentos', { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search])
 
   // Histórico e mídias dividem UM estado, e não dois booleanos: os dois painéis
   // ocupam a mesma coluna de 256px, e abrir os dois juntos num monitor de
@@ -317,7 +350,7 @@ export function PaginaInbox() {
   )
 
   function selecionar(id: string) {
-    navegar(`/conversas/${id}`)
+    navegar(`/atendimentos/${id}`)
   }
 
   async function executar(acao: () => Promise<unknown>, sucesso?: string) {
@@ -353,17 +386,10 @@ export function PaginaInbox() {
 
   return (
     <>
-      {/* No celular, com a conversa aberta, o cabeçalho da página e o painel de
-          indicadores não dizem nada que a conversa não diga — e juntos comem
-          ~80px dos 780 disponíveis. Somem, e voltam ao fechar a conversa.
-          `hidden md:flex`, nunca `md:block`: o justify-between depende do flex. */}
-      <CabecalhoDaPagina
-        titulo="Atendimento"
-        descricao="Conversas do WhatsApp do cartório"
-        acoes={<DialogoNovaConversa aoCriar={selecionar} />}
-        className={selecionadaId ? 'hidden md:flex' : undefined}
-      />
-
+      {/* No celular, com a conversa aberta, o painel de indicadores não diz
+          nada que a conversa não diga — e come espaço do fio. Some, e volta
+          ao fechar a conversa. O cabeçalho global já cuida de si mesmo (ver
+          `Shell`); esta classe é só sobre o painel de indicadores. */}
       {resumo ? (
         <ResumoDoPainelAtendimento
           resumo={resumo}
@@ -410,6 +436,7 @@ export function PaginaInbox() {
               etapas={etapas ?? []}
               aoMudar={setFiltros}
               aoRecolher={alternarLista}
+              aoCriarConversa={selecionar}
             />
 
             <div className="flex-1 overflow-y-auto">
@@ -506,7 +533,7 @@ export function PaginaInbox() {
                   size="sm"
                   onClick={() => {
                     invalidar()
-                    navegar('/')
+                    navegar('/atendimentos')
                   }}
                 >
                   <RefreshCw />
@@ -535,7 +562,7 @@ export function PaginaInbox() {
                 aoAlternarPainel={(qual) =>
                   setPainelLateral((atual) => (atual === qual ? null : qual))
                 }
-                aoVoltar={() => navegar('/')}
+                aoVoltar={() => navegar('/atendimentos')}
                 aoAssumir={() => void assumir()}
                 aoLiberar={() =>
                   void executar(() => conversasApi.liberar(conversa.id), 'Conversa devolvida à fila.')

@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
@@ -68,7 +69,7 @@ public class ConversaService(
         {
             // Mesmo limite de dia que ResumoDoPainelAsync usa para contar, de modo
             // que o indicador "encerradas hoje" e a lista nunca discordem.
-            var inicioDoDia = InicioDoDiaLocal(agora);
+            var inicioDoDia = DiaLocal.InicioDoDia(agora);
 
             consulta = consulta.Where(c => c.Status == StatusConversa.Encerrada
                                         && c.EncerradaEm >= inicioDoDia);
@@ -164,7 +165,7 @@ public class ConversaService(
         var eu = ctx.AtendenteId;
         var agora = DateTime.UtcNow;
 
-        var inicioDoDiaLocal = InicioDoDiaLocal(agora);
+        var inicioDoDiaLocal = DiaLocal.InicioDoDia(agora);
 
         var ativas = db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa);
@@ -844,21 +845,4 @@ public class ConversaService(
 
     private static string Formatar(DateTime utc) =>
         TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZoneInfo.Local).ToString("dd/MM/yyyy HH:mm");
-
-    /// <summary>
-    /// Meia-noite de hoje no fuso da serventia, devolvida em UTC.
-    /// </summary>
-    /// <remarks>
-    /// "Hoje" e o dia do cartorio, nao o dia UTC — as duas coisas divergem entre
-    /// 21h e meia-noite no horario de Brasilia. Fica num metodo so porque o
-    /// contador do painel e o filtro da lista PRECISAM usar o mesmo limite; se
-    /// cada um calculasse o seu, o numero no indicador nao bateria com a lista
-    /// que ele abre.
-    /// </remarks>
-    private static DateTime InicioDoDiaLocal(DateTime agoraUtc) =>
-        TimeZoneInfo.ConvertTimeToUtc(
-            DateTime.SpecifyKind(
-                TimeZoneInfo.ConvertTimeFromUtc(agoraUtc, TimeZoneInfo.Local).Date,
-                DateTimeKind.Unspecified),
-            TimeZoneInfo.Local);
 }

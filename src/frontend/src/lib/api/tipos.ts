@@ -467,3 +467,273 @@ export interface TipoServico {
   setorNome: string | null
   documentosNecessarios: string | null
 }
+
+// Indicadores (Visão Geral, Indicadores e Relatórios, sino) --------------------
+
+export interface PeriodoDeIndicadores {
+  de: string
+  ate: string
+  granularidade: 'hora' | 'dia'
+}
+
+export interface IndicadoresAgora {
+  ativas: number
+  naFila: number
+  emAlerta: number
+  atrasadas: number
+}
+
+export interface IndicadoresDoPeriodo {
+  abertos: number
+  encerrados: number
+  /** Métrica honesta no volume de um cartório — ver docs/DESIGN.md. */
+  primeiraRespostaMedianaMinutos: number | null
+  primeiraRespostaMediaMinutos: number | null
+  amostraPrimeiraResposta: number
+}
+
+export interface PontoDoFluxo {
+  inicio: string
+  /** Fluxo: entrou neste dia. */
+  abertos: number
+  /** Fluxo: saiu neste dia. */
+  encerrados: number
+  /** Estoque: seguiam abertas ao fim do dia. É a série da linha do gráfico. */
+  emAberto: number
+  /**
+   * `null` quando nenhuma conversa aberta neste dia recebeu resposta humana —
+   * nunca zero, que significaria resposta instantânea. Aparece só na dica de
+   * hover, não como série, justamente porque não é definida em todo dia.
+   */
+  primeiraRespostaMedianaMinutos: number | null
+}
+
+export interface ItemRequerAtencao {
+  conversaId: string
+  protocolo: string
+  clienteNome: string
+  clienteTelefone: string
+  clienteFotoPerfilUrl: string | null
+  etapaNome: string | null
+  etapaCor: string | null
+  situacaoPrazo: SituacaoPrazo
+  prazoLimite: string | null
+  ultimaMensagemEm: string
+  /** `null` significa "na fila" — conversa ativa sem responsável. */
+  atendenteNome: string | null
+}
+
+export interface GrupoRequerAtencao {
+  chave: string
+  rotulo: string
+  total: number
+  itens: ItemRequerAtencao[]
+}
+
+export interface ServicoMaisProcurado {
+  tipoServicoId: string | null
+  nome: string
+  total: number
+  percentual: number
+}
+
+export interface SaudeDoWhatsApp {
+  habilitado: boolean
+  conectado: boolean
+  estado: string
+}
+
+export interface SaudeDaIa {
+  habilitada: boolean
+  estaConfigurada: boolean
+  modelo: string
+  limiteDiario: number
+  usadoHoje: number
+}
+
+export interface SaudeDaAutomacao {
+  regrasAtivas: number
+  regrasInativas: number
+}
+
+/** Cada campo é `null` quando o perfil não tem permissão para aquele dado. */
+export interface SaudeDaOperacao {
+  whatsApp: SaudeDoWhatsApp | null
+  ia: SaudeDaIa | null
+  automacao: SaudeDaAutomacao | null
+}
+
+export interface VisaoGeral {
+  periodo: PeriodoDeIndicadores
+  agora: IndicadoresAgora
+  noPeriodo: IndicadoresDoPeriodo
+  fluxoDeAtendimentos: PontoDoFluxo[]
+  requerAtencao: GrupoRequerAtencao[]
+  /** `null` para quem não gere cadastros — o painel simplesmente não aparece. */
+  cargaDaEquipe: CargaDoAtendente[] | null
+  servicosMaisProcurados: ServicoMaisProcurado[]
+  distribuicaoPorEtapa: ContagemPorChave[]
+  saude: SaudeDaOperacao
+  minhaDistribuicaoPorEtapa: ContagemPorChave[]
+}
+
+export interface EvolucaoDaPrimeiraResposta {
+  dia: string
+  medianaMinutos: number
+  amostra: number
+}
+
+export interface CargaDoAtendente {
+  atendenteId: string
+  atendenteNome: string
+  ativas: number
+  emAlerta: number
+  atrasadas: number
+}
+
+export interface Encerramentos {
+  porAtendente: number
+  peloCliente: number
+}
+
+export interface AbsorcaoDaAutomacao {
+  humanas: number
+  automaticas: number
+  ia: number
+  percentualAutomatizado: number
+}
+
+export interface Relatorio {
+  periodo: PeriodoDeIndicadores
+  evolucaoDaPrimeiraResposta: EvolucaoDaPrimeiraResposta[]
+  distribuicaoPorSetor: ContagemPorChave[]
+  distribuicaoPorEtapa: ContagemPorChave[]
+  /** 24 posições, uma por hora do dia (0 a 23), no fuso local do cartório. */
+  horariosDeMaiorDemanda: number[]
+  cargaDaEquipe: CargaDoAtendente[]
+  encerramentos: Encerramentos
+  absorcaoDaAutomacao: AbsorcaoDaAutomacao
+}
+
+// ============================== Relatórios — as quatro abas de /indicadores
+
+/** Um mês da série de fluxo. Mesmas grandezas de `PontoDoFluxo`, em outra escala. */
+export interface MesDoFluxo {
+  mes: string
+  abertos: number
+  encerrados: number
+  /** Estoque ao FIM do mês — é a série da linha. */
+  emAberto: number
+}
+
+/** Série mensal de uma grandeza só (ex.: clientes novos por mês). */
+export interface PontoMensal {
+  mes: string
+  total: number
+}
+
+/** Resumo de uma janela fixa: "Hoje", "Últimos 7 dias", "Este mês". */
+export interface ResumoDeJanela {
+  chave: string
+  rotulo: string
+  de: string
+  ate: string
+  abertos: number
+  encerrados: number
+  primeiraRespostaMedianaMinutos: number | null
+  amostraPrimeiraResposta: number
+}
+
+export interface Painel {
+  dozeMeses: MesDoFluxo[]
+  janelas: ResumoDeJanela[]
+}
+
+export interface ClienteNoRanking {
+  clienteId: string
+  nome: string
+  fotoPerfilUrl: string | null
+  telefoneWhatsapp: string
+  total: number
+  /** Sobre o total de atendimentos do período, não sobre o topo da lista. */
+  percentual: number
+  ultimoAtendimentoEm: string
+}
+
+export interface RelatorioDeAtendimentos {
+  periodo: PeriodoDeIndicadores
+  abertos: number
+  encerrados: number
+  emAbertoAgora: number
+  primeiraRespostaMedianaMinutos: number | null
+  amostraPrimeiraResposta: number
+  totalMensal: MesDoFluxo[]
+  clientesMaisAtendidos: ClienteNoRanking[]
+  clientesAtendidosNoPeriodo: number
+  distribuicaoPorSetor: ContagemPorChave[]
+  distribuicaoPorEtapa: ContagemPorChave[]
+  /** 24 posições, uma por hora do dia (0 a 23), no fuso local do cartório. */
+  horariosDeMaiorDemanda: number[]
+  absorcaoDaAutomacao: AbsorcaoDaAutomacao
+}
+
+export interface AtendenteNoRelatorio {
+  atendenteId: string
+  nome: string
+  cargoDescrito: string
+  perfil: PerfilDeAtendente
+  ativas: number
+  emAlerta: number
+  atrasadas: number
+  encerradosNoPeriodo: number
+  primeirasRespostasNoPeriodo: number
+  /** `null` quando não respondeu nada de primeira no período — nunca zero. */
+  primeiraRespostaMedianaMinutos: number | null
+  ultimoAcessoEm: string | null
+}
+
+export interface RelatorioDeAtendentes {
+  periodo: PeriodoDeIndicadores
+  totalDeAtendentes: number
+  comConversaAtiva: number
+  naFilaSemResponsavel: number
+  encerramentos: Encerramentos
+  atendentes: AtendenteNoRelatorio[]
+}
+
+export interface RelatorioDeClientes {
+  periodo: PeriodoDeIndicadores
+  total: number
+  novosNoPeriodo: number
+  comAtendimentoAtivo: number
+  pessoaFisica: number
+  pessoaJuridica: number
+  semDocumento: number
+  novosPorMes: PontoMensal[]
+  maisAtendidos: ClienteNoRanking[]
+}
+
+export type SeveridadeDeAlerta = 'Neutra' | 'Alerta' | 'Critica'
+
+/**
+ * Alerta operacional ativo — não é notificação persistida. Não existe "lido"
+ * no servidor; o front decide o que é novo comparando `quando` com a última
+ * vez que o painel foi aberto neste navegador.
+ */
+export interface AlertaOperacional {
+  id: string
+  tipo: string
+  severidade: SeveridadeDeAlerta
+  titulo: string
+  descricao: string | null
+  quando: string
+  rota: string
+}
+
+export interface SituacaoDaIa {
+  habilitada: boolean
+  estaConfigurada: boolean
+  modelo: string
+  limiteDiario: number
+  usadoHoje: number
+}

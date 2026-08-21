@@ -9,8 +9,12 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
     /// Mensagem unica para e-mail inexistente, senha errada e usuario desativado.
     /// Diferenciar os tres entregaria a um atacante a lista de e-mails validos.
     /// </summary>
+    // Acento no texto EXIBIDO, sem acento no `codigo` — a regra 7.2 do
+    // CLAUDE.md: identificador de codigo sem acento, mensagem de usuario com.
+    // Nao diz QUAL dos dois errou, e e' deliberado: apontar "e-mail nao existe"
+    // confirmaria para quem tenta adivinhar que aquele endereco tem conta aqui.
     public static UsuariosServiceException CredenciaisInvalidas() =>
-        new("credenciais_invalidas", "E-mail ou senha invalidos.", 401);
+        new("credenciais_invalidas", "E-mail ou senha inválidos.", 401);
 
     public static UsuariosServiceException AtendenteNaoEncontrado() =>
         new("atendente_nao_encontrado", "Atendente nao encontrado.", 404);

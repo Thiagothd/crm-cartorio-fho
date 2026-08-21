@@ -14,6 +14,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
+using CrmCartorio.Api.Modules.Indicadores.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
@@ -102,6 +103,11 @@ builder.Services.AddSingleton(sp =>
     return new AnthropicClient { ApiKey = opcoesDaIA.ApiKey };
 });
 builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
+builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
+
+// Visão Geral, Indicadores e Relatórios, alertas do sino — só consulta, lê o
+// DbContext direto (permitido; chamar o Service de outro slice não seria).
+builder.Services.AddScoped<IIndicadoresService, IndicadoresService>();
 
 // Anexo vai para o disco do proprio servidor, nunca para o banco nem para
 // storage de terceiro. Singleton porque nao guarda estado de requisicao —

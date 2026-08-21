@@ -42,3 +42,40 @@ export function usarPreferenciaLocal(chave: string, padrao: boolean) {
 
   return [valor, alternar] as const
 }
+
+/**
+ * Mesma disciplina de `usarPreferenciaLocal`, para preferência de texto —
+ * período e escopo da Visão Geral, por exemplo. `valoresValidos` existe para
+ * um valor gravado por uma versão antiga da tela (ou editado à mão no
+ * `localStorage`) não travar a tela num estado que a UI atual não sabe
+ * desenhar; cai no padrão em silêncio, igual a preferência ausente.
+ */
+export function usarPreferenciaDeTexto<T extends string>(
+  chave: string,
+  padrao: T,
+  valoresValidos: readonly T[],
+) {
+  const [valor, setValorInterno] = useState<T>(() => {
+    try {
+      const guardado = localStorage.getItem(chave)
+      return guardado && (valoresValidos as readonly string[]).includes(guardado) ? (guardado as T) : padrao
+    } catch {
+      return padrao
+    }
+  })
+
+  const definir = useCallback(
+    (proximo: T) => {
+      setValorInterno(proximo)
+
+      try {
+        localStorage.setItem(chave, proximo)
+      } catch {
+        // Não gravar a preferência não pode quebrar a tela.
+      }
+    },
+    [chave],
+  )
+
+  return [valor, definir] as const
+}
