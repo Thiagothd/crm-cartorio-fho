@@ -14,6 +14,15 @@ const cacheDeUrls = new Map<string, string>()
 const fotosComFalha = new Set<string>()
 const promessasEmAndamento = new Map<string, Promise<string | null>>()
 
+/**
+ * URL absoluta `http(s)` — foto hospedada FORA da nossa API (o seed de
+ * demonstração usa Unsplash, e uma futura integração pode devolver a URL do
+ * CDN do WhatsApp).
+ */
+function ehUrlExterna(url: string) {
+  return /^https?:\/\//i.test(url)
+}
+
 function carregarFoto(url: string): Promise<string | null> {
   if (cacheDeUrls.has(url)) {
     return Promise.resolve(cacheDeUrls.get(url)!)
@@ -25,8 +34,28 @@ function carregarFoto(url: string): Promise<string | null> {
     return promessasEmAndamento.get(url)!
   }
 
-  // Se já for blob, data URI ou url externa pública
-  if (url.startsWith('blob:') || url.startsWith('data:')) {
+  // Blob, data URI e URL EXTERNA vão direto para o `<img src>`, sem passar
+  // pelo cliente HTTP da API.
+  //
+  // A checagem de `ehUrlExterna` faltava, e o comentário original desta linha
+  // já dizia "ou url externa pública" — o código só não fazia. Duas
+  // consequências, as duas ruins:
+  //
+  // 1. FUNCIONAL: `baseDaApi` é string vazia por padrão (proxy do Vite em dev,
+  //    mesma origem em produção), então `api.blob('https://host/foto.jpg')`
+  //    virava `fetch('https://host/foto.jpg')` com header `Authorization`. Isso
+  //    dispara preflight CORS, o host de terceiro não libera esse header, o
+  //    fetch falha e a foto nunca aparecia — caía silenciosamente nas iniciais.
+  //
+  // 2. SEGURANÇA: se o host de terceiro POR ACASO liberar `Authorization` no
+  //    CORS, o JWT do atendente é enviado para ele. `FotoPerfilUrl` vem do
+  //    banco, então bastava um valor apontando para um host controlado por
+  //    terceiro para vazar credencial de sessão. Token só vai para a nossa API.
+  //
+  // Caminho RELATIVO (ex.: `/api/clientes/{id}/foto-perfil`) continua passando
+  // pelo `api.blob`, porque ali o token é obrigatório: o endpoint é autenticado
+  // e confere tenant antes de devolver os bytes.
+  if (url.startsWith('blob:') || url.startsWith('data:') || ehUrlExterna(url)) {
     return Promise.resolve(url)
   }
 
