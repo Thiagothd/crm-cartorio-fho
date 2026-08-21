@@ -1,5 +1,6 @@
 import { api, montarQuery } from './cliente-http'
 import type {
+  AlertaOperacional,
   AparenciaDaConversa,
   Atendente,
   CargoNaServentia,
@@ -19,13 +20,20 @@ import type {
   OpcoesDeClientes,
   Paginado,
   PaginadoDeClientes,
+  Painel,
   PerfilDeAtendente,
+  Relatorio,
+  RelatorioDeAtendentes,
+  RelatorioDeAtendimentos,
+  RelatorioDeClientes,
   RespostaRapida,
   ResumoDoPainel,
   Sessao,
   Setor,
+  SituacaoDaIa,
   SituacaoDoCanal,
   TipoServico,
+  VisaoGeral,
 } from './tipos'
 
 // Autenticacao --------------------------------------------------------------
@@ -284,6 +292,48 @@ export const servicosApi = {
   criar: (dados: unknown) => api.post<TipoServico>('/api/tipos-servico', dados),
 
   atualizar: (id: string, dados: unknown) => api.put<TipoServico>(`/api/tipos-servico/${id}`, dados),
+}
+
+// Indicadores -----------------------------------------------------------------
+
+interface FiltroDeIndicadores {
+  de?: string
+  ate?: string
+  escopo?: 'todas' | 'minhas'
+}
+
+export const indicadoresApi = {
+  /** Aberto a qualquer autenticado — cada perfil vê os campos de saúde que sua permissão libera. */
+  visaoGeral: (filtro: FiltroDeIndicadores) =>
+    api.get<VisaoGeral>(`/api/indicadores/visao-geral${montarQuery({ ...filtro })}`),
+
+  /** Restrito a Supervisor/Administrador — o backend confere, não só a tela. */
+  relatorio: (filtro: Omit<FiltroDeIndicadores, 'escopo'>) =>
+    api.get<Relatorio>(`/api/indicadores/relatorio${montarQuery({ ...filtro })}`),
+
+  alertas: () => api.get<AlertaOperacional[]>('/api/indicadores/alertas'),
+
+  // --------------------------- Abas da tela de Indicadores e Relatórios
+  // Uma chamada por aba: trocar de aba não recarrega o que já está na tela, e
+  // nenhuma aba paga a agregação das outras três.
+
+  /** Aba Dashboard. Sem filtro — as janelas do painel são fixas por definição. */
+  painel: () => api.get<Painel>('/api/indicadores/painel'),
+
+  relatorioDeAtendimentos: (filtro: Omit<FiltroDeIndicadores, 'escopo'>) =>
+    api.get<RelatorioDeAtendimentos>(`/api/indicadores/atendimentos${montarQuery({ ...filtro })}`),
+
+  relatorioDeAtendentes: (filtro: Omit<FiltroDeIndicadores, 'escopo'>) =>
+    api.get<RelatorioDeAtendentes>(`/api/indicadores/atendentes${montarQuery({ ...filtro })}`),
+
+  relatorioDeClientes: (filtro: Omit<FiltroDeIndicadores, 'escopo'>) =>
+    api.get<RelatorioDeClientes>(`/api/indicadores/clientes${montarQuery({ ...filtro })}`),
+}
+
+// IA --------------------------------------------------------------------------
+
+export const iaApi = {
+  situacao: () => api.get<SituacaoDaIa>('/api/ia/situacao'),
 }
 
 // Atendentes ----------------------------------------------------------------

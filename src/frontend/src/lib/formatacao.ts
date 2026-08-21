@@ -12,6 +12,10 @@ const dataHora = new Intl.DateTimeFormat('pt-BR', {
   minute: '2-digit',
 })
 
+const mesCurto = new Intl.DateTimeFormat('pt-BR', { month: 'short', year: '2-digit' })
+
+const mesExtenso = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' })
+
 function paraData(valor: string | Date): Date {
   return valor instanceof Date ? valor : new Date(valor)
 }
@@ -20,8 +24,24 @@ export function formatarHora(valor: string | Date) {
   return horaCurta.format(paraData(valor))
 }
 
+/** "21/08" — usado no eixo de gráfico e em qualquer lugar que precise só do dia. */
+export function formatarDiaCurto(valor: string | Date) {
+  return dataCurta.format(paraData(valor))
+}
+
 export function formatarDataHora(valor: string | Date) {
   return dataHora.format(paraData(valor))
+}
+
+/** "ago/26" — eixo X de gráfico mensal, onde não cabe o nome inteiro. */
+export function formatarMesCurto(valor: string | Date) {
+  // `replace` remove o ponto que o pt-BR põe na abreviação ("ago." -> "ago").
+  return mesCurto.format(paraData(valor)).replace('.', '')
+}
+
+/** "agosto de 2026" — título de dica e cabeçalho, onde há espaço. */
+export function formatarMesExtenso(valor: string | Date) {
+  return mesExtenso.format(paraData(valor))
 }
 
 /** Hoje mostra so a hora; nos ultimos 7 dias, o dia da semana; antes disso, a data. */
@@ -71,6 +91,52 @@ export function descreverDistanciaDePrazo(limite: string | Date | null): string 
         : `${Math.floor(absoluto / 1440)}d`
 
   return atrasado ? `atrasado ${texto}` : `faltam ${texto}`
+}
+
+/**
+ * Duração absoluta em linguagem de balcão: "42 min", "3h 20min", "2d 4h".
+ *
+ * Diferente de `descreverDistanciaDePrazo`: aquela mede a distância até AGORA
+ * e já vem com "faltam"/"atrasado" embutido — não serve para "tempo até a
+ * primeira resposta" ou qualquer duração que já aconteceu e não muda mais.
+ */
+export function formatarDuracaoMinutos(minutos: number | null): string | null {
+  if (minutos === null || !Number.isFinite(minutos)) {
+    return null
+  }
+
+  const totalMinutos = Math.round(Math.abs(minutos))
+
+  if (totalMinutos < 60) {
+    return `${totalMinutos} min`
+  }
+
+  const totalHoras = Math.floor(totalMinutos / 60)
+  const minutosRestantes = totalMinutos % 60
+
+  if (totalHoras < 24) {
+    return minutosRestantes === 0 ? `${totalHoras}h` : `${totalHoras}h ${minutosRestantes}min`
+  }
+
+  const dias = Math.floor(totalHoras / 24)
+  const horasRestantes = totalHoras % 24
+
+  return horasRestantes === 0 ? `${dias}d` : `${dias}d ${horasRestantes}h`
+}
+
+/** Número inteiro com separador de milhar em pt-BR: 1234 -> "1.234". */
+export function formatarNumero(valor: number): string {
+  return new Intl.NumberFormat('pt-BR').format(valor)
+}
+
+/** 0 a 100 já em percentual, uma casa decimal: 33.333 -> "33,3%". */
+export function formatarPercentual(valor: number): string {
+  return `${valor.toFixed(1).replace('.', ',')}%`
+}
+
+/** Hora do dia para eixo de gráfico: 14 -> "14h". */
+export function formatarHoraDoDia(hora: number): string {
+  return `${hora}h`
 }
 
 /** 5538999000045 -> (38) 99912-0045. Numero nao brasileiro sai como veio. */
