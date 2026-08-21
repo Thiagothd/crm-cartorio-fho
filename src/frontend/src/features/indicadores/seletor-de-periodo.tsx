@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react'
+import { CalendarRange } from 'lucide-react'
 import { CHAVES_DE_PERIODO, ROTULO_DO_PERIODO, paraCampoDeData, type ChaveDePeriodo, type IntervaloDePeriodo } from './periodo'
 import { cn } from '@/lib/utils'
+
+/** As quatro janelas fixas — "Personalizado" tem tratamento próprio no celular, ver abaixo. */
+const CHAVES_FIXAS = CHAVES_DE_PERIODO.filter((chave) => chave !== 'personalizado')
 
 /**
  * Mesmo vocabulário visual do grupo segmentado de `filtros-da-inbox.tsx`:
@@ -10,10 +14,12 @@ import { cn } from '@/lib/utils'
 function BotaoDeGrupo({
   ativo,
   onClick,
+  className,
   children,
 }: {
   ativo: boolean
   onClick: () => void
+  className?: string
   children: ReactNode
 }) {
   return (
@@ -28,6 +34,7 @@ function BotaoDeGrupo({
         ativo
           ? 'border-tinta bg-tinta text-branco shadow-card'
           : 'border-transparent text-tinta-media hover:bg-branco hover:text-tinta',
+        className,
       )}
     >
       {children}
@@ -51,15 +58,55 @@ export function SeletorDePeriodo({
   escopo?: 'todas' | 'minhas'
   aoMudarEscopo?: (escopo: 'todas' | 'minhas') => void
 }) {
+  const personalizadoAtivo = periodo === 'personalizado'
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div role="group" aria-label="Período" className="flex flex-wrap items-center gap-1 rounded-full border border-linha bg-superficie p-1">
-        {CHAVES_DE_PERIODO.map((chave) => (
+    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      {/* Só as 4 janelas fixas aqui — "Personalizado" some deste grupo no
+          celular (ver abaixo). Elas cabem numa linha só em qualquer largura;
+          quem não cabia era o quinto item. */}
+      <div role="group" aria-label="Período" className="flex items-center gap-1 rounded-full border border-linha bg-superficie p-1">
+        {CHAVES_FIXAS.map((chave) => (
           <BotaoDeGrupo key={chave} ativo={periodo === chave} onClick={() => aoMudarPeriodo(chave)}>
             {ROTULO_DO_PERIODO[chave]}
           </BotaoDeGrupo>
         ))}
+
+        {/* A partir de `sm` "Personalizado" volta para dentro do grupo — há
+            largura de sobra e cinco pílulas numa linha só ficam bem. */}
+        <BotaoDeGrupo
+          ativo={personalizadoAtivo}
+          onClick={() => aoMudarPeriodo('personalizado')}
+          className="hidden sm:inline-flex"
+        >
+          {ROTULO_DO_PERIODO.personalizado}
+        </BotaoDeGrupo>
       </div>
+
+      {/* No celular "Personalizado" é um botão PRÓPRIO, fora da pílula do
+          grupo. Antes ele vivia dentro do mesmo `role="group"` com
+          `flex-wrap`: em 360px cabiam só as 4 primeiras pílulas, a quinta
+          quebrava para uma segunda linha sozinha e ficava presa dentro do
+          MESMO contorno oval do grupo — lida como elemento quebrado, não como
+          item de menu. Como botão avulso ele tem contorno próprio
+          (`border-linha bg-superficie`, o mesmo tom do grupo ao lado) em vez
+          de herdar o fundo transparente que `BotaoDeGrupo` usa quando
+          INATIVO — aquele estilo pressupõe o fundo da pílula-mãe por baixo, e
+          sozinho ficaria sem contorno nenhum. */}
+      <button
+        type="button"
+        aria-pressed={personalizadoAtivo}
+        onClick={() => aoMudarPeriodo('personalizado')}
+        className={cn(
+          'flex min-h-11 touch-manipulation items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-all duration-200 sm:hidden',
+          personalizadoAtivo
+            ? 'border-tinta bg-tinta text-branco shadow-card'
+            : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:bg-branco hover:text-tinta',
+        )}
+      >
+        <CalendarRange className="size-3.5 shrink-0" aria-hidden />
+        {ROTULO_DO_PERIODO.personalizado}
+      </button>
 
       {periodo === 'personalizado' ? (
         // `flex-wrap`: dois `input type="date"` medem ~118px no Chrome e ~150px
