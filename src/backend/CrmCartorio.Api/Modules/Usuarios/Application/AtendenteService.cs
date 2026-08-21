@@ -65,16 +65,13 @@ public class AtendenteService(
     /// <remarks>
     /// Publico porque a resposta do login tambem precisa dele, e duplicar o de-para
     /// em dois lugares faria os dois divergirem no primeiro ajuste de palavra.
+    ///
+    /// O de-para em si migrou para <see cref="DescricaoDeCargo"/>, no
+    /// <c>Domain</c>, quando o modulo de Indicadores passou a precisar do mesmo
+    /// rotulo: modulo nao referencia o <c>Application</c> de outro (CLAUDE.md
+    /// 7.1). Este metodo fica como atalho para os chamadores que ja existiam.
     /// </remarks>
-    public static string DescreverCargo(CargoNaServentia cargo) => cargo switch
-    {
-        CargoNaServentia.Titular => "Titular",
-        CargoNaServentia.Substituto => "Substituto",
-        CargoNaServentia.EscreventeAutorizado => "Escrevente autorizado",
-        CargoNaServentia.Escrevente => "Escrevente",
-        CargoNaServentia.Auxiliar => "Auxiliar",
-        _ => "Não informado"
-    };
+    public static string DescreverCargo(CargoNaServentia cargo) => DescricaoDeCargo.De(cargo);
 
     public async Task<AtendenteResponse> ObterAsync(Guid id, CancellationToken ct = default)
     {

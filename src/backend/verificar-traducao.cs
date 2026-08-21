@@ -5,6 +5,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -316,6 +317,252 @@ Checar("Varredor: reivindicacao do aviso (WHERE do UPDATE)", () =>
     db.Conversas
         .Where(c => c.Id == Guid.Empty && c.AvisoDeAlertaEnviadoEm == null)
         .Select(c => new { c.Id, c.AvisoDeAlertaEnviadoEm })
+        .ToQueryString());
+
+// 13. Indicadores — Visao Geral, Relatorios e sino de alertas (Fase 3).
+var de = agora.AddDays(-7);
+var ate = agora;
+
+Checar("Indicadores: 1a resposta humana (subconsulta correlacionada)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate)
+        .Select(c => new
+        {
+            c.IniciadaEm,
+            PrimeiraRespostaEm = db.Mensagens
+                .Where(m => m.ConversaId == c.Id && m.AutorTipo == AutorTipo.Atendente)
+                .OrderBy(m => m.EnviadaEm)
+                .Select(m => (DateTime?)m.EnviadaEm)
+                .FirstOrDefault()
+        })
+        .Where(x => x.PrimeiraRespostaEm != null)
+        .ToQueryString());
+
+// Seis subconsultas correlacionadas na MESMA projecao — cliente lido tres vezes
+// (nome, telefone, foto), etapa duas (nome, cor) e o atendente uma. E' a peca
+// que faz a Visao Geral falar a mesma lingua visual da inbox, e o custo de errar
+// aqui e' a Visao Geral inteira falhar em execucao.
+Checar("Indicadores: itens de 'requer atencao' (6 subconsultas na projecao)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Ativa
+                 && c.PrazoLimite != null && agora > c.PrazoLimite)
+        .OrderBy(c => c.PrazoLimite)
+        .Take(6)
+        .Select(c => new
+        {
+            c.Id,
+            c.Protocolo,
+            ClienteNome = db.Clientes.Where(cl => cl.Id == c.ClienteId).Select(cl => cl.Nome).FirstOrDefault(),
+            ClienteTelefone = db.Clientes.Where(cl => cl.Id == c.ClienteId).Select(cl => cl.TelefoneWhatsapp).FirstOrDefault(),
+            ClienteFotoPerfilUrl = db.Clientes.Where(cl => cl.Id == c.ClienteId).Select(cl => cl.FotoPerfilUrl).FirstOrDefault(),
+            EtapaNome = db.EtapasFunil.Where(e => e.Id == c.EtapaId).Select(e => e.Nome).FirstOrDefault(),
+            EtapaCor = db.EtapasFunil.Where(e => e.Id == c.EtapaId).Select(e => e.Cor).FirstOrDefault(),
+            AtendenteNome = db.Atendentes.Where(a => a.Id == c.AtendenteId).Select(a => a.Nome).FirstOrDefault(),
+            c.PrazoLimite,
+            c.PrazoAlertaEm,
+            c.UltimaMensagemEm
+        })
+        .ToQueryString());
+
+Checar("Indicadores: servicos mais procurados (GroupBy)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate && c.TipoServicoId != null)
+        .GroupBy(c => c.TipoServicoId)
+        .Select(g => new { TipoServicoId = g.Key!.Value, Total = g.Count() })
+        .OrderByDescending(g => g.Total)
+        .Take(8)
+        .ToQueryString());
+
+Checar("Indicadores: carga da equipe (GroupBy com Count(predicado))", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa && c.AtendenteId != null)
+        .GroupBy(c => c.AtendenteId)
+        .Select(g => new
+        {
+            AtendenteId = g.Key!.Value,
+            Ativas = g.Count(),
+            EmAlerta = g.Count(c =>
+                c.PrazoLimite != null && agora <= c.PrazoLimite && c.PrazoAlertaEm != null && agora >= c.PrazoAlertaEm),
+            Atrasadas = g.Count(c => c.PrazoLimite != null && agora > c.PrazoLimite)
+        })
+        .ToQueryString());
+
+Checar("Indicadores: encerramentos por atendente x pelo cliente", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Encerrada
+                 && c.EncerradaEm != null && c.EncerradaEm >= de && c.EncerradaEm < ate)
+        .Select(c => c.EncerradaPorAtendenteId)
+        .ToQueryString());
+
+Checar("Indicadores: absorcao da automacao (contagens por tipo de mensagem)", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.TenantId == tenantId && m.EnviadaEm >= de && m.EnviadaEm < ate)
+        .Select(m => new { m.AutorTipo, m.EhAutomatica, m.GeradaPorIa })
+        .ToQueryString());
+
+Checar("Indicadores: horarios de maior demanda (timestamps brutos p/ bucket local)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate)
+        .Select(c => c.IniciadaEm)
+        .ToQueryString());
+
+// `GroupBy(_ => 1)` e' o ponto delicado: agrupamento por constante nao tem
+// coluna de chave, e o EF ja precisou de versao especifica para traduzir isso em
+// vez de trazer tudo para a memoria. As quatro contagens do bloco AGORA saem
+// daqui, entao se este padrao deixar de traduzir a Visao Geral inteira cai.
+Checar("Indicadores: bloco AGORA (GroupBy constante, 4 Count com predicado)", () =>
+{
+    Guid? escopo = null;
+
+    return db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Ativas = g.Count(c => escopo == null || c.AtendenteId == escopo),
+            NaFila = g.Count(c => c.AtendenteId == null),
+            EmAlerta = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora <= c.PrazoLimite
+                && c.PrazoAlertaEm != null
+                && agora >= c.PrazoAlertaEm),
+            Atrasadas = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora > c.PrazoLimite)
+        })
+        .ToQueryString();
+});
+
+// Ponto de partida da curva de "em aberto": conversas que comecaram antes da
+// janela e ainda nao tinham encerrado quando ela comecou. O `EncerradaEm == null
+// || EncerradaEm >= de` e' o pedaco delicado — comparacao de nullable com OR
+// costuma virar SQL estranho.
+Checar("Indicadores: em aberto antes do periodo (nullable com OR)", () =>
+{
+    Guid? escopo = null;
+
+    var query = db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm < de && (c.EncerradaEm == null || c.EncerradaEm >= de));
+
+    if (escopo is { } atendente)
+    {
+        query = query.Where(c => c.AtendenteId == atendente);
+    }
+
+    return query.ToQueryString();
+});
+
+// Distribuicao global e "minha" no mesmo agrupamento — o que evita ler a tabela
+// de conversas e a de etapas duas vezes por carga da Visao Geral.
+Checar("Indicadores: distribuicao por etapa, global e minha no mesmo GroupBy", () =>
+{
+    var eu = Guid.Empty;
+
+    return db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .GroupBy(c => c.EtapaId)
+        .Select(g => new
+        {
+            EtapaId = g.Key,
+            Total = g.Count(),
+            Meu = g.Count(c => c.AtendenteId == eu)
+        })
+        .ToQueryString();
+});
+
+// As aberturas do periodo saem numa leitura so, com a primeira resposta humana
+// viajando junto como subconsulta correlacionada — e' esta projecao que alimenta
+// total de abertos, tempo de resposta, grafico de fluxo e ranking de servicos.
+Checar("Indicadores: aberturas do periodo com 1a resposta (projecao unica)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate)
+        .Select(c => new
+        {
+            c.IniciadaEm,
+            c.TipoServicoId,
+            PrimeiraRespostaEm = db.Mensagens
+                .Where(m => m.ConversaId == c.Id && m.AutorTipo == AutorTipo.Atendente)
+                .OrderBy(m => m.EnviadaEm)
+                .Select(m => (DateTime?)m.EnviadaEm)
+                .FirstOrDefault()
+        })
+        .ToQueryString());
+
+// ---------------------------------------------------------------------------
+// 14. Indicadores — as quatro abas de Relatorios
+// ---------------------------------------------------------------------------
+
+// Ranking de clientes por volume: GroupBy com Max() na mesma projecao. O Max
+// sobre coluna de data dentro de agrupamento e' o pedaco que costuma nao
+// traduzir quando combinado com Count().
+Checar("Relatorios: clientes mais atendidos (GroupBy com Count e Max)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate)
+        .GroupBy(c => c.ClienteId)
+        .Select(g => new
+        {
+            ClienteId = g.Key,
+            Total = g.Count(),
+            UltimoEm = g.Max(c => c.IniciadaEm)
+        })
+        .ToQueryString());
+
+// Encerramentos por QUEM encerrou, no periodo. `EncerradaPorAtendenteId` nulo e'
+// encerramento pelo proprio cliente e fica fora do agrupamento.
+Checar("Relatorios: encerramentos por atendente no periodo", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.EncerradaEm != null
+                 && c.EncerradaEm >= de
+                 && c.EncerradaEm < ate
+                 && c.EncerradaPorAtendenteId != null)
+        .GroupBy(c => c.EncerradaPorAtendenteId)
+        .Select(g => new { AtendenteId = g.Key!.Value, Total = g.Count() })
+        .ToQueryString());
+
+// Primeira resposta COM O AUTOR: a subconsulta projeta um objeto (dois campos),
+// nao um escalar. E' mais fragil de traduzir que a versao escalar usada na
+// Visao Geral, e e' o que alimenta a mediana por atendente.
+Checar("Relatorios: primeira resposta com autor (subconsulta projetando objeto)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= de && c.IniciadaEm < ate)
+        .Select(c => new
+        {
+            c.IniciadaEm,
+            Primeira = db.Mensagens
+                .Where(m => m.ConversaId == c.Id && m.AutorTipo == AutorTipo.Atendente)
+                .OrderBy(m => m.EnviadaEm)
+                .Select(m => new { m.EnviadaEm, m.AtendenteId })
+                .FirstOrDefault()
+        })
+        .ToQueryString());
+
+// Cinco contagens de cliente numa varredura, com o mesmo `GroupBy(_ => 1)` do
+// bloco AGORA. Inclui comparacao de string vazia, que o EF traduz de formas
+// diferentes conforme o provedor.
+Checar("Relatorios: contagens de clientes (GroupBy constante)", () =>
+    db.Clientes.AsNoTracking()
+        .Where(cl => cl.TenantId == tenantId)
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Total = g.Count(),
+            Novos = g.Count(cl => cl.CriadoEm >= de && cl.CriadoEm < ate),
+            Fisica = g.Count(cl => cl.Tipo == TipoDePessoa.Fisica),
+            Juridica = g.Count(cl => cl.Tipo == TipoDePessoa.Juridica),
+            SemDocumento = g.Count(cl => cl.Documento == null || cl.Documento == "")
+        })
+        .ToQueryString());
+
+Checar("Relatorios: clientes distintos com atendimento ativo", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Select(c => c.ClienteId)
+        .Distinct()
         .ToQueryString());
 
 Console.WriteLine();

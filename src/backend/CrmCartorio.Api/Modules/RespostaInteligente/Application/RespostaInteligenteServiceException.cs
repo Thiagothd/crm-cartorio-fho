@@ -14,4 +14,7 @@ public class RespostaInteligenteServiceException(string codigo, string mensagem,
 {
     public static RespostaInteligenteServiceException TenantObrigatorio() =>
         new("tenant_obrigatorio", "TenantId é obrigatório para montar o contexto da IA.", 400);
+
+    public static RespostaInteligenteServiceException SemPermissao() =>
+        new("sem_permissao", "Seu perfil não permite ver a situação da IA.", 403);
 }
