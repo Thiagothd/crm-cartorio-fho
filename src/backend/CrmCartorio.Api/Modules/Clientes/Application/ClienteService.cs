@@ -7,6 +7,7 @@ using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Clientes.Application;
 
@@ -16,8 +17,11 @@ public partial class ClienteService(
     IEvolutionClient gateway,
     IHttpClientFactory httpFactory,
     IMemoryCache cache,
+    IOptions<OpcoesDoCanalWhatsApp> opcoesDoCanal,
     ILogger<ClienteService> log) : IClienteService
 {
+    private readonly OpcoesDoCanalWhatsApp _opcoesDoCanal = opcoesDoCanal.Value;
+
     public async Task<ResultadoPaginadoDeClientes> ListarAsync(
         FiltroDeClientes filtro,
         CancellationToken ct = default)
@@ -222,7 +226,10 @@ public partial class ClienteService(
         var url = cliente.FotoPerfilUrl;
 
         // Se nunca consultamos ou expirou (24h), tenta renovar junto a Evolution API
-        if (string.IsNullOrWhiteSpace(url) || cliente.FotoPerfilAtualizadaEm is null || cliente.FotoPerfilAtualizadaEm < agora.AddHours(-24))
+        if ((string.IsNullOrWhiteSpace(url)
+             || cliente.FotoPerfilAtualizadaEm is null
+             || cliente.FotoPerfilAtualizadaEm < agora.AddHours(-24))
+            && PodeConsultarGateway(cliente.TelefoneWhatsapp))
         {
             var novaUrl = await gateway.ObterFotoPerfilUrlAsync(cliente.TelefoneWhatsapp, ct);
             if (!string.IsNullOrWhiteSpace(novaUrl) && novaUrl != cliente.FotoPerfilUrl)
@@ -262,7 +269,8 @@ public partial class ClienteService(
                     return bytes;
                 }
             }
-            else if (resposta.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
+            else if (resposta.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound
+                     && PodeConsultarGateway(cliente.TelefoneWhatsapp))
             {
                 // URL expirou no CDN do WhatsApp. Tenta consultar a Evolution API mais uma vez
                 var urlFresca = await gateway.ObterFotoPerfilUrlAsync(cliente.TelefoneWhatsapp, ct);
@@ -507,6 +515,15 @@ public partial class ClienteService(
         string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
 
     private static string SomenteDigitos(string valor) => RegexDeDigitos().Replace(valor, string.Empty);
+
+    /// <summary>
+    /// A allowlist do ambiente de teste vale também para consultas auxiliares ao
+    /// gateway. Assim, abrir a ficha de um contato antigo não faz a instância de
+    /// teste consultar o WhatsApp de alguém fora do número autorizado.
+    /// </summary>
+    private bool PodeConsultarGateway(string telefone) =>
+        _opcoesDoCanal.EstaConfigurado
+        && _opcoesDoCanal.NumeroPermitido(telefone);
 
     private static ClienteResponse Mapear(Cliente c, int totalConversas, bool temConversaAtiva)
     {

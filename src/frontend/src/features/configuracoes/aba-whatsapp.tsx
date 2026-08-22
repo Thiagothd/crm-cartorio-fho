@@ -61,10 +61,10 @@ export function AbaWhatsApp() {
         </p>
         <p className="mt-1.5 pl-6 text-sm leading-relaxed text-tinta-media">
           Este canal usa uma conexão não oficial, para demonstrar o produto sem esperar a
-          verificação da conta Meta Business. Conecte o{' '}
-          <strong className="text-tinta">número pessoal do desenvolvedor</strong>, nunca o número
-          público da serventia: se o número for bloqueado, quem para é a demonstração, não o
-          atendimento do cartório.
+          verificação da conta Meta Business. Conecte somente o{' '}
+          <strong className="text-tinta">número dedicado configurado para este ambiente</strong>,
+          nunca o número público da serventia. Em teste, o acesso fica limitado aos contatos
+          autorizados na configuração.
         </p>
       </div>
 
@@ -74,13 +74,13 @@ export function AbaWhatsApp() {
         <Estado
           tom="aviso"
           titulo="Não foi possível consultar o canal"
-          descricao="A API respondeu com erro. Confira se o contêiner do gateway está no ar."
+          descricao="A API respondeu com erro. Confira se o gateway Evolution está em execução e acessível pela API."
         />
       ) : !data?.habilitado ? (
         <Estado
           tom="neutro"
           titulo="Canal desligado"
-          descricao="Ligue em appsettings.Development.json, seção CanalWhatsApp, e reinicie a API. O passo a passo está em docs/DEPLOY-WHATSAPP.md."
+          descricao="Ligue a seção CanalWhatsApp no arquivo de configuração deste ambiente e reinicie a API. O passo a passo está em docs/DEPLOY-WHATSAPP.md."
         />
       ) : data.conectado ? (
         <Estado

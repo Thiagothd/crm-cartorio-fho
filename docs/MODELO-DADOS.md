@@ -2,7 +2,7 @@
 
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
 > (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E" nas seções abaixo.
-> **Última atualização:** 2026-08-17
+> **Última atualização:** 2026-08-21
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -85,11 +85,14 @@ Cartório cliente. Na Fase 1 existe um registro; a estrutura já é multi-tenant
 | WhatsappBusinessAccountId | string(64) | não | WABA ID — preenchido na Fase 2 |
 | WhatsappPhoneNumberId | string(64) | não | Phone Number ID da Cloud API — Fase 2 |
 | WhatsappNumeroExibicao | string(20) | não | Número em formato E.164, exibição |
+| WhatsappInstancia | string(120) | não | Nome único da instância Evolution pareada; roteia webhook ao tenant |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
 
-Os três campos de WhatsApp existem desde já porque são o ponto de encaixe da
-Fase 2. Ficam nulos até lá.
+Os três campos de conta/número oficial são o ponto de encaixe da Cloud API e
+ficam nulos no piloto não oficial. `WhatsappInstancia` já é usado pela Evolution:
+uma instância pertence a um tenant e é preenchida pela tela de pareamento, sem
+SQL manual. Produção e teste usam nomes de instância diferentes.
 
 **Dados da serventia que o modelo ainda não guarda:** CNS, endereço, horário de
 funcionamento e jurisdição. Estão em [CONTEXTO.md](CONTEXTO.md), seção 2, e no

@@ -15,9 +15,13 @@ depois — e num produto que vende soberania de dados como diferencial, esse é 
 ## Campos de WhatsApp
 
 `WhatsappBusinessAccountId`, `WhatsappPhoneNumberId` e `WhatsappNumeroExibicao`
-existem desde já e ficam nulos até a Fase 2. São o ponto de encaixe da Cloud
-API — dependem de CNPJ verificado na Meta e de número dedicado, ambos processos
-externos.
+ficam nulos no piloto não oficial. São o ponto de encaixe da Cloud API — dependem
+de CNPJ verificado na Meta e de número dedicado, ambos processos externos.
+
+`WhatsappInstancia` é o vínculo atual com a Evolution. O nome chega no webhook,
+identifica o tenant e é gravado pela tela de pareamento. Cada ambiente usa uma
+instância própria (`cartorio-piloto` em produção e `cartorio-teste` em teste);
+uma mesma instância nunca pode pertencer a dois tenants.
 
 ## Fase 3
 

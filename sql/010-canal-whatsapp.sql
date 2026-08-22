@@ -20,9 +20,9 @@
        inicio (CLAUDE.md, 7.1), e abrir excecao justamente no ponto de ENTRADA
        das mensagens seria criar, na Fase 3, a reescrita mais cara possivel.
 
-   PILOTO, NAO PRODUCAO
-       A instancia aqui e o numero PESSOAL do Thiago, para demonstracao. Nao e o
-       numero publico do cartorio. Ver docs/DEPLOY-WHATSAPP.md.
+   PILOTO, NAO CANAL OFICIAL
+       A instancia usa um numero dedicado ao ambiente de demonstracao/teste. Nao
+       e o numero publico do cartorio. Ver docs/DEPLOY-WHATSAPP.md.
 
    IDEMPOTENCIA
        A coluna e o indice so sao criados quando ainda nao existem. Rodar de novo

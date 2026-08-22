@@ -68,10 +68,12 @@ Rodam de `src/backend/`. Chamam os **serviços reais**, não cópias da consulta
 dotnet run verificar-traducao.cs      # LINQ → SQL, não toca em banco
 dotnet run verificar-concorrencia.cs  # protocolo e trava sob corrida (escreve)
 dotnet run verificar-automacao.cs     # triagem, avisos e transferência (escreve)
+dotnet run verificar-canal-whatsapp.cs # restrições e adaptadores com banco/gateway falsos locais
 ```
 
-Os dois últimos escrevem no banco: **só contra base de desenvolvimento**, e
-removem tudo que criam.
+`verificar-concorrencia.cs` e `verificar-automacao.cs` escrevem no banco:
+**só contra base de desenvolvimento**, e removem tudo que criam. Os outros dois
+não abrem conexão; o verificador do canal usa apenas um banco descartável em memória.
 
 ## Avisos
 
