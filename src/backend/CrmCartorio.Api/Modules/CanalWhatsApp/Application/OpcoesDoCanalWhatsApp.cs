@@ -5,6 +5,19 @@ public class OpcoesDoCanalWhatsApp
     public const string Secao = "CanalWhatsApp";
     public const string InstanciaDoAmbienteDeTeste = "cartorio-teste";
 
+    private static readonly HashSet<int> DddsBrasileiros =
+    [
+        11, 12, 13, 14, 15, 16, 17, 18, 19,
+        21, 22, 24, 27, 28,
+        31, 32, 33, 34, 35, 37, 38,
+        41, 42, 43, 44, 45, 46, 47, 48, 49,
+        51, 53, 54, 55,
+        61, 62, 63, 64, 65, 66, 67, 68, 69,
+        71, 73, 74, 75, 77, 79,
+        81, 82, 83, 84, 85, 86, 87, 88, 89,
+        91, 92, 93, 94, 95, 96, 97, 98, 99
+    ];
+
     /// <summary>
     /// Liga o canal real. Desligado, o sistema volta ao comportamento da Fase 1:
     /// conversa simulada pelo painel, mensagem que nao sai para lugar nenhum.
@@ -157,7 +170,7 @@ public class OpcoesDoCanalWhatsApp
 
     /// <summary>
     /// Confere a trava obrigatória do ambiente de teste. A lista precisa ter
-    /// exatamente um telefone brasileiro em E.164 (55 + DDD + número).
+    /// exatamente um celular brasileiro canonico (55 + DDD + 9 + oito digitos).
     /// </summary>
     public bool RestricaoDeTesteValida
     {
@@ -166,9 +179,7 @@ public class OpcoesDoCanalWhatsApp
             var permitidos = NumerosDeTeste ?? [];
 
             return permitidos.Length == 1
-                && permitidos.All(numero =>
-                    SomenteDigitos(numero) is { Length: 12 or 13 } normalizado
-                    && normalizado.StartsWith("55", StringComparison.Ordinal))
+                && permitidos.All(numero => EhMovelBrasileiroCanonico(SomenteDigitos(numero)))
                 && permitidos.Any(NumeroPermitido);
         }
     }
@@ -184,9 +195,49 @@ public class OpcoesDoCanalWhatsApp
         && !string.IsNullOrWhiteSpace(NomeDaInstancia)
         && !string.IsNullOrWhiteSpace(TokenDoWebhook);
 
-    private static bool NumerosIguais(string? configurado, string normalizado) =>
-        SomenteDigitos(configurado) is { Length: > 0 } numero
-        && numero.Equals(normalizado, StringComparison.Ordinal);
+    private static bool NumerosIguais(string? configurado, string normalizado)
+    {
+        var numero = SomenteDigitos(configurado);
+
+        if (numero.Length == 0 || normalizado.Length == 0)
+        {
+            return false;
+        }
+
+        if (numero.Equals(normalizado, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // O WhatsApp ainda pode identificar um celular brasileiro pelo JID
+        // legado, sem o nono digito. A equivalencia e estrita: mesmo DDI, DDD e
+        // assinante; nunca compara por sufixo nem altera numeros internacionais.
+        return SaoFormasDoMesmoMovelBrasileiro(numero, normalizado);
+    }
+
+    private static bool SaoFormasDoMesmoMovelBrasileiro(string primeiro, string segundo)
+    {
+        var comNono = primeiro.Length == 13 ? primeiro : segundo;
+        var semNono = primeiro.Length == 12 ? primeiro : segundo;
+
+        return EhMovelBrasileiroCanonico(comNono)
+            && comNono[5] is >= '6' and <= '9'
+            && semNono.Length == 12
+            && semNono.StartsWith("55", StringComparison.Ordinal)
+            && DddValido(semNono)
+            && comNono.Remove(4, 1).Equals(semNono, StringComparison.Ordinal);
+    }
+
+    private static bool EhMovelBrasileiroCanonico(string numero) =>
+        numero.Length == 13
+        && numero.StartsWith("55", StringComparison.Ordinal)
+        && DddValido(numero)
+        && numero[4] == '9';
+
+    private static bool DddValido(string numero) =>
+        numero.Length >= 4
+        && int.TryParse(numero.AsSpan(2, 2), out var ddd)
+        && DddsBrasileiros.Contains(ddd);
 
     private static string SomenteDigitos(string? valor) =>
         string.IsNullOrWhiteSpace(valor)

@@ -47,6 +47,11 @@ reescrever este módulo, e nada mais.
 - **`NumerosBloqueados` vence a allowlist.** É a barreira entre duas instâncias
   automáticas que compartilham o gateway: produção bloqueia o número de teste,
   impedindo um ciclo de respostas `produção ↔ teste` sem fechar o canal público.
+- **Celular brasileiro pode chegar com ou sem o nono dígito no JID.** A política
+  considera equivalentes apenas as duas formas estritas do mesmo móvel
+  (`55 + DDD + 9[6-9]XXXXXXX` ↔ `55 + DDD + [6-9]XXXXXXX`). Não compara por sufixo,
+  não acrescenta DDI e não aplica a regra a fixos ou números internacionais.
+  A allowlist continua guardando somente a forma canônica com o nono dígito.
 - **Canal desligado ignora webhook antigo.** `Habilitado=false` interrompe
   entrada e saída mesmo se o gateway ainda estiver com a URL registrada.
 - **A instância também é conferida.** O token correto não basta: um webhook de
@@ -61,6 +66,9 @@ reescrever este módulo, e nada mais.
   dígitos do LID faria a allowlist bloquear o contato correto. Um LID sem JID
   alternativo individual é descartado, assim como grupo, status, broadcast e
   newsletter.
+- **Sufixo de dispositivo não é telefone.** Em um JID como
+  `5519990001488:12@s.whatsapp.net`, `:12` identifica o aparelho vinculado e é
+  removido antes de aplicar a política ou criar o Cliente.
 - **`PENDING` e `SERVER_ACK` são ignorados** no status de entrega. A mensagem já
   nasce `Enviada` do nosso lado quando o gateway aceita; só `DELIVERY_ACK` e
   `READ` movem para frente.
@@ -68,9 +76,24 @@ reescrever este módulo, e nada mais.
   do webhook é anônimo por necessidade — o gateway não carrega JWT —, então esse
   token é a única barreira entre o mundo e um endpoint que cria conversa.
   Separados para que vazar um não entregue o outro.
-- **`GarantirInstanciaAsync` é idempotente.** Instância já existente não é erro:
-  segue para registrar o webhook. É o que permite a tela de pareamento ser um
-  botão só.
+- **`GarantirInstanciaAsync` nunca chama `instance/create` numa instância que já
+  existe.** Incidente ao vivo em 2026-08-22: repetir a criação com a sessão já
+  aberta (mesmo com `qrcode=false`) fez o gateway forçar um **logout de
+  verdade**, exigindo QR novo — o 403/409 "já existe" não é o idempotente
+  inofensivo que parecia ser nesta versão do Evolution. Por isso o método
+  primeiro consulta `connectionState`; só cria quando o gateway confirma (404)
+  que a instância não existe. Depois disso segue para registrar e confirmar o
+  webhook. A criação usa `qrcode=false`; o QR só pode ser pedido pelo POST
+  explícito da tela, depois de o webhook estar confirmado e o vínculo com o
+  tenant persistido.
+- **Consultar estado nunca conecta.** O GET de situação, o polling da tela e os
+  indicadores chamam apenas `connectionState`. `instance/connect` pertence
+  exclusivamente ao comando de pareamento e não é repetido enquanto a sessão
+  estiver `connecting`, evitando `conflict: replaced`.
+- **Banco clonado não finge conexão.** Se `Tenants.WhatsappInstancia` ainda
+  apontar para outra instância, o GET devolve `nao_vinculado` sem tocar o
+  gateway. O POST seguro registra o webhook, corrige o vínculo e reutiliza uma
+  sessão já `open` sem gerar outro QR.
 - **Uma instância = um tenant.** O webhook descobre o cartório pelo nome da
   instância no payload (`Tenants.WhatsappInstancia`), não por token de sessão.
   Na Fase 1 há um tenant só, mas amarrar agora evita reescrever o recebimento na

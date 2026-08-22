@@ -19,8 +19,8 @@ public record SituacaoDoCanal(
 public interface IPareamentoDoCanal
 {
     /// <summary>
-    /// Cria a instancia se preciso, registra o webhook, vincula ao tenant e
-    /// devolve o QR.
+    /// Cria a instancia sem QR se preciso, confirma o webhook, vincula ao tenant
+    /// e so inicia conexao quando a sessao estiver fechada.
     /// </summary>
     /// <remarks>
     /// Idempotente de ponta a ponta: e o mesmo botao para conectar pela primeira
