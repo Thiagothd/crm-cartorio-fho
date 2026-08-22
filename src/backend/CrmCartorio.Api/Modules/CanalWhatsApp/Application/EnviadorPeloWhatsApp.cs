@@ -81,16 +81,23 @@ public class EnviadorPeloWhatsApp(
             return null;
         }
 
-        // Mesma regra do recebimento (IRegrasDoCanal), do lado de quem manda: um
-        // numero fora da lista de liberados, ou dentro da lista de bloqueados,
-        // nao fala com o canal nos dois sentidos.
+        // A allowlist nao pode proteger so o webhook: o banco pode carregar
+        // conversa WhatsApp antiga/importada, e sem a mesma guarda na saida um
+        // clique do atendente ou uma automatica pendente alcancaria um contato
+        // fora da regra mesmo sem ele conseguir iniciar conversa nova. Mesma
+        // fonte do recebimento (IRegrasDoCanal), para os dois sentidos nunca
+        // divergirem.
+        //
+        // Nao marca Falha: bloqueio por regra nao e falha tecnica do envio — e
+        // decisao deliberada de quem configurou o canal. Misturar os dois no
+        // mesmo StatusEntrega faria um bloqueio de politica parecer bug de
+        // gateway na tela do atendente.
         if (await regras.PodeFalarComAsync(alvo.TenantId, alvo.Telefone, ct) is { Permitido: false } veredicto)
         {
             log.LogInformation(
                 "Mensagem {MensagemId} nao enviada: numero {Telefone} fora da regra do canal ({Motivo}).",
                 mensagemId, alvo.Telefone, veredicto.Motivo);
 
-            await MarcarAsync(mensagemId, StatusEntrega.Falha, null, ct);
             return null;
         }
 

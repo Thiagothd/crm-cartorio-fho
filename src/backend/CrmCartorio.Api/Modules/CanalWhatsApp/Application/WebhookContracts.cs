@@ -50,13 +50,12 @@ public static class TradutorDePayload
     /// mensagem no fio.
     /// </summary>
     /// <remarks>
-    /// Devolve null — em vez de lancar — em tres casos que sao NORMAIS, nao erro:
+    /// Devolve null — em vez de lancar — nos casos que sao NORMAIS, nao erro:
     /// <list type="bullet">
     ///   <item><b>fromMe</b>: eco da nossa propria mensagem enviada. Gravar isso
     ///   duplicaria no fio cada resposta do atendente.</item>
-    ///   <item><b>Grupo</b> (<c>@g.us</c>): o numero do piloto e pessoal e esta em
-    ///   grupos de familia. Conversa de grupo nao e atendimento de cartorio, e
-    ///   criar protocolo para cada uma poluiria a inbox com a vida do Thiago.</item>
+    ///   <item><b>JID coletivo</b> (grupo, status, lista ou newsletter): nao e
+    ///   atendimento individual e nao traz telefone confiavel de um cliente.</item>
     ///   <item><b>Tipo nao suportado</b>: figurinha, localizacao, contato.</item>
     /// </list>
     /// </remarks>
@@ -74,8 +73,35 @@ public static class TradutorDePayload
         }
 
         var remoteJid = Texto(chave, "remoteJid");
-        if (string.IsNullOrWhiteSpace(remoteJid) || remoteJid.Contains("@g.us"))
+        if (string.IsNullOrWhiteSpace(remoteJid))
         {
+            return null;
+        }
+
+        // O enderecamento LID das versoes atuais do WhatsApp pode trocar o
+        // telefone por um identificador opaco em remoteJid e entregar o E.164
+        // real em remoteJidAlt. Usar os digitos do @lid criaria um Cliente falso
+        // e faria a allowlist descartar o contato certo. O JID principal continua
+        // vencendo nos formatos tradicionais; o alternativo so corrige @lid.
+        if (remoteJid.EndsWith("@lid", StringComparison.OrdinalIgnoreCase))
+        {
+            var remotoAlternativo = Texto(chave, "remoteJidAlt");
+
+            // Um LID nao e telefone. Sem o JID alternativo individual, o unico
+            // comportamento seguro e ignorar o evento; aproveitar os digitos do
+            // identificador criaria um Cliente com identidade falsa.
+            if (!EhJidIndividual(remotoAlternativo))
+            {
+                return null;
+            }
+
+            remoteJid = remotoAlternativo!;
+        }
+        else if (!EhJidIndividual(remoteJid))
+        {
+            // Rejeita @g.us, @broadcast, @newsletter e qualquer novo endereco
+            // coletivo/opaco por padrao. Aceitar apenas o formato individual
+            // evita que um identificador numerico passe no teste de comprimento.
             return null;
         }
 
@@ -85,7 +111,20 @@ public static class TradutorDePayload
             return null;
         }
 
-        var telefone = SomenteDigitos(remoteJid.Split('@')[0]);
+        // JIDs multi-dispositivo podem chegar como numero:device@s.whatsapp.net.
+        // O sufixo identifica o aparelho, nao faz parte do telefone.
+        var partesDoIdentificador = remoteJid.Split('@', 2)[0].Split(':', 2);
+        var telefone = partesDoIdentificador[0];
+
+        if (telefone.Length == 0
+            || telefone.Any(digito => !char.IsDigit(digito))
+            || partesDoIdentificador.Length == 2
+                && (partesDoIdentificador[1].Length == 0
+                    || partesDoIdentificador[1].Any(digito => !char.IsDigit(digito))))
+        {
+            return null;
+        }
+
         if (telefone.Length is < 10 or > 15)
         {
             return null;
@@ -236,6 +275,7 @@ public static class TradutorDePayload
             ? valor.GetString()
             : null;
 
-    private static string SomenteDigitos(string valor) =>
-        new(valor.Where(char.IsDigit).ToArray());
+    private static bool EhJidIndividual(string? jid) =>
+        !string.IsNullOrWhiteSpace(jid)
+        && jid.EndsWith("@s.whatsapp.net", StringComparison.OrdinalIgnoreCase);
 }

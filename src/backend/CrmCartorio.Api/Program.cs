@@ -38,6 +38,9 @@ builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDa
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
+var opcoesCanalWhatsApp = builder.Configuration
+    .GetSection(OpcoesDoCanalWhatsApp.Secao)
+    .Get<OpcoesDoCanalWhatsApp>() ?? new OpcoesDoCanalWhatsApp();
 
 if (string.IsNullOrWhiteSpace(opcoesJwt.Chave) || Encoding.UTF8.GetByteCount(opcoesJwt.Chave) < 32)
 {
@@ -46,6 +49,20 @@ if (string.IsNullOrWhiteSpace(opcoesJwt.Chave) || Encoding.UTF8.GetByteCount(opc
     throw new InvalidOperationException(
         "Jwt:Chave ausente ou com menos de 32 bytes. Defina em variavel de ambiente " +
         "ou user-secrets antes de iniciar a API.");
+}
+
+// Teste nunca pode subir com canal real aberto para qualquer contato. Em
+// producao, lista vazia significa canal publico por decisao; no ambiente Teste,
+// a mesma omissao e erro de configuracao e falha antes de aceitar trafego.
+if (builder.Environment.IsEnvironment("Teste")
+    && opcoesCanalWhatsApp.Habilitado
+    && (!opcoesCanalWhatsApp.RestricaoDeTesteValida
+        || !opcoesCanalWhatsApp.InstanciaDeTesteValida))
+{
+    throw new InvalidOperationException(
+        "No ambiente Teste, CanalWhatsApp:NomeDaInstancia deve ser cartorio-teste " +
+        "e CanalWhatsApp:NumerosDeTeste deve conter exatamente um telefone brasileiro " +
+        "normalizavel para E.164 (iniciado por 55) e nao bloqueado.");
 }
 
 // ---------------------------------------------------------------- persistencia
@@ -83,7 +100,7 @@ builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
 
-// Canal real de WhatsApp (PILOTO, numero pessoal — ver docs/DEPLOY-WHATSAPP.md).
+// Canal real de WhatsApp (PILOTO, numeros dedicados — ver docs/DEPLOY-WHATSAPP.md).
 // O recebimento fica no Atendimento porque e regra de atendimento; so o formato
 // do gateway mora no slice CanalWhatsApp.
 builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();

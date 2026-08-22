@@ -53,6 +53,31 @@ public class ProcessadorDeWebhook(
 
     public async Task ProcessarAsync(PayloadDoWebhook payload, CancellationToken ct = default)
     {
+        // Habilitado=false precisa desligar ENTRADA e saida. O webhook pode ter
+        // ficado registrado no gateway de uma ativacao anterior; sem esta guarda,
+        // desligar o canal parava as respostas, mas ainda criava Cliente, Conversa
+        // e Mensagem a cada POST que continuasse chegando.
+        if (!_opcoes.EstaConfigurado)
+        {
+            log.LogInformation(
+                "Webhook da instancia {Instancia} ignorado: canal WhatsApp desligado ou incompleto.",
+                payload.Instance ?? "(vazia)");
+
+            return;
+        }
+
+        if (!_opcoes.InstanciaConfere(payload.Instance))
+        {
+            // Falha fechada e devolve 200 pelo controller: não processa o evento
+            // cruzado e também não induz o gateway a repeti-lo indefinidamente.
+            log.LogWarning(
+                "Webhook da instancia {Instancia} ignorado; este ambiente aceita apenas {Esperada}.",
+                payload.Instance ?? "(vazia)",
+                _opcoes.NomeDaInstancia);
+
+            return;
+        }
+
         var evento = payload.Event?.ToLowerInvariant();
 
         // Evento que nao tratamos nao e erro: a Evolution manda dezenas de tipos, e
@@ -81,8 +106,6 @@ public class ProcessadorDeWebhook(
             return;
         }
 
-        var tenantId = await ResolverTenantAsync(payload.Instance, ct);
-
         if (evento == "messages.upsert")
         {
             if (TradutorDePayload.LerMensagem(payload.Data) is not { } mensagem)
@@ -92,7 +115,12 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
-            if (await regras.PodeFalarComAsync(tenantId, mensagem.TelefoneE164, ct) is { Permitido: false } veredicto)
+            // A regra de numeros e por tenant (CanalWhatsappNumeros +
+            // Tenants.WhatsappModoDeRecebimento), entao resolver o tenant aqui
+            // ja serve os dois passos seguintes — nao ha leitura repetida.
+            var tenantDaMensagemId = await ResolverTenantAsync(payload.Instance, ct);
+
+            if (await regras.PodeFalarComAsync(tenantDaMensagemId, mensagem.TelefoneE164, ct) is { Permitido: false } veredicto)
             {
                 // Descartada ANTES de qualquer coisa — nao vira Cliente nem
                 // Conversa, exatamente como o eco e a mensagem de grupo acima.
@@ -101,15 +129,18 @@ public class ProcessadorDeWebhook(
                     veredicto.Motivo, mensagem.TelefoneE164);
 
                 await regras.RegistrarDescarteAsync(
-                    tenantId, mensagem.TelefoneE164, veredicto.Motivo ?? MotivoDoDescarte.ForaDaLista, ct);
+                    tenantDaMensagemId, mensagem.TelefoneE164, veredicto.Motivo ?? MotivoDoDescarte.ForaDaLista, ct);
 
                 return;
             }
 
-            var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(tenantId, mensagem.TelefoneE164, ct);
+            var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(
+                tenantDaMensagemId,
+                mensagem.TelefoneE164,
+                ct);
 
             await recebimento.ReceberAsync(
-                tenantId,
+                tenantDaMensagemId,
                 new MensagemDoCanal(
                     mensagem.TelefoneE164,
                     mensagem.NomeDoPerfil,
@@ -123,9 +154,15 @@ public class ProcessadorDeWebhook(
             return;
         }
 
+        var tenantDoStatusId = await ResolverTenantAsync(payload.Instance, ct);
+
         if (TradutorDePayload.LerStatus(payload.Data) is { } status)
         {
-            await recebimento.AtualizarEntregaAsync(tenantId, status.IdExterno, status.Status, ct);
+            await recebimento.AtualizarEntregaAsync(
+                tenantDoStatusId,
+                status.IdExterno,
+                status.Status,
+                ct);
         }
     }
 

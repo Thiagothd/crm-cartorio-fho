@@ -17,17 +17,21 @@ import type { SituacaoDoCanal } from '@/lib/api/tipos'
 
 /**
  * Confirma a troca, encerra a sessão atual e mostra o QR do número novo — tudo
- * sem sair da tela. `situacao` vem de `PainelDeConexao`, que já mantém a
- * consulta viva com o `refetchInterval` de praxe: este diálogo só lê o mesmo
- * estado, nunca abre uma segunda consulta em paralelo.
+ * sem sair da tela. `situacao` e `qrCode` vêm de `PainelDeConexao`, que já
+ * mantém a consulta viva com o `refetchInterval` de praxe e guarda o QR fora
+ * do cache (o GET de situação é passivo e nunca devolve QR — só o POST de
+ * troca devolve, por isso o valor precisa ser repassado, não relido daqui).
+ * Este diálogo nunca abre uma segunda consulta em paralelo.
  */
 export function DialogoDeTroca({
   situacao,
+  qrCode,
   aberto,
   aoFechar,
   aoConcluir,
 }: {
   situacao: SituacaoDoCanal | undefined
+  qrCode: string | null
   aberto: boolean
   aoFechar: () => void
   aoConcluir: () => void
@@ -103,9 +107,9 @@ export function DialogoDeTroca({
             </DialogHeader>
 
             <div className="flex flex-col items-center gap-3 py-2">
-              {situacao?.qrCodeBase64 ? (
+              {qrCode ? (
                 <img
-                  src={situacao.qrCodeBase64}
+                  src={qrCode}
                   alt="Código para conectar o número novo"
                   className="size-56 rounded-md border border-linha bg-white"
                 />

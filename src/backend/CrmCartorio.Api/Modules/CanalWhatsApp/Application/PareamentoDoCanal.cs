@@ -16,6 +16,7 @@ public class PareamentoDoCanal(
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<PareamentoDoCanal> log) : IPareamentoDoCanal
 {
+    private static readonly SemaphoreSlim TravaDePareamento = new(1, 1);
     private readonly OpcoesDoCanalWhatsApp _opcoes = opcoes.Value;
 
     /// <remarks>
@@ -46,6 +47,14 @@ public class PareamentoDoCanal(
         }
 
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+
+        // Uma base clonada pode conservar o nome da instancia de outro
+        // ambiente. Nessa situacao nao se declara o canal operacional nem se
+        // consulta o gateway; o POST explicito corrige o vinculo com seguranca.
+        if (!_opcoes.InstanciaConfere(tenant?.WhatsappInstancia))
+        {
+            return new SituacaoDoCanal(true, false, "nao_vinculado", null, tenant?.WhatsappInstancia);
+        }
 
         var estado = await gateway.ObterEstadoAsync(ct);
 
@@ -146,21 +155,46 @@ public class PareamentoDoCanal(
 
     /// <remarks>
     /// Nucleo comum de <see cref="PrepararAsync"/> e <see cref="TrocarNumeroAsync"/>:
-    /// os dois pedem um QR novo ao gateway, e os dois precisam respeitar o
-    /// intervalo minimo entre tentativas.
+    /// os dois pedem um QR novo ao gateway. <see cref="TravaDePareamento"/>
+    /// serializa chamadas concorrentes (dois cliques, duas abas abertas);
+    /// <see cref="GarantirIntervaloDeTentativa"/> espaca tentativas no tempo — o
+    /// bloqueio temporario da Meta contra pareamento repetido em sequencia.
+    /// <c>GarantirInstanciaAsync</c> nunca devolve QR: so
+    /// <c>IniciarConexaoAsync</c> pode, e so quando a sessao estiver mesmo
+    /// fechada — chama-lo com a sessao "connecting" substituiria a tentativa em
+    /// andamento (conflict: replaced) e impediria o pareamento de estabilizar.
     /// </remarks>
     private async Task<SituacaoDoCanal> GerarNovoQrAsync(Guid tenantId, string urlBaseDaApi, CancellationToken ct)
     {
         GarantirIntervaloDeTentativa();
 
-        var urlDoWebhook =
-            $"{urlBaseDaApi.TrimEnd('/')}/api/whatsapp/webhook?token={Uri.EscapeDataString(_opcoes.TokenDoWebhook)}";
+        await TravaDePareamento.WaitAsync(ct);
 
-        var estado = await gateway.GarantirInstanciaAsync(urlDoWebhook, ct);
+        try
+        {
+            var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct)
+                ?? throw CanalWhatsAppServiceException.InstanciaSemTenant(_opcoes.NomeDaInstancia);
 
-        var tenant = await VincularInstanciaAsync(tenantId, ct);
+            var urlDoWebhook =
+                $"{urlBaseDaApi.TrimEnd('/')}/api/whatsapp/webhook?token={Uri.EscapeDataString(_opcoes.TokenDoWebhook)}";
 
-        return Traduzir(estado, tenant);
+            // GarantirInstancia tambem confirma o webhook. O QR nunca e devolvido
+            // ao navegador antes de o tenant estar vinculado a esta instancia.
+            var estado = await gateway.GarantirInstanciaAsync(urlDoWebhook, ct);
+
+            await VincularInstanciaAsync(tenant, ct);
+
+            if (!estado.Conectado && estado.QrCodeBase64 is null)
+            {
+                estado = await gateway.IniciarConexaoAsync(ct);
+            }
+
+            return Traduzir(estado, tenant);
+        }
+        finally
+        {
+            TravaDePareamento.Release();
+        }
     }
 
     private void GarantirIntervaloDeTentativa()
@@ -257,28 +291,21 @@ public class PareamentoDoCanal(
     /// E o que permite o webhook — que chega sem token — descobrir o tenant. Sem
     /// este vinculo a mensagem chega e nao tem para onde ir.
     /// </remarks>
-    private async Task<Tenant?> VincularInstanciaAsync(Guid tenantId, CancellationToken ct)
+    private async Task VincularInstanciaAsync(Tenant tenant, CancellationToken ct)
     {
-        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
-
-        if (tenant is null)
+        if (tenant.WhatsappInstancia == _opcoes.NomeDaInstancia)
         {
-            return null;
+            return;
         }
 
-        if (tenant.WhatsappInstancia != _opcoes.NomeDaInstancia)
-        {
-            tenant.WhatsappInstancia = _opcoes.NomeDaInstancia;
-            tenant.AtualizadoEm = DateTime.UtcNow;
+        tenant.WhatsappInstancia = _opcoes.NomeDaInstancia;
+        tenant.AtualizadoEm = DateTime.UtcNow;
 
-            await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
-            log.LogInformation(
-                "Instancia {Instancia} vinculada a serventia {TenantId}.",
-                _opcoes.NomeDaInstancia, tenantId);
-        }
-
-        return tenant;
+        log.LogInformation(
+            "Instancia {Instancia} vinculada a serventia {TenantId}.",
+            _opcoes.NomeDaInstancia, tenant.Id);
     }
 
     private SituacaoDoCanal Desligado() =>

@@ -31,17 +31,44 @@ export function PainelDeConexao() {
   const [trocaAberta, setTrocaAberta] = useState(false)
   const [segundosDeEspera, setSegundosDeEspera] = useState(0)
 
+  // O GET é deliberadamente passivo — nunca gera nem devolve outro QR, só
+  // confirma o estado atual (ver IEvolutionClient.ObterEstadoAsync). O código
+  // que veio do POST fica AQUI, fora do cache da consulta, porque um poll
+  // passivo sobrescreveria `qrCodeBase64` para nulo e apagaria a imagem da
+  // tela 5s depois de ela aparecer.
+  const [qrCode, setQrCode] = useState<string | null>(null)
+
   const clienteDeConsultas = useQueryClient()
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['whatsapp-situacao'],
     queryFn: () => whatsappApi.situacao(),
 
-    // Só fica perguntando enquanto há um QR esperando leitura. Pareado ou
-    // desligado, a tela é estática e a consulta repetida seria ruído.
-    refetchInterval: (consulta) =>
-      consulta.state.data?.qrCodeBase64 ? INTERVALO_DE_ESPERA : false,
+    // Continua perguntando enquanto há QR na tela OU uma tentativa em curso no
+    // gateway (`connecting`) — é o único jeito de saber que o celular concluiu
+    // a leitura, já que o GET não devolve QR para comparar.
+    refetchInterval: (consulta) => {
+      const situacao = consulta.state.data
+      const conectando = situacao?.estado.toLowerCase() === 'connecting'
+
+      return qrCode || conectando ? INTERVALO_DE_ESPERA : false
+    },
   })
+
+  // Sincroniza o QR local com o que a consulta passiva confirma: limpa quando
+  // o canal desliga, conecta ou fecha de vez; adota o que vier preenchido (só
+  // acontece na resposta do POST, nunca do GET).
+  useEffect(() => {
+    if (!data) return
+
+    const estado = data.estado.toLowerCase()
+
+    if (!data.habilitado || data.conectado || estado === 'close') {
+      setQrCode(null)
+    } else if (data.qrCodeBase64) {
+      setQrCode(data.qrCodeBase64)
+    }
+  }, [data])
 
   // Contagem regressiva do bloqueio anti-tentativa-repetida (backend, 30s).
   useEffect(() => {
@@ -69,12 +96,15 @@ export function PainelDeConexao() {
 
     try {
       const situacao = await whatsappApi.parear()
+      setQrCode(situacao.qrCodeBase64)
       clienteDeConsultas.setQueryData(['whatsapp-situacao'], situacao)
 
       toast.success(
         situacao.conectado
           ? 'Canal já estava conectado.'
-          : 'Leia o código com o celular para conectar.',
+          : situacao.qrCodeBase64
+            ? 'Leia o código com o celular para conectar.'
+            : 'Conexão iniciada. Aguarde a confirmação do gateway.',
       )
     } catch (falha) {
       tratarErroDePareamento(falha)
@@ -98,6 +128,8 @@ export function PainelDeConexao() {
       setDesconectando(false)
     }
   }
+
+  const conectando = data?.estado.toLowerCase() === 'connecting'
 
   return (
     <>
@@ -167,22 +199,30 @@ export function PainelDeConexao() {
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3 rounded-md border border-linha bg-branco p-6">
-          {data.qrCodeBase64 ? (
+          {qrCode ? (
             <>
               {/* Fundo branco explícito e fixo: o leitor do celular precisa de
                   contraste alto, e a textura de papel por trás atrapalharia. */}
               <img
-                src={data.qrCodeBase64}
+                src={qrCode}
                 alt="Código para conectar o WhatsApp"
                 className="size-56 rounded-md border border-linha bg-white"
               />
-              <p className="text-center text-sm text-tinta-media">
-                No celular: <strong className="text-tinta">WhatsApp → Dispositivos conectados
-                → Conectar um dispositivo</strong>.
+              <p role="status" className="text-center text-sm text-tinta-media">
+                Aguardando leitura. No celular: <strong className="text-tinta">WhatsApp →
+                Dispositivos conectados → Conectar um dispositivo</strong>.
               </p>
               <p className="text-center text-xs text-tinta-fraca">
                 A tela se atualiza sozinha assim que a leitura for reconhecida. Deixe o leitor do
                 celular já aberto antes de gerar um novo código.
+              </p>
+            </>
+          ) : conectando ? (
+            <>
+              <Loader2 className="size-10 animate-spin text-tinta-fraca" />
+              <p role="status" className="text-center text-sm text-tinta-media">
+                Conexão em andamento — aguarde a confirmação do gateway. A tela se atualiza
+                sozinha.
               </p>
             </>
           ) : (
@@ -194,14 +234,16 @@ export function PainelDeConexao() {
             </>
           )}
 
-          <Button onClick={() => void parear()} disabled={preparando || segundosDeEspera > 0}>
-            {preparando ? <Loader2 className="animate-spin" /> : null}
-            {segundosDeEspera > 0
-              ? `Aguarde ${segundosDeEspera}s`
-              : data.qrCodeBase64
-                ? 'Gerar outro código'
-                : 'Conectar número'}
-          </Button>
+          {conectando && !qrCode ? null : (
+            <Button onClick={() => void parear()} disabled={preparando || segundosDeEspera > 0}>
+              {preparando ? <Loader2 className="animate-spin" /> : null}
+              {segundosDeEspera > 0
+                ? `Aguarde ${segundosDeEspera}s`
+                : qrCode
+                  ? 'Gerar outro código'
+                  : 'Conectar número'}
+            </Button>
+          )}
 
           {segundosDeEspera > 0 ? (
             <p className="text-center text-xs text-tinta-fraca">
@@ -213,6 +255,7 @@ export function PainelDeConexao() {
 
       <DialogoDeTroca
         situacao={data}
+        qrCode={qrCode}
         aberto={trocaAberta}
         aoFechar={() => setTrocaAberta(false)}
         aoConcluir={() => void clienteDeConsultas.invalidateQueries({ queryKey: ['whatsapp-conexoes'] })}

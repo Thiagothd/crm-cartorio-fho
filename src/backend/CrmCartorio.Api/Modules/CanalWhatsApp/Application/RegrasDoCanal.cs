@@ -105,22 +105,29 @@ public class RegrasDoCanal(
             .Select(t => t.WhatsappModoDeRecebimento)
             .FirstOrDefaultAsync(ct);
 
-        // Nunca configurado pela tela: cai no comportamento de sempre --
-        // appsettings vazio libera geral, preenchido restringe a lista.
+        // Nunca configurado pela tela: cai no comportamento de sempre, via
+        // OpcoesDoCanalWhatsApp.NumeroPermitido — NAO uma checagem manual em
+        // paralelo. Esse metodo ja resolve NumerosBloqueados (precedencia sobre
+        // a lista) e a equivalencia de JID brasileiro legado (com/sem nono
+        // digito); reimplementar so o NumerosDeTeste aqui deixaria essa fonte
+        // mais fraca que a que ela substitui.
         if (modo is null)
         {
-            if (_opcoes.NumerosDeTeste.Length == 0)
+            if (_opcoes.NumeroPermitido(telefoneE164))
             {
                 return new VeredictoDoNumero(true, null);
             }
 
-            var liberadoNoAppsettings = _opcoes.NumerosDeTeste
+            // Motivo aproximado so para o rotulo do descarte — a comparacao que
+            // decide de verdade e a de cima. Bloqueio tem precedencia, entao
+            // checar aqui de novo (sem a equivalencia de JID) e suficiente para
+            // rotular corretamente o caso comum.
+            var estaNaListaDeBloqueio = _opcoes.NumerosBloqueados
                 .Select(NormalizadorDeTelefone.SomenteDigitos)
                 .Contains(digitos, StringComparer.Ordinal);
 
-            return liberadoNoAppsettings
-                ? new VeredictoDoNumero(true, null)
-                : new VeredictoDoNumero(false, MotivoDoDescarte.ForaDaLista);
+            return new VeredictoDoNumero(
+                false, estaNaListaDeBloqueio ? MotivoDoDescarte.Bloqueado : MotivoDoDescarte.ForaDaLista);
         }
 
         if (modo == ModoDeRecebimento.Todos)
@@ -194,9 +201,19 @@ public class RegrasDoCanal(
     {
         var corte = DateTime.UtcNow.AddDays(-7);
 
-        await db.CanalWhatsappDescartes
+        // RemoveRange, e nao ExecuteDeleteAsync: o volume aqui e baixo (so
+        // telefone fora da regra, poucos por dia), e carregar antes de remover
+        // funciona em qualquer provider — o verificador deste modulo roda contra
+        // EF InMemory, que nao suporta ExecuteDelete.
+        var antigos = await db.CanalWhatsappDescartes
             .Where(d => d.TenantId == tenantId && d.CriadoEm < corte)
-            .ExecuteDeleteAsync(ct);
+            .ToListAsync(ct);
+
+        if (antigos.Count > 0)
+        {
+            db.CanalWhatsappDescartes.RemoveRange(antigos);
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     private async Task<RegrasDoCanalResponse> MontarRespostaAsync(Guid tenantId, CancellationToken ct)

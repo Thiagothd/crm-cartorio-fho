@@ -146,7 +146,7 @@ dependência para ordenar os `INSERT` e não violar as FKs do schema; navegar de
 
 ## Verificadores
 
-Dois scripts, ambos rodando de `src/backend/`.
+Quatro scripts, todos rodando de `src/backend/`.
 
 ### `verificar-traducao.cs` — não precisa de banco
 
@@ -206,6 +206,19 @@ Não altera a configuração existente — os gatilhos de prazo nascem desativad
 decisão do cartório parceiro e continuam assim; o teste cria regra própria e a remove no final.
 Limpa também na **entrada**, senão uma execução que aborta no meio travaria todas as
 seguintes num erro sem relação com o que se quer testar.
+
+### `verificar-canal-whatsapp.cs` — isolado de banco e gateway reais
+
+```bash
+dotnet run verificar-canal-whatsapp.cs
+```
+
+Confere a política usada na entrada e na saída do canal: lista vazia mantém o
+canal público, allowlist aceita somente E.164 configurado, bloqueio pontual tem
+precedência e o payload `@lid` da Evolution 2.3.7 usa `remoteJidAlt` como telefone
+real. Também chama os adaptadores reais de entrada e saída com portas falsas e
+banco descartável em memória; não abre conexão nem chama a Evolution. Rode ao
+mexer em `OpcoesDoCanalWhatsApp`, tradução do webhook ou envio pelo gateway.
 
 ## Reset do ambiente de demonstração
 

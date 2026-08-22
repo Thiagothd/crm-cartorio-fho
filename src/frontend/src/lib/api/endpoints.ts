@@ -193,7 +193,7 @@ export const consultasApi = {
 export const whatsappApi = {
   situacao: () => api.get<SituacaoDoCanal>('/api/whatsapp/situacao'),
 
-  /** Cria a instância se preciso, registra o webhook e devolve o QR. */
+  /** Confirma webhook/vínculo e só devolve QR se a sessão estiver fechada. */
   parear: () => api.post<SituacaoDoCanal>('/api/whatsapp/parear'),
 
   /** Encerra a sessão atual e devolve um QR novo. Histórico de conversas não é tocado. */

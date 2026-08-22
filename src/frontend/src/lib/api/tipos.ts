@@ -345,7 +345,7 @@ export interface SituacaoDoCanal {
   habilitado: boolean
   /** A instância está pareada e operante. */
   conectado: boolean
-  /** Texto cru do gateway: `open`, `connecting`, `close`, `desligado`. */
+  /** Estado: `open`, `connecting`, `close`, `desligado` ou `nao_vinculado`. */
   estado: string
   /** PNG em data-URI enquanto espera a leitura; nulo quando já pareado. */
   qrCodeBase64: string | null

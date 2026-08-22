@@ -20,15 +20,25 @@ public record PerfilDaInstancia(string? Numero, string? Nome, string? FotoUrl);
 /// </summary>
 public interface IEvolutionClient
 {
-    /// <summary>Cria a instancia se ela nao existir e registra o webhook.</summary>
+    /// <summary>
+    /// Cria a instancia sem QR, se necessario, registra e confirma o webhook.
+    /// </summary>
     /// <remarks>
     /// Idempotente: instancia ja existente nao e erro, so segue para o registro
     /// do webhook. E o que permite a tela de pareamento ser um botao so.
     /// </remarks>
     Task<EstadoDaInstancia> GarantirInstanciaAsync(string urlDoWebhook, CancellationToken ct);
 
-    /// <summary>Estado atual do pareamento, com o QR quando houver.</summary>
+    /// <summary>
+    /// Consulta o estado atual sem criar sessao, pedir QR ou alterar o gateway.
+    /// </summary>
     Task<EstadoDaInstancia> ObterEstadoAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Inicia uma tentativa de conexao somente quando a instancia estiver
+    /// fechada. Se ja estiver aberta ou conectando, apenas devolve o estado.
+    /// </summary>
+    Task<EstadoDaInstancia> IniciarConexaoAsync(CancellationToken ct);
 
     /// <summary>
     /// Desliga a sessão pareada no gateway (dispositivo desvinculado, como em

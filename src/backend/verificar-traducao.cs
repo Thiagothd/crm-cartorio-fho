@@ -609,7 +609,7 @@ Checar("Canal WhatsApp: regras — numeros com nome de quem adicionou (subconsul
         })
         .ToQueryString());
 
-Checar("Canal WhatsApp: poda de descartes antigos (comparacao datetime2, base do ExecuteDeleteAsync)", () =>
+Checar("Canal WhatsApp: poda de descartes antigos (comparacao datetime2, base do RemoveRange)", () =>
     db.CanalWhatsappDescartes
         .Where(d => d.TenantId == tenantId && d.CriadoEm < agora.AddDays(-7))
         .ToQueryString());
