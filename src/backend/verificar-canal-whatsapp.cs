@@ -514,8 +514,14 @@ Checar(
 
 const string urlWebhookFake =
     "https://testecrm.example/api/whatsapp/webhook?token=token-fake";
+
+// Incidente ao vivo em 2026-08-22: repetir instance/create com a sessao ja
+// aberta forcou um LOGOUT de verdade no gateway. Instancia existente agora
+// NUNCA chama instance/create — so consulta, confirma webhook e le o estado.
 var handlerGarantia = new EvolutionHttpHandlerFake(
-    new RespostaHttpFake(HttpStatusCode.Forbidden, "{}"),
+    new RespostaHttpFake(
+        HttpStatusCode.OK,
+        """{"instance":{"instanceName":"cartorio-teste","state":"open"}}"""),
     new RespostaHttpFake(HttpStatusCode.OK),
     new RespostaHttpFake(
         HttpStatusCode.OK,
@@ -533,17 +539,45 @@ var estadoGarantido = await evolutionGarantia.GarantirInstanciaAsync(
     CancellationToken.None);
 
 Checar(
-    "Instancia existente confirma webhook e permanece aberta sem connect",
+    "Instancia existente confirma webhook sem nunca chamar instance/create",
     estadoGarantido.Conectado
     && handlerGarantia.Chamadas.Count == 4
-    && handlerGarantia.Chamadas.All(c =>
-        !c.Caminho.StartsWith("/instance/connect/", StringComparison.Ordinal))
-    && handlerGarantia.Chamadas[0].Corpo?.Contains(
+    && handlerGarantia.Chamadas[0].Caminho == "/instance/connectionState/cartorio-teste"
+    && handlerGarantia.Chamadas.All(c => c.Caminho != "/instance/create"));
+
+var handlerCriacao = new EvolutionHttpHandlerFake(
+    new RespostaHttpFake(HttpStatusCode.NotFound, "{}"),
+    new RespostaHttpFake(HttpStatusCode.OK),
+    new RespostaHttpFake(HttpStatusCode.OK),
+    new RespostaHttpFake(
+        HttpStatusCode.OK,
+        $$"""{"enabled":true,"url":"{{urlWebhookFake}}"}"""),
+    new RespostaHttpFake(
+        HttpStatusCode.OK,
+        """{"instance":{"instanceName":"cartorio-teste","state":"close"}}"""));
+using var httpCriacao = new HttpClient(handlerCriacao);
+var evolutionCriacao = new EvolutionClient(
+    httpCriacao,
+    opcoesGateway,
+    NullLogger<EvolutionClient>.Instance);
+var estadoCriado = await evolutionCriacao.GarantirInstanciaAsync(
+    urlWebhookFake,
+    CancellationToken.None);
+
+Checar(
+    "Instancia inexistente (404) e criada sem QR antes do webhook",
+    !estadoCriado.Conectado
+    && handlerCriacao.Chamadas.Count == 5
+    && handlerCriacao.Chamadas[0].Caminho == "/instance/connectionState/cartorio-teste"
+    && handlerCriacao.Chamadas[1].Caminho == "/instance/create"
+    && handlerCriacao.Chamadas[1].Corpo?.Contains(
         "\"qrcode\":false",
         StringComparison.Ordinal) == true);
 
 var handlerWebhookRecusado = new EvolutionHttpHandlerFake(
-    new RespostaHttpFake(HttpStatusCode.Forbidden, "{}"),
+    new RespostaHttpFake(
+        HttpStatusCode.OK,
+        """{"instance":{"instanceName":"cartorio-teste","state":"open"}}"""),
     new RespostaHttpFake(HttpStatusCode.InternalServerError, "{}"));
 using var httpWebhookRecusado = new HttpClient(handlerWebhookRecusado);
 var evolutionWebhookRecusado = new EvolutionClient(

@@ -76,10 +76,16 @@ reescrever este módulo, e nada mais.
   do webhook é anônimo por necessidade — o gateway não carrega JWT —, então esse
   token é a única barreira entre o mundo e um endpoint que cria conversa.
   Separados para que vazar um não entregue o outro.
-- **`GarantirInstanciaAsync` é idempotente.** Instância já existente não é erro:
-  segue para registrar e confirmar o webhook. A criação usa `qrcode=false`; o QR
-  só pode ser pedido pelo POST explícito da tela, depois de o webhook estar
-  confirmado e o vínculo com o tenant persistido.
+- **`GarantirInstanciaAsync` nunca chama `instance/create` numa instância que já
+  existe.** Incidente ao vivo em 2026-08-22: repetir a criação com a sessão já
+  aberta (mesmo com `qrcode=false`) fez o gateway forçar um **logout de
+  verdade**, exigindo QR novo — o 403/409 "já existe" não é o idempotente
+  inofensivo que parecia ser nesta versão do Evolution. Por isso o método
+  primeiro consulta `connectionState`; só cria quando o gateway confirma (404)
+  que a instância não existe. Depois disso segue para registrar e confirmar o
+  webhook. A criação usa `qrcode=false`; o QR só pode ser pedido pelo POST
+  explícito da tela, depois de o webhook estar confirmado e o vínculo com o
+  tenant persistido.
 - **Consultar estado nunca conecta.** O GET de situação, o polling da tela e os
   indicadores chamam apenas `connectionState`. `instance/connect` pertence
   exclusivamente ao comando de pareamento e não é repetido enquanto a sessão

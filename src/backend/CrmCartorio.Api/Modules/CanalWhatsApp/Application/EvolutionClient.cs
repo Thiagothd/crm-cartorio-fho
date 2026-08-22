@@ -26,31 +26,32 @@ public class EvolutionClient(
     {
         GarantirConfigurado();
 
-        var criacao = await EnviarComStatusAsync(
-            HttpMethod.Post,
-            "instance/create",
-            new
+        // instance/create NUNCA e chamado quando a instancia ja existe — nem
+        // idempotente. Incidente ao vivo em 2026-08-22 (ver DEPLOY-WHATSAPP.md):
+        // repetir a criacao com a sessao ja aberta fez o gateway forcar um
+        // LOGOUT de verdade, exigindo QR novo. Tratar 403/409 como "seguro"
+        // supunha um idempotente que esta versao do gateway nao entrega.
+        if (await ConsultarSeExisteAsync(ct) is null)
+        {
+            var criacao = await EnviarComStatusAsync(
+                HttpMethod.Post,
+                "instance/create",
+                new
+                {
+                    instanceName = _opcoes.NomeDaInstancia,
+                    integration = "WHATSAPP-BAILEYS",
+                    // Criar a instancia nao pode iniciar o pareamento. O QR so e
+                    // pedido depois de webhook confirmado e tenant persistido.
+                    qrcode = false
+                },
+                ct);
+
+            if (!criacao.Sucesso)
             {
-                instanceName = _opcoes.NomeDaInstancia,
-                integration = "WHATSAPP-BAILEYS",
-                // Criar a instancia nao pode iniciar o pareamento. O QR so e
-                // pedido depois de webhook confirmado e tenant persistido.
-                qrcode = false
-            },
-            ct);
+                throw CanalWhatsAppServiceException.GatewayIndisponivel();
+            }
 
-        var jaExistia = criacao.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict;
-        if (!criacao.Sucesso && !jaExistia)
-        {
-            throw CanalWhatsAppServiceException.GatewayIndisponivel();
-        }
-
-        // 403/409 aqui significa "ja existe", que e o caminho normal do segundo
-        // clique em diante. Qualquer outra recusa interrompe o pareamento.
-        if (jaExistia)
-        {
-            log.LogInformation(
-                "Instancia {Instancia} ja existia; seguindo para o webhook.", _opcoes.NomeDaInstancia);
+            log.LogInformation("Instancia {Instancia} criada.", _opcoes.NomeDaInstancia);
         }
 
         await RegistrarWebhookAsync(urlDoWebhook, ct);
@@ -64,8 +65,27 @@ public class EvolutionClient(
     {
         GarantirConfigurado();
 
+        return await ConsultarSeExisteAsync(ct)
+            ?? throw CanalWhatsAppServiceException.GatewayIndisponivel();
+    }
+
+    /// <summary>
+    /// Consulta o estado sem exigir que a instancia exista.
+    /// </summary>
+    /// <remarks>
+    /// Devolve <c>null</c> so quando o gateway confirma (404) que a instancia
+    /// nao existe — o unico caso em que criar e seguro. Qualquer outra falha
+    /// continua lancando <see cref="CanalWhatsAppServiceException"/>.
+    /// </remarks>
+    private async Task<EstadoDaInstancia?> ConsultarSeExisteAsync(CancellationToken ct)
+    {
         var resposta = await EnviarComStatusAsync(
             HttpMethod.Get, $"instance/connectionState/{_opcoes.NomeDaInstancia}", null, ct);
+
+        if (resposta.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
 
         if (!resposta.Sucesso || resposta.Corpo is not { } estado)
         {
