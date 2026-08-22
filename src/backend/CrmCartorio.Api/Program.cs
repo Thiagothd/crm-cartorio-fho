@@ -97,6 +97,7 @@ builder.Services.AddScoped<IMensagemService, MensagemService>();
 builder.Services.AddScoped<IAcoesDeMensagem>(sp => (MensagemService)sp.GetRequiredService<IMensagemService>());
 builder.Services.AddScoped<IDisparadorDeMensagemAutomatica, DisparadorDeMensagemAutomatica>();
 builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
+builder.Services.AddScoped<IVarredorDeInatividade, VarredorDeInatividade>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
 
@@ -147,6 +148,11 @@ builder.Services.AddHttpClient<IConsultaPublicaService, ConsultaPublicaService>(
 // Os gatilhos de prazo sao os unicos que ninguem provoca — prazo simplesmente passa.
 // Ver IVarredorDePrazos para o motivo de nao serem calculados na leitura da inbox.
 builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
+
+// Silencio tambem nao e evento que alguem provoca. Sem esta varredura, conversa que
+// ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
+// boas-vindas, sem triagem. Ver IVarredorDeInatividade.
+builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
 
 // ---------------------------------------------------------------- autenticacao
 

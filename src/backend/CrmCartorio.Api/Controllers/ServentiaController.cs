@@ -22,4 +22,22 @@ public class ServentiaController(ITenantService servico) : ControllerBase
         [FromBody] SalvarAparenciaRequest request,
         CancellationToken ct) =>
         Ok(await servico.DefinirAparenciaAsync(request, ct));
+
+    /// <summary>
+    /// Tempo de silencio ate perguntar e ate encerrar a conversa parada.
+    /// </summary>
+    /// <remarks>
+    /// Diferente da aparencia, a LEITURA tambem exige perfil de gestao: isto nao
+    /// alimenta nenhuma tela de atendimento, so a de configuracao.
+    /// </remarks>
+    [HttpGet("encerramento-automatico")]
+    public async Task<ActionResult<EncerramentoAutomaticoResponse>> EncerramentoAutomatico(
+        CancellationToken ct) =>
+        Ok(await servico.ObterEncerramentoAutomaticoAsync(ct));
+
+    [HttpPut("encerramento-automatico")]
+    public async Task<ActionResult<EncerramentoAutomaticoResponse>> DefinirEncerramentoAutomatico(
+        [FromBody] SalvarEncerramentoAutomaticoRequest request,
+        CancellationToken ct) =>
+        Ok(await servico.DefinirEncerramentoAutomaticoAsync(request, ct));
 }

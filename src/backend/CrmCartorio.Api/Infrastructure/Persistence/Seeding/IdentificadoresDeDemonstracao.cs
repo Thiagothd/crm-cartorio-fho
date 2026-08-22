@@ -52,6 +52,8 @@ public static class IdentificadoresDeDemonstracao
         public static readonly Guid PedidoDeAtendente = new("0199b2c0-0006-7000-8000-000000000010");
         public static readonly Guid Despedida = new("0199b2c0-0006-7000-8000-000000000011");
         public static readonly Guid RespostaSemCorrespondencia = new("0199b2c0-0006-7000-8000-000000000012");
+        public static readonly Guid ConfirmacaoDeEncerramento = new("0199b2c0-0006-7000-8000-000000000013");
+        public static readonly Guid EncerramentoPorInatividade = new("0199b2c0-0006-7000-8000-000000000014");
     }
 
     public static class RespostasRapidas

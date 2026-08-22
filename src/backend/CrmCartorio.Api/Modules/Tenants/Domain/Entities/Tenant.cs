@@ -68,5 +68,42 @@ public class Tenant : EntidadeBase
     /// </remarks>
     public AparenciaDaConversa AparenciaDaConversa { get; set; } = AparenciaDaConversa.PapelLiso;
 
+    /// <summary>
+    /// Minutos de silencio antes de perguntar ao cliente se pode encerrar.
+    /// <b>Nulo desliga o encerramento automatico inteiro.</b>
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina de <see cref="WhatsappModoDeRecebimento"/>: nulo nao e "zero"
+    /// nem um padrao implicito, e o estado "ninguem decidiu isto" — e enquanto
+    /// ninguem decide, o sistema nao mexe em conversa nenhuma.
+    ///
+    /// O relogio e <see cref="Atendimento.Domain.Entities.Conversa.UltimaMensagemEm"/>,
+    /// que so avanca com mensagem de GENTE (cliente ou atendente): aviso automatico
+    /// nao renova a contagem, entao uma conversa que so recebeu robo continua
+    /// envelhecendo.
+    /// </remarks>
+    public int? MinutosParaPerguntarEncerramento { get; set; }
+
+    /// <summary>
+    /// Minutos de espera pela resposta antes de encerrar sozinho. Conta a partir de
+    /// <see cref="Atendimento.Domain.Entities.Conversa.PerguntaDeEncerramentoEnviadaEm"/>.
+    /// </summary>
+    public int? MinutosParaEncerrarSemResposta { get; set; }
+
+    /// <summary>
+    /// Hora local (0-23) a partir da qual a pergunta de encerramento pode sair.
+    /// Nulo nos dois extremos = qualquer hora.
+    /// </summary>
+    /// <remarks>
+    /// Existe porque o cliente do cartorio le a mensagem no celular dele: com poucos
+    /// minutos de silencio, uma conversa que parou as 21h seria perguntada de
+    /// madrugada. A janela vale so para PERGUNTAR — encerrar e silencioso e pode
+    /// acontecer a qualquer hora.
+    /// </remarks>
+    public int? EncerramentoHoraInicial { get; set; }
+
+    /// <summary>Hora local (0-23) ate a qual a pergunta pode sair. Ver <see cref="EncerramentoHoraInicial"/>.</summary>
+    public int? EncerramentoHoraFinal { get; set; }
+
     public bool Ativo { get; set; } = true;
 }

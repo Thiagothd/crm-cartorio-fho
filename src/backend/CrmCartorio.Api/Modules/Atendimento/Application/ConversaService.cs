@@ -665,6 +665,11 @@ public class ConversaService(
             : request.Motivo.Trim();
         conversa.MensagensNaoLidas = 0;
 
+        // Conversa encerrada nao carrega pergunta de encerramento pendente: se o
+        // atendente fechou na mao, a varredura de inatividade nao tem mais nada a
+        // resolver aqui.
+        conversa.PerguntaDeEncerramentoEnviadaEm = null;
+
         var texto = conversa.MotivoEncerramento is null
             ? $"Atendimento encerrado por {ctx.Nome}."
             : $"Atendimento encerrado por {ctx.Nome}. Motivo: {conversa.MotivoEncerramento}";
@@ -698,6 +703,12 @@ public class ConversaService(
         conversa.EncerradaEm = null;
         conversa.EncerradaPorAtendenteId = null;
         conversa.MotivoEncerramento = null;
+
+        // Sem isto, uma conversa encerrada pela varredura de inatividade voltaria
+        // Ativa com o carimbo antigo ainda preenchido — e a passada seguinte,
+        // minutos depois, a fecharia de novo. O atendente reabriria e veria fechar
+        // na frente dele.
+        conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
         // Reabertura devolve a conversa a quem reabriu: deixar sem dono faria a
         // conversa reaparecer na fila sem ninguem responsavel por ela.

@@ -28,6 +28,7 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.Property(c => c.PrazoAlertaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.AvisoDeAlertaEnviadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.AvisoDeVencimentoEnviadoEm).HasColumnType("datetime2(3)");
+        builder.Property(c => c.PerguntaDeEncerramentoEnviadaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.EncerradaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.ReabertaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.CriadoEm).HasColumnType("datetime2(3)");
@@ -130,5 +131,18 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.HasIndex(c => new { c.TenantId, c.PrazoLimite })
             .HasFilter("[AvisoDeVencimentoEnviadoEm] IS NULL AND [PrazoLimite] IS NOT NULL")
             .HasDatabaseName("IX_Conversas_AvisoVencimentoPendente");
+
+        // Segunda fase da varredura de inatividade: so interessa conversa que ja
+        // recebeu a pergunta de encerramento e ainda nao respondeu. Filtrado porque
+        // em regime esse conjunto e um punhado de linhas, contra uma tabela que
+        // cresce para sempre.
+        //
+        // A PRIMEIRA fase nao ganha indice de proposito: ela e servida por
+        // IX_Conversas_Inbox (TenantId, Status, UltimaMensagemEm), e um indice
+        // filtrado por "PerguntaDeEncerramentoEnviadaEm IS NULL" cobriria quase toda
+        // conversa ativa — seria a inbox indexada duas vezes.
+        builder.HasIndex(c => new { c.TenantId, c.PerguntaDeEncerramentoEnviadaEm })
+            .HasFilter("[PerguntaDeEncerramentoEnviadaEm] IS NOT NULL")
+            .HasDatabaseName("IX_Conversas_EncerramentoPendente");
     }
 }

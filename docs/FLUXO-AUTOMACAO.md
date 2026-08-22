@@ -1,8 +1,9 @@
 # FLUXO DE AUTOMAÇÃO — MENSAGENS AUTOMÁTICAS E IA
 
 > **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
-> só escala por pedido explícito).
-> **Última atualização:** 2026-08-18
+> só escala por pedido explícito; Fase 2H — encerramento automático por
+> inatividade).
+> **Última atualização:** 2026-08-22
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -48,7 +49,7 @@ próximo atendente sem virar mensagem ao cliente.
 
 ---
 
-## 3. Os 11 gatilhos
+## 3. Os 13 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -69,10 +70,13 @@ automáticas, sem release.
 | 9 | `PedidoDeAtendente` | Encaminha para atendente **no meio ou depois** do atendimento (setor já definido) — texto diferente do gatilho 5 de propósito, ver §8 | `AplicadorDeRespostaInteligente.EscalarAsync`, `AplicadorDePosAtendimento` (opção "falar com atendente") |
 | 10 | `Despedida` | O cliente escolheu encerrar pelo menu de continuação — envia a despedida **e fecha a conversa de verdade** (`Status = Encerrada`), ver §9 | `AplicadorDePosAtendimento` |
 | 11 | `RespostaSemCorrespondencia` | A IA não encontrou, no catálogo cadastrado, como responder — e o cliente **não** pediu atendente. Nunca promete atendente; convida a pedir um se quiser, ver §8 | `AplicadorDeRespostaInteligente` |
+| 12 | `ConfirmacaoDeEncerramento` | Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` — pergunta se pode encerrar, com menu numerado `1`/`2`. Ver §10 | `VarredorDeInatividade` (fase 1 — perguntar) |
+| 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
 
-Os gatilhos 5, 6, 7, 8, 9, 10 e 11 são texto que o **cliente do cartório lê** —
-por isso nenhum deles é constante fixa em C#: virariam a única mensagem do
-sistema que o cartório parceiro não poderia reescrever sozinho pela tela.
+Os gatilhos 5, 6, 7, 8, 9, 10, 11, 12 e 13 são texto que o **cliente do
+cartório lê** — por isso nenhum deles é constante fixa em C#: virariam a
+única mensagem do sistema que o cartório parceiro não poderia reescrever sozinho pela
+tela.
 
 `DisparadorDeMensagemAutomatica.EnfileirarAsync` não falha quando não há regra
 cadastrada para um gatilho — devolve lista vazia em silêncio. É o cartório parceiro
@@ -95,6 +99,12 @@ atendimento por WhatsApp.
 | `AguardandoRespostaInteligente` | Qualquer resposta da IA, com sucesso ou sem (`RespostaSemCorrespondencia`) | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala — **só por pedido explícito**, desde 2026-08-18 — ou o cliente pede "menu" |
 | `AguardandoMenuDeContinuacao` | `ServicoEscolhido`, logo após o checklist | `AplicadorDePosAtendimento` | A próxima mensagem do cliente chega, corresponda ou não a uma das 4 opções |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
+| `PerguntaDeEncerramentoEnviadaEm` | `VarredorDeInatividade`, fase 1 (gatilho 12) | `AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` | **Qualquer** mensagem do cliente chega — mesmo que não seja `1`/`2`/palavra reconhecida (ver §10). Também zerado ao atendente responder, ao reabrir a conversa e ao desligar o recurso pela tela |
+
+Diferente das flags acima, este campo **não dura uma mensagem só por
+convenção de fluxo** — dura até a próxima mensagem do cliente (que pode levar
+minutos ou dias) porque ele é ao mesmo tempo o relógio da fase 2 do varredor.
+Ver §10.
 
 Se um atendente rotear a conversa manualmente enquanto `AguardandoTriagem`
 está ligada, a escolha da pessoa vale: a flag é limpa em silêncio, sem
@@ -119,7 +129,11 @@ divergência só apareceria na conversa de um cliente de verdade.
 
 ```mermaid
 flowchart TD
-    A[Mensagem do cliente chega] --> Z{"pediu 'menu' / 'voltar'?"}
+    A[Mensagem do cliente chega] --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
+    Y -- sim --> Y1[AplicadorDeEncerramentoPorInatividade<br/>limpa o marcador sempre]
+    Y1 -- "Confirmou / Negou<br/>(consumiu a mensagem)" --> FIM[Despedida + encerra,<br/>ou MenuDeContinuacao]
+    Y1 -- "NaoEntendeu<br/>(não consumiu)" --> Z
+    Y -- não --> Z{"pediu 'menu' / 'voltar'?"}
     Z -- sim --> Z1[ReabrirDoZeroAsync —<br/>limpa SetorId e TipoServicoId,<br/>reabre NovoAtendimento]
     Z -- não --> B{AguardandoTriagem?}
     B -- sim --> B1[AplicadorDeTriagem<br/>nível 1: setor]
@@ -139,13 +153,26 @@ flowchart TD
     L -- sim --> K[IA responde, grounded<br/>no catálogo cadastrado]
     L -- não --> M[Gatilho 11 — não promete<br/>atendente, continua ouvindo]
 
+    style Y fill:#f4ead5,stroke:#8a6516
     style Z fill:#f4ead5,stroke:#8a6516
     style E fill:#f4ead5,stroke:#8a6516
     style H fill:#f4ead5,stroke:#8a6516
 ```
 
-**"menu"/"voltar" (`Z`) é checado ANTES de qualquer flag — literalmente a
-primeira coisa do despacho.** Não foi sempre assim: até 2026-08-18 isso só era
+**A pergunta pendente de encerramento (`Y`) é checada ANTES até do "menu" —
+é o primeiro passo do despacho, desde 2026-08-22.** `TratarRespostaAsync`
+**sempre** limpa o marcador antes de decidir, porque qualquer mensagem, seja
+qual for o conteúdo, prova que o cliente ainda está ali. Se a resposta for
+`Confirmou` ou `Negou`, a mensagem foi tratada por completo (despedida +
+encerra, ou volta ao menu de continuação) e a cadeia para aqui. Se for
+`NaoEntendeu` — inclusive "menu" —, a mensagem **continua para `Z`** com o
+marcador já limpo: é assim que digitar "menu" com uma pergunta de
+encerramento pendente cancela o encerramento **e** reabre do zero, no mesmo
+turno. Ver §10 para as guardas e o porquê da distinção Confirmou/Negou/
+NaoEntendeu.
+
+**"menu"/"voltar" (`Z`) é checado ANTES de qualquer flag do nível externo —
+mas depois de `Y`.** Não foi sempre assim: até 2026-08-18 isso só era
 verificado dentro de `AplicadorDePosAtendimento`, que só roda quando nenhuma
 das três flags do nível externo está ligada. Um cliente com
 `AguardandoRespostaInteligente` ligada (o normal depois de qualquer troca com
@@ -342,7 +369,7 @@ reduz a frequência do caminho `RespostaSemCorrespondencia` para esses casos
 específicos, mas o caminho continua existindo como rede de segurança para
 perguntas genuinamente fora do catálogo.
 
-Quando escala de verdade, o texto varia por contexto — ver §10.
+Quando escala de verdade, o texto varia por contexto — ver §11.
 
 ### O teto de segurança: `LimiteDiario`
 
@@ -404,7 +431,129 @@ Coberto por teste — `verificar-automacao.cs`, TESTE 7.
 
 ---
 
-## 10. Texto de escalonamento: por que dois gatilhos parecidos
+## 10. Encerramento automático por inatividade
+
+**O problema que isto resolve:** antes desta fase, `Status = Ativa` era um
+estado permanente enquanto ninguém — atendente ou cliente — encerrasse a
+conversa à mão. `RecebimentoDeWhatsApp.ResolverConversaAsync` casa qualquer
+conversa `Ativa` do cliente que escreveu, **sem filtro de recência** — então
+um cliente que voltasse semanas depois caía direto na conversa velha, sem
+boas-vindas, sem triagem, sem menu. `Status = Encerrada` já fazia a coisa
+certa (conversa nova, protocolo novo, `NovoAtendimento` do zero); faltava
+**fazer o encerramento acontecer sozinho**.
+
+### O ciclo, em duas fases
+
+Rodado por `VarredorDeInatividade` (`Modules/Atendimento/Application/`), um
+`BackgroundService` próprio (`HospedeDaVarreduraDeInatividade`), no mesmo
+molde do varredor de prazos (§3, gatilhos 3/4) — mas em host separado: uma
+passada que falhe não pode derrubar a outra.
+
+1. **Perguntar** (gatilho 12) — quando `UltimaMensagemEm` está a mais de
+   `Tenant.MinutosParaPerguntarEncerramento` minutos e nenhuma pergunta já
+   está pendente: dispara `ConfirmacaoDeEncerramento` e grava
+   `PerguntaDeEncerramentoEnviadaEm = agora`.
+2. **Encerrar sem resposta** (gatilho 13) — quando
+   `PerguntaDeEncerramentoEnviadaEm` está a mais de
+   `Tenant.MinutosParaEncerrarSemResposta` minutos: dispara
+   `EncerramentoPorInatividade`, fecha a conversa (`Status = Encerrada`,
+   mesmas flags zeradas de `EncerrarPeloCliente`, ver §9) e notifica a
+   inbox em tempo real.
+
+Se o cliente responder à pergunta do passo 1 antes do passo 2 acontecer,
+`AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` (chamado no
+despacho, ver §5) decide:
+
+- **Confirmou** (`"1"` ou palavra de confirmação, texto inteiro — nunca
+  substring) → despedida (gatilho 10 reaproveitado via
+  `AplicadorDePosAtendimento.EncerrarPeloCliente`) e fecha na hora.
+- **Negou** (`"2"` ou palavra de negativa) → volta ao
+  `MenuDeContinuacao` (gatilho 8) — a conversa continua normalmente.
+- **NaoEntendeu** (qualquer outra coisa, incluindo "obrigado"/"ok") → o
+  marcador é limpo (o cliente respondeu, então não há mais o que encerrar
+  por silêncio) e a **mesma mensagem** segue para o resto do despacho, como
+  se a pergunta nunca tivesse existido.
+
+`TriagemAutomatica.LerRespostaDeEncerramento` compara **palavra inteira**
+(`texto.Split(' ')` + `HashSet.Contains`), nunca substring — diferente de
+`PediuHumano`/`PediuMenu` (§5), que usam `Contains` porque errar ali custa
+uma mensagem a mais. Errar aqui fecharia o atendimento: "assim" contém
+"sim", e "assim que eu tiver os documentos eu volto" não pode ler como
+confirmação. A negativa é avaliada **antes** da confirmação, de propósito —
+"não, pode encerrar não" carrega palavra das duas famílias, e a assimetria
+protege o lado mais barato de errar (continuar a conversa).
+
+### As quatro guardas
+
+Nenhuma delas existia no desenho inicial — vieram de revisar o que um
+varredor cego a contexto de negócio poderia fazer de errado:
+
+1. **SLA em andamento nunca é perguntado** — só entra na fase 1 quem tem
+   `PrazoLimite IS NULL` ou já vencido. Prazo vivo é o cartório
+   deliberadamente trabalhando o caso offline (lavrando a escritura, etc.);
+   perguntar "quer encerrar?" no meio de um prazo fecharia protocolo em
+   produção.
+2. **Cartório devendo resposta nunca é perguntado** — só entra quem tem
+   `MensagensNaoLidas == 0`. Sem essa guarda, o cliente manda "preciso de
+   uma segunda via", ninguém assume, e 20 minutos depois o *sistema*
+   pergunta se pode encerrar — o pior uso possível do canal.
+3. **Conversa simulada nunca entra** — só `Canal == WhatsApp`. Protege a
+   base de demonstração (`Canal == Simulado`) de se autodestruir.
+4. **Corrida com o webhook** — o `ExecuteUpdateAsync` que grava o marcador
+   e o que fecha a conversa incluem `UltimaMensagemEm` (capturado no
+   momento da leitura) na cláusula `WHERE`. Se o cliente escrever entre a
+   leitura do varredor e a tentativa de gravação, o varredor perde a
+   corrida em silêncio — 0 linhas afetadas, `rollback` — em vez de colidir
+   com o `SaveChanges` do webhook.
+
+### Por que fase 2 encerra mesmo sem texto cadastrado
+
+Divergência deliberada do varredor de prazos: lá, se a regra do gatilho
+estiver desativada (`Ativo=false`), a gravação do marcador é desfeita — a
+mensagem É o efeito. Aqui, na fase 2, **a conversa fecha mesmo que não haja
+`MensagemAutomatica` ativa para o gatilho 13** — fechar é o efeito, a
+mensagem é cortesia. Deixar a conversa presa "já perguntei, nunca fechei"
+é exatamente o bug que este varredor existe para consertar.
+
+### Configuração — tudo pela tela
+
+`Automação → Encerramento automático` (`/automacao/encerramento`, permissão
+de gestão). Quatro campos, todos em `Tenant`, todos `int?`:
+
+| Campo | Nulo significa |
+| --- | --- |
+| `MinutosParaPerguntarEncerramento` | Recurso desligado (junto com o de baixo — tudo ou nada) |
+| `MinutosParaEncerrarSemResposta` | Recurso desligado |
+| `EncerramentoHoraInicial` | Sem janela — pergunta a qualquer hora |
+| `EncerramentoHoraFinal` | Sem janela — pergunta a qualquer hora |
+
+A janela de horário (fuso do cartório, não UTC) vale **só para a fase 1**
+(perguntar) — encerrar de madrugada não incomoda ninguém, é silencioso do
+ponto de vista do cliente. Faixa aceita nos dois tempos: 5 a 43200 minutos
+(30 dias) — o mínimo baixo é o que permite testar o ciclo inteiro em minutos.
+
+Valores atuais (suposição nossa, não confirmada com o cartório parceiro — ver
+REQUISITOS.md §5): **20 min para perguntar, 30 min para encerrar, janela
+08h–18h.**
+
+### Onde mora
+
+| Peça | Arquivo |
+| --- | --- |
+| O varredor (as duas fases) | `Modules/Atendimento/Application/VarredorDeInatividade.cs` |
+| A resposta do cliente à pergunta pendente | `Modules/Atendimento/Application/AplicadorDeEncerramentoPorInatividade.cs` |
+| O interpretador de palavra inteira | `Modules/Atendimento/Domain/TriagemAutomatica.cs` (`LerRespostaDeEncerramento`) |
+| O host da varredura | `Infrastructure/Automacao/HospedeDaVarreduraDeInatividade.cs` |
+| Configuração pela tela | `Modules/Tenants/Application/TenantService.cs`, `Controllers/ServentiaController.cs` |
+| Tela | `src/frontend/src/features/configuracoes/aba-encerramento-automatico.tsx` |
+
+Coberto por teste — `verificar-automacao.cs`, TESTE 9 a 15 (inclui o
+requisito central: cliente que volta depois do encerramento automático
+recebe protocolo novo e triagem do zero).
+
+---
+
+## 11. Texto de escalonamento: por que dois gatilhos parecidos
 
 `TriagemSemCorrespondencia` (5) e `PedidoDeAtendente` (9) escalam para
 atendimento humano — desde 2026-08-18, **só por pedido explícito do cliente**
@@ -424,7 +573,7 @@ atendente").
 
 ---
 
-## 11. Marcadores
+## 12. Marcadores
 
 Substituição literal, sem expressão nem condicional — ver
 [`PlaceholdersDeMensagem.cs`](../src/backend/CrmCartorio.Api/Modules/Configuracoes/Domain/PlaceholdersDeMensagem.cs).
@@ -452,7 +601,7 @@ num lado exige mexer no outro.
 
 ---
 
-## 12. Onde cada peça mora
+## 13. Onde cada peça mora
 
 | Peça | Arquivo |
 | --- | --- |
@@ -473,7 +622,7 @@ num lado exige mexer no outro.
 
 ---
 
-## 13. Casos conhecidos, deixados de propósito
+## 14. Casos conhecidos, deixados de propósito
 
 Registrados para não serem "descobertos" de novo e tratados como bug:
 

@@ -299,10 +299,16 @@ public class MensagemService(
         //
         // Para um carimbo de "ultima mensagem", o ultimo a escrever vencer e a
         // resposta certa, e e o que o UPDATE direto faz.
+        //
+        // A pergunta de encerramento pendente cai junto: o ATENDENTE respondeu, e
+        // uma conversa que acabou de receber atencao humana nao pode fechar por
+        // silencio minutos depois. Cabe no UPDATE que ja existe, sem consulta a
+        // mais.
         await db.Conversas
             .Where(c => c.Id == conversaId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.UltimaMensagemEm, agora)
+                .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, (DateTime?)null)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         // Entrega de verdade, DEPOIS do commit. O adaptador decide pelo canal da
@@ -386,7 +392,17 @@ public class MensagemService(
         // essa flag ligada mesmo sem saber responder (mesmo dia, ver
         // AplicadorDeRespostaInteligente). Cliente pedindo "menu" no meio de uma
         // troca com a IA ia direto para ela, que nao entende "menu" como comando.
-        if (TriagemAutomatica.PediuMenu(conteudo))
+        if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
+                db, automaticas, conversa, conteudo, agora, ct))
+        {
+            // Primeiro de todos, ate antes do "menu": a pergunta de encerramento
+            // por inatividade pode ter saido com a conversa em qualquer estado.
+            //
+            // CUIDADO: esta condicao tem efeito colateral quando devolve false —
+            // ela ja cancelou a pergunta pendente, e a mensagem segue a cadeia
+            // abaixo de proposito. Nao e um `if` puro.
+        }
+        else if (TriagemAutomatica.PediuMenu(conteudo))
         {
             await ReabrirMenuInicialAsync(conversa, agora, ct);
         }
@@ -665,11 +681,13 @@ public class MensagemService(
         await db.SaveChangesAsync(ct);
 
         // Encaminhamento e mensagem de gente: reordena a inbox, ao contrario do
-        // aviso automatico.
+        // aviso automatico — e, pelo mesmo motivo, cancela a pergunta de
+        // encerramento pendente na conversa de destino.
         await db.Conversas
             .Where(c => c.Id == destino.Id)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.UltimaMensagemEm, agora)
+                .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, (DateTime?)null)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         log.LogInformation(

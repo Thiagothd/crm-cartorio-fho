@@ -138,6 +138,101 @@ public static class TriagemAutomatica
     }
 
     /// <summary>
+    /// O que o cliente respondeu a pergunta de encerramento por inatividade
+    /// (<see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.ConfirmacaoDeEncerramento"/>).
+    /// </summary>
+    public enum RespostaDeEncerramento
+    {
+        /// <summary>Pode encerrar.</summary>
+        Confirmou,
+
+        /// <summary>Nao encerre, ainda preciso.</summary>
+        Negou,
+
+        /// <summary>
+        /// Nem uma coisa nem outra — o cliente voltou falando de outro assunto.
+        /// </summary>
+        NaoEntendeu
+    }
+
+    /// <summary>
+    /// Palavras que autorizam o encerramento. Comparadas por PALAVRA INTEIRA.
+    /// </summary>
+    private static readonly HashSet<string> PalavrasDeConfirmacao = new(StringComparer.Ordinal)
+    {
+        "sim", "s", "isso", "claro", "pode", "encerrar", "encerra", "encerrado",
+        "finalizar", "finaliza", "concluir", "resolvido", "resolvida"
+    };
+
+    /// <summary>
+    /// Palavras que recusam o encerramento. Comparadas por PALAVRA INTEIRA.
+    /// </summary>
+    private static readonly HashSet<string> PalavrasDeNegativa = new(StringComparer.Ordinal)
+    {
+        "nao", "n", "negativo", "continuar", "continua", "ainda", "espera",
+        "espere", "aguarda", "aguarde", "preciso"
+    };
+
+    /// <summary>
+    /// Le a resposta do cliente a pergunta de encerramento.
+    /// </summary>
+    /// <remarks>
+    /// <b>Palavra inteira, nunca substring.</b> <see cref="PediuHumano"/> e
+    /// <see cref="PediuMenu"/> podem usar <c>Contains</c> porque errar la custa uma
+    /// mensagem a mais; errar aqui FECHA o atendimento de alguem. E o erro estaria
+    /// esperando: "assim" contem "sim", entao "assim que eu tiver os documentos eu
+    /// volto" encerraria a conversa de quem acabou de dizer que vai voltar.
+    ///
+    /// <b>Tambem nao usa <see cref="InterpretarResposta"/></b>, apesar de a pergunta
+    /// ser um menu de duas opcoes: aquele metodo aceita correspondencia PARCIAL nas
+    /// duas direcoes (linha 91), e a frase "nao quero encerrar agora" contem
+    /// "encerrar" — casaria com a opcao de encerrar e fecharia a conversa de quem
+    /// disse exatamente o contrario.
+    ///
+    /// <b>A negativa e avaliada ANTES da confirmacao</b>, e a assimetria e
+    /// intencional: "nao, pode encerrar nao" tem palavra das duas familias. Errar
+    /// para "continua aberta" custa uma conversa a mais no painel; errar para
+    /// "encerra" fecha o atendimento de quem ainda precisa.
+    ///
+    /// "obrigado" e "ok" ficam de fora das duas listas de proposito — sao ambiguos
+    /// ("obrigado, mas ainda preciso de...") e caem em
+    /// <see cref="RespostaDeEncerramento.NaoEntendeu"/>, que e o resultado barato:
+    /// a conversa segue viva e, se o silencio voltar, a pergunta tambem volta.
+    /// </remarks>
+    public static RespostaDeEncerramento LerRespostaDeEncerramento(string? conteudo)
+    {
+        var texto = Normalizar(conteudo);
+
+        if (texto.Length == 0)
+        {
+            return RespostaDeEncerramento.NaoEntendeu;
+        }
+
+        // O numero que a pergunta oferece vem primeiro — e o caminho que o menu
+        // pede, igual ao da triagem.
+        if (texto == "1")
+        {
+            return RespostaDeEncerramento.Confirmou;
+        }
+
+        if (texto == "2")
+        {
+            return RespostaDeEncerramento.Negou;
+        }
+
+        var palavras = texto.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (palavras.Any(PalavrasDeNegativa.Contains))
+        {
+            return RespostaDeEncerramento.Negou;
+        }
+
+        return palavras.Any(PalavrasDeConfirmacao.Contains)
+            ? RespostaDeEncerramento.Confirmou
+            : RespostaDeEncerramento.NaoEntendeu;
+    }
+
+    /// <summary>
     /// Minusculas, sem acento, sem pontuacao e com espaco colapsado.
     /// </summary>
     /// <remarks>
