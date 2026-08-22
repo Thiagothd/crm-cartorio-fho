@@ -19,6 +19,7 @@ public class EnviadorPeloWhatsApp(
     CrmDbContext db,
     IEvolutionClient gateway,
     IArmazenamentoDeAnexos anexos,
+    IRegrasDoCanal regras,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<EnviadorPeloWhatsApp> log) : IEnviadorDeCanal
 {
@@ -44,6 +45,10 @@ public class EnviadorPeloWhatsApp(
                 Canal = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
                     .Select(c => c.Canal)
+                    .FirstOrDefault(),
+                TenantId = db.Conversas
+                    .Where(c => c.Id == m.ConversaId)
+                    .Select(c => c.TenantId)
                     .FirstOrDefault(),
                 Telefone = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
@@ -76,16 +81,22 @@ public class EnviadorPeloWhatsApp(
             return null;
         }
 
-        // A allowlist nao pode proteger so o webhook. O banco de teste pode
-        // carregar conversas WhatsApp antigas/importadas; sem a mesma guarda na
-        // saida, um clique do atendente ou uma automatica pendente alcançaria um
-        // contato fora do teste mesmo sem ele conseguir iniciar conversa nova.
-        if (!_opcoes.NumeroPermitido(alvo.Telefone))
+        // A allowlist nao pode proteger so o webhook: o banco pode carregar
+        // conversa WhatsApp antiga/importada, e sem a mesma guarda na saida um
+        // clique do atendente ou uma automatica pendente alcancaria um contato
+        // fora da regra mesmo sem ele conseguir iniciar conversa nova. Mesma
+        // fonte do recebimento (IRegrasDoCanal), para os dois sentidos nunca
+        // divergirem.
+        //
+        // Nao marca Falha: bloqueio por regra nao e falha tecnica do envio — e
+        // decisao deliberada de quem configurou o canal. Misturar os dois no
+        // mesmo StatusEntrega faria um bloqueio de politica parecer bug de
+        // gateway na tela do atendente.
+        if (await regras.PodeFalarComAsync(alvo.TenantId, alvo.Telefone, ct) is { Permitido: false } veredicto)
         {
-            log.LogWarning(
-                "Canal restrito: envio da mensagem {MensagemId} para {Telefone} bloqueado.",
-                mensagemId,
-                alvo.Telefone);
+            log.LogInformation(
+                "Mensagem {MensagemId} nao enviada: numero {Telefone} fora da regra do canal ({Motivo}).",
+                mensagemId, alvo.Telefone, veredicto.Motivo);
 
             return null;
         }

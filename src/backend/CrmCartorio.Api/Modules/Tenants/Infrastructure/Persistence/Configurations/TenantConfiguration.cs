@@ -21,6 +21,10 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.WhatsappPhoneNumberId).HasMaxLength(64).IsUnicode(false);
         builder.Property(t => t.WhatsappNumeroExibicao).HasMaxLength(20).IsUnicode(false);
         builder.Property(t => t.WhatsappInstancia).HasMaxLength(120).IsUnicode(false);
+        builder.Property(t => t.WhatsappModoDeRecebimento).HasConversion<byte?>();
+        builder.Property(t => t.WhatsappPerfilNome).HasMaxLength(120);
+        builder.Property(t => t.WhatsappPerfilFotoUrl).HasMaxLength(500);
+        builder.Property(t => t.WhatsappConectadoEm).HasColumnType("datetime2(3)");
         builder.Property(t => t.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(t => t.AtualizadoEm).HasColumnType("datetime2(3)");
 

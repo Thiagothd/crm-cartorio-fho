@@ -1,5 +1,7 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Application;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -25,6 +27,7 @@ public class ProcessadorDeWebhook(
     CrmDbContext db,
     IRecebimentoDeWhatsApp recebimento,
     IEvolutionClient gateway,
+    IRegrasDoCanal regras,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<ProcessadorDeWebhook> log) : IProcessadorDeWebhook
 {
@@ -87,9 +90,18 @@ public class ProcessadorDeWebhook(
 
         if (evento == "connection.update")
         {
+            var estado = TradutorDePayload.LerEstadoDaConexao(payload.Data);
+
             log.LogInformation(
-                "Canal WhatsApp da instancia {Instancia}: {Estado}",
-                payload.Instance, TradutorDePayload.LerEstadoDaConexao(payload.Data) ?? "?");
+                "Canal WhatsApp da instancia {Instancia}: {Estado}", payload.Instance, estado ?? "?");
+
+            // Sem lancar: instancia desconhecida aqui nao e o mesmo risco que em
+            // mensagem — nao ha cliente, protocolo nem conversa em jogo, so um
+            // registro de conexao que perdemos.
+            if (await ResolverTenantSemFalharAsync(payload.Instance, ct) is { } tenantDaConexao)
+            {
+                await RegistrarConexaoAsync(tenantDaConexao, estado, ct);
+            }
 
             return;
         }
@@ -103,22 +115,24 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
-            if (!_opcoes.NumeroPermitido(mensagem.TelefoneE164))
+            // A regra de numeros e por tenant (CanalWhatsappNumeros +
+            // Tenants.WhatsappModoDeRecebimento), entao resolver o tenant aqui
+            // ja serve os dois passos seguintes — nao ha leitura repetida.
+            var tenantDaMensagemId = await ResolverTenantAsync(payload.Instance, ct);
+
+            if (await regras.PodeFalarComAsync(tenantDaMensagemId, mensagem.TelefoneE164, ct) is { Permitido: false } veredicto)
             {
-                // Piloto restrito a numero de teste (CanalWhatsApp:NumerosDeTeste).
                 // Descartada ANTES de qualquer coisa — nao vira Cliente nem
                 // Conversa, exatamente como o eco e a mensagem de grupo acima.
                 log.LogInformation(
-                    "Piloto restrito a numero de teste: mensagem de {Telefone} descartada.",
-                    mensagem.TelefoneE164);
+                    "Numero fora da regra do canal ({Motivo}): mensagem de {Telefone} descartada.",
+                    veredicto.Motivo, mensagem.TelefoneE164);
+
+                await regras.RegistrarDescarteAsync(
+                    tenantDaMensagemId, mensagem.TelefoneE164, veredicto.Motivo ?? MotivoDoDescarte.ForaDaLista, ct);
 
                 return;
             }
-
-            // Só consulta o banco depois que formato, instância e número
-            // passaram pelas travas. Um contato fora da allowlist não produz
-            // nem leitura de tenant, muito menos Cliente/Conversa/Mensagem.
-            var tenantDaMensagemId = await ResolverTenantAsync(payload.Instance, ct);
 
             var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(
                 tenantDaMensagemId,
@@ -226,6 +240,82 @@ public class ProcessadorDeWebhook(
             log.LogDebug(falha, "Falha ao resolver foto de perfil para {Telefone}.", telefoneE164);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Fecha a conexao aberta ou abre uma nova em <c>CanalWhatsappConexoes</c>,
+    /// conforme o estado que o gateway avisou.
+    /// </summary>
+    /// <remarks>
+    /// Idempotente nos dois sentidos: <c>open</c> so cria linha se nao houver
+    /// nenhuma aberta (evita duplicar quando a Evolution manda o mesmo ack mais
+    /// de uma vez, e nao conflita com o que <c>PareamentoDoCanal.ConsultarAsync</c>
+    /// ja pode ter aberto). <c>close</c> so fecha se ainda houver uma aberta —
+    /// quando a troca/desconexao pelo painel ja fechou a linha antes de chamar o
+    /// gateway, este evento chega depois e nao encontra nada para fechar. E este
+    /// e o unico caminho que registra queda iniciada no proprio celular, que
+    /// ninguem esta vendo na tela.
+    /// </remarks>
+    private async Task RegistrarConexaoAsync(Guid tenantId, string? estado, CancellationToken ct)
+    {
+        var normalizado = estado?.ToLowerInvariant();
+
+        if (normalizado is not ("open" or "close"))
+        {
+            return;
+        }
+
+        var aberta = await db.CanalWhatsappConexoes
+            .Where(c => c.TenantId == tenantId && c.DesconectadoEm == null)
+            .OrderByDescending(c => c.ConectadoEm)
+            .FirstOrDefaultAsync(ct);
+
+        if (normalizado == "open")
+        {
+            if (aberta is not null)
+            {
+                return;
+            }
+
+            db.CanalWhatsappConexoes.Add(new ConexaoDoCanal
+            {
+                TenantId = tenantId,
+                ConectadoEm = DateTime.UtcNow,
+                Motivo = MotivoDaConexao.Pareamento
+            });
+
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        if (aberta is null)
+        {
+            return;
+        }
+
+        aberta.DesconectadoEm = DateTime.UtcNow;
+        aberta.Motivo = MotivoDaConexao.QuedaDoGateway;
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Igual a <see cref="ResolverTenantAsync"/>, mas devolve nulo em vez de lancar.</summary>
+    /// <remarks>
+    /// Usado so no rastro de conexao: um evento de estado com instancia
+    /// desconhecida nao carrega cliente, protocolo nem conversa — falhar alto
+    /// aqui derrubaria o webhook por causa de um registro que e so telemetria.
+    /// </remarks>
+    private async Task<Guid?> ResolverTenantSemFalharAsync(string? instancia, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(instancia))
+        {
+            return null;
+        }
+
+        return await db.Tenants.AsNoTracking()
+            .Where(t => t.WhatsappInstancia == instancia)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(ct);
     }
 
     /// <summary>

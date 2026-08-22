@@ -189,6 +189,8 @@ export const api = {
 
   put: <T>(caminho: string, corpo?: unknown) => requisitar<T>(caminho, { metodo: 'PUT', corpo }),
 
+  excluir: <T>(caminho: string) => requisitar<T>(caminho, { metodo: 'DELETE' }),
+
   /** POST multipart. O navegador escreve o Content-Type com o boundary. */
   formulario: <T>(caminho: string, dados: FormData) =>
     requisitar<T>(caminho, { metodo: 'POST', corpo: dados }),

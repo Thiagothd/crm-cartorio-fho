@@ -11,6 +11,9 @@ public record EstadoDaInstancia(string Estado, string? QrCodeBase64)
     public bool Conectado => Estado.Equals("open", StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>Quem está do outro lado da sessão pareada, para a tela mostrar em vez do nome da instância.</summary>
+public record PerfilDaInstancia(string? Numero, string? Nome, string? FotoUrl);
+
 /// <summary>
 /// Fala com o gateway Evolution. E o unico ponto do sistema que conhece o
 /// formato do terceiro.
@@ -36,6 +39,21 @@ public interface IEvolutionClient
     /// fechada. Se ja estiver aberta ou conectando, apenas devolve o estado.
     /// </summary>
     Task<EstadoDaInstancia> IniciarConexaoAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Desliga a sessão pareada no gateway (dispositivo desvinculado, como em
+    /// WhatsApp → Dispositivos conectados → sair).
+    /// </summary>
+    /// <remarks>
+    /// Recusa do gateway (instância já desconectada) não é erro — mesma postura
+    /// de <see cref="GarantirInstanciaAsync"/> com "já existe": o objetivo final
+    /// (sessão fora do ar) já está atingido.
+    /// </remarks>
+    Task DesconectarAsync(CancellationToken ct);
+
+    /// <summary>Número, nome e foto do perfil pareado agora — para a tela mostrar quem está conectado.</summary>
+    /// <remarks>Devolve nulo nos campos que o gateway não informar. Nunca lança por formato inesperado.</remarks>
+    Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct);
 
     /// <summary>
     /// Envia texto e devolve o id da mensagem no WhatsApp.

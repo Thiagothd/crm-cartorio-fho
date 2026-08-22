@@ -622,6 +622,8 @@ var gatewayPareamentoAberto = new GatewayFake
 var pareamentoAberto = new PareamentoDoCanal(
     dbPareamento,
     gatewayPareamentoAberto,
+    new RegrasDoCanal(dbPareamento, new ContextoFake(tenantPareamento.Id), Options.Create(canalDeTeste), NullLogger<RegrasDoCanal>.Instance),
+    new ControleDeTentativasDePareamento(),
     Options.Create(canalDeTeste),
     NullLogger<PareamentoDoCanal>.Instance);
 
@@ -668,6 +670,8 @@ var gatewayPareamentoFechado = new GatewayFake
 var pareamentoFechado = new PareamentoDoCanal(
     dbPareamento,
     gatewayPareamentoFechado,
+    new RegrasDoCanal(dbPareamento, new ContextoFake(tenantPareamento.Id), Options.Create(canalDeTeste), NullLogger<RegrasDoCanal>.Instance),
+    new ControleDeTentativasDePareamento(),
     Options.Create(canalDeTeste),
     NullLogger<PareamentoDoCanal>.Instance);
 var situacaoComQr = await pareamentoFechado.PrepararAsync(
@@ -687,6 +691,8 @@ var gatewayPareamentoComFalha = new GatewayFake { FalharAoGarantir = true };
 var pareamentoComFalha = new PareamentoDoCanal(
     dbPareamento,
     gatewayPareamentoComFalha,
+    new RegrasDoCanal(dbPareamento, new ContextoFake(tenantPareamento.Id), Options.Create(canalDeTeste), NullLogger<RegrasDoCanal>.Instance),
+    new ControleDeTentativasDePareamento(),
     Options.Create(canalDeTeste),
     NullLogger<PareamentoDoCanal>.Instance);
 var falhouAntesDoVinculo = false;
@@ -712,6 +718,8 @@ var gatewayTenantAusente = new GatewayFake();
 var pareamentoTenantAusente = new PareamentoDoCanal(
     dbPareamento,
     gatewayTenantAusente,
+    new RegrasDoCanal(dbPareamento, new ContextoFake(tenantPareamento.Id), Options.Create(canalDeTeste), NullLogger<RegrasDoCanal>.Instance),
+    new ControleDeTentativasDePareamento(),
     Options.Create(canalDeTeste),
     NullLogger<PareamentoDoCanal>.Instance);
 var rejeitouTenantAusente = false;
@@ -755,10 +763,13 @@ await db.SaveChangesAsync();
 
 var gatewayFake = new GatewayFake();
 var recebimentoFake = new RecebimentoFake();
+var regrasDoProcessador = new RegrasDoCanal(
+    db, new ContextoFake(tenant.Id), Options.Create(canalDeTeste), NullLogger<RegrasDoCanal>.Instance);
 var processador = new ProcessadorDeWebhook(
     db,
     recebimentoFake,
     gatewayFake,
+    regrasDoProcessador,
     Options.Create(canalDeTeste),
     NullLogger<ProcessadorDeWebhook>.Instance);
 
@@ -819,10 +830,13 @@ var canalDesligado = new OpcoesDoCanalWhatsApp
     TokenDoWebhook = canalDeTeste.TokenDoWebhook,
     NumerosDeTeste = canalDeTeste.NumerosDeTeste
 };
+var regrasDoProcessadorDesligado = new RegrasDoCanal(
+    db, new ContextoFake(tenant.Id), Options.Create(canalDesligado), NullLogger<RegrasDoCanal>.Instance);
 var processadorDesligado = new ProcessadorDeWebhook(
     db,
     recebimentoFake,
     gatewayFake,
+    regrasDoProcessadorDesligado,
     Options.Create(canalDesligado),
     NullLogger<ProcessadorDeWebhook>.Instance);
 
@@ -881,6 +895,7 @@ var enviador = new EnviadorPeloWhatsApp(
     db,
     gatewayFake,
     anexosFake,
+    regrasDoProcessador,
     Options.Create(canalDeTeste),
     NullLogger<EnviadorPeloWhatsApp>.Instance);
 
@@ -928,6 +943,7 @@ var enviadorPermitido = new EnviadorPeloWhatsApp(
     db,
     gatewayPermitido,
     anexosFake,
+    regrasDoProcessador,
     Options.Create(canalDeTeste),
     NullLogger<EnviadorPeloWhatsApp>.Instance);
 var cancelamentoEsperado = false;
@@ -1124,6 +1140,17 @@ file sealed class GatewayFake : IEvolutionClient
         ConsultasDeFoto++;
         return Task.FromResult<string?>(null);
     }
+
+    public int Desconexoes { get; private set; }
+
+    public Task DesconectarAsync(CancellationToken ct)
+    {
+        Desconexoes++;
+        return Task.CompletedTask;
+    }
+
+    public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) =>
+        Task.FromResult<PerfilDaInstancia?>(null);
 }
 
 file sealed class ArmazenamentoFake : IArmazenamentoDeAnexos

@@ -339,11 +339,7 @@ export interface DadosDeCliente {
   ativo?: boolean
 }
 
-/**
- * Situação do canal real de WhatsApp.
- *
- * PILOTO com número pessoal, não o do cartório — ver docs/DEPLOY-WHATSAPP.md.
- */
+/** Situação do canal real de WhatsApp — ver docs/DEPLOY-WHATSAPP.md. */
 export interface SituacaoDoCanal {
   /** O canal está ligado na configuração do servidor. */
   habilitado: boolean
@@ -354,6 +350,66 @@ export interface SituacaoDoCanal {
   /** PNG em data-URI enquanto espera a leitura; nulo quando já pareado. */
   qrCodeBase64: string | null
   instancia: string | null
+  /** Número pareado (E.164, só dígitos). Nulo enquanto desconectado. */
+  numero: string | null
+  perfilNome: string | null
+  perfilFotoUrl: string | null
+  /** Quando a sessão atual pareou. Nulo enquanto desconectado. */
+  conectadoEm: string | null
+}
+
+export type ModoDeRecebimento = 'Todos' | 'SomenteLiberados' | 'TodosMenosBloqueados'
+
+export type TipoDeNumeroDoCanal = 'Liberado' | 'Bloqueado'
+
+export type MotivoDaConexaoDoCanal = 'Pareamento' | 'Troca' | 'Desconexao' | 'QuedaDoGateway'
+
+export type MotivoDoDescarteDoCanal = 'ForaDaLista' | 'Bloqueado'
+
+/** De onde vem a regra que está valendo agora — ver `RegrasDoCanal.origem`. */
+export type OrigemDaRegraDoCanal = 'Banco' | 'Appsettings'
+
+export interface NumeroDoCanal {
+  id: string
+  telefone: string
+  rotulo: string | null
+  tipo: TipoDeNumeroDoCanal
+  criadoEm: string
+  criadoPorNome: string | null
+}
+
+export interface RegrasDoCanal {
+  modo: ModoDeRecebimento
+  /** `Appsettings` enquanto ninguém salvou um modo pela tela — quem manda ainda é o servidor. */
+  origem: OrigemDaRegraDoCanal
+  liberados: NumeroDoCanal[]
+  bloqueados: NumeroDoCanal[]
+}
+
+export interface ConexaoDoCanal {
+  numero: string | null
+  perfilNome: string | null
+  conectadoEm: string
+  desconectadoEm: string | null
+  atendenteNome: string | null
+  motivo: MotivoDaConexaoDoCanal
+}
+
+export interface TesteDeEnvioDoCanal {
+  enviado: boolean
+  motivo: string | null
+}
+
+export interface DescarteDoCanal {
+  telefone: string
+  motivo: MotivoDoDescarteDoCanal
+  criadoEm: string
+}
+
+export interface DescartesDoCanal {
+  /** Descartes nas últimas 24h — não desde meia-noite. */
+  totalHoje: number
+  recentes: DescarteDoCanal[]
 }
 
 /**
