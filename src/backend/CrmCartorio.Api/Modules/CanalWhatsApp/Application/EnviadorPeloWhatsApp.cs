@@ -76,6 +76,20 @@ public class EnviadorPeloWhatsApp(
             return null;
         }
 
+        // A allowlist nao pode proteger so o webhook. O banco de teste pode
+        // carregar conversas WhatsApp antigas/importadas; sem a mesma guarda na
+        // saida, um clique do atendente ou uma automatica pendente alcançaria um
+        // contato fora do teste mesmo sem ele conseguir iniciar conversa nova.
+        if (!_opcoes.NumeroPermitido(alvo.Telefone))
+        {
+            log.LogWarning(
+                "Canal restrito: envio da mensagem {MensagemId} para {Telefone} bloqueado.",
+                mensagemId,
+                alvo.Telefone);
+
+            return null;
+        }
+
         try
         {
             var idExterno = alvo.ArquivoCaminho is { Length: > 0 } caminho

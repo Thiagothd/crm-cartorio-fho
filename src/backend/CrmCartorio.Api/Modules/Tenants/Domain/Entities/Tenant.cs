@@ -35,8 +35,8 @@ public class Tenant : EntidadeBase
     /// a ponte.
     ///
     /// Nulo enquanto o canal nao foi conectado. Preenchido ao parear pela tela de
-    /// Configuracoes. Piloto: aponta para o numero PESSOAL do Thiago, nao para o
-    /// do cartorio (docs/DEPLOY-WHATSAPP.md).
+    /// Configuracoes. Cada ambiente usa sua propria instancia e seu numero
+    /// dedicado, conforme docs/DEPLOY-WHATSAPP.md.
     /// </remarks>
     public string? WhatsappInstancia { get; set; }
 

@@ -50,6 +50,31 @@ public class ProcessadorDeWebhook(
 
     public async Task ProcessarAsync(PayloadDoWebhook payload, CancellationToken ct = default)
     {
+        // Habilitado=false precisa desligar ENTRADA e saida. O webhook pode ter
+        // ficado registrado no gateway de uma ativacao anterior; sem esta guarda,
+        // desligar o canal parava as respostas, mas ainda criava Cliente, Conversa
+        // e Mensagem a cada POST que continuasse chegando.
+        if (!_opcoes.EstaConfigurado)
+        {
+            log.LogInformation(
+                "Webhook da instancia {Instancia} ignorado: canal WhatsApp desligado ou incompleto.",
+                payload.Instance ?? "(vazia)");
+
+            return;
+        }
+
+        if (!_opcoes.InstanciaConfere(payload.Instance))
+        {
+            // Falha fechada e devolve 200 pelo controller: não processa o evento
+            // cruzado e também não induz o gateway a repeti-lo indefinidamente.
+            log.LogWarning(
+                "Webhook da instancia {Instancia} ignorado; este ambiente aceita apenas {Esperada}.",
+                payload.Instance ?? "(vazia)",
+                _opcoes.NomeDaInstancia);
+
+            return;
+        }
+
         var evento = payload.Event?.ToLowerInvariant();
 
         // Evento que nao tratamos nao e erro: a Evolution manda dezenas de tipos, e
@@ -69,8 +94,6 @@ public class ProcessadorDeWebhook(
             return;
         }
 
-        var tenantId = await ResolverTenantAsync(payload.Instance, ct);
-
         if (evento == "messages.upsert")
         {
             if (TradutorDePayload.LerMensagem(payload.Data) is not { } mensagem)
@@ -80,7 +103,7 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
-            if (!NumeroPermitido(mensagem.TelefoneE164))
+            if (!_opcoes.NumeroPermitido(mensagem.TelefoneE164))
             {
                 // Piloto restrito a numero de teste (CanalWhatsApp:NumerosDeTeste).
                 // Descartada ANTES de qualquer coisa — nao vira Cliente nem
@@ -92,10 +115,18 @@ public class ProcessadorDeWebhook(
                 return;
             }
 
-            var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(tenantId, mensagem.TelefoneE164, ct);
+            // Só consulta o banco depois que formato, instância e número
+            // passaram pelas travas. Um contato fora da allowlist não produz
+            // nem leitura de tenant, muito menos Cliente/Conversa/Mensagem.
+            var tenantDaMensagemId = await ResolverTenantAsync(payload.Instance, ct);
+
+            var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(
+                tenantDaMensagemId,
+                mensagem.TelefoneE164,
+                ct);
 
             await recebimento.ReceberAsync(
-                tenantId,
+                tenantDaMensagemId,
                 new MensagemDoCanal(
                     mensagem.TelefoneE164,
                     mensagem.NomeDoPerfil,
@@ -109,9 +140,15 @@ public class ProcessadorDeWebhook(
             return;
         }
 
+        var tenantDoStatusId = await ResolverTenantAsync(payload.Instance, ct);
+
         if (TradutorDePayload.LerStatus(payload.Data) is { } status)
         {
-            await recebimento.AtualizarEntregaAsync(tenantId, status.IdExterno, status.Status, ct);
+            await recebimento.AtualizarEntregaAsync(
+                tenantDoStatusId,
+                status.IdExterno,
+                status.Status,
+                ct);
         }
     }
 
@@ -190,31 +227,6 @@ public class ProcessadorDeWebhook(
             return null;
         }
     }
-
-    /// <summary>
-    /// Confere a lista de piloto (<see cref="OpcoesDoCanalWhatsApp.NumerosDeTeste"/>).
-    /// </summary>
-    /// <remarks>
-    /// Os dois lados sao normalizados so-digito antes de comparar. O telefone que
-    /// chega ja vem assim de <see cref="TradutorDePayload"/>, mas normalizar de
-    /// novo aqui e barato e evita que um "+55 38 ..." colado com espaco ou
-    /// traco na configuracao vire um numero que nunca bate — o pior jeito de
-    /// descobrir isso seria uma mensagem de teste que some sem motivo aparente.
-    /// </remarks>
-    private bool NumeroPermitido(string telefoneE164)
-    {
-        if (_opcoes.NumerosDeTeste.Length == 0)
-        {
-            return true;
-        }
-
-        return _opcoes.NumerosDeTeste
-            .Select(SomenteDigitos)
-            .Contains(telefoneE164, StringComparer.Ordinal);
-    }
-
-    private static string SomenteDigitos(string valor) =>
-        new(valor.Where(char.IsDigit).ToArray());
 
     /// <summary>
     /// Descobre a serventia pelo nome da instancia.
