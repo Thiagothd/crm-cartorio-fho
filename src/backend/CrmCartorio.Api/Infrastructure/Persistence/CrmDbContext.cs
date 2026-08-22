@@ -1,5 +1,6 @@
 using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
@@ -23,6 +24,9 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
     public DbSet<Conversa> Conversas => Set<Conversa>();
     public DbSet<Mensagem> Mensagens => Set<Mensagem>();
     public DbSet<HistoricoEtapa> HistoricoEtapas => Set<HistoricoEtapa>();
+    public DbSet<NumeroDoCanal> CanalWhatsappNumeros => Set<NumeroDoCanal>();
+    public DbSet<ConexaoDoCanal> CanalWhatsappConexoes => Set<ConexaoDoCanal>();
+    public DbSet<DescarteDoCanal> CanalWhatsappDescartes => Set<DescarteDoCanal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using System.Linq;
 
 namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 
@@ -81,6 +82,53 @@ public class EvolutionClient(
             HttpMethod.Get, $"instance/connect/{_opcoes.NomeDaInstancia}", null, ct);
 
         return new EstadoDaInstancia(atual, conexao is { } c ? LerQrCode(c) : null);
+    }
+
+    public async Task DesconectarAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        // Recusa (instancia ja fora do ar) nao e erro: o alvo — sessao
+        // desconectada — ja esta atingido. So falha de rede vira excecao, dentro
+        // de EnviarAsync.
+        await EnviarAsync(HttpMethod.Delete, $"instance/logout/{_opcoes.NomeDaInstancia}", null, ct);
+    }
+
+    public async Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var resposta = await EnviarAsync(
+            HttpMethod.Get,
+            $"instance/fetchInstances?instanceName={Uri.EscapeDataString(_opcoes.NomeDaInstancia)}",
+            null,
+            ct);
+
+        if (resposta is not { } r)
+        {
+            return null;
+        }
+
+        // A resposta vem em ARRAY (fetchInstances lista instancias, mesmo
+        // filtrando por nome em algumas versoes) ou em OBJETO solto, dependendo
+        // da versao do gateway — aceitar os dois em vez de travar num so.
+        var alvo = r.ValueKind == JsonValueKind.Array
+            ? r.EnumerateArray().FirstOrDefault()
+            : r;
+
+        if (alvo.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // O "dono" da sessao aparece em campos diferentes entre versoes:
+        // "ownerJid" no formato "5538999000045@s.whatsapp.net", ou "number" solto.
+        var jid = LerTexto(alvo, "ownerJid") ?? LerTexto(alvo, "owner");
+        var numero = LerTexto(alvo, "number") ?? jid?.Split('@')[0];
+        var nome = LerTexto(alvo, "profileName") ?? LerTexto(alvo, "name");
+        var foto = LerTexto(alvo, "profilePicUrl") ?? LerTexto(alvo, "profilePictureUrl");
+
+        return new PerfilDaInstancia(numero, nome, foto);
     }
 
     public async Task<string> EnviarTextoAsync(

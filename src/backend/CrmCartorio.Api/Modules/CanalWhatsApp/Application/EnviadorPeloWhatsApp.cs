@@ -19,6 +19,7 @@ public class EnviadorPeloWhatsApp(
     CrmDbContext db,
     IEvolutionClient gateway,
     IArmazenamentoDeAnexos anexos,
+    IRegrasDoCanal regras,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<EnviadorPeloWhatsApp> log) : IEnviadorDeCanal
 {
@@ -44,6 +45,10 @@ public class EnviadorPeloWhatsApp(
                 Canal = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
                     .Select(c => c.Canal)
+                    .FirstOrDefault(),
+                TenantId = db.Conversas
+                    .Where(c => c.Id == m.ConversaId)
+                    .Select(c => c.TenantId)
                     .FirstOrDefault(),
                 Telefone = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
@@ -72,6 +77,19 @@ public class EnviadorPeloWhatsApp(
         if (string.IsNullOrWhiteSpace(alvo.Telefone))
         {
             log.LogWarning("Mensagem {MensagemId} sem telefone de destino.", mensagemId);
+            await MarcarAsync(mensagemId, StatusEntrega.Falha, null, ct);
+            return null;
+        }
+
+        // Mesma regra do recebimento (IRegrasDoCanal), do lado de quem manda: um
+        // numero fora da lista de liberados, ou dentro da lista de bloqueados,
+        // nao fala com o canal nos dois sentidos.
+        if (await regras.PodeFalarComAsync(alvo.TenantId, alvo.Telefone, ct) is { Permitido: false } veredicto)
+        {
+            log.LogInformation(
+                "Mensagem {MensagemId} nao enviada: numero {Telefone} fora da regra do canal ({Motivo}).",
+                mensagemId, alvo.Telefone, veredicto.Motivo);
+
             await MarcarAsync(mensagemId, StatusEntrega.Falha, null, ct);
             return null;
         }

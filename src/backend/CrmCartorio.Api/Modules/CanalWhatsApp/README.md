@@ -5,7 +5,7 @@ sistema que conhece o formato da Evolution API — o Atendimento nunca vê um ca
 do gateway.
 
 > **Piloto, não produção.** Conexão não oficial (Evolution API, wrapper de
-> Baileys) no **número pessoal do Thiago**, não no do cartório. Ver
+> Baileys) num **número dedicado ao piloto**, não no do cartório. Ver
 > [CLAUDE.md](../../../../../CLAUDE.md), seção "Mudança de direção — 2026-08-16",
 > e [docs/DEPLOY-WHATSAPP.md](../../../../../docs/DEPLOY-WHATSAPP.md).
 
@@ -21,10 +21,26 @@ reescrever este módulo, e nada mais.
 
 | Peça | Papel |
 | --- | --- |
-| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, enviar texto e mídia, baixar mídia |
+| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, desconectar, ler perfil pareado, enviar texto e mídia, baixar mídia |
 | `WebhookContracts` + `TradutorDePayload` | Traduz o payload cru para o nosso vocabulário |
-| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook |
+| `IPareamentoDoCanal` / `PareamentoDoCanal` | Conectar, trocar de número, desconectar, testar envio e histórico de conexões — a gestão do canal para a tela |
+| `IRegrasDoCanal` / `RegrasDoCanal` | Quem pode falar com o canal (liberado/bloqueado/todos) — única fonte da resposta, para os dois sentidos |
+| `ControleDeTentativasDePareamento` | Espaça pedidos de QR no tempo (30s), para não gastar tentativa que a Meta já vai bloquear |
+| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook, `NumerosDeTeste` (fallback de `IRegrasDoCanal`) |
 | `CanalWhatsAppServiceException` | Códigos estáveis para a tela reagir |
+
+### Por que `IRegrasDoCanal` é um serviço à parte, e não um método a mais em `PareamentoDoCanal`
+
+Porque a mesma pergunta — "este número pode falar com o canal?" — precisa da
+mesma resposta nos dois sentidos: `ProcessadorDeWebhook` consulta antes de deixar
+uma mensagem virar `Cliente`/`Conversa`, e `EnviadorPeloWhatsApp` consulta antes
+de mandar o que o atendente escreveu. Separar em dois lugares seria a receita
+clássica para a regra divergir — um lado atualizado, o outro esquecido.
+
+Enquanto `Tenants.WhatsappModoDeRecebimento` estiver nulo (ninguém configurou
+pela tela ainda), a fonte é `CanalWhatsApp:NumerosDeTeste` do `appsettings` — o
+comportamento que já estava em produção antes desta peça existir. Salvar um modo
+pela tela passa a mandar, e o `appsettings` vira letra morta.
 
 ## Decisões que parecem estranhas mas não são
 

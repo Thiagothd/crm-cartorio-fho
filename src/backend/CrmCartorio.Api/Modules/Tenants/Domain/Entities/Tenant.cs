@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Domain.Common;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Tenants.Domain.Enums;
 
 namespace CrmCartorio.Api.Modules.Tenants.Domain.Entities;
@@ -39,6 +40,24 @@ public class Tenant : EntidadeBase
     /// do cartorio (docs/DEPLOY-WHATSAPP.md).
     /// </remarks>
     public string? WhatsappInstancia { get; set; }
+
+    /// <summary>
+    /// Como o canal decide quem pode falar com o numero pareado. Nulo enquanto
+    /// ninguem configurou isto pela tela — nesse estado quem manda ainda e
+    /// <c>CanalWhatsApp:NumerosDeTeste</c> do appsettings (ver
+    /// <c>IRegrasDoCanal</c>). Assim que alguem salva um modo pela tela, o banco
+    /// passa a mandar e o appsettings vira letra morta.
+    /// </summary>
+    public ModoDeRecebimento? WhatsappModoDeRecebimento { get; set; }
+
+    /// <summary>Nome do perfil do WhatsApp da sessao pareada. Lido do gateway ao conectar.</summary>
+    public string? WhatsappPerfilNome { get; set; }
+
+    /// <summary>URL da foto de perfil da sessao pareada. Lida do gateway ao conectar.</summary>
+    public string? WhatsappPerfilFotoUrl { get; set; }
+
+    /// <summary>Quando a sessao atual pareou. Nulo enquanto desconectado.</summary>
+    public DateTime? WhatsappConectadoEm { get; set; }
 
     /// <summary>
     /// Textura de fundo do fio de mensagens.
