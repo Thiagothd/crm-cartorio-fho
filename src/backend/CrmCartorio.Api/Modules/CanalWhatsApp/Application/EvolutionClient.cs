@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using System.Linq;
 
 namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 
@@ -143,6 +144,58 @@ public class EvolutionClient(
         return new EstadoDaInstancia(
             "connecting",
             conexao.Corpo is { } corpo ? LerQrCode(corpo) : null);
+    }
+
+    public async Task DesconectarAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        // Recusa (instancia ja fora do ar) nao e erro: o alvo — sessao
+        // desconectada — ja esta atingido. So falha de rede vira excecao, dentro
+        // de EnviarAsync.
+        await EnviarAsync(HttpMethod.Delete, $"instance/logout/{_opcoes.NomeDaInstancia}", null, ct);
+    }
+
+    public async Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var resposta = await EnviarAsync(
+            HttpMethod.Get,
+            $"instance/fetchInstances?instanceName={Uri.EscapeDataString(_opcoes.NomeDaInstancia)}",
+            null,
+            ct);
+
+        if (resposta is not { } r)
+        {
+            return null;
+        }
+
+        // A resposta vem em ARRAY (fetchInstances lista instancias, mesmo
+        // filtrando por nome em algumas versoes) ou em OBJETO solto, dependendo
+        // da versao do gateway — aceitar os dois em vez de travar num so.
+        var alvo = r.ValueKind == JsonValueKind.Array
+            ? r.EnumerateArray().FirstOrDefault()
+            : r;
+
+        if (alvo.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // O "dono" da sessao aparece em campos diferentes entre versoes:
+        // "ownerJid" no formato "5538999000045@s.whatsapp.net", ou "number" solto.
+        // O ownerJid observado ao vivo vem na forma LEGADA (sem o nono digito:
+        // "553898000901@s.whatsapp.net" para o numero real "+55 38 99800-0901")
+        // — CanonicalizarMovelBrasileiro completa isso; em qualquer outro
+        // formato ela devolve o valor sem mexer.
+        var jid = LerTexto(alvo, "ownerJid") ?? LerTexto(alvo, "owner");
+        var numero = LerTexto(alvo, "number") ?? jid?.Split('@')[0];
+        numero = numero is null ? null : NormalizadorDeTelefone.CanonicalizarMovelBrasileiro(numero);
+        var nome = LerTexto(alvo, "profileName") ?? LerTexto(alvo, "name");
+        var foto = LerTexto(alvo, "profilePicUrl") ?? LerTexto(alvo, "profilePictureUrl");
+
+        return new PerfilDaInstancia(numero, nome, foto);
     }
 
     public async Task<string> EnviarTextoAsync(

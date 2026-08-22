@@ -22,10 +22,26 @@ reescrever este módulo, e nada mais.
 
 | Peça | Papel |
 | --- | --- |
-| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, enviar texto e mídia, baixar mídia |
+| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, desconectar, ler perfil pareado, enviar texto e mídia, baixar mídia |
 | `WebhookContracts` + `TradutorDePayload` | Traduz o payload cru para o nosso vocabulário |
-| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook e política de números permitidos/bloqueados |
+| `IPareamentoDoCanal` / `PareamentoDoCanal` | Conectar, trocar de número, desconectar, testar envio e histórico de conexões — a gestão do canal para a tela |
+| `IRegrasDoCanal` / `RegrasDoCanal` | Quem pode falar com o canal (liberado/bloqueado/todos) — única fonte da resposta, para os dois sentidos |
+| `ControleDeTentativasDePareamento` | Espaça pedidos de QR no tempo (30s), para não gastar tentativa que a Meta já vai bloquear |
+| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook e a política de números permitidos/bloqueados do `appsettings` — fallback de `IRegrasDoCanal` até alguém configurar pela tela, e trava de arranque do ambiente `Teste` |
 | `CanalWhatsAppServiceException` | Códigos estáveis para a tela reagir |
+
+### Por que `IRegrasDoCanal` é um serviço à parte, e não um método a mais em `PareamentoDoCanal`
+
+Porque a mesma pergunta — "este número pode falar com o canal?" — precisa da
+mesma resposta nos dois sentidos: `ProcessadorDeWebhook` consulta antes de deixar
+uma mensagem virar `Cliente`/`Conversa`, e `EnviadorPeloWhatsApp` consulta antes
+de mandar o que o atendente escreveu. Separar em dois lugares seria a receita
+clássica para a regra divergir — um lado atualizado, o outro esquecido.
+
+Enquanto `Tenants.WhatsappModoDeRecebimento` estiver nulo (ninguém configurou
+pela tela ainda), a fonte é `CanalWhatsApp:NumerosDeTeste` do `appsettings` — o
+comportamento que já estava em produção antes desta peça existir. Salvar um modo
+pela tela passa a mandar, e o `appsettings` vira letra morta.
 
 ## Decisões que parecem estranhas mas não são
 

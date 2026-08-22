@@ -5,6 +5,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -563,6 +564,107 @@ Checar("Relatorios: clientes distintos com atendimento ativo", () =>
         .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
         .Select(c => c.ClienteId)
         .Distinct()
+        .ToQueryString());
+
+// 14. Canal WhatsApp — regras de numero, historico de conexao e descartes
+// (ajuste "integracao-whatsapp": trocar numero, liberar/bloquear numero).
+var numeroDeTeste = "5538991234567";
+
+Checar("Canal WhatsApp: numero liberado (enum + AsNoTracking)", () =>
+    db.CanalWhatsappNumeros.AsNoTracking()
+        .Where(n => n.TenantId == tenantId && n.Telefone == numeroDeTeste && n.Tipo == TipoDeNumero.Liberado)
+        .ToQueryString());
+
+Checar("Canal WhatsApp: numero bloqueado (enum + AsNoTracking)", () =>
+    db.CanalWhatsappNumeros.AsNoTracking()
+        .Where(n => n.TenantId == tenantId && n.Telefone == numeroDeTeste && n.Tipo == TipoDeNumero.Bloqueado)
+        .ToQueryString());
+
+Checar("Canal WhatsApp: numero duplicado ao adicionar (AnyAsync)", () =>
+    db.CanalWhatsappNumeros.AsNoTracking()
+        .Where(n => n.TenantId == tenantId && n.Telefone == numeroDeTeste)
+        .ToQueryString());
+
+Checar("Canal WhatsApp: modo de recebimento do tenant (enum nulavel)", () =>
+    db.Tenants.AsNoTracking()
+        .Where(t => t.Id == tenantId)
+        .Select(t => t.WhatsappModoDeRecebimento)
+        .ToQueryString());
+
+Checar("Canal WhatsApp: regras — numeros com nome de quem adicionou (subconsulta correlacionada)", () =>
+    db.CanalWhatsappNumeros.AsNoTracking()
+        .Where(n => n.TenantId == tenantId)
+        .OrderByDescending(n => n.CriadoEm)
+        .Select(n => new
+        {
+            n.Id,
+            n.Telefone,
+            n.Rotulo,
+            n.Tipo,
+            n.CriadoEm,
+            CriadoPorNome = db.Atendentes
+                .Where(a => a.Id == n.CriadoPorAtendenteId)
+                .Select(a => (string?)a.Nome)
+                .FirstOrDefault()
+        })
+        .ToQueryString());
+
+Checar("Canal WhatsApp: poda de descartes antigos (comparacao datetime2, base do RemoveRange)", () =>
+    db.CanalWhatsappDescartes
+        .Where(d => d.TenantId == tenantId && d.CriadoEm < agora.AddDays(-7))
+        .ToQueryString());
+
+Checar("Canal WhatsApp: descartes recentes (contagem + Take)", () =>
+    db.CanalWhatsappDescartes.AsNoTracking()
+        .Where(d => d.TenantId == tenantId)
+        .OrderByDescending(d => d.CriadoEm)
+        .Take(10)
+        .Select(d => new { d.Telefone, d.Motivo, d.CriadoEm })
+        .ToQueryString());
+
+Checar("Canal WhatsApp: sessao aberta em curso (DesconectadoEm nulo)", () =>
+    db.CanalWhatsappConexoes
+        .Where(c => c.TenantId == tenantId && c.DesconectadoEm == null)
+        .OrderByDescending(c => c.ConectadoEm)
+        .ToQueryString());
+
+Checar("Canal WhatsApp: historico de conexoes com nome do atendente (subconsulta correlacionada)", () =>
+    db.CanalWhatsappConexoes.AsNoTracking()
+        .Where(c => c.TenantId == tenantId)
+        .OrderByDescending(c => c.ConectadoEm)
+        .Take(20)
+        .Select(c => new
+        {
+            c.Numero,
+            c.PerfilNome,
+            c.ConectadoEm,
+            c.DesconectadoEm,
+            AtendenteNome = db.Atendentes
+                .Where(a => a.Id == c.AtendenteId)
+                .Select(a => (string?)a.Nome)
+                .FirstOrDefault(),
+            c.Motivo
+        })
+        .ToQueryString());
+
+Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de EnviadorPeloWhatsApp)", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.Id == Guid.Empty)
+        .Select(m => new
+        {
+            m.Id,
+            m.Conteudo,
+            m.StatusEntrega,
+            Canal = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.Canal).FirstOrDefault(),
+            TenantId = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.TenantId).FirstOrDefault(),
+            Telefone = db.Conversas
+                .Where(c => c.Id == m.ConversaId)
+                .Select(c => db.Clientes
+                    .Where(cl => cl.Id == c.ClienteId)
+                    .Select(cl => cl.TelefoneWhatsapp)
+                    .FirstOrDefault())
+                .FirstOrDefault()
+        })
         .ToQueryString());
 
 Console.WriteLine();

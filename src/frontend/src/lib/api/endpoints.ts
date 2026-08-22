@@ -5,9 +5,11 @@ import type {
   Atendente,
   CargoNaServentia,
   Cliente,
+  ConexaoDoCanal,
   Conversa,
   ConversaDetalhada,
   DadosDeCliente,
+  DescartesDoCanal,
   DestinoDeEncaminhamento,
   EmpresaConsultada,
   EnderecoConsultado,
@@ -17,11 +19,14 @@ import type {
   GatilhoDeMensagem,
   Mensagem,
   MensagemAutomatica,
+  ModoDeRecebimento,
+  NumeroDoCanal,
   OpcoesDeClientes,
   Paginado,
   PaginadoDeClientes,
   Painel,
   PerfilDeAtendente,
+  RegrasDoCanal,
   Relatorio,
   RelatorioDeAtendentes,
   RelatorioDeAtendimentos,
@@ -32,6 +37,8 @@ import type {
   Setor,
   SituacaoDaIa,
   SituacaoDoCanal,
+  TesteDeEnvioDoCanal,
+  TipoDeNumeroDoCanal,
   TipoServico,
   VisaoGeral,
 } from './tipos'
@@ -188,6 +195,29 @@ export const whatsappApi = {
 
   /** Confirma webhook/vínculo e só devolve QR se a sessão estiver fechada. */
   parear: () => api.post<SituacaoDoCanal>('/api/whatsapp/parear'),
+
+  /** Encerra a sessão atual e devolve um QR novo. Histórico de conversas não é tocado. */
+  trocarNumero: () => api.post<SituacaoDoCanal>('/api/whatsapp/trocar-numero'),
+
+  /** Encerra a sessão atual sem parear um número novo. */
+  desconectar: () => api.post<SituacaoDoCanal>('/api/whatsapp/desconectar'),
+
+  testarEnvio: (telefone: string) =>
+    api.post<TesteDeEnvioDoCanal>('/api/whatsapp/testar-envio', { telefone }),
+
+  conexoes: () => api.get<ConexaoDoCanal[]>('/api/whatsapp/conexoes'),
+
+  regras: () => api.get<RegrasDoCanal>('/api/whatsapp/regras'),
+
+  definirModo: (modo: ModoDeRecebimento) =>
+    api.put<RegrasDoCanal>('/api/whatsapp/regras/modo', { modo }),
+
+  adicionarNumero: (dados: { telefone: string; rotulo: string | null; tipo: TipoDeNumeroDoCanal }) =>
+    api.post<NumeroDoCanal>('/api/whatsapp/regras/numeros', dados),
+
+  removerNumero: (id: string) => api.excluir<void>(`/api/whatsapp/regras/numeros/${id}`),
+
+  descartes: () => api.get<DescartesDoCanal>('/api/whatsapp/descartes'),
 }
 
 // Setores e etapas ----------------------------------------------------------

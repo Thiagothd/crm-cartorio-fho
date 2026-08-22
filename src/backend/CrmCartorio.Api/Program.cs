@@ -107,6 +107,8 @@ builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();
 builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
+builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
+builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
