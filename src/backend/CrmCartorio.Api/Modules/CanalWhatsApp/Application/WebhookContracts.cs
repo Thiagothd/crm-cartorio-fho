@@ -111,7 +111,20 @@ public static class TradutorDePayload
             return null;
         }
 
-        var telefone = SomenteDigitos(remoteJid.Split('@')[0]);
+        // JIDs multi-dispositivo podem chegar como numero:device@s.whatsapp.net.
+        // O sufixo identifica o aparelho, nao faz parte do telefone.
+        var partesDoIdentificador = remoteJid.Split('@', 2)[0].Split(':', 2);
+        var telefone = partesDoIdentificador[0];
+
+        if (telefone.Length == 0
+            || telefone.Any(digito => !char.IsDigit(digito))
+            || partesDoIdentificador.Length == 2
+                && (partesDoIdentificador[1].Length == 0
+                    || partesDoIdentificador[1].Any(digito => !char.IsDigit(digito))))
+        {
+            return null;
+        }
+
         if (telefone.Length is < 10 or > 15)
         {
             return null;
@@ -261,9 +274,6 @@ public static class TradutorDePayload
         && valor.ValueKind == JsonValueKind.String
             ? valor.GetString()
             : null;
-
-    private static string SomenteDigitos(string valor) =>
-        new(valor.Where(char.IsDigit).ToArray());
 
     private static bool EhJidIndividual(string? jid) =>
         !string.IsNullOrWhiteSpace(jid)

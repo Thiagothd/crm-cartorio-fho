@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, QrCode, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
@@ -17,29 +17,49 @@ const INTERVALO_DE_ESPERA = 5_000
 
 export function AbaWhatsApp() {
   const [preparando, setPreparando] = useState(false)
+  const [qrCode, setQrCode] = useState<string | null>(null)
   const clienteDeConsultas = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['whatsapp-situacao'],
     queryFn: () => whatsappApi.situacao(),
 
-    // Só fica perguntando enquanto há um QR esperando leitura. Pareado ou
-    // desligado, a tela é estática e a consulta repetida seria ruído.
-    refetchInterval: (consulta) =>
-      consulta.state.data?.qrCodeBase64 ? INTERVALO_DE_ESPERA : false,
+    // O GET e deliberadamente passivo e nunca devolve/gera outro QR. O codigo
+    // vindo do POST fica local enquanto apenas consultamos a mudanca de estado.
+    refetchInterval: (consulta) => {
+      const situacao = consulta.state.data
+      const conectando = situacao?.estado.toLowerCase() === 'connecting'
+
+      return qrCode || conectando ? INTERVALO_DE_ESPERA : false
+    },
   })
+
+  useEffect(() => {
+    if (!data) return
+
+    const estado = data.estado.toLowerCase()
+
+    if (!data.habilitado || data.conectado || estado === 'close') {
+      setQrCode(null)
+    } else if (data.qrCodeBase64) {
+      setQrCode(data.qrCodeBase64)
+    }
+  }, [data])
 
   async function parear() {
     setPreparando(true)
 
     try {
       const situacao = await whatsappApi.parear()
+      setQrCode(situacao.qrCodeBase64)
       clienteDeConsultas.setQueryData(['whatsapp-situacao'], situacao)
 
       toast.success(
         situacao.conectado
           ? 'Canal já estava conectado.'
-          : 'Leia o código com o celular para conectar.',
+          : situacao.qrCodeBase64
+            ? 'Leia o código com o celular para conectar.'
+            : 'Conexão iniciada. Aguarde a confirmação do gateway.',
       )
     } catch (falha) {
       toast.error(
@@ -56,7 +76,7 @@ export function AbaWhatsApp() {
           rodapé: é a informação que muda o que a pessoa deve fazer aqui. */}
       <div className="rounded-md border border-ambar/40 bg-superficie p-4">
         <p className="flex items-start gap-2 text-sm font-medium text-tinta">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-ambar" />
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ambar" />
           Piloto de demonstração
         </p>
         <p className="mt-1.5 pl-6 text-sm leading-relaxed text-tinta-media">
@@ -94,12 +114,12 @@ export function AbaWhatsApp() {
         />
       ) : (
         <div className="flex flex-col items-center gap-3 rounded-md border border-linha bg-branco p-6">
-          {data.qrCodeBase64 ? (
+          {qrCode ? (
             <>
               {/* Fundo branco explícito e fixo: o leitor do celular precisa de
                   contraste alto, e a textura de papel por trás atrapalharia. */}
               <img
-                src={data.qrCodeBase64}
+                src={qrCode}
                 alt="Código para conectar o WhatsApp"
                 className="size-56 rounded-md border border-linha bg-white"
               />
@@ -110,20 +130,42 @@ export function AbaWhatsApp() {
               <p className="text-xs text-tinta-fraca">
                 A tela se atualiza sozinha assim que a leitura for reconhecida.
               </p>
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-2 text-sm font-medium text-tinta-media"
+              >
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                Aguardando leitura
+              </div>
             </>
+          ) : data.estado.toLowerCase() === 'connecting' ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex flex-col items-center gap-3 text-center"
+            >
+              <Loader2 aria-hidden="true" className="size-8 animate-spin text-tinta-fraca" />
+              <p className="text-sm text-tinta-media">
+                Conexão em andamento. Aguarde a confirmação do gateway.
+              </p>
+            </div>
           ) : (
             <>
-              <QrCode className="size-10 text-tinta-fraca" />
+              <QrCode aria-hidden="true" className="size-10 text-tinta-fraca" />
               <p className="text-center text-sm text-tinta-media">
-                O canal está ligado, mas nenhum número está pareado.
+                {data.estado === 'nao_vinculado'
+                  ? 'O canal precisa ser vinculado a este ambiente.'
+                  : 'O canal está ligado, mas nenhum número está pareado.'}
               </p>
+              <Button onClick={() => void parear()} disabled={preparando}>
+                {preparando ? (
+                  <Loader2 aria-hidden="true" className="animate-spin" />
+                ) : null}
+                Conectar número
+              </Button>
             </>
           )}
-
-          <Button onClick={() => void parear()} disabled={preparando}>
-            {preparando ? <Loader2 className="animate-spin" /> : null}
-            {data.qrCodeBase64 ? 'Gerar outro código' : 'Conectar número'}
-          </Button>
         </div>
       )}
     </div>
@@ -148,6 +190,7 @@ function Estado({
   return (
     <div className="flex items-start gap-2.5 rounded-md border border-linha bg-branco p-4">
       <Icone
+        aria-hidden="true"
         className={cn(
           'mt-0.5 size-4 shrink-0',
           tom === 'ok' ? 'text-verde' : tom === 'aviso' ? 'text-ambar' : 'text-tinta-fraca',
