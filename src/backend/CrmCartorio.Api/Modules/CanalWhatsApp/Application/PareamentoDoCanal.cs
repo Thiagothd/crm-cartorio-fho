@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +12,7 @@ public class PareamentoDoCanal(
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<PareamentoDoCanal> log) : IPareamentoDoCanal
 {
+    private static readonly SemaphoreSlim TravaDePareamento = new(1, 1);
     private readonly OpcoesDoCanalWhatsApp _opcoes = opcoes.Value;
 
     public async Task<SituacaoDoCanal> PrepararAsync(
@@ -23,14 +25,34 @@ public class PareamentoDoCanal(
             return Desligado();
         }
 
-        var urlDoWebhook =
-            $"{urlBaseDaApi.TrimEnd('/')}/api/whatsapp/webhook?token={Uri.EscapeDataString(_opcoes.TokenDoWebhook)}";
+        await TravaDePareamento.WaitAsync(ct);
 
-        var estado = await gateway.GarantirInstanciaAsync(urlDoWebhook, ct);
+        try
+        {
+            var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct)
+                ?? throw CanalWhatsAppServiceException.InstanciaSemTenant(
+                    _opcoes.NomeDaInstancia);
 
-        await VincularInstanciaAsync(tenantId, ct);
+            var urlDoWebhook =
+                $"{urlBaseDaApi.TrimEnd('/')}/api/whatsapp/webhook?token={Uri.EscapeDataString(_opcoes.TokenDoWebhook)}";
 
-        return Traduzir(estado);
+            // GarantirInstancia tambem confirma o webhook. O QR nunca e devolvido
+            // ao navegador antes de o tenant estar vinculado a esta instancia.
+            var estado = await gateway.GarantirInstanciaAsync(urlDoWebhook, ct);
+
+            await VincularInstanciaAsync(tenant, ct);
+
+            if (!estado.Conectado && estado.QrCodeBase64 is null)
+            {
+                estado = await gateway.IniciarConexaoAsync(ct);
+            }
+
+            return Traduzir(estado);
+        }
+        finally
+        {
+            TravaDePareamento.Release();
+        }
     }
 
     public async Task<SituacaoDoCanal> ConsultarAsync(Guid tenantId, CancellationToken ct = default)
@@ -45,6 +67,15 @@ public class PareamentoDoCanal(
             .Select(t => t.WhatsappInstancia)
             .FirstOrDefaultAsync(ct);
 
+        // Uma base clonada pode conservar o nome da instancia de outro
+        // ambiente. Nessa situacao nao se declara o canal operacional nem se
+        // consulta o gateway; o POST explicito corrige o vinculo com seguranca.
+        if (!_opcoes.InstanciaConfere(instancia))
+        {
+            return new SituacaoDoCanal(
+                true, false, "nao_vinculado", null, instancia);
+        }
+
         var estado = await gateway.ObterEstadoAsync(ct);
 
         return Traduzir(estado) with { Instancia = instancia };
@@ -57,11 +88,9 @@ public class PareamentoDoCanal(
     /// E o que permite o webhook — que chega sem token — descobrir o tenant. Sem
     /// este vinculo a mensagem chega e nao tem para onde ir.
     /// </remarks>
-    private async Task VincularInstanciaAsync(Guid tenantId, CancellationToken ct)
+    private async Task VincularInstanciaAsync(Tenant tenant, CancellationToken ct)
     {
-        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct);
-
-        if (tenant is null || tenant.WhatsappInstancia == _opcoes.NomeDaInstancia)
+        if (tenant.WhatsappInstancia == _opcoes.NomeDaInstancia)
         {
             return;
         }
@@ -73,7 +102,7 @@ public class PareamentoDoCanal(
 
         log.LogInformation(
             "Instancia {Instancia} vinculada a serventia {TenantId}.",
-            _opcoes.NomeDaInstancia, tenantId);
+            _opcoes.NomeDaInstancia, tenant.Id);
     }
 
     private SituacaoDoCanal Desligado() =>

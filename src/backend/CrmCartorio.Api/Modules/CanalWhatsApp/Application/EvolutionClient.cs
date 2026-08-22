@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -25,20 +26,28 @@ public class EvolutionClient(
     {
         GarantirConfigurado();
 
-        var criacao = await EnviarAsync(
+        var criacao = await EnviarComStatusAsync(
             HttpMethod.Post,
             "instance/create",
             new
             {
                 instanceName = _opcoes.NomeDaInstancia,
                 integration = "WHATSAPP-BAILEYS",
-                qrcode = true
+                // Criar a instancia nao pode iniciar o pareamento. O QR so e
+                // pedido depois de webhook confirmado e tenant persistido.
+                qrcode = false
             },
             ct);
 
+        var jaExistia = criacao.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict;
+        if (!criacao.Sucesso && !jaExistia)
+        {
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
+        }
+
         // 403/409 aqui significa "ja existe", que e o caminho normal do segundo
-        // clique em diante. So falha de verdade interrompe.
-        if (criacao is null)
+        // clique em diante. Qualquer outra recusa interrompe o pareamento.
+        if (jaExistia)
         {
             log.LogInformation(
                 "Instancia {Instancia} ja existia; seguindo para o webhook.", _opcoes.NomeDaInstancia);
@@ -46,17 +55,22 @@ public class EvolutionClient(
 
         await RegistrarWebhookAsync(urlDoWebhook, ct);
 
-        return criacao is { } resposta && LerEstado(resposta) is { } estado
-            ? estado
-            : await ObterEstadoAsync(ct);
+        // Mesmo que uma versao do gateway devolva QR na criacao, ele nunca e
+        // propagado. Somente IniciarConexaoAsync pode entregar um QR.
+        return await ObterEstadoAsync(ct);
     }
 
     public async Task<EstadoDaInstancia> ObterEstadoAsync(CancellationToken ct)
     {
         GarantirConfigurado();
 
-        var estado = await EnviarAsync(
+        var resposta = await EnviarComStatusAsync(
             HttpMethod.Get, $"instance/connectionState/{_opcoes.NomeDaInstancia}", null, ct);
+
+        if (!resposta.Sucesso || resposta.Corpo is not { } estado)
+        {
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
+        }
 
         // O campo vem ANINHADO — {"instance":{"instanceName":...,"state":"open"}}
         // — e nao solto na raiz. Ler a raiz direto (bug encontrado ao vivo,
@@ -65,22 +79,50 @@ public class EvolutionClient(
         // que por sua vez faz esta funcao chamar instance/connect em toda
         // consulta — inclusive com a sessao ja aberta, o que arrisca perturbar
         // uma conexao que nao precisava de QR nenhum.
-        var atual = estado is { } e
-            && e.TryGetProperty("instance", out var instanciaAtual)
-            && LerTexto(instanciaAtual, "state") is { Length: > 0 } estadoLido
-                ? estadoLido
-                : "close";
+        var atual = estado.TryGetProperty("instance", out var instanciaAtual)
+            ? LerTexto(instanciaAtual, "state")
+            : LerTexto(estado, "state");
 
-        if (atual.Equals("open", StringComparison.OrdinalIgnoreCase))
+        // Resposta 2xx com formato desconhecido nao significa sessao fechada.
+        // Tratar como close permitiria que o POST chamasse connect por engano.
+        if (string.IsNullOrWhiteSpace(atual))
         {
-            return new EstadoDaInstancia("open", null);
+            log.LogWarning(
+                "Gateway devolveu estado de conexao sem o campo state para {Instancia}.",
+                _opcoes.NomeDaInstancia);
+
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
         }
 
-        // Fora do ar: pedir o QR e o que a tela precisa mostrar.
-        var conexao = await EnviarAsync(
+        return new EstadoDaInstancia(atual, null);
+    }
+
+    public async Task<EstadoDaInstancia> IniciarConexaoAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var atual = await ObterEstadoAsync(ct);
+
+        // Consultas e polling nunca reiniciam uma sessao. Mesmo o comando
+        // explicito respeita "connecting": chamar connect de novo enquanto o
+        // celular conclui o pareamento substitui a propria sessao (conflict:
+        // replaced) e impede que ela estabilize em open.
+        if (!atual.Estado.Equals("close", StringComparison.OrdinalIgnoreCase))
+        {
+            return atual;
+        }
+
+        var conexao = await EnviarComStatusAsync(
             HttpMethod.Get, $"instance/connect/{_opcoes.NomeDaInstancia}", null, ct);
 
-        return new EstadoDaInstancia(atual, conexao is { } c ? LerQrCode(c) : null);
+        if (!conexao.Sucesso)
+        {
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
+        }
+
+        return new EstadoDaInstancia(
+            "connecting",
+            conexao.Corpo is { } corpo ? LerQrCode(corpo) : null);
     }
 
     public async Task<string> EnviarTextoAsync(
@@ -231,7 +273,7 @@ public class EvolutionClient(
 
     private async Task RegistrarWebhookAsync(string urlDoWebhook, CancellationToken ct)
     {
-        await EnviarAsync(
+        var registro = await EnviarComStatusAsync(
             HttpMethod.Post,
             $"webhook/set/{_opcoes.NomeDaInstancia}",
             new
@@ -246,6 +288,31 @@ public class EvolutionClient(
                 }
             },
             ct);
+
+        if (!registro.Sucesso)
+        {
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
+        }
+
+        // Nao basta o POST ter sido aceito: um gateway pode ignorar campos de um
+        // payload incompatível. Confirmar enabled+URL impede mostrar um QR que
+        // conectaria o numero sem entregar evento algum ao CRM.
+        var confirmacao = await EnviarComStatusAsync(
+            HttpMethod.Get,
+            $"webhook/find/{_opcoes.NomeDaInstancia}",
+            null,
+            ct);
+
+        if (!confirmacao.Sucesso
+            || confirmacao.Corpo is not { } webhook
+            || !WebhookConfere(webhook, urlDoWebhook))
+        {
+            log.LogWarning(
+                "Gateway nao confirmou o webhook da instancia {Instancia}.",
+                _opcoes.NomeDaInstancia);
+
+            throw CanalWhatsAppServiceException.GatewayIndisponivel();
+        }
     }
 
     /// <summary>
@@ -257,6 +324,16 @@ public class EvolutionClient(
     /// "instancia ja existe" e recusa, mas nao e problema.
     /// </remarks>
     private async Task<JsonElement?> EnviarAsync(
+        HttpMethod metodo,
+        string caminho,
+        object? corpo,
+        CancellationToken ct)
+    {
+        var resposta = await EnviarComStatusAsync(metodo, caminho, corpo, ct);
+        return resposta.Sucesso ? resposta.Corpo : null;
+    }
+
+    private async Task<RespostaDoGateway> EnviarComStatusAsync(
         HttpMethod metodo,
         string caminho,
         object? corpo,
@@ -283,15 +360,17 @@ public class EvolutionClient(
             if (!resposta.IsSuccessStatusCode)
             {
                 log.LogWarning(
-                    "Gateway devolveu {Status} em {Caminho}: {Corpo}",
-                    resposta.StatusCode, caminho, texto);
+                    "Gateway devolveu {Status} em {Caminho}.",
+                    resposta.StatusCode, caminho);
 
-                return null;
+                return new RespostaDoGateway(resposta.StatusCode, false, null);
             }
 
-            return string.IsNullOrWhiteSpace(texto)
+            JsonElement? elemento = string.IsNullOrWhiteSpace(texto)
                 ? null
                 : JsonDocument.Parse(texto).RootElement.Clone();
+
+            return new RespostaDoGateway(resposta.StatusCode, true, elemento);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -313,17 +392,22 @@ public class EvolutionClient(
         }
     }
 
-    private static EstadoDaInstancia? LerEstado(JsonElement resposta)
+    private static bool WebhookConfere(JsonElement resposta, string urlEsperada)
     {
-        var qr = LerQrCode(resposta);
-
-        if (resposta.TryGetProperty("instance", out var instancia)
-            && LerTexto(instancia, "status") is { Length: > 0 } status)
+        if (resposta.ValueKind != JsonValueKind.Object)
         {
-            return new EstadoDaInstancia(status, qr);
+            return false;
         }
 
-        return qr is null ? null : new EstadoDaInstancia("connecting", qr);
+        var webhook = resposta.TryGetProperty("webhook", out var aninhado)
+            ? aninhado
+            : resposta;
+
+        return webhook.ValueKind == JsonValueKind.Object
+            && webhook.TryGetProperty("enabled", out var habilitado)
+            && habilitado.ValueKind == JsonValueKind.True
+            && LerTexto(webhook, "url") is { } url
+            && url.Equals(urlEsperada, StringComparison.Ordinal);
     }
 
     /// <summary>O QR aparece em `qrcode.base64` ou solto em `base64`.</summary>
@@ -344,4 +428,9 @@ public class EvolutionClient(
         && valor.ValueKind == JsonValueKind.String
             ? valor.GetString()
             : null;
+
+    private sealed record RespostaDoGateway(
+        HttpStatusCode StatusCode,
+        bool Sucesso,
+        JsonElement? Corpo);
 }
