@@ -12,6 +12,7 @@ import type {
   DescartesDoCanal,
   DestinoDeEncaminhamento,
   EmpresaConsultada,
+  EncerramentoAutomatico,
   EnderecoConsultado,
   Etapa,
   FiltroDeClientes,
@@ -273,6 +274,12 @@ export const serventiaApi = {
     api.put<{ aparenciaDaConversa: AparenciaDaConversa }>('/api/serventia/aparencia', {
       aparenciaDaConversa,
     }),
+
+  encerramentoAutomatico: () =>
+    api.get<EncerramentoAutomatico>('/api/serventia/encerramento-automatico'),
+
+  definirEncerramentoAutomatico: (dados: EncerramentoAutomatico) =>
+    api.put<EncerramentoAutomatico>('/api/serventia/encerramento-automatico', dados),
 }
 
 // Automacao -----------------------------------------------------------------

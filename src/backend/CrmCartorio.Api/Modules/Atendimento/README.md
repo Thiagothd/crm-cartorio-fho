@@ -53,6 +53,8 @@ responsável não escreve.
 | `DisparadorDeMensagemAutomatica` | Transforma regra cadastrada em mensagem no fio |
 | `TriagemAutomatica` | Monta o menu e lê a resposta do cliente. Lógica pura |
 | `VarredorDePrazos` | Dispara os dois gatilhos de prazo, que ninguém provoca |
+| `VarredorDeInatividade` | Pergunta e encerra conversa de WhatsApp real parada, por tenant configurável — ver abaixo |
+| `AplicadorDeEncerramentoPorInatividade` | Interpreta a resposta do cliente à pergunta pendente |
 
 - **O disparador enfileira, não grava.** As mensagens entram no `DbContext` e quem
   chamou decide o `SaveChanges`. É o que põe a mensagem de boas-vindas na mesma
@@ -74,6 +76,37 @@ responsável não escreve.
 - **O aviso de prazo é reivindicado por `UPDATE` condicional**, na mesma disciplina
   da trava (seção acima). Zero linhas afetadas = outra instância chegou primeiro. É
   o que impede o cliente de receber o mesmo aviso duas vezes.
+- **`VarredorDeInatividade` não usa `IConversaService`**, pelo mesmo motivo do
+  varredor de prazos: roda em `BackgroundService`, sem `IContextoDoUsuario` nem
+  requisição HTTP, e projeta direto do `DbContext`. Two-phase: fase 1 pergunta
+  (gatilho `ConfirmacaoDeEncerramento`) quando a conversa está parada há
+  `Tenant.MinutosParaPerguntarEncerramento`; fase 2 encerra
+  (`EncerramentoPorInatividade`) quando não veio resposta em
+  `Tenant.MinutosParaEncerrarSemResposta`. Roda em host próprio
+  (`HospedeDaVarreduraDeInatividade`), separado do de prazos, porque uma
+  passada com erro não pode derrubar a outra.
+- **`PerguntaDeEncerramentoEnviadaEm` é marcador, relógio e flag de despacho no
+  mesmo campo.** Um bool separado sempre andaria junto com a data — e dois
+  campos que sempre andam juntos são dois campos que um dia discordam. Zerado
+  em todo ponto onde o cliente prova estar vivo: qualquer resposta dele,
+  atendente respondendo, reabertura, ou o recurso sendo desligado pela tela.
+- **Fase 2 encerra mesmo sem `MensagemAutomatica` cadastrada para o gatilho
+  13 — diferente do varredor de prazos.** Lá a mensagem é o efeito (regra
+  desativada = nada acontece, nem o marcador é gravado). Aqui fechar é o
+  efeito e a mensagem é cortesia: deixar a conversa presa em "já perguntei,
+  nunca fechei" é exatamente o bug que este varredor existe para consertar.
+- **A resposta à pergunta pendente é comparada por palavra inteira, nunca
+  substring.** `TriagemAutomatica.LerRespostaDeEncerramento` usa
+  `HashSet<string>.Contains` por palavra — diferente de `PediuHumano`/
+  `PediuMenu` (que usam `Contains` porque errar ali custa uma mensagem a
+  mais). Errar aqui fecharia o atendimento: "assim" contém "sim".
+- **Quatro guardas na fase 1** (perguntar): `Canal == WhatsApp` (protege a
+  base de demonstração), `MensagensNaoLidas == 0` (não pergunta "quer
+  encerrar?" quando o cartório ainda deve resposta), `PrazoLimite` nulo ou já
+  vencido (SLA vivo é o cartório trabalhando o caso offline, de propósito) e
+  `UltimaMensagemEm` capturado no `WHERE` do `ExecuteUpdateAsync` (corrida
+  com o webhook — 0 linhas afetadas = o varredor perde a corrida em
+  silêncio, em vez de colidir com o `SaveChanges` do webhook).
 
 ## Fronteiras
 
@@ -83,5 +116,8 @@ mensagem automática são cadastro de `Configuracoes`; lê-las aqui segue essa m
 fronteira.
 
 `INotificadorDeAtendimento` é porta deste slice; o adaptador SignalR vive em
-`Infrastructure/Realtime`. `IVarredorDePrazos` é chamado por um `BackgroundService`
-em `Infrastructure/Automacao`, que é só relógio e escopo — a regra fica aqui.
+`Infrastructure/Realtime`. `IVarredorDePrazos` e `IVarredorDeInatividade` são
+chamados por um `BackgroundService` cada, em `Infrastructure/Automacao`, que é só
+relógio e escopo — a regra fica aqui. Os quatro campos de configuração do
+encerramento automático moram em `Tenant` (módulo `Tenants`); ler esse cadastro
+segue a mesma fronteira de ler `Configuracoes`.

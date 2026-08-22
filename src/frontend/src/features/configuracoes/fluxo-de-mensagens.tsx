@@ -40,6 +40,14 @@ const ATENDENTE_EM_ATENDIMENTO: PontoFixo = {
 }
 const PRAZO_ALERTA: PontoFixo = { gatilho: 'PrazoProximoVencimento', rotulo: 'Prazo perto de vencer' }
 const PRAZO_VENCIDO: PontoFixo = { gatilho: 'PrazoVencido', rotulo: 'Prazo vencido' }
+const PERGUNTA_DE_ENCERRAMENTO: PontoFixo = {
+  gatilho: 'ConfirmacaoDeEncerramento',
+  rotulo: 'Posso encerrar?',
+}
+const ENCERROU_SOZINHO: PontoFixo = {
+  gatilho: 'EncerramentoPorInatividade',
+  rotulo: 'Encerrou por falta de resposta',
+}
 
 export function FluxoDeMensagens({
   mensagens,
@@ -140,6 +148,28 @@ export function FluxoDeMensagens({
         <div className="mt-2 pl-5">
           <Trilho>
             {[ATENDENTE_PRIMEIRO_CONTATO, ATENDENTE_EM_ATENDIMENTO].map((ponto, indice) => (
+              <PontoComSeta key={ponto.gatilho} primeiro={indice === 0}>
+                <Ponto
+                  rotulo={ponto.rotulo}
+                  mensagem={encontrar(ponto.gatilho)}
+                  aoClicar={() => aoClicarPonto(ponto.gatilho, null, encontrar(ponto.gatilho))}
+                />
+              </PontoComSeta>
+            ))}
+          </Trilho>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
+          <CornerDownRight className="size-3.5 shrink-0" />
+          <span>
+            Se a conversa fica parada, pergunta antes de fechar — o tempo é configurado em
+            Automação &gt; Encerramento automático:
+          </span>
+        </div>
+
+        <div className="mt-2 pl-5">
+          <Trilho>
+            {[PERGUNTA_DE_ENCERRAMENTO, ENCERROU_SOZINHO].map((ponto, indice) => (
               <PontoComSeta key={ponto.gatilho} primeiro={indice === 0}>
                 <Ponto
                   rotulo={ponto.rotulo}

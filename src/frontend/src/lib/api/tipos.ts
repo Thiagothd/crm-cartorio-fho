@@ -54,6 +54,21 @@ export type GatilhoDeMensagem =
   | 'PedidoDeAtendente'
   | 'Despedida'
   | 'RespostaSemCorrespondencia'
+  | 'ConfirmacaoDeEncerramento'
+  | 'EncerramentoPorInatividade'
+
+/**
+ * Encerramento automático de conversa parada.
+ *
+ * Minutos nulos = recurso desligado. Horas nulas = a pergunta pode sair a
+ * qualquer momento do dia.
+ */
+export interface EncerramentoAutomatico {
+  minutosParaPerguntar: number | null
+  minutosParaEncerrar: number | null
+  horaInicial: number | null
+  horaFinal: number | null
+}
 
 export type CategoriaServico =
   | 'Notas'

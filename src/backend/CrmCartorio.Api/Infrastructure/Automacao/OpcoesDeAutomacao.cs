@@ -20,4 +20,27 @@ public class OpcoesDeAutomacao
     /// prazo. Reduzir mais e consulta a mais sem ganho perceptivel para o cliente.
     /// </remarks>
     public int IntervaloEmMinutos { get; set; } = 5;
+
+    /// <summary>
+    /// Liga a varredura periodica de inatividade (perguntar se pode encerrar e,
+    /// sem resposta, encerrar).
+    /// </summary>
+    /// <remarks>
+    /// Chave de emergencia do operador, nao a configuracao do recurso: QUANTO tempo
+    /// de silencio e por tenant, editavel pela tela (ver
+    /// <c>Tenant.MinutosParaPerguntarEncerramento</c>). Aqui so se desliga o motor
+    /// inteiro, para o caso de precisar parar tudo sem esperar alguem entrar no
+    /// painel.
+    /// </remarks>
+    public bool VarrerInatividade { get; set; } = true;
+
+    /// <summary>
+    /// Intervalo entre passadas da varredura de inatividade, em minutos.
+    /// </summary>
+    /// <remarks>
+    /// Menor que o de prazo de proposito: o menor tempo que a tela aceita configurar
+    /// e de 5 minutos, e uma varredura mais lenta que isso faria a configuracao
+    /// mentir — quem escolhesse "5 minutos" veria a pergunta sair em 10.
+    /// </remarks>
+    public int IntervaloDeInatividadeEmMinutos { get; set; } = 5;
 }

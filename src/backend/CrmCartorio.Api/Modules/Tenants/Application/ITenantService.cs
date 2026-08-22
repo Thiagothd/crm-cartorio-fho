@@ -16,4 +16,11 @@ public interface ITenantService
     Task<AparenciaResponse> DefinirAparenciaAsync(
         SalvarAparenciaRequest request,
         CancellationToken ct = default);
+
+    Task<EncerramentoAutomaticoResponse> ObterEncerramentoAutomaticoAsync(
+        CancellationToken ct = default);
+
+    Task<EncerramentoAutomaticoResponse> DefinirEncerramentoAutomaticoAsync(
+        SalvarEncerramentoAutomaticoRequest request,
+        CancellationToken ct = default);
 }

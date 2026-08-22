@@ -131,6 +131,11 @@ public static class AplicadorDePosAtendimento
         conversa.SetorId = null;
         conversa.TipoServicoId = null;
 
+        // "Do zero" e literal: uma pergunta de encerramento pendente nao sobrevive
+        // a um recomeco. Sem isto, o cliente que digita "menu" recomeca o
+        // atendimento e mesmo assim ve a conversa fechar sozinha minutos depois.
+        conversa.PerguntaDeEncerramentoEnviadaEm = null;
+
         db.Mensagens.Add(new Mensagem
         {
             TenantId = conversa.TenantId,
@@ -177,7 +182,7 @@ public static class AplicadorDePosAtendimento
         else if (escolhido == OpcaoEncerrar)
         {
             await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.Despedida, ct: ct);
-            EncerrarPeloCliente(db, conversa, agora);
+            EncerrarPeloCliente(db, conversa, agora, "Encerrado pelo cliente, via menu do WhatsApp.");
         }
         else
         {
@@ -197,16 +202,34 @@ public static class AplicadorDePosAtendimento
     /// em 2026-08-17: o cliente escolhia "Encerrar" no menu de continuacao, a
     /// despedida saia, mas a conversa continuava Ativa no painel — nunca fechava
     /// de verdade.
+    ///
+    /// <b>Existe uma segunda copia desta decisao</b> em
+    /// <see cref="VarredorDeInatividade"/>, escrita com <c>ExecuteUpdate</c> porque
+    /// aquele caminho roda fora de requisicao HTTP e nao pode disputar o
+    /// <see cref="Conversa.RowVersion"/> com quem esta atendendo. SE MEXER AQUI,
+    /// MEXA LA — um campo de encerramento que entre so num dos dois produz duas
+    /// conversas encerradas de jeitos diferentes no mesmo banco.
+    ///
+    /// <c>internal</c> e nao <c>private</c> desde 2026-08-19: o aplicador da
+    /// resposta a pergunta de inatividade encerra pelo mesmo caminho.
     /// </remarks>
-    private static void EncerrarPeloCliente(CrmDbContext db, Conversa conversa, DateTime agora)
+    internal static void EncerrarPeloCliente(
+        CrmDbContext db,
+        Conversa conversa,
+        DateTime agora,
+        string motivo)
     {
         conversa.Status = StatusConversa.Encerrada;
         conversa.EncerradaEm = agora;
         conversa.EncerradaPorAtendenteId = null;
-        conversa.MotivoEncerramento = "Encerrado pelo cliente, via menu do WhatsApp.";
+        conversa.MotivoEncerramento = motivo;
         conversa.MensagensNaoLidas = 0;
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
+        conversa.AguardandoTriagem = false;
+        conversa.AguardandoEscolhaDeServico = false;
+        conversa.AguardandoMenuDeContinuacao = false;
+        conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
         db.Mensagens.Add(new Mensagem
         {

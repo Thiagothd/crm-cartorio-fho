@@ -94,6 +94,18 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
       'Sai quando a IA não encontra resposta no catálogo cadastrado E o cliente não pediu atendente. Nunca promete atendente — convida a pedir um se quiser.',
   },
   {
+    valor: 'ConfirmacaoDeEncerramento',
+    rotulo: 'Conversa parada: posso encerrar?',
+    explicacao:
+      'Sai depois do tempo de silêncio configurado em Automação > Encerramento automático. Mantenha o menu numerado no texto: é por "1" e "2" que o sistema entende a resposta.',
+  },
+  {
+    valor: 'EncerramentoPorInatividade',
+    rotulo: 'Encerrado por falta de resposta',
+    explicacao:
+      'Sai quando o cliente não responde à pergunta acima e a conversa encerra sozinha. Sem este texto a conversa encerra do mesmo jeito, só sem avisar.',
+  },
+  {
     valor: 'EtapaAlterada',
     rotulo: 'Atendimento muda de etapa',
     explicacao: 'Sai quando a conversa entra na etapa escolhida abaixo.',

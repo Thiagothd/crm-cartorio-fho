@@ -1,7 +1,7 @@
 # REQUISITOS
 
 > **Status:** confirmados. Fase 1 implementada e ampliada para a apresentação.
-> **Última atualização:** 2026-08-17
+> **Última atualização:** 2026-08-22
 
 Origem de cada requisito:
 
@@ -282,3 +282,19 @@ demonstrável, mas nenhuma mensagem sai até que ele diga que quer.
 
 > As pendências 6 a 10 e 15 a 19 são **cadastro puro**: o cartório parceiro reconfigura pela tela
 > sem que uma linha de código mude. As que exigem código estão marcadas — 11 e 14.
+
+### 5.9 Tempo do encerramento automático por inatividade
+
+**Cadastro puro, editável em `Automação → Encerramento automático`** — sem
+alteração de código para trocar. Registrado aqui porque os valores atuais são
+**suposição nossa, não confirmada com o cartório parceiro** (regra 13 do CLAUDE.md): o
+sistema não pode ficar sem esse comportamento até ele decidir, então os
+tempos abaixo entraram como padrão defensável.
+
+| # | Pendência | Suposição adotada | Como trocar |
+| --- | --- | --- | --- |
+| 21 | Minutos de silêncio até perguntar se pode encerrar | **20 minutos** | Automação → Encerramento automático |
+| 22 | Minutos sem resposta até encerrar sozinho | **30 minutos** | Idem |
+| 23 | Janela de horário em que a pergunta pode sair | **08h às 18h** (o encerramento em si acontece a qualquer hora) | Idem — inclui a opção de desligar a janela e perguntar a qualquer hora |
+
+Comportamento completo em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) §10.

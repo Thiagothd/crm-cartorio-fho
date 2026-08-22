@@ -93,6 +93,18 @@ public class RecebimentoDeWhatsApp(
             // chance de escolher.
             await EnfileirarBoasVindasAsync(conversa, ct);
         }
+        else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
+                     db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), ct))
+        {
+            // Primeiro de todos, ate antes do "menu": a pergunta de encerramento
+            // pode ter saido com a conversa em qualquer estado, entao tratar isso
+            // dentro de um ramo especifico a deixaria refem de qual flag estava
+            // ligada. Ver AplicadorDeEncerramentoPorInatividade.
+            //
+            // CUIDADO: esta condicao tem efeito colateral quando devolve false —
+            // ela ja cancelou a pergunta pendente, e a mensagem segue a cadeia
+            // abaixo de proposito. Nao e um `if` puro.
+        }
         else if (TriagemAutomatica.PediuMenu(mensagem.Conteudo))
         {
             // Checado ANTES de qualquer flag — achado ao vivo, 2026-08-18: so

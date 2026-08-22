@@ -338,6 +338,31 @@ public static class CatalogoDeDemonstracao
             "disposição! Se quiser, é só pedir para falar com um de nossos atendentes. 😊",
             true),
 
+        // A conversa ficou parada pelo tempo configurado na serventia. O menu
+        // numerado nao e enfeite: "1" e "2" sao exatamente o que
+        // TriagemAutomatica.LerRespostaDeEncerramento le do outro lado. Quem
+        // reescrever este texto pode mudar as palavras, mas tirar os numeros
+        // deixaria so o reconhecimento por palavra ("sim"/"nao") de pe.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.ConfirmacaoDeEncerramento,
+            GatilhoDeMensagem.ConfirmacaoDeEncerramento,
+            null,
+            "Percebi que nossa conversa ficou parada, {NomeCliente}. Posso encerrar " +
+            "este atendimento?\n\n" +
+            "1 - Sim, pode encerrar\n" +
+            "2 - Não, ainda preciso de ajuda",
+            true),
+
+        // Ninguem respondeu a pergunta acima. Fecha avisando — e deixando claro que
+        // voltar nao custa nada, porque a proxima mensagem abre atendimento novo.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.EncerramentoPorInatividade,
+            GatilhoDeMensagem.EncerramentoPorInatividade,
+            null,
+            "Como não tivemos retorno, encerrei o atendimento do protocolo {Protocolo} " +
+            "por aqui, {NomeCliente}. 😊\n\n" +
+            "Se precisar de qualquer coisa, é só mandar uma nova mensagem — começamos " +
+            "de novo na hora.",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

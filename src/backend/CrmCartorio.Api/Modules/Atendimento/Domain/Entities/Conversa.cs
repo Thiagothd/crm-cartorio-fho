@@ -128,6 +128,30 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     /// <summary>Quando o aviso de prazo vencido foi gerado. Mesma logica do aviso de alerta.</summary>
     public DateTime? AvisoDeVencimentoEnviadoEm { get; set; }
 
+    /// <summary>
+    /// Quando a pergunta "deseja encerrar?" saiu, por inatividade. Nulo enquanto
+    /// nao ha nenhuma pendente.
+    /// </summary>
+    /// <remarks>
+    /// Fato datado, pelo mesmo motivo de <see cref="AvisoDeAlertaEnviadoEm"/>: o
+    /// que fica gravado nao e "esta parada", que envelhece sozinho, e sim "a
+    /// pergunta saiu".
+    ///
+    /// <b>Um campo com tres papeis, de proposito.</b> Ele e (1) o marcador
+    /// idempotente da primeira fase da varredura, (2) o relogio da segunda — o
+    /// tempo de espera pela resposta conta a partir daqui — e (3) a flag que o
+    /// despacho consulta para saber se a proxima mensagem do cliente e resposta a
+    /// essa pergunta. Um <c>bool AguardandoConfirmacaoDeEncerramento</c> separado
+    /// andaria sempre junto deste carimbo, e dois campos que nunca discordam sao
+    /// dois campos que um dia vao discordar — no atendimento de um cliente real.
+    ///
+    /// Como nao guarda historico ("ja perguntei uma vez"), um novo periodo de
+    /// silencio gera uma nova pergunta. E o comportamento certo: o relogio da
+    /// primeira fase e <see cref="UltimaMensagemEm"/>, que so avanca com mensagem
+    /// de gente.
+    /// </remarks>
+    public DateTime? PerguntaDeEncerramentoEnviadaEm { get; set; }
+
     public DateTime? EncerradaEm { get; set; }
 
     public Guid? EncerradaPorAtendenteId { get; set; }
