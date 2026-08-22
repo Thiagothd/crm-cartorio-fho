@@ -185,8 +185,13 @@ public class EvolutionClient(
 
         // O "dono" da sessao aparece em campos diferentes entre versoes:
         // "ownerJid" no formato "5538999000045@s.whatsapp.net", ou "number" solto.
+        // O ownerJid observado ao vivo vem na forma LEGADA (sem o nono digito:
+        // "553898000901@s.whatsapp.net" para o numero real "+55 38 99800-0901")
+        // — CanonicalizarMovelBrasileiro completa isso; em qualquer outro
+        // formato ela devolve o valor sem mexer.
         var jid = LerTexto(alvo, "ownerJid") ?? LerTexto(alvo, "owner");
         var numero = LerTexto(alvo, "number") ?? jid?.Split('@')[0];
+        numero = numero is null ? null : NormalizadorDeTelefone.CanonicalizarMovelBrasileiro(numero);
         var nome = LerTexto(alvo, "profileName") ?? LerTexto(alvo, "name");
         var foto = LerTexto(alvo, "profilePicUrl") ?? LerTexto(alvo, "profilePictureUrl");
 

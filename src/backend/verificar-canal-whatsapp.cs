@@ -87,6 +87,22 @@ Checar(
     "Instância de produção é rejeitada no ambiente de teste",
     !canalDeTeste.InstanciaConfere("cartorio-piloto"));
 
+// Regressao do bug ao vivo em 2026-08-22: ownerJid do fetchInstances devolveu
+// "553898000901" (forma legada) para o numero real "+55 38 99800-0901", e o
+// perfil pareado apareceu na tela com um digito a menos.
+Checar(
+    "Canonicalizar completa o nono digito da forma legada",
+    NormalizadorDeTelefone.CanonicalizarMovelBrasileiro("553898000901") == "5538998000901");
+Checar(
+    "Canonicalizar nao mexe num numero ja canonico",
+    NormalizadorDeTelefone.CanonicalizarMovelBrasileiro("5538998000901") == "5538998000901");
+Checar(
+    "Canonicalizar nao mexe em DDD brasileiro inexistente",
+    NormalizadorDeTelefone.CanonicalizarMovelBrasileiro("550098000901") == "550098000901");
+Checar(
+    "Canonicalizar nao mexe em numero de 12 digitos fora do Brasil (nao comeca com 55)",
+    NormalizadorDeTelefone.CanonicalizarMovelBrasileiro("441234567890") == "441234567890");
+
 var testeApontandoParaProducao = new OpcoesDoCanalWhatsApp
 {
     NomeDaInstancia = "cartorio-piloto",
