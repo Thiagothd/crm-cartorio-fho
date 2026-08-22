@@ -5,7 +5,8 @@ sistema que conhece o formato da Evolution API — o Atendimento nunca vê um ca
 do gateway.
 
 > **Piloto, não produção.** Conexão não oficial (Evolution API, wrapper de
-> Baileys) no **número pessoal do Thiago**, não no do cartório. Ver
+> Baileys) em números dedicados e isolados, nunca no número do cartório. Produção
+> e teste usam instâncias diferentes no mesmo gateway. Ver
 > [CLAUDE.md](../../../../../CLAUDE.md), seção "Mudança de direção — 2026-08-16",
 > e [docs/DEPLOY-WHATSAPP.md](../../../../../docs/DEPLOY-WHATSAPP.md).
 
@@ -23,7 +24,7 @@ reescrever este módulo, e nada mais.
 | --- | --- |
 | `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, enviar texto e mídia, baixar mídia |
 | `WebhookContracts` + `TradutorDePayload` | Traduz o payload cru para o nosso vocabulário |
-| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook |
+| `OpcoesDoCanalWhatsApp` | BaseUrl, ApiKey, instância, token do webhook e política de números permitidos/bloqueados |
 | `CanalWhatsAppServiceException` | Códigos estáveis para a tela reagir |
 
 ## Decisões que parecem estranhas mas não são
@@ -34,10 +35,32 @@ reescrever este módulo, e nada mais.
 - **Três eventos são descartados de propósito**, e cada um por um motivo:
   - `fromMe` — é o eco da nossa própria mensagem enviada. Gravar duplicaria no
     fio cada resposta do atendente.
-  - **Grupo** (`@g.us`) — o número do piloto é pessoal e está em grupos de
-    família. Abrir protocolo para cada um poluiria a inbox com a vida do Thiago.
+  - **Grupo** (`@g.us`) — grupo não é atendimento individual. Abrir protocolo
+    para cada evento poluiria a inbox e atribuiria uma identidade errada à conversa.
   - **Tipo não suportado** (figurinha, localização, contato) — sem tradução útil
     para o fio.
+- **`NumerosDeTeste` vale nos dois sentidos.** O webhook descarta entrada antes
+  de criar Cliente/Conversa, e o adaptador de saída recusa qualquer destino fora
+  da lista. Isso também protege bases de teste que já tenham conversa WhatsApp
+  antiga ou importada. Consultas auxiliares de foto de perfil ao gateway seguem
+  a mesma política.
+- **`NumerosBloqueados` vence a allowlist.** É a barreira entre duas instâncias
+  automáticas que compartilham o gateway: produção bloqueia o número de teste,
+  impedindo um ciclo de respostas `produção ↔ teste` sem fechar o canal público.
+- **Canal desligado ignora webhook antigo.** `Habilitado=false` interrompe
+  entrada e saída mesmo se o gateway ainda estiver com a URL registrada.
+- **A instância também é conferida.** O token correto não basta: um webhook de
+  `cartorio-piloto` nunca pode ser consumido por uma API configurada como
+  `cartorio-teste`, mesmo que um banco clonado ainda guarde vínculo antigo.
+- **Teste falha antes de subir com configuração ampla.** Canal habilitado nesse
+  ambiente exige a instância `cartorio-teste` e exatamente um contato brasileiro
+  efetivamente permitido; lista vazia, múltipla, inválida ou totalmente bloqueada
+  interrompe a inicialização.
+- **`@lid` usa `remoteJidAlt`.** A Evolution 2.3.7 pode entregar um identificador
+  opaco em `remoteJid` e o telefone em `remoteJidAlt`; criar Cliente com os
+  dígitos do LID faria a allowlist bloquear o contato correto. Um LID sem JID
+  alternativo individual é descartado, assim como grupo, status, broadcast e
+  newsletter.
 - **`PENDING` e `SERVER_ACK` são ignorados** no status de entrega. A mensagem já
   nasce `Enviada` do nosso lado quando o gateway aceita; só `DELIVERY_ACK` e
   `READ` movem para frente.
