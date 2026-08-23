@@ -34,7 +34,8 @@ using Microsoft.Extensions.Options;
 //  10. Leitura da resposta: "sim" encerra, "nao" continua, "assim" NAO encerra
 //  11. Sem resposta, a conversa encerra sozinha
 //  12. O REQUISITO: quem volta depois de encerrada cai em atendimento novo
-//  13. As guardas (SLA vivo, mensagem nao lida, canal simulado, sem config, fora da janela)
+//  13. As guardas (mensagem nao lida, canal simulado, sem config, fora da janela) —
+//      e a confirmacao de que SLA vivo NAO bloqueia mais (decisao de 2026-08-23)
 //  14. Reabrir limpa o carimbo — conversa reaberta nao fecha de novo
 //  15. Sem texto cadastrado: nao pergunta, mas a 2a fase encerra assim mesmo
 //
@@ -1107,7 +1108,7 @@ Console.WriteLine();
 // TESTE 13 — as guardas: quem NAO pode ser perguntado
 // ---------------------------------------------------------------------------
 
-Console.WriteLine("TESTE 13 — SLA vivo, mensagem nao lida, canal simulado e tenant sem config ficam de fora");
+Console.WriteLine("TESTE 13 — mensagem nao lida e canal simulado ficam de fora; SLA vivo NAO bloqueia mais");
 
 var conversaComPrazo = await NovaConversaParadaAsync("Com prazo", 60);
 var conversaNaoLida = await NovaConversaParadaAsync("Nao lida", 60);
@@ -1115,7 +1116,8 @@ var conversaSimulada = await NovaConversaParadaAsync("Simulada", 60);
 
 await using (var db = new CrmDbContext(opcoes))
 {
-    // SLA em andamento: o cartorio esta trabalhando nela fora do WhatsApp.
+    // SLA em andamento — decisao de 2026-08-23: nao bloqueia mais a pergunta.
+    // O protocolo continua intacto (soft-close), so o CANAL de WhatsApp fecha.
     await db.Conversas.Where(c => c.Id == conversaComPrazo)
         .ExecuteUpdateAsync(s => s
             .SetProperty(c => c.PrazoLimite, DateTime.UtcNow.AddDays(3)));
@@ -1135,8 +1137,8 @@ await using (var db = new CrmDbContext(opcoes))
 }
 
 {
-    Checar("conversa com SLA em andamento nao foi perguntada",
-        (await RecarregarAsync(conversaComPrazo)).PerguntaDeEncerramentoEnviadaEm is null);
+    Checar("conversa com SLA em andamento FOI perguntada (guarda removida em 2026-08-23)",
+        (await RecarregarAsync(conversaComPrazo)).PerguntaDeEncerramentoEnviadaEm is not null);
     Checar("conversa com mensagem nao lida nao foi perguntada",
         (await RecarregarAsync(conversaNaoLida)).PerguntaDeEncerramentoEnviadaEm is null);
     Checar("conversa simulada nao foi perguntada",
