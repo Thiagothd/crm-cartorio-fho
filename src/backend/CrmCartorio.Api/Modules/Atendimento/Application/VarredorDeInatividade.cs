@@ -113,6 +113,16 @@ public class VarredorDeInatividade(
 
         var limite = agora.AddMinutes(-configuracao.MinutosParaPerguntar);
 
+        // NAO filtra por PrazoLimite/SLA. A primeira versao (2026-08-22) pulava
+        // conversa com prazo vivo, para nao fechar um protocolo "em producao". Um
+        // teste ao vivo em 2026-08-23 mostrou o efeito colateral: todo servico com
+        // SLA cadastrado (a maioria) trava a conversa aberta pelos dias inteiros do
+        // prazo, e se o cliente sumir nesse meio tempo ela nunca fecha — exatamente
+        // o bug que este varredor existe para consertar, so que adiado. Decisao do
+        // Thiago: o protocolo em si nao desaparece (Status=Encerrada e soft-close,
+        // o historico continua), entao nao ha razao para o CANAL DE WHATSAPP ficar
+        // preso ao prazo do ato. Se o cliente voltar so para outro assunto, ele
+        // precisa cair em atendimento novo, nao na conversa velha do ato anterior.
         var candidatas = await db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == configuracao.TenantId
                      && c.Status == StatusConversa.Ativa
@@ -128,13 +138,7 @@ public class VarredorDeInatividade(
                      // O cartorio esta devendo resposta. Perguntar "quer encerrar?"
                      // para quem escreveu e nunca foi atendido e o pior uso possivel
                      // do canal.
-                     && c.MensagensNaoLidas == 0
-
-                     // SLA em andamento = conversa deliberadamente aberta, com o
-                     // cartorio trabalhando nela fora do WhatsApp (lavrando a
-                     // escritura, aguardando o registro). Fechar isso apagaria um
-                     // protocolo em producao.
-                     && (c.PrazoLimite == null || c.PrazoLimite < agora))
+                     && c.MensagensNaoLidas == 0)
             .OrderBy(c => c.UltimaMensagemEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);

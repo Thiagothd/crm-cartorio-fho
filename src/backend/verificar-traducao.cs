@@ -684,15 +684,14 @@ Checar("Inatividade: tenants com o recurso configurado (projecao de nulavel com 
         })
         .ToQueryString());
 
-Checar("Inatividade: fase 1 — candidatas a receber a pergunta (5 guardas + enum de canal)", () =>
+Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; SLA nao bloqueia mais)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm == null
                  && c.UltimaMensagemEm < agora.AddMinutes(-20)
                  && c.Canal == CanalOrigem.WhatsApp
-                 && c.MensagensNaoLidas == 0
-                 && (c.PrazoLimite == null || c.PrazoLimite < agora))
+                 && c.MensagensNaoLidas == 0)
         .OrderBy(c => c.UltimaMensagemEm)
         .Take(200)
         .ToQueryString());

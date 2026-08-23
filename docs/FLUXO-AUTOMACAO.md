@@ -483,28 +483,38 @@ confirmação. A negativa é avaliada **antes** da confirmação, de propósito 
 "não, pode encerrar não" carrega palavra das duas famílias, e a assimetria
 protege o lado mais barato de errar (continuar a conversa).
 
-### As quatro guardas
+### As guardas
 
 Nenhuma delas existia no desenho inicial — vieram de revisar o que um
 varredor cego a contexto de negócio poderia fazer de errado:
 
-1. **SLA em andamento nunca é perguntado** — só entra na fase 1 quem tem
-   `PrazoLimite IS NULL` ou já vencido. Prazo vivo é o cartório
-   deliberadamente trabalhando o caso offline (lavrando a escritura, etc.);
-   perguntar "quer encerrar?" no meio de um prazo fecharia protocolo em
-   produção.
-2. **Cartório devendo resposta nunca é perguntado** — só entra quem tem
+1. **Cartório devendo resposta nunca é perguntado** — só entra quem tem
    `MensagensNaoLidas == 0`. Sem essa guarda, o cliente manda "preciso de
    uma segunda via", ninguém assume, e 20 minutos depois o *sistema*
    pergunta se pode encerrar — o pior uso possível do canal.
-3. **Conversa simulada nunca entra** — só `Canal == WhatsApp`. Protege a
+2. **Conversa simulada nunca entra** — só `Canal == WhatsApp`. Protege a
    base de demonstração (`Canal == Simulado`) de se autodestruir.
-4. **Corrida com o webhook** — o `ExecuteUpdateAsync` que grava o marcador
+3. **Corrida com o webhook** — o `ExecuteUpdateAsync` que grava o marcador
    e o que fecha a conversa incluem `UltimaMensagemEm` (capturado no
    momento da leitura) na cláusula `WHERE`. Se o cliente escrever entre a
    leitura do varredor e a tentativa de gravação, o varredor perde a
    corrida em silêncio — 0 linhas afetadas, `rollback` — em vez de colidir
    com o `SaveChanges` do webhook.
+
+> **Guarda removida em 2026-08-23: SLA (`PrazoLimite`) vivo.** A primeira
+> versão nunca perguntava com prazo em aberto — a leitura era "o cartório
+> está trabalhando o caso offline, fechar apagaria um protocolo em
+> produção". Um teste ao vivo no `testecrm` mostrou o efeito colateral: como
+> a maioria dos `TipoServico` tem SLA cadastrado, praticamente toda conversa
+> com serviço escolhido ficava imune ao encerramento — presa pelos dias
+> inteiros do prazo, e se o cliente sumisse nesse meio tempo ela nunca
+> fechava. Decisão do Thiago: **o protocolo não desaparece** — encerrar é
+> soft-close, o histórico continua íntegro e consultável — então não há
+> razão para o *canal* de WhatsApp ficar preso à duração do *ato*. Se o
+> cliente voltar só para outro assunto, precisa cair em atendimento novo,
+> não na conversa velha do serviço anterior. `PrazoLimite` continua sendo
+> usado normalmente para SLA/alerta de prazo (§3, gatilhos 3/4) — só deixou
+> de bloquear o encerramento por inatividade.
 
 ### Por que fase 2 encerra mesmo sem texto cadastrado
 

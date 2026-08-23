@@ -100,13 +100,17 @@ responsável não escreve.
   `HashSet<string>.Contains` por palavra — diferente de `PediuHumano`/
   `PediuMenu` (que usam `Contains` porque errar ali custa uma mensagem a
   mais). Errar aqui fecharia o atendimento: "assim" contém "sim".
-- **Quatro guardas na fase 1** (perguntar): `Canal == WhatsApp` (protege a
-  base de demonstração), `MensagensNaoLidas == 0` (não pergunta "quer
-  encerrar?" quando o cartório ainda deve resposta), `PrazoLimite` nulo ou já
-  vencido (SLA vivo é o cartório trabalhando o caso offline, de propósito) e
-  `UltimaMensagemEm` capturado no `WHERE` do `ExecuteUpdateAsync` (corrida
-  com o webhook — 0 linhas afetadas = o varredor perde a corrida em
-  silêncio, em vez de colidir com o `SaveChanges` do webhook).
+- **Guardas na fase 1** (perguntar): `Canal == WhatsApp` (protege a base de
+  demonstração), `MensagensNaoLidas == 0` (não pergunta "quer encerrar?"
+  quando o cartório ainda deve resposta) e `UltimaMensagemEm` capturado no
+  `WHERE` do `ExecuteUpdateAsync` (corrida com o webhook — 0 linhas afetadas
+  = o varredor perde a corrida em silêncio, em vez de colidir com o
+  `SaveChanges` do webhook). **Não** olha `PrazoLimite`/SLA — guarda removida
+  em 2026-08-23: como a maioria dos serviços tem SLA cadastrado, a versão
+  original ficava presa pelos dias inteiros do prazo sempre que o cliente
+  escolhia um serviço, e nunca fechava se ele sumisse nesse meio tempo.
+  Encerrar é soft-close (o protocolo não desaparece); só o canal de WhatsApp
+  fecha, não o atendimento offline do ato.
 
 ## Fronteiras
 
