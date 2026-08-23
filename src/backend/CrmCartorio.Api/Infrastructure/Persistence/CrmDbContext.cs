@@ -37,6 +37,17 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CrmDbContext).Assembly);
     }
 
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+
+        // Ver ConversorDeDataUtc para o porque: sem isto, todo DateTime lido do
+        // banco volta com Kind=Unspecified, e o JSON sai sem "Z" — o navegador
+        // exibe a hora UTC crua como se ja fosse local.
+        configurationBuilder.Properties<DateTime>().HaveConversion<ConversorDeDataUtc>();
+        configurationBuilder.Properties<DateTime?>().HaveConversion<ConversorDeDataUtcNulavel>();
+    }
+
     public override int SaveChanges()
     {
         CarimbarDatas();
