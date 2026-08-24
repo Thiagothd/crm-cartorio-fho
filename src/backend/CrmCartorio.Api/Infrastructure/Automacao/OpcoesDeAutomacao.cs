@@ -38,9 +38,14 @@ public class OpcoesDeAutomacao
     /// Intervalo entre passadas da varredura de inatividade, em minutos.
     /// </summary>
     /// <remarks>
-    /// Menor que o de prazo de proposito: o menor tempo que a tela aceita configurar
-    /// e de 5 minutos, e uma varredura mais lenta que isso faria a configuracao
-    /// mentir — quem escolhesse "5 minutos" veria a pergunta sair em 10.
+    /// Bem menor que o de prazo, de proposito. O pior caso do atraso de uma
+    /// varredura periodica e o proprio intervalo dela: com o intervalo igual ao
+    /// minimo configuravel na tela (5 min), quem escolhesse "5 minutos" via a
+    /// pergunta sair entre 5 e 10 — medido ao vivo em 2026-08-23, saiu em 11.
+    /// Com o intervalo em 1 minuto, o pior caso vira "N + ate 1", que e o que a
+    /// tela promete de verdade. A consulta e barata (indice, LoteMaximo=200, poucos
+    /// tenants) — o custo de rodar 5x mais vezes por minuto e desprezivel perto do
+    /// ganho de a configuracao nao mentir.
     /// </remarks>
-    public int IntervaloDeInatividadeEmMinutos { get; set; } = 5;
+    public int IntervaloDeInatividadeEmMinutos { get; set; } = 1;
 }
