@@ -344,6 +344,68 @@ public class EvolutionClient(
     }
 
 
+    public async Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var corpo = await EnviarAsync(
+            HttpMethod.Post,
+            $"chat/findContacts/{_opcoes.NomeDaInstancia}",
+            new { where = new { } },
+            ct)
+            ?? throw CanalWhatsAppServiceException.GatewayIndisponivel();
+
+        // Confirmado ao vivo contra o gateway real em 2026-08-24: a resposta e
+        // um array cru de contatos, sem envelope — ver docs/DEPLOY-WHATSAPP.md.
+        if (corpo.ValueKind != JsonValueKind.Array)
+        {
+            log.LogWarning("Gateway devolveu formato inesperado para findContacts na instancia {Instancia}.",
+                _opcoes.NomeDaInstancia);
+            return [];
+        }
+
+        var contatos = new List<ContatoDoWhatsApp>();
+
+        foreach (var item in corpo.EnumerateArray())
+        {
+            // O identificador do contato aparece como "remoteJid" nas versoes
+            // observadas; "id"/"jid" ficam de reserva para variar entre versoes
+            // do gateway, mesma postura defensiva do resto desta classe.
+            var jid = LerTexto(item, "remoteJid") ?? LerTexto(item, "id") ?? LerTexto(item, "jid");
+
+            if (string.IsNullOrWhiteSpace(jid))
+            {
+                continue;
+            }
+
+            // Mesma regra do @lid que TradutorDePayload.LerMensagem ja aplica em
+            // mensagem recebida (WebhookContracts.cs) — confirmado ao vivo em
+            // 2026-08-24 que o gateway usa "remoteJidAlt" nesse mesmo formato em
+            // chat/findChats: o WhatsApp pode trocar o telefone por um
+            // identificador opaco em "remoteJid" e entregar o E.164 real em
+            // "remoteJidAlt". Sem alternativo individual, o contato e descartado
+            // aqui — nunca com os digitos do @lid, que criariam um Cliente falso.
+            if (jid.EndsWith("@lid", StringComparison.OrdinalIgnoreCase))
+            {
+                var alternativo = LerTexto(item, "remoteJidAlt");
+
+                if (alternativo is not { Length: > 0 }
+                    || !alternativo.EndsWith("@s.whatsapp.net", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                jid = alternativo;
+            }
+
+            var nome = LerTexto(item, "pushName") ?? LerTexto(item, "name") ?? LerTexto(item, "notify");
+
+            contatos.Add(new ContatoDoWhatsApp(jid, nome));
+        }
+
+        return contatos;
+    }
+
     private async Task RegistrarWebhookAsync(string urlDoWebhook, CancellationToken ct)
     {
         var registro = await EnviarComStatusAsync(

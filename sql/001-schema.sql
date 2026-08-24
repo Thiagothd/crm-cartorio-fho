@@ -232,6 +232,11 @@ CREATE TABLE dbo.Clientes
     -- uma coisa so — nao perguntar duas vezes.
     NomePerguntadoEm  DATETIME2(3)     NULL,
 
+    -- De onde este cadastro veio: 1 Webhook, 2 Manual, 3 ImportacaoPlanilha,
+    -- 4 ImportacaoWhatsapp. Nulo nos clientes de antes desta coluna — "nao
+    -- sabemos" e a verdade para eles.
+    OrigemDoCadastro  TINYINT          NULL,
+
     PrimeiroContatoEm DATETIME2(3)     NOT NULL,
     Ativo             BIT              NOT NULL CONSTRAINT DF_Clientes_Ativo DEFAULT (1),
     CriadoEm          DATETIME2(3)     NOT NULL,

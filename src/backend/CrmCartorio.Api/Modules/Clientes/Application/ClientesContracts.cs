@@ -124,3 +124,81 @@ public record ResultadoPaginadoDeClientes(
 
 /// <summary>Valores para montar os seletores da tela, vindos do que existe na base.</summary>
 public record OpcoesDeClientesResponse(IReadOnlyList<string> Cidades);
+
+// --- Importacao de contatos -------------------------------------------------
+
+/// <summary>De onde a lista de contatos veio.</summary>
+public enum FonteDeImportacao
+{
+    /// <summary>Texto colado — lista ou CSV, o parser trata os dois igual.</summary>
+    Texto,
+
+    /// <summary>Agenda de contatos do WhatsApp pareado, via Evolution API.</summary>
+    WhatsApp
+}
+
+/// <summary>O que aconteceria com esta linha se a importação for confirmada.</summary>
+public enum SituacaoDaLinhaImportada
+{
+    /// <summary>Cliente novo, será criado.</summary>
+    Nova,
+
+    /// <summary>Telefone já pertence a um cliente — nada muda, a linha é informativa.</summary>
+    JaCadastrada,
+
+    /// <summary>Telefone vazio, com letras, ou fora da faixa de dígitos aceita.</summary>
+    TelefoneInvalido,
+
+    /// <summary>Prefixo 55 com DDD que não existe.</summary>
+    DddInvalido,
+
+    /// <summary>
+    /// 12 dígitos com DDD válido — pode ser fixo ou celular sem o nono dígito.
+    /// Só entra se o operador desmarcar "revisar" e confirmar assim mesmo.
+    /// </summary>
+    Ambigua,
+
+    /// <summary>Mesmo telefone de uma linha anterior, dentro do mesmo arquivo.</summary>
+    DuplicadaNoArquivo
+}
+
+/// <summary>Uma linha da prévia — o que o operador vê e decide incluir ou não.</summary>
+public record LinhaDeImportacaoResponse(
+    int NumeroDaLinha,
+    string? Nome,
+    string TelefoneBruto,
+    /// <summary>E.164, só quando <see cref="Situacao"/> permite gravar.</summary>
+    string? TelefoneE164,
+    SituacaoDaLinhaImportada Situacao,
+    /// <summary>Preenchido só quando <see cref="Situacao"/> é <see cref="SituacaoDaLinhaImportada.JaCadastrada"/>.</summary>
+    string? NomeDoCadastroExistente);
+
+public record ResumoDaImportacaoResponse(
+    int TotalLidas,
+    int Novas,
+    int JaCadastradas,
+    int Invalidas,
+    int Ambiguas,
+    int Duplicadas);
+
+public record AnalisarImportacaoResponse(
+    ResumoDaImportacaoResponse Resumo,
+    IReadOnlyList<LinhaDeImportacaoResponse> Linhas);
+
+/// <summary>
+/// Pedido de análise. <see cref="Texto"/> é usado tanto para lista colada
+/// quanto para o conteúdo de um CSV — o parser não distingue os dois.
+/// </summary>
+public record AnalisarImportacaoRequest(FonteDeImportacao Fonte, string? Texto = null);
+
+/// <summary>
+/// Confirma a gravação de um subconjunto das linhas já analisadas — o operador
+/// pode ter desmarcado algumas na prévia. Cada linha volta a ser enviada
+/// inteira (não só o telefone) porque o servidor não guarda a análise entre as
+/// duas chamadas.
+/// </summary>
+public record ConfirmarImportacaoRequest(FonteDeImportacao Fonte, IReadOnlyList<LinhaParaGravar> Linhas);
+
+public record LinhaParaGravar(string? Nome, string TelefoneE164);
+
+public record ConfirmarImportacaoResponse(int Criados, int Ignorados);

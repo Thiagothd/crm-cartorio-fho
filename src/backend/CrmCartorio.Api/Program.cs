@@ -81,6 +81,7 @@ builder.Services.AddScoped<IGeradorDeToken, GeradorDeToken>();
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();
 builder.Services.AddScoped<IAtendenteService, AtendenteService>();
 builder.Services.AddScoped<IClienteService, ClienteService>();
+builder.Services.AddScoped<IImportacaoDeContatosService, ImportacaoDeContatosService>();
 builder.Services.AddScoped<ISetorService, SetorService>();
 builder.Services.AddScoped<IEtapaFunilService, EtapaFunilService>();
 builder.Services.AddScoped<IMensagemAutomaticaService, MensagemAutomaticaService>();

@@ -482,6 +482,55 @@ export interface OpcoesDeClientes {
   cidades: string[]
 }
 
+// Importação de contatos ------------------------------------------------------
+
+/** De onde a lista de contatos veio. `WhatsApp` ainda não está disponível — ver `docs/DEPLOY-WHATSAPP.md`. */
+export type FonteDeImportacao = 'Texto' | 'WhatsApp'
+
+/** O que aconteceria com esta linha se a importação for confirmada. */
+export type SituacaoDaLinhaImportada =
+  | 'Nova'
+  | 'JaCadastrada'
+  | 'TelefoneInvalido'
+  | 'DddInvalido'
+  | 'Ambigua'
+  | 'DuplicadaNoArquivo'
+
+export interface LinhaDeImportacao {
+  numeroDaLinha: number
+  nome: string | null
+  telefoneBruto: string
+  /** Só preenchido quando `situacao` permite gravar (Nova ou JaCadastrada). */
+  telefoneE164: string | null
+  situacao: SituacaoDaLinhaImportada
+  /** Só preenchido quando `situacao` é `JaCadastrada`. */
+  nomeDoCadastroExistente: string | null
+}
+
+export interface ResumoDaImportacao {
+  totalLidas: number
+  novas: number
+  jaCadastradas: number
+  invalidas: number
+  ambiguas: number
+  duplicadas: number
+}
+
+export interface AnalisarImportacaoResponse {
+  resumo: ResumoDaImportacao
+  linhas: LinhaDeImportacao[]
+}
+
+export interface LinhaParaGravar {
+  nome: string | null
+  telefoneE164: string
+}
+
+export interface ConfirmarImportacaoResponse {
+  criados: number
+  ignorados: number
+}
+
 // Configuracoes -------------------------------------------------------------
 
 export interface Setor {

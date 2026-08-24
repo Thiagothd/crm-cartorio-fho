@@ -4,6 +4,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
+using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.EntityFrameworkCore;
@@ -364,6 +365,7 @@ public class RecebimentoDeWhatsApp(
             FotoPerfilUrl = mensagem.FotoPerfilUrl,
             FotoPerfilAtualizadaEm = mensagem.FotoPerfilUrl is not null ? agora : null,
             Ativo = true,
+            OrigemDoCadastro = OrigemDoCadastro.Webhook,
             CriadoEm = agora,
             AtualizadoEm = agora
         };

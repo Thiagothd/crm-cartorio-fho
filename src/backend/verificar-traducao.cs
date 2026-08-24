@@ -726,6 +726,22 @@ Checar("Pedido de nome: existe texto ativo do gatilho 14", () =>
 Checar("Pedido de nome: alvo do UPDATE do nome capturado", () =>
     db.Clientes.Where(c => c.Id == Guid.Empty).ToQueryString());
 
+// --- Importacao de contatos (026) -------------------------------------------
+
+var telefonesDoLoteDeImportacao = new List<string> { "5538999000045", "5538988880002" };
+
+Checar("Importacao: telefones do lote ja cadastrados, ao analisar (Contains + projecao anonima)", () =>
+    db.Clientes.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && telefonesDoLoteDeImportacao.Contains(c.TelefoneWhatsapp))
+        .Select(c => new { c.TelefoneWhatsapp, c.Nome })
+        .ToQueryString());
+
+Checar("Importacao: telefones do lote ja existentes, ao confirmar (Contains + projecao de string)", () =>
+    db.Clientes.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && telefonesDoLoteDeImportacao.Contains(c.TelefoneWhatsapp))
+        .Select(c => c.TelefoneWhatsapp)
+        .ToQueryString());
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

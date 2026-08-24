@@ -7,7 +7,7 @@ namespace CrmCartorio.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/clientes")]
-public class ClientesController(IClienteService servico) : ControllerBase
+public class ClientesController(IClienteService servico, IImportacaoDeContatosService importacao) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ResultadoPaginadoDeClientes>> Listar(
@@ -58,4 +58,18 @@ public class ClientesController(IClienteService servico) : ControllerBase
         [FromBody] DadosDeCliente dados,
         CancellationToken ct) =>
         Ok(await servico.AtualizarAsync(id, dados, ct));
+
+    /// <summary>Classifica cada linha da lista sem gravar nada — a prévia que o operador revisa.</summary>
+    [HttpPost("importacao/analisar")]
+    public async Task<ActionResult<AnalisarImportacaoResponse>> AnalisarImportacao(
+        [FromBody] AnalisarImportacaoRequest request,
+        CancellationToken ct) =>
+        Ok(await importacao.AnalisarAsync(request, ct));
+
+    /// <summary>Grava só as linhas que o operador aprovou na prévia.</summary>
+    [HttpPost("importacao/confirmar")]
+    public async Task<ActionResult<ConfirmarImportacaoResponse>> ConfirmarImportacao(
+        [FromBody] ConfirmarImportacaoRequest request,
+        CancellationToken ct) =>
+        Ok(await importacao.ConfirmarAsync(request, ct));
 }
