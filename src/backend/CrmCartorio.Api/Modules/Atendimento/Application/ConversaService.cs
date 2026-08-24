@@ -710,6 +710,11 @@ public class ConversaService(
         // na frente dele.
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
+        // Mesma classe de vazamento: a conversa foi reaberta por um atendente, que
+        // assume o atendimento. Uma pergunta de nome pendente do ciclo anterior
+        // faria a proxima mensagem do cliente ser lida como se fosse o nome dele.
+        conversa.AguardandoNome = false;
+
         // Reabertura devolve a conversa a quem reabriu: deixar sem dono faria a
         // conversa reaparecer na fila sem ninguem responsavel por ela.
         conversa.AtendenteId = ctx.AtendenteId;

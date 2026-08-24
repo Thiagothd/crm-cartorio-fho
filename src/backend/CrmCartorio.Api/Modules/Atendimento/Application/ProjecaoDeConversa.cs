@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -122,6 +123,10 @@ public sealed record ProjecaoDeConversa(
             EncerradaPorNome,
             MotivoEncerramento,
             ReabertaEm,
-            $"/api/clientes/{ClienteId}/foto-perfil");
+            $"/api/clientes/{ClienteId}/foto-perfil",
+            // Calculado na leitura, nunca persistido — Cliente.Nome guarda o que
+            // veio do WhatsApp e o painel decide como apresentar, mesmo principio
+            // de PercentualDeQualificacao.
+            !NomeDeContato.EhUtil(ClienteNome));
 }
 

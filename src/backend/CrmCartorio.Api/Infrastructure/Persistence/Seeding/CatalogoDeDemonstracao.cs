@@ -363,6 +363,17 @@ public static class CatalogoDeDemonstracao
             "de novo na hora.",
             true),
 
+        // O contato chegou sem nome utilizavel no perfil do WhatsApp. Este e o
+        // unico texto do catalogo que NAO pode usar {NomeCliente}: ele sai
+        // justamente porque nao ha nome, e escrever o vocativo aqui seria pedir a
+        // mensagem que o gatilho existe para evitar.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.PedidoDeNome,
+            GatilhoDeMensagem.PedidoDeNome,
+            null,
+            "Olá! 👋 Você está falando com o {NomeCartorio}.\n\n" +
+            "Antes de começarmos, como posso te chamar?",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

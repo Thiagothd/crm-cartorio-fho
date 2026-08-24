@@ -100,6 +100,26 @@ public class Cliente : EntidadeBase, IEntidadeDeTenant
     /// <summary>Instante UTC da ultima consulta/atualizacao da foto de perfil.</summary>
     public DateTime? FotoPerfilAtualizadaEm { get; set; }
 
+    /// <summary>
+    /// Quando o sistema perguntou a este contato como ele quer ser chamado. Nulo
+    /// enquanto nunca perguntamos.
+    /// </summary>
+    /// <remarks>
+    /// Fato datado, no mesmo molde de <c>Conversa.AvisoDeAlertaEnviadoEm</c>: nao
+    /// grava "o nome esta pendente" (isso envelhece e se calcula na leitura, com
+    /// <see cref="NomeDeContato.EhUtil"/>), grava "a pergunta saiu", que nao muda
+    /// mais.
+    ///
+    /// Serve a uma coisa so: <b>nao perguntar duas vezes</b>. Quem nao quis dizer o
+    /// nome seria interrogado a cada atendimento novo sem isto — e atendimento novo
+    /// e frequente, porque conversa parada encerra sozinha e o proximo "bom dia"
+    /// abre outra.
+    ///
+    /// De quebra, conta a historia para o atendente que abre a ficha: "ja pediram e
+    /// ele nao deu" e diferente de "ninguem tentou".
+    /// </remarks>
+    public DateTime? NomePerguntadoEm { get; set; }
+
     public DateTime PrimeiroContatoEm { get; set; } = DateTime.UtcNow;
 
     public bool Ativo { get; set; } = true;

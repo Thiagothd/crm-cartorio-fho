@@ -7,7 +7,9 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
+using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
@@ -38,6 +40,14 @@ using Microsoft.Extensions.Options;
 //      e a confirmacao de que SLA vivo NAO bloqueia mais (decisao de 2026-08-23)
 //  14. Reabrir limpa o carimbo — conversa reaberta nao fecha de novo
 //  15. Sem texto cadastrado: nao pergunta, mas a 2a fase encerra assim mesmo
+//  16. NomeDeContato: as duas leituras de nome, com vies oposto (sem banco)
+//  17. Sem nome utilizavel, o vocativo some — "Ola!", nunca "Ola, !"
+//  18. Contato sem nome recebe a PERGUNTA, e nao o menu
+//  19. A resposta vira nome, e o menu sai JA com ele
+//  20. Resposta que nao e nome nao vira nome — e ninguem fica sem menu
+//  21. "menu" no lugar do nome nao deixa a flag presa
+//  22. O CAMINHO FELIZ: perfil com nome nao ve diferenca nenhuma
+//  23. Gatilho desativado nao deixa o contato mudo; e nao se repergunta
 //
 // ATENCAO: este verificador ESCREVE no banco. Rode SOMENTE contra base de
 // desenvolvimento. Ao final remove tudo que criou, inclusive sobras de execucoes
@@ -911,6 +921,42 @@ async Task<Conversa> RecarregarAsync(Guid conversaId)
     return await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversaId);
 }
 
+/// <summary>O que o CLIENTE recebeu — so mensagem automatica, sem anotacao interna.</summary>
+async Task<string[]> TextosDaConversaAsync(Guid conversaId)
+{
+    await using var db = new CrmDbContext(opcoes);
+
+    return await db.Mensagens.AsNoTracking()
+        .Where(m => m.ConversaId == conversaId && m.EhAutomatica)
+        .OrderBy(m => m.EnviadaEm)
+        .Select(m => m.Conteudo)
+        .ToArrayAsync();
+}
+
+/// <summary>
+/// Saiu alguma automatica que NAO e a pergunta de nome — ou seja, o atendimento
+/// abriu de verdade.
+/// </summary>
+/// <remarks>
+/// Deliberadamente nao procura uma frase do menu: o texto e cadastro e o cartório parceiro
+/// pode reescrever a qualquer momento, e um teste que quebra quando alguem edita
+/// uma mensagem pela tela testa a redacao, nao o comportamento.
+/// </remarks>
+bool AbriuAtendimento(string[] textos) =>
+    textos.Any(t => !t.Contains("como posso te chamar", StringComparison.OrdinalIgnoreCase));
+
+async Task<Cliente> ClienteDaConversaAsync(Guid conversaId)
+{
+    await using var db = new CrmDbContext(opcoes);
+
+    var clienteId = await db.Conversas.AsNoTracking()
+        .Where(c => c.Id == conversaId)
+        .Select(c => c.ClienteId)
+        .FirstAsync();
+
+    return await db.Clientes.AsNoTracking().FirstAsync(c => c.Id == clienteId);
+}
+
 // Janela nula = qualquer hora. Sem isso os testes so passariam entre 8h e 18h.
 await ConfigurarEncerramentoAsync(20, 30, null, null);
 
@@ -1300,6 +1346,330 @@ await using (var db = new CrmDbContext(opcoes))
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 16 — NomeDeContato, logica pura (sem banco)
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 16 — as duas leituras de nome, com vies oposto");
+
+// EhUtil erra para NAO perguntar: recusa so o que nao tem duas letras.
+foreach (var ruim in new[] { "", "   ", ".", "...", "🔥", "A", "5538999000045", "(19) 99000-1488", "2" })
+{
+    Checar($"EhUtil recusa {(ruim.Length == 0 ? "(vazio)" : ruim)}", !NomeDeContato.EhUtil(ruim));
+}
+
+foreach (var bom in new[] { "Zé", "Ana", "JOÃO", "Tia Neuza", "Ana 💅", "d'Ávila", "Ярослав" })
+{
+    Checar($"EhUtil aceita {bom}", NomeDeContato.EhUtil(bom));
+}
+
+// LerRespostaDePergunta erra para NAO gravar: na duvida devolve null.
+Checar("le \"João Silva\"", NomeDeContato.LerRespostaDePergunta("João Silva") == "João Silva");
+Checar("tira o \"meu nome é\"",
+    NomeDeContato.LerRespostaDePergunta("meu nome é João Silva") == "João Silva");
+Checar("tira o \"Sou o\" preservando acento e caixa",
+    NomeDeContato.LerRespostaDePergunta("Sou o Antônio de Pádua") == "Antônio de Pádua");
+Checar("tira o \"me chamo\"", NomeDeContato.LerRespostaDePergunta("me chamo Maria") == "Maria");
+Checar("descarta emoji no meio do nome",
+    NomeDeContato.LerRespostaDePergunta("Ana 💅") == "Ana");
+
+foreach (var naoEhNome in new[]
+{
+    "oi", "Bom dia", "2", ".", "obrigado", "quero uma certidão",
+    "quero uma certidão de nascimento do meu filho mais novo",
+    "preciso falar com um atendente"
+})
+{
+    Checar($"recusa \"{naoEhNome}\"", NomeDeContato.LerRespostaDePergunta(naoEhNome) is null);
+}
+
+Checar("recusa resposta longa demais para ser nome",
+    NomeDeContato.LerRespostaDePergunta(new string('a', 300)) is null);
+
+// DoPerfil: mesmo resultado de sempre, mais as duas defesas novas.
+Checar("DoPerfil mantem o perfil normal", NomeDeContato.DoPerfil("Joana Prado", "5538999000045") == "Joana Prado");
+Checar("DoPerfil cai para o telefone quando o perfil e vazio",
+    NomeDeContato.DoPerfil("   ", "5538999000045") == "5538999000045");
+Checar("DoPerfil apara espaco", NomeDeContato.DoPerfil("  Joana  ", "5538999000045") == "Joana");
+Checar("DoPerfil trunca em 200 (a coluna nao aceita mais, e estourava a mensagem)",
+    NomeDeContato.DoPerfil(new string('x', 250), "5538999000045").Length == 200);
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 17 — o vocativo some quando nao ha nome utilizavel
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 17 — sem nome, sai o cumprimento e mais nada");
+
+{
+    var semNome = new DadosParaMensagem(
+        string.Empty, "Cartorio de Teste", null, "202608-0001", string.Empty);
+
+    var comNome = semNome with { NomeCliente = "Joana" };
+
+    foreach (var (modelo, esperado) in new[]
+    {
+        ("Olá, {NomeCliente}! 👋", "Olá! 👋"),
+        ("{NomeCliente}, seu atendimento foi concluído!", "Seu atendimento foi concluído!"),
+        ("Posso ajudar em mais alguma coisa, {NomeCliente}?", "Posso ajudar em mais alguma coisa?"),
+        ("Não tenho isso por aqui, {NomeCliente}, mas fico à disposição!",
+         "Não tenho isso por aqui, mas fico à disposição!"),
+        ("Foi um prazer atender você, {NomeCliente}! 👋", "Foi um prazer atender você! 👋")
+    })
+    {
+        var saida = PlaceholdersDeMensagem.Aplicar(modelo, semNome);
+        Checar($"sem nome: \"{modelo[..Math.Min(28, modelo.Length)]}...\" nao deixa virgula orfa",
+            saida == esperado, saida);
+    }
+
+    Checar("com nome, a substituicao continua literal",
+        PlaceholdersDeMensagem.Aplicar("Olá, {NomeCliente}! 👋", comNome) == "Olá, Joana! 👋");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 18 — contato sem nome recebe a PERGUNTA, nao o menu
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 18 — o pedido de nome no primeiro contato");
+
+var telefoneSemNome = $"5538000{++sequencial:D6}";
+Guid conversaSemNome;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    conversaSemNome = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneSemNome, ".", $"{PrefixoDeTeste}bom dia",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaSemNome);
+    var textos = await TextosDaConversaAsync(conversaSemNome);
+
+    Checar("a pergunta de nome saiu", textos.Any(t => t.Contains("como posso te chamar", StringComparison.OrdinalIgnoreCase)));
+    Checar("o atendimento NAO abriu junto — so a pergunta saiu", !AbriuAtendimento(textos));
+    Checar("AguardandoNome ligada", conversa.AguardandoNome);
+    Checar("AguardandoTriagem ainda desligada", !conversa.AguardandoTriagem);
+    Checar("o contato ficou carimbado como ja perguntado",
+        (await ClienteDaConversaAsync(conversaSemNome)).NomePerguntadoEm is not null);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 19 — a resposta vira nome, e o menu sai JA com ele
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 19 — nome capturado aparece nas boas-vindas");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneSemNome, ".", "Joana Prado",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-2"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaSemNome);
+    var cliente = await ClienteDaConversaAsync(conversaSemNome);
+    var textos = await TextosDaConversaAsync(conversaSemNome);
+
+    Checar("o nome foi gravado no cadastro", cliente.Nome == "Joana Prado", cliente.Nome);
+    Checar("AguardandoNome saiu", !conversa.AguardandoNome);
+    Checar("AguardandoTriagem entrou", conversa.AguardandoTriagem);
+
+    // O assert que prova o flush: se o nome tivesse ficado so no change tracker,
+    // o disparador teria lido o "." do banco e a mensagem sairia sem nome.
+    Checar("as boas-vindas sairam COM o nome novo",
+        textos.Any(t => t.Contains("Joana Prado", StringComparison.Ordinal)));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 20 — resposta que nao e nome nao vira nome, e ninguem fica sem menu
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 20 — \"quero uma certidão\" nao vira nome de cliente");
+
+var telefoneRecusa = $"5538000{++sequencial:D6}";
+Guid conversaRecusa;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    conversaRecusa = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneRecusa, "🔥", $"{PrefixoDeTeste}oi",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneRecusa, "🔥", "quero uma certidão",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-2"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaRecusa);
+    var cliente = await ClienteDaConversaAsync(conversaRecusa);
+    var textos = await TextosDaConversaAsync(conversaRecusa);
+
+    Checar("o pedido NAO virou nome do cliente", cliente.Nome == "🔥", cliente.Nome);
+    Checar("mesmo assim o atendimento abriu — ninguem fica sem resposta", AbriuAtendimento(textos));
+    Checar("AguardandoTriagem entrou", conversa.AguardandoTriagem);
+    Checar("AguardandoNome saiu", !conversa.AguardandoNome);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 21 — "menu" no lugar do nome nao deixa a flag presa
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 21 — \"menu\" cancela o pedido de nome");
+
+var telefoneMenu = $"5538000{++sequencial:D6}";
+Guid conversaMenu;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    conversaMenu = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneMenu, "...", $"{PrefixoDeTeste}ola",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneMenu, "...", "menu",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-2"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaMenu);
+
+    Checar("ReabrirDoZeroAsync limpou AguardandoNome", !conversa.AguardandoNome);
+    Checar("e reabriu a triagem normalmente", conversa.AguardandoTriagem);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 22 — O CAMINHO FELIZ: com nome no perfil, nada muda
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 22 — perfil com nome nao ve diferenca nenhuma");
+
+var telefoneComNome = $"5538000{++sequencial:D6}";
+Guid conversaComNome;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    conversaComNome = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneComNome, "Roberto Alves", $"{PrefixoDeTeste}bom dia",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaComNome);
+    var cliente = await ClienteDaConversaAsync(conversaComNome);
+    var textos = await TextosDaConversaAsync(conversaComNome);
+
+    Checar("o atendimento abriu de primeira, sem turno extra", AbriuAtendimento(textos));
+    Checar("nenhuma pergunta de nome saiu",
+        !textos.Any(t => t.Contains("como posso te chamar", StringComparison.OrdinalIgnoreCase)));
+    Checar("AguardandoNome nunca ligou", !conversa.AguardandoNome);
+    Checar("AguardandoTriagem ligada, como sempre foi", conversa.AguardandoTriagem);
+    Checar("o contato nao foi carimbado", cliente.NomePerguntadoEm is null);
+    Checar("o nome do perfil foi para o cadastro", cliente.Nome == "Roberto Alves");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 23 — sem texto do gatilho, cai nas boas-vindas na mesma passada;
+//            e quem ja foi perguntado nao e perguntado de novo
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 23 — gatilho desativado nao deixa o contato mudo");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.PedidoDeNome)
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, false));
+}
+
+var telefoneSemRegra = $"5538000{++sequencial:D6}";
+Guid conversaSemRegra;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    conversaSemRegra = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneSemRegra, ".", $"{PrefixoDeTeste}bom dia",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+}
+
+{
+    var conversa = await RecarregarAsync(conversaSemRegra);
+    var textos = await TextosDaConversaAsync(conversaSemRegra);
+
+    Checar("sem texto do gatilho, o atendimento abriu do mesmo jeito", AbriuAtendimento(textos));
+    Checar("AguardandoNome nao ficou ligada sem pergunta nenhuma", !conversa.AguardandoNome);
+    Checar("AguardandoTriagem entrou normalmente", conversa.AguardandoTriagem);
+    Checar("e o contato NAO foi carimbado — a pergunta nunca saiu",
+        (await ClienteDaConversaAsync(conversaSemRegra)).NomePerguntadoEm is null);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.PedidoDeNome)
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, true));
+}
+
+// Quem ignorou a pergunta uma vez nao e interrogado de novo no atendimento
+// seguinte — e por isso que NomePerguntadoEm existe.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.Conversas.Where(c => c.Id == conversaRecusa)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.Status, StatusConversa.Encerrada)
+            .SetProperty(c => c.EncerradaEm, DateTime.UtcNow));
+}
+
+Guid segundaConversa;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    segundaConversa = await NovoRecebimento(db).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneRecusa, "🔥", $"{PrefixoDeTeste}voltei",
+            TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-9"));
+}
+
+{
+    var textos = await TextosDaConversaAsync(segundaConversa);
+
+    Checar("atendimento novo, e nao a conversa encerrada", segundaConversa != conversaRecusa);
+    Checar("NAO repergunta o nome a quem ja foi perguntado",
+        !textos.Any(t => t.Contains("como posso te chamar", StringComparison.OrdinalIgnoreCase)));
+    Checar("e o atendimento abriu direto", AbriuAtendimento(textos));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
@@ -1335,8 +1705,21 @@ async Task<int> LimparAsync()
     await using var db = new CrmDbContext(opcoes);
 
     // --- 1. Conversas do proprio verificador -------------------------------
+    //
+    // Por NOME **ou por TELEFONE**. O nome sozinho nao basta desde que os testes
+    // passaram a criar contato pelo webhook real: ali quem escolhe o nome e o
+    // pushName que o teste envia — e o caso interessante e justamente o pushName
+    // INUTIL ("."), que nao carrega prefixo nenhum. Sem o corte por telefone, esses
+    // clientes sobreviviam a limpeza, e a execucao seguinte reencontrava a conversa
+    // velha em vez de abrir uma nova: os testes de primeiro contato passavam a
+    // medir residuo da rodada anterior.
+    //
+    // 5538000...: faixa reservada a este arquivo, gerada so aqui.
+    const string PrefixoDeTelefone = "5538000";
+
     var clientes = db.Clientes
-        .Where(c => c.TenantId == tenantId && c.Nome.StartsWith(PrefixoDeTeste))
+        .Where(c => c.TenantId == tenantId
+                 && (c.Nome.StartsWith(PrefixoDeTeste) || c.TelefoneWhatsapp.StartsWith(PrefixoDeTelefone)))
         .Select(c => c.Id);
 
     var conversas = db.Conversas.Where(c => clientes.Contains(c.ClienteId)).Select(c => c.Id);
@@ -1345,7 +1728,8 @@ async Task<int> LimparAsync()
     total += await db.HistoricoEtapas.Where(x => conversas.Contains(x.ConversaId)).ExecuteDeleteAsync();
     total += await db.Conversas.Where(x => clientes.Contains(x.ClienteId)).ExecuteDeleteAsync();
     total += await db.Clientes
-        .Where(x => x.TenantId == tenantId && x.Nome.StartsWith(PrefixoDeTeste))
+        .Where(x => x.TenantId == tenantId
+                 && (x.Nome.StartsWith(PrefixoDeTeste) || x.TelefoneWhatsapp.StartsWith(PrefixoDeTelefone)))
         .ExecuteDeleteAsync();
 
     // --- 2. Respingo em conversas de terceiros ------------------------------
@@ -1412,6 +1796,29 @@ VarredorDeInatividade NovoVarredorDeInatividade(CrmDbContext db) =>
         new NotificadorSilencioso(),
         new CanalSilencioso(),
         NullLogger<VarredorDeInatividade>.Instance);
+
+// O SERVICO REAL do webhook, com os mesmos dubles silenciosos do resto do
+// arquivo. Ate 2026-08-24 nenhum verificador exercitava este caminho —
+// verificar-canal-whatsapp.cs para no ProcessadorDeWebhook, com um
+// RecebimentoFake no lugar deste. Como o pedido de nome so acontece na PRIMEIRA
+// mensagem de um contato novo, e isso e territorio exclusivo do webhook, cobrir
+// de verdade custou estas dez linhas.
+RecebimentoDeWhatsApp NovoRecebimento(CrmDbContext db)
+{
+    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+
+    return new RecebimentoDeWhatsApp(
+        db,
+        new GeradorDeProtocolo(db),
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new NotificadorSilencioso(),
+        new CanalSilencioso(),
+        new AnexosEmMemoria(),
+        new RespostaInteligenteService(
+            db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
+        opcoesDaIA,
+        NullLogger<RecebimentoDeWhatsApp>.Instance);
+}
 
 // ---------------------------------------------------------------------------
 

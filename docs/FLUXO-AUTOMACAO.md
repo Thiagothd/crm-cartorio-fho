@@ -2,8 +2,8 @@
 
 > **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
 > só escala por pedido explícito; Fase 2H — encerramento automático por
-> inatividade).
-> **Última atualização:** 2026-08-22
+> inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um).
+> **Última atualização:** 2026-08-24
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -49,7 +49,7 @@ próximo atendente sem virar mensagem ao cliente.
 
 ---
 
-## 3. Os 13 gatilhos
+## 3. Os 14 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -72,11 +72,16 @@ automáticas, sem release.
 | 11 | `RespostaSemCorrespondencia` | A IA não encontrou, no catálogo cadastrado, como responder — e o cliente **não** pediu atendente. Nunca promete atendente; convida a pedir um se quiser, ver §8 | `AplicadorDeRespostaInteligente` |
 | 12 | `ConfirmacaoDeEncerramento` | Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` — pergunta se pode encerrar, com menu numerado `1`/`2`. Ver §10 | `VarredorDeInatividade` (fase 1 — perguntar) |
 | 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
+| 14 | `PedidoDeNome` | O contato chegou sem nome utilizável no perfil do WhatsApp — pergunta como pode chamá-lo **antes** das boas-vindas. Ver §11 | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
 
-Os gatilhos 5, 6, 7, 8, 9, 10, 11, 12 e 13 são texto que o **cliente do
-cartório lê** — por isso nenhum deles é constante fixa em C#: virariam a
-única mensagem do sistema que o cartório parceiro não poderia reescrever sozinho pela
-tela.
+Os gatilhos de 5 a 14 são texto que o **cliente do cartório lê** — por isso
+nenhum deles é constante fixa em C#: virariam a única mensagem do sistema que
+o cartório parceiro não poderia reescrever sozinho pela tela.
+
+> **O gatilho 14 é o único que não deve usar `{NomeCliente}`.** Ele sai
+> justamente porque não há nome utilizável; o marcador resolveria para vazio
+> (§11) e a frase funcionaria, mas escrever "Olá, {NomeCliente}!" ali é pedir de
+> volta exatamente a mensagem que o gatilho existe para evitar.
 
 `DisparadorDeMensagemAutomatica.EnfileirarAsync` não falha quando não há regra
 cadastrada para um gatilho — devolve lista vazia em silêncio. É o cartório parceiro
@@ -99,6 +104,7 @@ atendimento por WhatsApp.
 | `AguardandoRespostaInteligente` | Qualquer resposta da IA, com sucesso ou sem (`RespostaSemCorrespondencia`) | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala — **só por pedido explícito**, desde 2026-08-18 — ou o cliente pede "menu" |
 | `AguardandoMenuDeContinuacao` | `ServicoEscolhido`, logo após o checklist | `AplicadorDePosAtendimento` | A próxima mensagem do cliente chega, corresponda ou não a uma das 4 opções |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
+| `AguardandoNome` | `RecebimentoDeWhatsApp`, na 1ª mensagem de contato sem nome utilizável (gatilho 14) | `AplicadorDePedidoDeNome` | A próxima mensagem do cliente chega — seja ela um nome ou não. Ver §11 |
 | `PerguntaDeEncerramentoEnviadaEm` | `VarredorDeInatividade`, fase 1 (gatilho 12) | `AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` | **Qualquer** mensagem do cliente chega — mesmo que não seja `1`/`2`/palavra reconhecida (ver §10). Também zerado ao atendente responder, ao reabrir a conversa e ao desligar o recurso pela tela |
 
 Diferente das flags acima, este campo **não dura uma mensagem só por
@@ -135,7 +141,9 @@ flowchart TD
     Y1 -- "NaoEntendeu<br/>(não consumiu)" --> Z
     Y -- não --> Z{"pediu 'menu' / 'voltar'?"}
     Z -- sim --> Z1[ReabrirDoZeroAsync —<br/>limpa SetorId e TipoServicoId,<br/>reabre NovoAtendimento]
-    Z -- não --> B{AguardandoTriagem?}
+    Z -- não --> X{AguardandoNome?}
+    X -- sim --> X1[AplicadorDePedidoDeNome —<br/>grava o nome se for nome,<br/>e SEMPRE abre o atendimento]
+    X -- não --> B{AguardandoTriagem?}
     B -- sim --> B1[AplicadorDeTriagem<br/>nível 1: setor]
     B -- não --> C{AguardandoEscolhaDeServico?}
     C -- sim --> C1[AplicadorDeEscolhaDeServico<br/>nível 2: serviço]
@@ -155,6 +163,7 @@ flowchart TD
 
     style Y fill:#f4ead5,stroke:#8a6516
     style Z fill:#f4ead5,stroke:#8a6516
+    style X fill:#f4ead5,stroke:#8a6516
     style E fill:#f4ead5,stroke:#8a6516
     style H fill:#f4ead5,stroke:#8a6516
 ```
@@ -170,6 +179,14 @@ marcador já limpo: é assim que digitar "menu" com uma pergunta de
 encerramento pendente cancela o encerramento **e** reabre do zero, no mesmo
 turno. Ver §10 para as guardas e o porquê da distinção Confirmou/Negou/
 NaoEntendeu.
+
+**`AguardandoNome` (`X`) fica logo abaixo do "menu", e acima de todo o resto.**
+Abaixo do "menu" porque a saída de emergência foi hasteada acima de *todas* as
+flags em 2026-08-18 justamente para nenhuma delas tomá-la refém — e esta é mais
+uma flag. Acima do resto porque, neste ponto, o cliente ainda não recebeu o
+menu de setores: `AguardandoTriagem` está desligada, e deixar a mensagem cair
+pela cadeia levaria o **primeiro contato** de alguém direto ao piso da IA, que
+responderia "não tenho essa informação específica". Ver §12.
 
 **"menu"/"voltar" (`Z`) é checado ANTES de qualquer flag do nível externo —
 mas depois de `Y`.** Não foi sempre assim: até 2026-08-18 isso só era
@@ -563,7 +580,118 @@ recebe protocolo novo e triagem do zero).
 
 ---
 
-## 11. Texto de escalonamento: por que dois gatilhos parecidos
+## 11. Contato sem nome utilizável no WhatsApp
+
+**O problema.** `Cliente.Nome` nasce do `pushName` do perfil, e `{NomeCliente}`
+usava esse valor cru. Contato com o perfil em `"."` ou `"🔥"` fazia a serventia
+mandar **"Olá, .! 👋"** para um cliente de verdade; perfil vazio virava o
+telefone E.164 e saía **"Olá, 5519990001488!"**.
+
+**Duas defesas independentes**, e é de propósito que sejam duas: a primeira
+resolve o caso, a segunda garante que o caso nunca fica feio mesmo quando a
+primeira não acontece.
+
+### 11.1 Perguntar o nome — antes do menu
+
+Na **primeira** mensagem de um contato novo, se `NomeDeContato.EhUtil` reprova
+o nome **e** o contato nunca foi perguntado (`Cliente.NomePerguntadoEm`), sai o
+gatilho 14 no lugar das boas-vindas, e `AguardandoNome` liga. A resposta é lida
+por `AplicadorDePedidoDeNome`, que:
+
+- grava o nome **se** a resposta parecer um nome (ver 11.3);
+- **sempre** enfileira `NovoAtendimento` em seguida, tenha gravado ou não.
+
+Perguntar antes do menu não é cortesia: as boas-vindas resolvem
+`{NomeCliente}`, então mandar o menu primeiro significaria mandar "Olá, .!"
+para só depois descobrir o nome. Com a pergunta na frente, a primeira mensagem
+que traz o nome já traz o nome certo.
+
+> **Custo:** um turno a mais, e só para quem cai neste caso. Quem tem nome no
+> perfil segue o fluxo de sempre, byte a byte — é o que o TESTE 22 trava.
+
+Três detalhes que não são acidentais:
+
+1. **Sem texto cadastrado, cai para as boas-vindas na mesma passada.** Um
+   clique no Switch da tela deixaria o contato novo sem pergunta, sem menu e
+   sem flag — mudo, violando §1. "Olá!" é infinitamente melhor que silêncio.
+2. **A resposta é consumida em todos os caminhos.** Devolver "não tratei" e
+   deixar a mensagem seguir a cadeia mandaria o primeiro contato de alguém
+   direto ao piso da IA (§5), que responderia "não tenho essa informação
+   específica". Pior que o problema original.
+3. **Pergunta uma vez por contato, nunca duas.** `NomePerguntadoEm` é carimbo
+   permanente. Sem ele, quem ignorou a pergunta seria interrogado a cada
+   atendimento novo — e atendimento novo ficou frequente desde §10.
+
+### 11.2 Quando não há nome, o vocativo some
+
+`DisparadorDeMensagemAutomatica` passa o nome por `EhUtil` antes de montar a
+mensagem; reprovado, vira string vazia. E `PlaceholdersDeMensagem` remove
+**junto** a pontuação de vocativo que sobraria:
+
+| Modelo cadastrado | Antes | Agora |
+| --- | --- | --- |
+| `Olá, {NomeCliente}! 👋` | `Olá, ! 👋` | `Olá! 👋` |
+| `{NomeCliente}, seu atendimento foi concluído!` | `, seu atendimento…` | `Seu atendimento foi concluído!` |
+| `Posso ajudar em mais alguma coisa, {NomeCliente}?` | `…coisa, ?` | `…em mais alguma coisa?` |
+
+Isto é a rede, não o mecanismo: cobre quem não respondeu à pergunta, quem já
+estava na base com `"."` de antes, e a serventia que desativou o gatilho 14 —
+**sem migração de dado nenhuma**. Com nome utilizável, a substituição é a
+literal de sempre.
+
+### 11.3 As duas leituras, com viés oposto
+
+`Modules/Clientes/Domain/NomeDeContato.cs`, lógica pura. O custo de errar não é
+simétrico, então as duas funções erram para lados contrários:
+
+| | `EhUtil` (o perfil serve?) | `LerRespostaDePergunta` (isto é um nome?) |
+| --- | --- | --- |
+| Erra para | **não perguntar** | **não gravar** |
+| Custo de errar | uma mensagem a mais | nome errado **permanente**, visível ao cliente em toda automática |
+| Regra | tem **≥ 2 letras**? | tetos de 5 palavras / 60 caracteres, lista de palavras que não são nome, e `EhUtil` no fim |
+
+`EhUtil` é uma regra só porque ela já cobre a lista toda: `""`, `"."`, `"..."`,
+`"🔥"` e o telefone E.164 têm **zero** letras; `"A"` tem uma. Aceita `"Zé"`,
+`"Ana 💅"`, `"JOÃO"`, `"Tia Neuza"`, cirílico, CJK. Conta por `Rune`, não por
+`char` — emoji fora do BMP é par substituto e `char.IsLetter` mente sobre
+metade dele. **Não há lista negra** de `"Contato"`/`"WhatsApp"`: seria
+ilimitada, mudaria por serventia, e o primeiro falso positivo transformaria um
+sobrenome legítimo em interrogatório.
+
+Do lado da resposta, o teto de palavras é o que impede o desastre: "quero uma
+certidão de nascimento do meu filho" tem 40 letras e passaria por qualquer
+regra de tamanho mínimo — viraria o nome do cliente para sempre. Prefixos
+conversacionais ("meu nome é", "sou o", "me chamo") são recortados antes, e a
+comparação da lista de palavras é **por palavra inteira**, nunca substring,
+pelo mesmo motivo documentado em `LerRespostaDeEncerramento`. E **não há Title
+Case**: capitalizar quebra `d'Ávila` e `dos`, e nome torto é mais honesto que
+nome "corrigido" errado.
+
+### 11.4 No painel
+
+`Cliente.Nome` continua guardando o que veio do WhatsApp — não se destrói dado
+de origem. A apresentação é calculada na leitura (`NomePendente` /
+`ClienteNomePendente` nos contratos, mesmo princípio de
+`PercentualDeQualificacao`): sem nome utilizável, a inbox e a lista de clientes
+mostram o **telefone formatado** no lugar do nome, com um selo discreto "sem
+nome" ao lado — senão o atendente leria um número e suporia cadastro quebrado.
+
+### 11.5 Onde mora
+
+| Peça | Arquivo |
+| --- | --- |
+| As duas leituras de nome | `Modules/Clientes/Domain/NomeDeContato.cs` |
+| A resposta do cliente à pergunta | `Modules/Atendimento/Application/AplicadorDePedidoDeNome.cs` |
+| Quem decide perguntar | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
+| O vocativo que some | `Modules/Configuracoes/Domain/PlaceholdersDeMensagem.cs` |
+| Apresentação no painel | `lib/formatacao.ts` (`nomeDeExibicao`), inbox e lista de clientes |
+
+Coberto por teste — `verificar-automacao.cs`, TESTE 16 a 23. O 22 é o que trava
+o caminho feliz: com nome no perfil, o fio tem de sair idêntico ao de antes.
+
+---
+
+## 12. Texto de escalonamento: por que dois gatilhos parecidos
 
 `TriagemSemCorrespondencia` (5) e `PedidoDeAtendente` (9) escalam para
 atendimento humano — desde 2026-08-18, **só por pedido explícito do cliente**
@@ -583,7 +711,7 @@ atendente").
 
 ---
 
-## 12. Marcadores
+## 13. Marcadores
 
 Substituição literal, sem expressão nem condicional — ver
 [`PlaceholdersDeMensagem.cs`](../src/backend/CrmCartorio.Api/Modules/Configuracoes/Domain/PlaceholdersDeMensagem.cs).
@@ -611,7 +739,7 @@ num lado exige mexer no outro.
 
 ---
 
-## 13. Onde cada peça mora
+## 14. Onde cada peça mora
 
 | Peça | Arquivo |
 | --- | --- |
@@ -622,6 +750,8 @@ num lado exige mexer no outro.
 | Piso — pós-atendimento, menu de continuação, encerrar pelo cliente | `Modules/Atendimento/Application/AplicadorDePosAtendimento.cs` |
 | IA — decide responder ou escalar | `Modules/Atendimento/Application/AplicadorDeRespostaInteligente.cs` |
 | Interpretador de menu (número/nome exato/parcial) | `Modules/Atendimento/Domain/TriagemAutomatica.cs` |
+| Nome do contato — serve? é nome? (§11) | `Modules/Clientes/Domain/NomeDeContato.cs` |
+| Pedido de nome, e a abertura do atendimento depois dele | `Modules/Atendimento/Application/AplicadorDePedidoDeNome.cs` |
 | Geração da mensagem a partir do cadastro | `Modules/Atendimento/Application/DisparadorDeMensagemAutomatica.cs` |
 | Marcadores | `Modules/Configuracoes/Domain/PlaceholdersDeMensagem.cs` |
 | Prompt da IA | `Modules/RespostaInteligente/Application/PromptDeSistema.cs` |
@@ -632,7 +762,7 @@ num lado exige mexer no outro.
 
 ---
 
-## 14. Casos conhecidos, deixados de propósito
+## 15. Casos conhecidos, deixados de propósito
 
 Registrados para não serem "descobertos" de novo e tratados como bug:
 

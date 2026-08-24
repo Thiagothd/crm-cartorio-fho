@@ -1,9 +1,9 @@
 # MODELO DE DADOS
 
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
-> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H" nas seções
+> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I" nas seções
 > abaixo.
-> **Última atualização:** 2026-08-22
+> **Última atualização:** 2026-08-24
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -194,6 +194,7 @@ Contato final que manda mensagem. **Não é usuário do sistema.**
 | Observacoes | string(1000) | não | |
 | FotoPerfilUrl | string(500) | não | URL da foto de perfil no WhatsApp (temporária) |
 | FotoPerfilAtualizadaEm | datetime2(3) | não | Instante UTC da última consulta/atualização |
+| NomePerguntadoEm | datetime2(3) | não | **Fase 2I.** Quando o sistema perguntou a este contato como quer ser chamado. Fato datado, não estado — serve a uma coisa só: não perguntar duas vezes |
 | PrimeiroContatoEm | datetime2(3) | sim | |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
@@ -201,6 +202,14 @@ Contato final que manda mensagem. **Não é usuário do sistema.**
 O telefone é a identidade real do cliente — é por ele que a mensagem chega. Por
 isso é único por tenant e não pode ser nulo. Documento é opcional de propósito:
 exigir CPF no primeiro "bom dia" trava o atendimento.
+
+**`Nome` guarda o que veio do perfil do WhatsApp, inclusive quando não presta.**
+Perfil em `"."` ou emoji entra assim mesmo — não se destrói dado de origem. Se
+o nome serve para se dirigir ao cliente é decidido **na leitura**, por
+`NomeDeContato.EhUtil` (mesmo princípio de `PercentualDeQualificacao`), e é isso
+que o painel usa para mostrar o telefone no lugar e que as mensagens automáticas
+usam para omitir o vocativo. Comportamento completo em
+[FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) §11.
 
 Os demais dados também são opcionais pela mesma razão. A interface mostra um
 **percentual de qualificação calculado na leitura**, nunca persistido: o indicador
@@ -356,6 +365,7 @@ Entidade central. É onde mora a trava.
 | AguardandoRespostaInteligente | bool | sim | **Fase 2B.** A IA respondeu e a próxima mensagem do cliente volta para ela, em vez de escalar direto |
 | TentativasRespostaInteligente | int | sim | **Fase 2B.** Contador de respostas seguidas da IA nesta sequência. Telemetria — nenhuma decisão de escalonamento lê este número (removido em 2026-08-17, ver FLUXO-AUTOMACAO.md §8) |
 | AguardandoMenuDeContinuacao | bool | sim | **Fase 2E.** Atendimento estruturado terminou; espera a escolha entre continuar, trocar de setor, falar com atendente ou encerrar |
+| AguardandoNome | bool | sim | **Fase 2I.** O contato chegou sem nome utilizável no perfil e a conversa espera que ele diga como quer ser chamado, antes do menu. Dura uma mensagem, como as demais |
 | PerguntaDeEncerramentoEnviadaEm | datetime2(3) | não | **Fase 2H.** Instante em que a pergunta "posso encerrar?" saiu. Marcador idempotente da fase 1, relógio da fase 2 **e** flag de despacho da próxima resposta do cliente — os três papéis no mesmo campo, de propósito (ver FLUXO-AUTOMACAO.md §10) |
 | PrazoIniciadoEm | datetime2(3) | não | Marcado ao vincular o tipo de serviço |
 | PrazoLimite | datetime2(3) | não | Calculado por `PrazoServico` |
@@ -483,6 +493,7 @@ Configurável, no mesmo padrão de `Setor` e `EtapaFunil`.
 | `RespostaSemCorrespondencia` | **Fase 2G.** A IA não achou resposta no catálogo e o cliente não pediu atendente | `AplicadorDeRespostaInteligente` |
 | `ConfirmacaoDeEncerramento` | **Fase 2H.** Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` | `VarredorDeInatividade` (fase 1) |
 | `EncerramentoPorInatividade` | **Fase 2H.** Sem resposta à pergunta acima dentro de `Tenant.MinutosParaEncerrarSemResposta` | `VarredorDeInatividade` (fase 2) |
+| `PedidoDeNome` | **Fase 2I.** Contato chegou sem nome utilizável no perfil do WhatsApp — pergunta antes das boas-vindas | `RecebimentoDeWhatsApp` |
 
 Comportamento completo de cada gatilho — a máquina de estado, quando a IA
 entra, quando escala — em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). Esta
@@ -624,7 +635,7 @@ Três coisas diferentes que costumam ser confundidas:
 > uma camada de IA de contingência e um piso que garante resposta a qualquer
 > mensagem, em qualquer ponto da conversa. Esta seção documenta só o **nível 1**
 > (schema-adjacente, sem mudança desde a Fase 1); o comportamento completo — os
-> 13 gatilhos, a máquina de estado, quando a IA responde e quando escala — está
+> 14 gatilhos, a máquina de estado, quando a IA responde e quando escala — está
 > em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md).
 
 ### 6.1 Triagem do primeiro contato — nível 1 (setor)
@@ -766,8 +777,9 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/022-foto-perfil-cliente.sql`](../sql/022-foto-perfil-cliente.sql) | `Clientes.FotoPerfilUrl` + `FotoPerfilAtualizadaEm` |
 | [`sql/023-canal-whatsapp-regras-e-conexoes.sql`](../sql/023-canal-whatsapp-regras-e-conexoes.sql) | Modo de recebimento do canal, regras de número liberado/bloqueado e histórico de conexão |
 | [`sql/024-encerramento-por-inatividade.sql`](../sql/024-encerramento-por-inatividade.sql) | Encerramento automático por inatividade (Fase 2H) — `Conversas.PerguntaDeEncerramentoEnviadaEm`, as 4 colunas novas de `Tenants`, os gatilhos 12/13 e o índice filtrado |
+| [`sql/025-pedido-de-nome.sql`](../sql/025-pedido-de-nome.sql) | Pedido de nome quando o perfil do WhatsApp não traz um (Fase 2I) — `Conversas.AguardandoNome`, `Clientes.NomePerguntadoEm` e o gatilho 14 |
 
-`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 024
+`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 025
 acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
 
 Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.

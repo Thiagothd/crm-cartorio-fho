@@ -34,7 +34,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { clientesApi } from '@/lib/api/endpoints'
-import { formatarDataHora, formatarDocumento, formatarTelefone } from '@/lib/formatacao'
+import {
+  formatarDataHora,
+  formatarDocumento,
+  formatarTelefone,
+  nomeDeExibicao,
+} from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
 import { DialogoDeCliente } from '@/features/clientes/dialogo-de-cliente'
 import type {
@@ -264,9 +269,33 @@ export function PaginaClientes() {
                     <tr key={cliente.id} className="border-t border-linha hover:bg-superficie">
                       <td className="px-3 py-3 md:px-4 md:py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <Avatar nome={cliente.nome} fotoUrl={cliente.fotoPerfilUrl} tamanho="sm" />
+                          <Avatar
+                            nome={nomeDeExibicao(cliente.nome, cliente.telefoneWhatsapp, cliente.nomePendente)}
+                            fotoUrl={cliente.fotoPerfilUrl}
+                            tamanho="sm"
+                          />
                           <div className="min-w-0">
-                            <span className="block truncate font-medium text-tinta">{cliente.nome}</span>
+                            <span className="flex min-w-0 items-baseline gap-1.5">
+                              <span className="truncate font-medium text-tinta">
+                                {nomeDeExibicao(cliente.nome, cliente.telefoneWhatsapp, cliente.nomePendente)}
+                              </span>
+
+                              {/* O WhatsApp não trouxe nome utilizável, então o
+                                  telefone está no lugar do nome. O selo evita que
+                                  isso pareça cadastro quebrado. */}
+                              {cliente.nomePendente ? (
+                                <span
+                                  className="shrink-0 rounded border border-linha px-1 text-[10px] font-normal text-tinta-fraca"
+                                  title={
+                                    cliente.nomePerguntadoEm
+                                      ? 'O sistema já pediu o nome pelo WhatsApp e o cliente não respondeu.'
+                                      : 'O sistema vai pedir o nome no próximo contato pelo WhatsApp.'
+                                  }
+                                >
+                                  sem nome
+                                </span>
+                              ) : null}
+                            </span>
                             <span className="text-xs text-tinta-fraca">
                               {tipoDescrito[cliente.tipo]}
                               {cliente.cidade ? ` · ${cliente.cidade}${cliente.uf ? `/${cliente.uf}` : ''}` : ''}
