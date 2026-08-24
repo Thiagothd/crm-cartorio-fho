@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
@@ -91,7 +92,7 @@ public class RecebimentoDeWhatsApp(
             // "bom dia" nunca casa com opcao nenhuma, e o cliente receberia o
             // menu e o "vou encaminhar para um atendente" na mesma tacada, sem
             // chance de escolher.
-            await EnfileirarBoasVindasAsync(conversa, ct);
+            await EnfileirarPrimeiroContatoAsync(conversa, cliente, agora, ct);
         }
         else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
                      db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), ct))
@@ -115,6 +116,18 @@ public class RecebimentoDeWhatsApp(
             // AplicadorDePosAtendimento.ReabrirDoZeroAsync.
             await AplicadorDePosAtendimento.ReabrirDoZeroAsync(
                 db, automaticas, conversa, agora.AddMilliseconds(1), ct);
+        }
+        else if (conversa.AguardandoNome)
+        {
+            // Abaixo do "menu" de proposito: a saida de emergencia foi hasteada
+            // acima de TODAS as flags em 2026-08-18 justamente para nenhuma delas
+            // toma-la refem, e esta e mais uma flag. Quem digitar "menu" em vez do
+            // nome recomeca do zero — e ReabrirDoZeroAsync limpa AguardandoNome.
+            //
+            // O retorno deste aplicador NAO e condicao de despacho: ele consome a
+            // mensagem sempre. Ver o remark dele para o porque.
+            await AplicadorDePedidoDeNome.AplicarAsync(
+                db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
         }
         else if (conversa.AguardandoTriagem)
         {
@@ -312,13 +325,21 @@ public class RecebimentoDeWhatsApp(
 
         if (cliente is not null)
         {
-            // Cliente cadastrado sem nome util ("Contato", vazio) ganha o nome do
-            // perfil. Nome ja preenchido NAO e sobrescrito: pode ter sido corrigido
-            // a mao por um atendente, e o perfil do WhatsApp e do cliente, nao nosso.
+            // Cliente cadastrado sem nome util (".", emoji, o proprio telefone)
+            // ganha o nome do perfil assim que ele melhorar. Nome ja utilizavel NAO
+            // e sobrescrito: pode ter sido corrigido a mao por um atendente, ou dito
+            // pelo proprio cliente, e o perfil do WhatsApp e dele, nao nosso.
+            //
+            // A guarda era `IsNullOrWhiteSpace(cliente.Nome)` e nunca disparava: o
+            // fallback do telefone (abaixo) garante que o campo nunca fica vazio,
+            // entao a promessa deste comentario existia so no comentario. Com
+            // EhUtil ela passa a valer de verdade — e para quem ja tem nome bom a
+            // condicao continua falsa, exatamente como antes.
             if (!string.IsNullOrWhiteSpace(mensagem.NomeDoPerfil)
-                && string.IsNullOrWhiteSpace(cliente.Nome))
+                && !NomeDeContato.EhUtil(cliente.Nome)
+                && NomeDeContato.EhUtil(mensagem.NomeDoPerfil))
             {
-                cliente.Nome = mensagem.NomeDoPerfil;
+                cliente.Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164);
                 cliente.AtualizadoEm = agora;
             }
 
@@ -335,9 +356,10 @@ public class RecebimentoDeWhatsApp(
         cliente = new Cliente
         {
             TenantId = tenantId,
-            Nome = string.IsNullOrWhiteSpace(mensagem.NomeDoPerfil)
-                ? mensagem.TelefoneE164
-                : mensagem.NomeDoPerfil,
+            // Mesmo resultado de sempre para perfil real; DoPerfil so acrescenta o
+            // Trim e o corte em 200 caracteres, que impedia uma classe de mensagem
+            // perdida — ver NomeDeContato.DoPerfil.
+            Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164),
             TelefoneWhatsapp = mensagem.TelefoneE164,
             FotoPerfilUrl = mensagem.FotoPerfilUrl,
             FotoPerfilAtualizadaEm = mensagem.FotoPerfilUrl is not null ? agora : null,
@@ -417,6 +439,52 @@ public class RecebimentoDeWhatsApp(
         });
 
         return (conversa, true);
+    }
+
+    /// <summary>
+    /// O que sai na primeira mensagem de um contato: ou a pergunta do nome, ou as
+    /// boas-vindas de sempre.
+    /// </summary>
+    /// <remarks>
+    /// Perguntar antes do menu tem uma razao pratica alem da cortesia: as
+    /// boas-vindas resolvem <c>{NomeCliente}</c>, entao mandar o menu primeiro
+    /// significaria mandar "Ola, .!" para so depois descobrir como a pessoa se
+    /// chama. Com a pergunta na frente, a primeira mensagem que traz o nome ja
+    /// traz o nome certo.
+    ///
+    /// <b>Tres condicoes, e todas precisam ser verdade:</b> o nome nao serve, o
+    /// contato nunca foi perguntado, e existe texto cadastrado para o gatilho. A
+    /// terceira nao e detalhe — <c>EnfileirarAsync</c> devolve lista vazia quando
+    /// a serventia desativou a regra, e sem este teto um clique no Switch da tela
+    /// deixaria o contato novo sem pergunta, sem menu e sem flag: mudo. Cai para as
+    /// boas-vindas na MESMA passada, porque "Ola!" e infinitamente melhor que
+    /// silencio (FLUXO-AUTOMACAO.md, secao 1).
+    /// </remarks>
+    private async Task EnfileirarPrimeiroContatoAsync(
+        Conversa conversa,
+        Cliente cliente,
+        DateTime agora,
+        CancellationToken ct)
+    {
+        if (!NomeDeContato.EhUtil(cliente.Nome) && cliente.NomePerguntadoEm is null)
+        {
+            var pedido = await automaticas.EnfileirarAsync(
+                conversa, GatilhoDeMensagem.PedidoDeNome, ct: ct);
+
+            if (pedido.Count > 0)
+            {
+                conversa.AguardandoNome = true;
+                cliente.NomePerguntadoEm = agora;
+
+                log.LogInformation(
+                    "WhatsApp: contato {Telefone} chegou sem nome utilizavel; pergunta enviada.",
+                    cliente.TelefoneWhatsapp);
+
+                return;
+            }
+        }
+
+        await EnfileirarBoasVindasAsync(conversa, ct);
     }
 
     /// <summary>

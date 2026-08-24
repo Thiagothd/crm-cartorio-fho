@@ -63,6 +63,24 @@ describe('Shell', () => {
     expect(screen.getByRole('navigation', { name: 'Navegação principal' })).toBeInTheDocument()
   })
 
+  it('a moldura cria bloco container, para nada escapar do recorte', () => {
+    // Medido em 2026-08-24: sem `relative` aqui, o `.sr-only` do Tailwind —
+    // que é `position: absolute` — ancorava na viewport em vez da moldura,
+    // escapava dos `overflow: hidden` e dava 980px de rolagem ao documento.
+    // Arrastar essa barra levava rail e cabeçalho para fora da tela.
+    //
+    // Era latente em TODA tela: só aparecia onde o conteúdo passava da altura
+    // da janela. jsdom não faz layout, então o efeito não é testável aqui —
+    // o que dá para travar é a causa, que é esta classe.
+    const { container } = renderizarComProvedores(
+      <Shell>
+        <p>Conteúdo</p>
+      </Shell>,
+    )
+
+    expect(container.firstElementChild).toHaveClass('relative')
+  })
+
   it('EstadoVazio continua exportado e funcional', () => {
     renderizarComProvedores(<EstadoVazio icone={Inbox} titulo="Nada por aqui" descricao="Sem registros." />)
 

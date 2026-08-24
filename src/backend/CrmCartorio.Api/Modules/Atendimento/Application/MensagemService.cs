@@ -406,6 +406,14 @@ public class MensagemService(
         {
             await ReabrirMenuInicialAsync(conversa, agora, ct);
         }
+        else if (conversa.AguardandoNome)
+        {
+            // Mesma posicao do webhook real (RecebimentoDeWhatsApp): abaixo do
+            // "menu", acima das demais flags. O aplicador consome a mensagem em
+            // todos os caminhos — o retorno nao e condicao de despacho.
+            await AplicadorDePedidoDeNome.AplicarAsync(
+                db, automaticas, conversa, conteudo, agora, log, ct);
+        }
         else if (conversa.AguardandoTriagem)
         {
             await ResponderTriagemAsync(conversa, conteudo, agora, ct);

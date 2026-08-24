@@ -132,7 +132,13 @@ public record ConversaResumoResponse(
     string? EncerradaPorNome,
     string? MotivoEncerramento,
     DateTime? ReabertaEm,
-    string? ClienteFotoPerfilUrl = null);
+    string? ClienteFotoPerfilUrl = null,
+    /// <summary>
+    /// O nome do contato nao serve para se dirigir a ele (".", emoji, o proprio
+    /// numero). A tela mostra o telefone no lugar; a regra fica no backend para os
+    /// dois lados nao divergirem.
+    /// </summary>
+    bool ClienteNomePendente = false);
 
 public record MensagemResponse(
     Guid Id,

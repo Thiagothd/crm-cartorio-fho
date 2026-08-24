@@ -47,6 +47,12 @@ const LIMITE_DO_TEXTO = 1000
  */
 const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }[] = [
   {
+    valor: 'PedidoDeNome',
+    rotulo: 'Contato sem nome no WhatsApp',
+    explicacao:
+      'Sai antes das boas-vindas, só quando o perfil do contato não traz um nome utilizável (".", emoji, vazio). Depois da resposta, o menu sai já com o nome certo. Não use {NomeCliente} aqui: esta mensagem existe justamente porque ainda não há nome. Sem este texto o sistema manda o menu de sempre.',
+  },
+  {
     valor: 'NovoAtendimento',
     rotulo: 'Primeiro contato do cliente',
     explicacao:

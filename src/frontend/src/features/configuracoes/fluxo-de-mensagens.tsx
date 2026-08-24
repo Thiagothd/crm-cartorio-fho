@@ -40,6 +40,10 @@ const ATENDENTE_EM_ATENDIMENTO: PontoFixo = {
 }
 const PRAZO_ALERTA: PontoFixo = { gatilho: 'PrazoProximoVencimento', rotulo: 'Prazo perto de vencer' }
 const PRAZO_VENCIDO: PontoFixo = { gatilho: 'PrazoVencido', rotulo: 'Prazo vencido' }
+const PEDIDO_DE_NOME: PontoFixo = {
+  gatilho: 'PedidoDeNome',
+  rotulo: 'Contato sem nome',
+}
 const PERGUNTA_DE_ENCERRAMENTO: PontoFixo = {
   gatilho: 'ConfirmacaoDeEncerramento',
   rotulo: 'Posso encerrar?',
@@ -136,6 +140,33 @@ export function FluxoDeMensagens({
                   )
                 }
               />
+            </PontoComSeta>
+          </Trilho>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
+          <CornerDownRight className="size-3.5 shrink-0" />
+          <span>
+            Se o WhatsApp não traz um nome utilizável, pergunta antes de mandar o menu — quem
+            tem nome no perfil não passa por aqui:
+          </span>
+        </div>
+
+        <div className="mt-2 pl-5">
+          <Trilho>
+            <PontoComSeta primeiro>
+              <Ponto
+                rotulo={PEDIDO_DE_NOME.rotulo}
+                mensagem={encontrar(PEDIDO_DE_NOME.gatilho)}
+                aoClicar={() =>
+                  aoClicarPonto(PEDIDO_DE_NOME.gatilho, null, encontrar(PEDIDO_DE_NOME.gatilho))
+                }
+              />
+            </PontoComSeta>
+            <PontoComSeta>
+              <div className="flex h-full w-40 shrink-0 items-center rounded-md border border-dashed border-linha bg-branco px-3 py-2 text-[11px] text-tinta-fraca">
+                Segue para o primeiro contato, acima — agora com o nome certo.
+              </div>
             </PontoComSeta>
           </Trilho>
         </div>

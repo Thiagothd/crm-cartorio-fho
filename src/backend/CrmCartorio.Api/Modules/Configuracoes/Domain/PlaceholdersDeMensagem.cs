@@ -82,8 +82,7 @@ public static partial class PlaceholdersDeMensagem
     ];
 
     public static string Aplicar(string modelo, DadosParaMensagem dados) =>
-        modelo
-            .Replace("{NomeCliente}", dados.NomeCliente, StringComparison.Ordinal)
+        ResolverNomeCliente(modelo, dados.NomeCliente)
             .Replace("{NomeCartorio}", dados.NomeCartorio, StringComparison.Ordinal)
             .Replace(
                 "{Servico}",
@@ -100,6 +99,55 @@ public static partial class PlaceholdersDeMensagem
                 "{PrazoServico}",
                 string.IsNullOrWhiteSpace(dados.PrazoServico) ? PrazoNaoInformado : dados.PrazoServico,
                 StringComparison.Ordinal);
+
+    /// <summary>
+    /// Resolve {NomeCliente}. Sem nome utilizavel, o vocativo INTEIRO some — nao
+    /// sobra virgula orfa.
+    /// </summary>
+    /// <remarks>
+    /// Decisao do Thiago, 2026-08-24: quando o WhatsApp nao traz um nome que preste
+    /// (".", emoji, o proprio numero), a mensagem sai com o cumprimento e mais
+    /// nada — "Ola! 👋", nunca "Ola, .!" nem "Ola, !".
+    ///
+    /// Substituicao literal deixaria a pontuacao para tras, e o resultado seria tao
+    /// ruim quanto o problema: "Ola, ! 👋", "Posso ajudar em mais alguma coisa, ?".
+    /// Por isso os padroes sao tratados do mais especifico para o mais generico, e
+    /// o caso do INICIO da frase ainda promove a letra seguinte a maiuscula
+    /// ("{NomeCliente}, seu atendimento" viraria ", seu atendimento").
+    ///
+    /// <b>Rede de seguranca, nao o mecanismo principal.</b> Quem chega sem nome
+    /// recebe o pedido de nome (gatilho 14) e normalmente responde. Isto cobre
+    /// quem nao respondeu, quem ja estava na base com "." de antes, e a serventia
+    /// que desativou o gatilho — sem migracao de dado nenhuma.
+    ///
+    /// Com nome utilizavel o caminho e o mesmo <c>Replace</c> de sempre.
+    /// </remarks>
+    private static string ResolverNomeCliente(string modelo, string nomeCliente)
+    {
+        if (!string.IsNullOrWhiteSpace(nomeCliente))
+        {
+            return modelo.Replace("{NomeCliente}", nomeCliente, StringComparison.Ordinal);
+        }
+
+        // Vocativo no fim ou no meio: "Ola, {NomeCliente}!" e "...por aqui,
+        // {NomeCliente}, mas fico a disposicao!".
+        var texto = modelo.Replace(", {NomeCliente}", string.Empty, StringComparison.Ordinal);
+
+        // Vocativo no inicio: "{NomeCliente}, seu atendimento foi concluido!".
+        if (texto.StartsWith("{NomeCliente}, ", StringComparison.Ordinal))
+        {
+            texto = texto["{NomeCliente}, ".Length..];
+
+            if (texto.Length > 0)
+            {
+                texto = char.ToUpperInvariant(texto[0]) + texto[1..];
+            }
+        }
+
+        return texto
+            .Replace(" {NomeCliente}", string.Empty, StringComparison.Ordinal)
+            .Replace("{NomeCliente}", string.Empty, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Marcadores presentes no modelo que nao existem no <see cref="Catalogo"/>.

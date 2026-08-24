@@ -144,5 +144,28 @@ public enum GatilhoDeMensagem : byte
     /// que documenta por que esta e uma divergencia deliberada do
     /// <see cref="Atendimento.Application.VarredorDePrazos"/>.
     /// </remarks>
-    EncerramentoPorInatividade = 13
+    EncerramentoPorInatividade = 13,
+
+    /// <summary>
+    /// O contato chegou sem um nome utilizavel no perfil do WhatsApp (".", emoji,
+    /// vazio). Pergunta como pode chamar a pessoa ANTES de mandar o menu.
+    /// </summary>
+    /// <remarks>
+    /// Nao reusa <see cref="NovoAtendimento"/> porque nao substitui as boas-vindas:
+    /// e um passo a MAIS, que acontece antes delas e so para quem cai neste caso.
+    /// Quem tem nome no perfil nunca ve esta mensagem, e o fluxo dele fica
+    /// exatamente como sempre foi.
+    ///
+    /// <b>O texto cadastrado nao deve usar <c>{NomeCliente}</c>.</b> E a unica
+    /// mensagem do sistema que sai justamente porque nao ha nome utilizavel —
+    /// o marcador resolveria para vazio e a frase sairia sem o vocativo, o que
+    /// funciona, mas escrever "Ola, {NomeCliente}!" aqui e pedir a mensagem que o
+    /// gatilho existe para evitar. <c>{Protocolo}</c> e <c>{NomeCartorio}</c> sao
+    /// bem-vindos.
+    ///
+    /// Sem regra ativa a serventia simplesmente nao pergunta: o recebimento cai
+    /// para <see cref="NovoAtendimento"/> na mesma passada, e o cliente recebe o
+    /// menu de sempre. Conversa muda seria pior que "Ola!".
+    /// </remarks>
+    PedidoDeNome = 14
 }
