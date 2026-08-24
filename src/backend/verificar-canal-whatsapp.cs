@@ -1167,6 +1167,9 @@ file sealed class GatewayFake : IEvolutionClient
 
     public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) =>
         Task.FromResult<PerfilDaInstancia?>(null);
+
+    public Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ContatoDoWhatsApp>>([]);
 }
 
 file sealed class ArmazenamentoFake : IArmazenamentoDeAnexos

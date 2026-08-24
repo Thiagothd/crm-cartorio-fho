@@ -120,6 +120,9 @@ public class Cliente : EntidadeBase, IEntidadeDeTenant
     /// </remarks>
     public DateTime? NomePerguntadoEm { get; set; }
 
+    /// <summary>De onde este cadastro veio. Nulo nos clientes de antes desta coluna.</summary>
+    public OrigemDoCadastro? OrigemDoCadastro { get; set; }
+
     public DateTime PrimeiroContatoEm { get; set; } = DateTime.UtcNow;
 
     public bool Ativo { get; set; } = true;

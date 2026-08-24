@@ -48,4 +48,24 @@ public class ClientesServiceException(string codigo, string mensagem, int status
 
     public static ClientesServiceException NascimentoImplausivel() =>
         new("nascimento_implausivel", "Confira a data de nascimento.", 400);
+
+    public static ClientesServiceException SemPermissao() =>
+        new("sem_permissao", "Seu perfil não permite alterar cadastros.", 403);
+
+    public static ClientesServiceException TextoDeImportacaoObrigatorio() =>
+        new("texto_de_importacao_obrigatorio", "Cole a lista de contatos ou escolha um arquivo.", 400);
+
+    /// <summary>
+    /// A instância não devolveu contatos — pode ser porque de fato não há
+    /// nenhum, ou porque a Evolution não está persistindo contatos nesta
+    /// instância. A tela precisa dizer isto e não "falhou", ver
+    /// docs/DEPLOY-WHATSAPP.md.
+    /// </summary>
+    public static ClientesServiceException GatewayIndisponivelParaImportacao() =>
+        new("gateway_indisponivel_para_importacao",
+            "Não foi possível consultar os contatos do WhatsApp agora. Tente de novo em instantes.", 503);
+
+    public static ClientesServiceException ImportacaoMuitoGrande(int total) =>
+        new("importacao_muito_grande",
+            $"A lista tem {total} linhas. Separe em arquivos de até 5.000 linhas.", 400);
 }

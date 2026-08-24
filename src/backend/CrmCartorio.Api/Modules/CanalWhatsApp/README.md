@@ -22,7 +22,7 @@ reescrever este módulo, e nada mais.
 
 | Peça | Papel |
 | --- | --- |
-| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, desconectar, ler perfil pareado, enviar texto e mídia, baixar mídia |
+| `IEvolutionClient` / `EvolutionClient` | REST do gateway: criar instância, registrar webhook, QR, desconectar, ler perfil pareado, enviar texto e mídia, baixar mídia, ler a agenda de contatos (`ObterContatosAsync`, usado pela importação em `Modules/Clientes`) |
 | `WebhookContracts` + `TradutorDePayload` | Traduz o payload cru para o nosso vocabulário |
 | `IPareamentoDoCanal` / `PareamentoDoCanal` | Conectar, trocar de número, desconectar, testar envio e histórico de conexões — a gestão do canal para a tela |
 | `IRegrasDoCanal` / `RegrasDoCanal` | Quem pode falar com o canal (liberado/bloqueado/todos) — única fonte da resposta, para os dois sentidos |
@@ -114,6 +114,14 @@ pela tela passa a mandar, e o `appsettings` vira letra morta.
   instância no payload (`Tenants.WhatsappInstancia`), não por token de sessão.
   Na Fase 1 há um tenant só, mas amarrar agora evita reescrever o recebimento na
   Fase 3.
+- **`ObterContatosAsync` (`chat/findContacts`) — confirmado ao vivo em
+  2026-08-24.** `POST chat/findContacts/{instancia}` com corpo `{"where":{}}`
+  devolve um **array JSON cru**, sem envelope — testado contra o gateway real
+  (`cartorio-teste`). Vazio é resultado válido e esperado: a Evolution só
+  devolve o que sincronizou no pareamento, não uma leitura ao vivo do telefone,
+  e mesmo um número com histórico de conversa real voltou `[]`. Mesma regra de
+  `@lid`→`remoteJidAlt` do webhook de mensagem se aplica aqui — confirmado que
+  o gateway usa esse campo no mesmo formato em `chat/findChats`.
 
 ## Anexo: quem baixa, e o que acontece quando falha
 

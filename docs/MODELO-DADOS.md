@@ -195,6 +195,7 @@ Contato final que manda mensagem. **Não é usuário do sistema.**
 | FotoPerfilUrl | string(500) | não | URL da foto de perfil no WhatsApp (temporária) |
 | FotoPerfilAtualizadaEm | datetime2(3) | não | Instante UTC da última consulta/atualização |
 | NomePerguntadoEm | datetime2(3) | não | **Fase 2I.** Quando o sistema perguntou a este contato como quer ser chamado. Fato datado, não estado — serve a uma coisa só: não perguntar duas vezes |
+| OrigemDoCadastro | enum | não | De onde este cadastro veio: `Webhook` / `Manual` / `ImportacaoPlanilha` / `ImportacaoWhatsapp`. Nulo nos clientes anteriores à coluna — "não sabemos" é a verdade para eles, sem backfill retroativo |
 | PrimeiroContatoEm | datetime2(3) | sim | |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
@@ -778,8 +779,9 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/023-canal-whatsapp-regras-e-conexoes.sql`](../sql/023-canal-whatsapp-regras-e-conexoes.sql) | Modo de recebimento do canal, regras de número liberado/bloqueado e histórico de conexão |
 | [`sql/024-encerramento-por-inatividade.sql`](../sql/024-encerramento-por-inatividade.sql) | Encerramento automático por inatividade (Fase 2H) — `Conversas.PerguntaDeEncerramentoEnviadaEm`, as 4 colunas novas de `Tenants`, os gatilhos 12/13 e o índice filtrado |
 | [`sql/025-pedido-de-nome.sql`](../sql/025-pedido-de-nome.sql) | Pedido de nome quando o perfil do WhatsApp não traz um (Fase 2I) — `Conversas.AguardandoNome`, `Clientes.NomePerguntadoEm` e o gatilho 14 |
+| [`sql/026-origem-do-cadastro-de-cliente.sql`](../sql/026-origem-do-cadastro-de-cliente.sql) | `Clientes.OrigemDoCadastro` — de onde o cadastro veio, para a importação de contatos em lote (sem disparo de mensagem; ver CLAUDE.md, seção 2) |
 
-`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 025
+`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 026
 acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
 
 Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.

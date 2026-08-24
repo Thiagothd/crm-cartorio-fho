@@ -161,7 +161,8 @@ public partial class ClienteService(
             Nome = limpos.Nome,
             TelefoneWhatsapp = limpos.TelefoneWhatsapp,
             PrimeiroContatoEm = DateTime.UtcNow,
-            Ativo = true
+            Ativo = true,
+            OrigemDoCadastro = OrigemDoCadastro.Manual
         };
 
         Aplicar(cliente, limpos);
@@ -405,22 +406,15 @@ public partial class ClienteService(
     /// Normaliza para E.164 sem simbolos. Numero brasileiro digitado sem o codigo
     /// do pais recebe o 55 automaticamente — no balcao ninguem digita "+55".
     /// </summary>
-    private static string ValidarTelefone(string? telefone)
-    {
-        var digitos = SomenteDigitos(telefone ?? string.Empty);
-
-        if (digitos.Length is 10 or 11)
-        {
-            digitos = "55" + digitos;
-        }
-
-        if (digitos.Length is < 12 or > 15)
-        {
-            throw ClientesServiceException.TelefoneInvalido();
-        }
-
-        return digitos;
-    }
+    /// <remarks>
+    /// Delega para <see cref="TelefoneDeContato.ParaE164Basico"/> — mesma regra
+    /// de sempre, sem checagem de DDD nem tratamento de ambiguidade. Esse rigor
+    /// extra so existe para a importacao em lote
+    /// (<see cref="TelefoneDeContato.Interpretar"/>); aqui o atendente digita na
+    /// tela e ve o erro na hora.
+    /// </remarks>
+    private static string ValidarTelefone(string? telefone) =>
+        TelefoneDeContato.ParaE164Basico(telefone) ?? throw ClientesServiceException.TelefoneInvalido();
 
     private static string? LimparTelefoneOpcional(string? telefone)
     {

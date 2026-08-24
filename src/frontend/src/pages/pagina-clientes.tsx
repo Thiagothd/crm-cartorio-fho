@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  Upload,
   Users,
   X,
 } from 'lucide-react'
@@ -42,6 +43,7 @@ import {
 } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
 import { DialogoDeCliente } from '@/features/clientes/dialogo-de-cliente'
+import { DialogoDeImportacao } from '@/features/clientes/dialogo-de-importacao'
 import type {
   Cliente,
   EstadoCivil,
@@ -71,6 +73,7 @@ export function PaginaClientes() {
   const [filtros, setFiltros] = useState<FiltroDeClientes>({ ordenar: 'nome', tamanho: 100 })
   const [emEdicao, setEmEdicao] = useState<Cliente | null>(null)
   const [dialogoAberto, setDialogoAberto] = useState(false)
+  const [importacaoAberta, setImportacaoAberta] = useState(false)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
 
   // A busca global (cabeçalho) manda o cliente encontrado para aqui via
@@ -133,6 +136,10 @@ export function PaginaClientes() {
           está, e a palavra custava ~55px de um cabeçalho que também carrega
           marca, título, busca e sino em 360px. */}
       <AcoesDaPagina>
+        <Button size="sm" variant="outline" onClick={() => setImportacaoAberta(true)}>
+          <Upload />
+          <span className="hidden sm:inline">Importar</span>
+        </Button>
         <Button size="sm" onClick={abrirNovo}>
           <Plus />
           Novo<span className="hidden sm:inline">&nbsp;cliente</span>
@@ -372,6 +379,15 @@ export function PaginaClientes() {
         aberto={dialogoAberto}
         aoFechar={() => setDialogoAberto(false)}
         aoSalvar={() => {
+          void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes'] })
+          void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes-opcoes'] })
+        }}
+      />
+
+      <DialogoDeImportacao
+        aberto={importacaoAberta}
+        aoFechar={() => setImportacaoAberta(false)}
+        aoImportar={() => {
           void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes'] })
           void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes-opcoes'] })
         }}
