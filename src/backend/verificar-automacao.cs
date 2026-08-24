@@ -5,6 +5,7 @@ using Anthropic;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
+using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
@@ -29,6 +30,14 @@ using Microsoft.Extensions.Options;
 //   4. Aviso por mudanca de etapa
 //   5. Varredura de prazo, incluindo a garantia de nao avisar duas vezes
 //   6. Transferencia entre atendentes (RF-013)
+//   9. Pergunta de encerramento por inatividade sai uma vez so
+//  10. Leitura da resposta: "sim" encerra, "nao" continua, "assim" NAO encerra
+//  11. Sem resposta, a conversa encerra sozinha
+//  12. O REQUISITO: quem volta depois de encerrada cai em atendimento novo
+//  13. As guardas (mensagem nao lida, canal simulado, sem config, fora da janela) —
+//      e a confirmacao de que SLA vivo NAO bloqueia mais (decisao de 2026-08-23)
+//  14. Reabrir limpa o carimbo — conversa reaberta nao fecha de novo
+//  15. Sem texto cadastrado: nao pergunta, mas a 2a fase encerra assim mesmo
 //
 // ATENCAO: este verificador ESCREVE no banco. Rode SOMENTE contra base de
 // desenvolvimento. Ao final remove tudo que criou, inclusive sobras de execucoes
@@ -139,6 +148,23 @@ Console.WriteLine($"Tenant ....... {tenantId}");
 Console.WriteLine($"Atendentes ... {atendenteNome} / {outroAtendenteNome}");
 Console.WriteLine($"Setores ...... {string.Join(", ", setores.Select((s, i) => $"{i + 1}={s.Nome}"))}");
 Console.WriteLine($"Etapa final .. {etapaFinalNome}");
+
+// Configuracao de encerramento automatico do tenant, como estava ANTES do teste.
+// Os testes 9-15 precisam liga-la, e sair deixando o recurso ligado (ou com tempos
+// de teste) mudaria o comportamento da base de desenvolvimento para todo mundo. E
+// devolvida em LimparAsync, que roda na entrada e na saida.
+(int? Perguntar, int? Encerrar, int? HoraInicial, int? HoraFinal) configuracaoOriginal;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var tenant = await db.Tenants.AsNoTracking().FirstAsync(t => t.Id == tenantId);
+
+    configuracaoOriginal = (
+        tenant.MinutosParaPerguntarEncerramento,
+        tenant.MinutosParaEncerrarSemResposta,
+        tenant.EncerramentoHoraInicial,
+        tenant.EncerramentoHoraFinal);
+}
 
 // Limpeza de ENTRADA, alem da de saida. Uma execucao que aborta no meio deixa
 // cliente e conversa para tras, e o CriarAsync recusa abrir um segundo atendimento
@@ -835,6 +861,445 @@ await using (var db = new CrmDbContext(opcoes))
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTES 9 a 15 — encerramento automatico por inatividade
+// ---------------------------------------------------------------------------
+//
+// A conversa precisa ser de CANAL WHATSAPP: a varredura ignora conversa simulada
+// de proposito, para nao desmontar a base de demonstracao. ConversaService.CriarAsync
+// abre como Simulado, entao o canal e ajustado por fora — e fixture, nao o que esta
+// sob teste.
+
+async Task<Guid> NovaConversaParadaAsync(string apelido, int minutosDeSilencio)
+{
+    Guid conversaId;
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(await NovoClienteAsync(apelido), null, null, null));
+
+        conversaId = criada.Id;
+    }
+
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await db.Conversas.Where(c => c.Id == conversaId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.Canal, CanalOrigem.WhatsApp)
+                .SetProperty(c => c.MensagensNaoLidas, 0)
+                .SetProperty(c => c.UltimaMensagemEm, DateTime.UtcNow.AddMinutes(-minutosDeSilencio)));
+    }
+
+    return conversaId;
+}
+
+async Task ConfigurarEncerramentoAsync(int? perguntar, int? encerrar, int? horaInicial, int? horaFinal)
+{
+    await using var db = new CrmDbContext(opcoes);
+
+    await db.Tenants.Where(t => t.Id == tenantId)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(t => t.MinutosParaPerguntarEncerramento, perguntar)
+            .SetProperty(t => t.MinutosParaEncerrarSemResposta, encerrar)
+            .SetProperty(t => t.EncerramentoHoraInicial, horaInicial)
+            .SetProperty(t => t.EncerramentoHoraFinal, horaFinal));
+}
+
+async Task<Conversa> RecarregarAsync(Guid conversaId)
+{
+    await using var db = new CrmDbContext(opcoes);
+    return await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversaId);
+}
+
+// Janela nula = qualquer hora. Sem isso os testes so passariam entre 8h e 18h.
+await ConfigurarEncerramentoAsync(20, 30, null, null);
+
+// ---------------------------------------------------------------------------
+// TESTE 9 — a pergunta sai UMA vez e nao reordena a inbox
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 9 — conversa parada recebe a pergunta de encerramento, e so uma vez");
+
+var conversa9 = await NovaConversaParadaAsync("Parada", 60);
+
+int primeiraPassada9;
+int segundaPassada9;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    primeiraPassada9 = await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    segundaPassada9 = await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+{
+    var depois = await RecarregarAsync(conversa9);
+    var fio = await FioAsync(conversa9);
+
+    Checar("primeira passada perguntou", primeiraPassada9 >= 1);
+    Checar("o carimbo da pergunta foi gravado", depois.PerguntaDeEncerramentoEnviadaEm is not null);
+    Checar("segunda passada NAO repergunta", segundaPassada9 == 0, $"segunda passada tratou {segundaPassada9}");
+    Checar("a pergunta chegou ao fio",
+        fio.Any(m => m.Automatica && m.Conteudo.Contains("Posso encerrar")));
+    Checar("a pergunta nao reordenou a inbox",
+        depois.UltimaMensagemEm < depois.PerguntaDeEncerramentoEnviadaEm);
+    Checar("a conversa continua ativa enquanto espera resposta",
+        depois.Status == StatusConversa.Ativa);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 10 — "sim" encerra, "nao" continua, e "assim" NAO encerra
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 10 — leitura da resposta: sim encerra, nao continua, \"assim\" nao e \"sim\"");
+
+// O terceiro caso e o de regressao que mais importa: com Contains de substring,
+// "assim" casa com "sim" e a conversa de quem disse que vai voltar seria fechada.
+var conversa10Sim = await NovaConversaParadaAsync("Confirma", 60);
+var conversa10Nao = await NovaConversaParadaAsync("Recusa", 60);
+var conversa10Assim = await NovaConversaParadaAsync("Assim", 60);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa10Sim, new SimularMensagemDeClienteRequest("sim, pode encerrar"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa10Nao, new SimularMensagemDeClienteRequest("nao, ainda preciso"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa10Assim, new SimularMensagemDeClienteRequest("assim que eu tiver os documentos eu volto"));
+}
+
+{
+    var comSim = await RecarregarAsync(conversa10Sim);
+    var comNao = await RecarregarAsync(conversa10Nao);
+    var comAssim = await RecarregarAsync(conversa10Assim);
+
+    Checar("\"sim, pode encerrar\" encerrou", comSim.Status == StatusConversa.Encerrada);
+    Checar("encerramento por confirmacao nao tem atendente",
+        comSim.EncerradaPorAtendenteId is null);
+    Checar("o carimbo saiu junto com o encerramento",
+        comSim.PerguntaDeEncerramentoEnviadaEm is null);
+
+    Checar("\"nao, ainda preciso\" manteve a conversa aberta", comNao.Status == StatusConversa.Ativa);
+    Checar("recusa cancelou o carimbo", comNao.PerguntaDeEncerramentoEnviadaEm is null);
+    Checar("recusa ofereceu o menu de continuacao", comNao.AguardandoMenuDeContinuacao);
+
+    Checar("\"assim que eu tiver...\" NAO encerrou (regressao de substring)",
+        comAssim.Status == StatusConversa.Ativa,
+        $"status: {comAssim.Status}");
+    Checar("resposta nao entendida tambem cancela o encerramento",
+        comAssim.PerguntaDeEncerramentoEnviadaEm is null);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 11 — sem resposta, encerra sozinha
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 11 — sem resposta dentro do prazo, a conversa encerra sozinha");
+
+var conversa11 = await NovaConversaParadaAsync("Silencio", 60);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+// Empurra a pergunta para tras do limite de espera. E fixture: o que esta sob teste
+// e a segunda fase, nao a passagem do tempo.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.Conversas.Where(c => c.Id == conversa11)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+{
+    var depois = await RecarregarAsync(conversa11);
+    var fio = await FioAsync(conversa11);
+
+    Checar("conversa encerrada", depois.Status == StatusConversa.Encerrada);
+    Checar("EncerradaEm gravado", depois.EncerradaEm is not null);
+    Checar("sem atendente responsavel pelo encerramento", depois.EncerradaPorAtendenteId is null);
+    Checar("motivo registrado",
+        depois.MotivoEncerramento is not null && depois.MotivoEncerramento.Contains("inatividade"));
+    Checar("carimbo limpo depois de encerrar", depois.PerguntaDeEncerramentoEnviadaEm is null);
+    Checar("todas as flags de fluxo zeradas",
+        !depois.AguardandoTriagem && !depois.AguardandoEscolhaDeServico
+        && !depois.AguardandoMenuDeContinuacao && !depois.AguardandoRespostaInteligente);
+    Checar("o aviso de encerramento chegou ao fio",
+        fio.Any(m => m.Automatica && m.Conteudo.Contains("não tivemos retorno")));
+    Checar("a anotacao de sistema ficou registrada",
+        fio.Any(m => m.Autor == AutorTipo.Sistema && m.Conteudo.Contains("automaticamente por inatividade")));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 12 — O REQUISITO: cliente que volta comeca do zero
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 12 — cliente que volta depois de encerrada cai em atendimento NOVO");
+
+// Este e o teste que prova o pedido original. Os outros provam mecanica; este prova
+// que o bug relatado — "cliente que volta nao cai no chat automatico" — acabou.
+
+Guid clienteQueVolta;
+string protocoloAntigo;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var encerrada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa11);
+    clienteQueVolta = encerrada.ClienteId;
+    protocoloAntigo = encerrada.Protocolo;
+}
+
+Guid conversaNova;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    // CriarAsync so recusa segundo atendimento quando ha um ABERTO. Com a anterior
+    // encerrada pela varredura, esta chamada e exatamente o que o webhook faria.
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(clienteQueVolta, null, null, "Oi, voltei"));
+
+    conversaNova = criada.Id;
+
+    Checar("abriu conversa NOVA, e nao reaproveitou a encerrada", conversaNova != conversa11);
+    Checar("protocolo novo", criada.Protocolo != protocoloAntigo,
+        $"antigo: {protocoloAntigo}, novo: {criada.Protocolo}");
+    Checar("o atendimento automatico recomeca do zero", criada.AguardandoTriagem);
+}
+
+{
+    var fio = await FioAsync(conversaNova);
+
+    Checar("boas-vindas sairam de novo para quem voltou",
+        fio.Any(m => m.Automatica));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 13 — as guardas: quem NAO pode ser perguntado
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 13 — mensagem nao lida e canal simulado ficam de fora; SLA vivo NAO bloqueia mais");
+
+var conversaComPrazo = await NovaConversaParadaAsync("Com prazo", 60);
+var conversaNaoLida = await NovaConversaParadaAsync("Nao lida", 60);
+var conversaSimulada = await NovaConversaParadaAsync("Simulada", 60);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    // SLA em andamento — decisao de 2026-08-23: nao bloqueia mais a pergunta.
+    // O protocolo continua intacto (soft-close), so o CANAL de WhatsApp fecha.
+    await db.Conversas.Where(c => c.Id == conversaComPrazo)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.PrazoLimite, DateTime.UtcNow.AddDays(3)));
+
+    // O cartorio esta devendo resposta.
+    await db.Conversas.Where(c => c.Id == conversaNaoLida)
+        .ExecuteUpdateAsync(s => s.SetProperty(c => c.MensagensNaoLidas, 2));
+
+    // Conversa de demonstracao nao sai pelo gateway.
+    await db.Conversas.Where(c => c.Id == conversaSimulada)
+        .ExecuteUpdateAsync(s => s.SetProperty(c => c.Canal, CanalOrigem.Simulado));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+{
+    Checar("conversa com SLA em andamento FOI perguntada (guarda removida em 2026-08-23)",
+        (await RecarregarAsync(conversaComPrazo)).PerguntaDeEncerramentoEnviadaEm is not null);
+    Checar("conversa com mensagem nao lida nao foi perguntada",
+        (await RecarregarAsync(conversaNaoLida)).PerguntaDeEncerramentoEnviadaEm is null);
+    Checar("conversa simulada nao foi perguntada",
+        (await RecarregarAsync(conversaSimulada)).PerguntaDeEncerramentoEnviadaEm is null);
+}
+
+// Recurso desligado no tenant: nada acontece, nem mesmo nas que ja se qualificavam.
+var conversaSemConfig = await NovaConversaParadaAsync("Sem config", 60);
+
+await ConfigurarEncerramentoAsync(null, null, null, null);
+
+int passadaDesligada;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    passadaDesligada = await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+Checar("tenant sem configuracao nao e varrido", passadaDesligada == 0);
+Checar("nenhuma pergunta saiu com o recurso desligado",
+    (await RecarregarAsync(conversaSemConfig)).PerguntaDeEncerramentoEnviadaEm is null);
+
+// Fora da janela de horario: configura uma janela que certamente nao contem agora.
+var horaLocal = TimeZoneInfo.ConvertTimeFromUtc(
+    DateTime.UtcNow,
+    TimeZoneInfo.FindSystemTimeZoneById(
+        OperatingSystem.IsWindows() ? "E. South America Standard Time" : "America/Sao_Paulo")).Hour;
+
+var inicioFechado = (horaLocal + 2) % 24;
+var fimFechado = (horaLocal + 3) % 24;
+
+await ConfigurarEncerramentoAsync(20, 30, inicioFechado, fimFechado);
+
+int passadaForaDaJanela;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    passadaForaDaJanela = await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+Checar($"fora da janela ({inicioFechado}h-{fimFechado}h, agora {horaLocal}h) nao pergunta",
+    passadaForaDaJanela == 0);
+Checar("conversa segue sem carimbo fora da janela",
+    (await RecarregarAsync(conversaSemConfig)).PerguntaDeEncerramentoEnviadaEm is null);
+
+await ConfigurarEncerramentoAsync(20, 30, null, null);
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 14 — reabrir limpa o carimbo
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 14 — conversa reaberta nao volta a fechar sozinha na passada seguinte");
+
+var conversa14 = await NovaConversaParadaAsync("Reaberta", 60);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.Conversas.Where(c => c.Id == conversa14)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+Checar("encerrou antes de reabrir",
+    (await RecarregarAsync(conversa14)).Status == StatusConversa.Encerrada);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome).ReabrirAsync(conversa14);
+}
+
+{
+    var reaberta = await RecarregarAsync(conversa14);
+
+    Checar("reabrir limpou o carimbo", reaberta.PerguntaDeEncerramentoEnviadaEm is null);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+{
+    var depoisDaVarredura = await RecarregarAsync(conversa14);
+
+    // Sem a limpeza no ReabrirAsync, a conversa voltaria Ativa com o carimbo antigo
+    // e a passada seguinte a fecharia na frente do atendente que acabou de reabrir.
+    Checar("conversa reaberta continua aberta apos nova passada",
+        depoisDaVarredura.Status == StatusConversa.Ativa,
+        $"status: {depoisDaVarredura.Status}");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 15 — sem texto cadastrado
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 15 — sem texto: nao pergunta; mas na 2a fase encerra mesmo assim");
+
+var conversa15 = await NovaConversaParadaAsync("Sem texto", 60);
+
+// Desativa os dois textos, como se o cartório parceiro os tivesse desligado pela tela.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId
+                 && (m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
+                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPorInatividade))
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, false));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+Checar("sem texto da pergunta, nada e marcado (encerrar em silencio seria pior)",
+    (await RecarregarAsync(conversa15)).PerguntaDeEncerramentoEnviadaEm is null);
+
+// Agora simula o caso real: a pergunta JA tinha saido, e a regra foi desativada
+// depois. A segunda fase precisa fechar assim mesmo — deixar a conversa presa nesse
+// limbo e exatamente o bug que a varredura existe para desfazer.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.Conversas.Where(c => c.Id == conversa15)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+Checar("com a pergunta ja feita, a falta de texto NAO impede o encerramento",
+    (await RecarregarAsync(conversa15)).Status == StatusConversa.Encerrada);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId
+                 && (m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
+                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPorInatividade))
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, true));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
@@ -902,13 +1367,34 @@ async Task<int> LimparAsync()
             .Where(c => contaminadas.Contains(c.Id))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.AvisoDeVencimentoEnviadoEm, (DateTime?)null)
-                .SetProperty(c => c.AvisoDeAlertaEnviadoEm, (DateTime?)null), default);
+                .SetProperty(c => c.AvisoDeAlertaEnviadoEm, (DateTime?)null)
+                .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, (DateTime?)null), default);
     }
 
     // --- 3. Regras de teste. A configuracao do cartório parceiro nao e tocada. ----------
     total += await db.MensagensAutomaticas
         .Where(x => x.TenantId == tenantId && x.Conteudo.StartsWith(PrefixoDeTeste))
         .ExecuteDeleteAsync();
+
+    // --- 4. Devolve a configuracao de encerramento como estava --------------
+    // Os testes 9-15 ligam o recurso e mexem nos tempos. Sair daqui com o valor de
+    // teste faria a base de desenvolvimento se comportar diferente da que o cartório parceiro
+    // configurou — e a proxima pessoa a rodar a API veria conversa fechando sozinha
+    // sem entender por que.
+    await db.Tenants.Where(t => t.Id == tenantId)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(t => t.MinutosParaPerguntarEncerramento, configuracaoOriginal.Perguntar)
+            .SetProperty(t => t.MinutosParaEncerrarSemResposta, configuracaoOriginal.Encerrar)
+            .SetProperty(t => t.EncerramentoHoraInicial, configuracaoOriginal.HoraInicial)
+            .SetProperty(t => t.EncerramentoHoraFinal, configuracaoOriginal.HoraFinal));
+
+    // Garante que nenhum texto ficou desativado por um TESTE 15 interrompido.
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId
+                 && !m.Ativo
+                 && (m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
+                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPorInatividade))
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, true));
 
     return total;
 }
@@ -919,6 +1405,13 @@ VarredorDePrazos NovoVarredor(CrmDbContext db) =>
         new NotificadorSilencioso(),
         new CanalSilencioso(),
         NullLogger<VarredorDePrazos>.Instance);
+
+VarredorDeInatividade NovoVarredorDeInatividade(CrmDbContext db) =>
+    new(db,
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new NotificadorSilencioso(),
+        new CanalSilencioso(),
+        NullLogger<VarredorDeInatividade>.Instance);
 
 // ---------------------------------------------------------------------------
 

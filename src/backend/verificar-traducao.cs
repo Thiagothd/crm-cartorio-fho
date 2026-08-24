@@ -667,6 +667,52 @@ Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de 
         })
         .ToQueryString());
 
+// --- Varredura de inatividade (024) ----------------------------------------
+
+Checar("Inatividade: tenants com o recurso configurado (projecao de nulavel com .Value)", () =>
+    db.Tenants.AsNoTracking()
+        .Where(t => t.Ativo
+                 && t.MinutosParaPerguntarEncerramento != null
+                 && t.MinutosParaEncerrarSemResposta != null)
+        .Select(t => new
+        {
+            t.Id,
+            Perguntar = t.MinutosParaPerguntarEncerramento!.Value,
+            Encerrar = t.MinutosParaEncerrarSemResposta!.Value,
+            t.EncerramentoHoraInicial,
+            t.EncerramentoHoraFinal
+        })
+        .ToQueryString());
+
+Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; SLA nao bloqueia mais)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Ativa
+                 && c.PerguntaDeEncerramentoEnviadaEm == null
+                 && c.UltimaMensagemEm < agora.AddMinutes(-20)
+                 && c.Canal == CanalOrigem.WhatsApp
+                 && c.MensagensNaoLidas == 0)
+        .OrderBy(c => c.UltimaMensagemEm)
+        .Take(200)
+        .ToQueryString());
+
+Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Ativa
+                 && c.PerguntaDeEncerramentoEnviadaEm != null
+                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30))
+        .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
+        .Take(200)
+        .ToQueryString());
+
+Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilho novo)", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.Ativo
+                 && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
+        .ToQueryString());
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

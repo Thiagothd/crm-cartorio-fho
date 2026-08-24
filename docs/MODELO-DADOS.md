@@ -1,8 +1,9 @@
 # MODELO DE DADOS
 
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
-> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E" nas seções abaixo.
-> **Última atualização:** 2026-08-21
+> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H" nas seções
+> abaixo.
+> **Última atualização:** 2026-08-22
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -86,8 +87,19 @@ Cartório cliente. Na Fase 1 existe um registro; a estrutura já é multi-tenant
 | WhatsappPhoneNumberId | string(64) | não | Phone Number ID da Cloud API — Fase 2 |
 | WhatsappNumeroExibicao | string(20) | não | Número em formato E.164, exibição |
 | WhatsappInstancia | string(120) | não | Nome único da instância Evolution pareada; roteia webhook ao tenant |
+| MinutosParaPerguntarEncerramento | int | não | **Fase 2H.** Minutos de silêncio até perguntar se pode encerrar. Nulo = recurso desligado |
+| MinutosParaEncerrarSemResposta | int | não | **Fase 2H.** Minutos após a pergunta até encerrar sem resposta. Nulo = recurso desligado |
+| EncerramentoHoraInicial | int | não | **Fase 2H.** Hora (0–23) inicial da janela em que a pergunta pode sair. Nulo = qualquer hora |
+| EncerramentoHoraFinal | int | não | **Fase 2H.** Hora (0–23) final da janela. Nulo = qualquer hora |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+Os quatro campos de encerramento automático seguem a mesma convenção de
+`WhatsappModoDeRecebimento`: nulo é estado deliberado ("ninguém decidiu
+isso ainda" ou "desligado"), não zero disfarçado. Os dois minutos são
+tudo-ou-nada (ambos nulos ou ambos preenchidos), assim como as duas horas —
+validado em `TenantService`. Comportamento completo em
+[FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) §10.
 
 Os três campos de conta/número oficial são o ponto de encaixe da Cloud API e
 ficam nulos no piloto não oficial. `WhatsappInstancia` já é usado pela Evolution:
@@ -344,6 +356,7 @@ Entidade central. É onde mora a trava.
 | AguardandoRespostaInteligente | bool | sim | **Fase 2B.** A IA respondeu e a próxima mensagem do cliente volta para ela, em vez de escalar direto |
 | TentativasRespostaInteligente | int | sim | **Fase 2B.** Contador de respostas seguidas da IA nesta sequência. Telemetria — nenhuma decisão de escalonamento lê este número (removido em 2026-08-17, ver FLUXO-AUTOMACAO.md §8) |
 | AguardandoMenuDeContinuacao | bool | sim | **Fase 2E.** Atendimento estruturado terminou; espera a escolha entre continuar, trocar de setor, falar com atendente ou encerrar |
+| PerguntaDeEncerramentoEnviadaEm | datetime2(3) | não | **Fase 2H.** Instante em que a pergunta "posso encerrar?" saiu. Marcador idempotente da fase 1, relógio da fase 2 **e** flag de despacho da próxima resposta do cliente — os três papéis no mesmo campo, de propósito (ver FLUXO-AUTOMACAO.md §10) |
 | PrazoIniciadoEm | datetime2(3) | não | Marcado ao vincular o tipo de serviço |
 | PrazoLimite | datetime2(3) | não | Calculado por `PrazoServico` |
 | PrazoAlertaEm | datetime2(3) | não | Instante em que entra em alerta. Derivado do percentual, ver nota |
@@ -467,6 +480,9 @@ Configurável, no mesmo padrão de `Setor` e `EtapaFunil`.
 | `MenuDeContinuacao` | **Fase 2E.** Atendimento estruturado terminou — oferece continuar, trocar de setor, falar com atendente ou encerrar | `AplicadorDeEscolhaDeServico` |
 | `PedidoDeAtendente` | **Fase 2E.** Encaminha para atendente no meio/fim do atendimento (setor já definido) — texto diferente de `TriagemSemCorrespondencia` | `AplicadorDeRespostaInteligente`, `AplicadorDePosAtendimento` |
 | `Despedida` | **Fase 2E.** Cliente escolheu encerrar pelo menu de continuação — envia a despedida e fecha a conversa (`Status = Encerrada`) | `AplicadorDePosAtendimento` |
+| `RespostaSemCorrespondencia` | **Fase 2G.** A IA não achou resposta no catálogo e o cliente não pediu atendente | `AplicadorDeRespostaInteligente` |
+| `ConfirmacaoDeEncerramento` | **Fase 2H.** Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` | `VarredorDeInatividade` (fase 1) |
+| `EncerramentoPorInatividade` | **Fase 2H.** Sem resposta à pergunta acima dentro de `Tenant.MinutosParaEncerrarSemResposta` | `VarredorDeInatividade` (fase 2) |
 
 Comportamento completo de cada gatilho — a máquina de estado, quando a IA
 entra, quando escala — em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). Esta
@@ -608,7 +624,7 @@ Três coisas diferentes que costumam ser confundidas:
 > uma camada de IA de contingência e um piso que garante resposta a qualquer
 > mensagem, em qualquer ponto da conversa. Esta seção documenta só o **nível 1**
 > (schema-adjacente, sem mudança desde a Fase 1); o comportamento completo — os
-> 10 gatilhos, a máquina de estado, quando a IA responde e quando escala — está
+> 13 gatilhos, a máquina de estado, quando a IA responde e quando escala — está
 > em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md).
 
 ### 6.1 Triagem do primeiro contato — nível 1 (setor)
@@ -691,6 +707,7 @@ nunca sairiam se ela mudasse de ideia depois.
 | Conversas | `IX (TenantId, EtapaId, Status)` / `IX (TenantId, SetorId, Status)` | Filtros e contadores |
 | Conversas | `IX (TenantId, PrazoAlertaEm)` filtrado | Varredura do aviso de alerta pendente |
 | Conversas | `IX (TenantId, PrazoLimite)` filtrado | Varredura do aviso de vencimento pendente |
+| Conversas | `IX (TenantId, PerguntaDeEncerramentoEnviadaEm)` filtrado (`IS NOT NULL`) | **Fase 2H.** Varredura da fase 2 (encerrar sem resposta). A fase 1 (perguntar) já é servida pelo índice da inbox acima — um filtrado em `IS NULL` duplicaria quase toda conversa ativa |
 | Mensagens | `IX (ConversaId, EnviadaEm)` | Carregar o fio da conversa |
 | Mensagens | `IX MensagemRespondidaId` filtrado | Resolver citações sem indexar os nulos |
 | HistoricoEtapas | `IX (ConversaId, OcorridoEm)` | Linha do tempo |
@@ -743,8 +760,14 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/016-emoji-nas-mensagens.sql`](../sql/016-emoji-nas-mensagens.sql) | Emoji pontual nas mensagens que o cliente lê |
 | [`sql/017-piso-da-ia-schema.sql`](../sql/017-piso-da-ia-schema.sql) | `AguardandoMenuDeContinuacao` + gatilhos 8/9/10 (Fase 2E) |
 | [`sql/018-piso-da-ia-conteudo.sql`](../sql/018-piso-da-ia-conteudo.sql) | Conteúdo das 3 novas mensagens automáticas do piso da IA |
+| [`sql/019-resposta-sem-correspondencia-schema.sql`](../sql/019-resposta-sem-correspondencia-schema.sql) | Amplia `CHECK` de `Gatilho` para o 11 (Fase 2G — IA só escala por pedido explícito) |
+| [`sql/020-resposta-sem-correspondencia-conteudo.sql`](../sql/020-resposta-sem-correspondencia-conteudo.sql) | Conteúdo da mensagem automática do gatilho 11 |
+| [`sql/021-versao-do-schema.sql`](../sql/021-versao-do-schema.sql) | Cria `dbo.VersaoDoSchema` e carimba `001` a `020` como já aplicados — a partir daqui todo script se registra |
+| [`sql/022-foto-perfil-cliente.sql`](../sql/022-foto-perfil-cliente.sql) | `Clientes.FotoPerfilUrl` + `FotoPerfilAtualizadaEm` |
+| [`sql/023-canal-whatsapp-regras-e-conexoes.sql`](../sql/023-canal-whatsapp-regras-e-conexoes.sql) | Modo de recebimento do canal, regras de número liberado/bloqueado e histórico de conexão |
+| [`sql/024-encerramento-por-inatividade.sql`](../sql/024-encerramento-por-inatividade.sql) | Encerramento automático por inatividade (Fase 2H) — `Conversas.PerguntaDeEncerramentoEnviadaEm`, as 4 colunas novas de `Tenants`, os gatilhos 12/13 e o índice filtrado |
 
-`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 018
+`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 024
 acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
 
 Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.

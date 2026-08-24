@@ -113,5 +113,36 @@ public enum GatilhoDeMensagem : byte
     /// <see cref="Atendimento.Domain.Entities.Conversa.AguardandoRespostaInteligente"/>
     /// ligada: a IA continua ouvindo, nao desiste da conversa.
     /// </remarks>
-    RespostaSemCorrespondencia = 11
+    RespostaSemCorrespondencia = 11,
+
+    /// <summary>
+    /// A conversa ficou em silencio pelo tempo configurado na serventia. Pergunta
+    /// ao cliente se pode encerrar, antes de encerrar sozinho.
+    /// </summary>
+    /// <remarks>
+    /// Nao reusa <see cref="Despedida"/> de proposito: aquele texto e o "obrigado
+    /// por escolher o cartorio" de quem JA escolheu fechar. Este e uma pergunta, e
+    /// precisa oferecer as duas saidas — o texto cadastrado deve trazer o menu
+    /// numerado (1 encerra, 2 continua), que e o que
+    /// <see cref="Atendimento.Domain.TriagemAutomatica.LerRespostaDeEncerramento"/>
+    /// le do outro lado.
+    ///
+    /// Sem regra ativa para este gatilho a serventia simplesmente nao pergunta —
+    /// e, por consequencia, nao encerra por inatividade. Perguntar nada e fechar
+    /// em silencio seria pior do que nao fazer nada.
+    /// </remarks>
+    ConfirmacaoDeEncerramento = 12,
+
+    /// <summary>
+    /// O cliente nao respondeu a <see cref="ConfirmacaoDeEncerramento"/> dentro do
+    /// tempo configurado, e a conversa foi encerrada sozinha.
+    /// </summary>
+    /// <remarks>
+    /// Diferente dos outros gatilhos, este NAO e condicao para o efeito acontecer:
+    /// sem regra cadastrada a conversa encerra do mesmo jeito, so sem a cortesia
+    /// de avisar. Ver <see cref="Atendimento.Application.VarredorDeInatividade"/>,
+    /// que documenta por que esta e uma divergencia deliberada do
+    /// <see cref="Atendimento.Application.VarredorDePrazos"/>.
+    /// </remarks>
+    EncerramentoPorInatividade = 13
 }

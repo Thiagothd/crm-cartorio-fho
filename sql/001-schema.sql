@@ -56,12 +56,30 @@ CREATE TABLE dbo.Tenants
     -- 3 PautaFina. Por tenant, nao por atendente — e a cara do cartorio.
     AparenciaDaConversa       TINYINT          NOT NULL CONSTRAINT DF_Tenants_AparenciaDaConversa DEFAULT (1),
 
+    -- Encerramento automatico de conversa parada (024). Nulo nos minutos desliga o
+    -- recurso; nulo nas duas horas significa "qualquer hora".
+    MinutosParaPerguntarEncerramento INT        NULL,
+    MinutosParaEncerrarSemResposta   INT        NULL,
+    EncerramentoHoraInicial          INT        NULL,
+    EncerramentoHoraFinal            INT        NULL,
+
     Ativo                     BIT              NOT NULL CONSTRAINT DF_Tenants_Ativo DEFAULT (1),
     CriadoEm                  DATETIME2(3)     NOT NULL,
     AtualizadoEm              DATETIME2(3)     NOT NULL,
 
     CONSTRAINT PK_Tenants PRIMARY KEY CLUSTERED (Id),
-    CONSTRAINT CK_Tenants_AparenciaDaConversa CHECK (AparenciaDaConversa IN (1, 2, 3))
+    CONSTRAINT CK_Tenants_AparenciaDaConversa CHECK (AparenciaDaConversa IN (1, 2, 3)),
+    CONSTRAINT CK_Tenants_MinutosParaPerguntarEncerramento CHECK
+        (MinutosParaPerguntarEncerramento IS NULL OR MinutosParaPerguntarEncerramento BETWEEN 5 AND 43200),
+    CONSTRAINT CK_Tenants_MinutosParaEncerrarSemResposta CHECK
+        (MinutosParaEncerrarSemResposta IS NULL OR MinutosParaEncerrarSemResposta BETWEEN 5 AND 43200),
+    CONSTRAINT CK_Tenants_EncerramentoJanela CHECK
+    (
+        (EncerramentoHoraInicial IS NULL AND EncerramentoHoraFinal IS NULL)
+        OR (EncerramentoHoraInicial BETWEEN 0 AND 23
+            AND EncerramentoHoraFinal BETWEEN 0 AND 23
+            AND EncerramentoHoraInicial <> EncerramentoHoraFinal)
+    )
 );
 GO
 
@@ -330,6 +348,12 @@ CREATE TABLE dbo.Conversas
     AvisoDeAlertaEnviadoEm      DATETIME2(3) NULL,
     AvisoDeVencimentoEnviadoEm  DATETIME2(3) NULL,
 
+    -- Quando a pergunta "deseja encerrar?" saiu, por inatividade (024). Mesmo tipo
+    -- de fato datado dos avisos acima, e acumula tres papeis de proposito: marcador
+    -- idempotente da varredura, relogio da espera pela resposta, e a flag que o
+    -- despacho consulta para tratar a proxima mensagem do cliente como resposta.
+    PerguntaDeEncerramentoEnviadaEm DATETIME2(3) NULL,
+
     EncerradaEm             DATETIME2(3)     NULL,
     EncerradaPorAtendenteId UNIQUEIDENTIFIER NULL,
     MotivoEncerramento      NVARCHAR(500)    NULL,
@@ -379,6 +403,13 @@ CREATE INDEX IX_Conversas_AvisoAlertaPendente
 CREATE INDEX IX_Conversas_AvisoVencimentoPendente
     ON dbo.Conversas (TenantId, PrazoLimite)
     WHERE AvisoDeVencimentoEnviadoEm IS NULL AND PrazoLimite IS NOT NULL;
+
+-- Segunda fase da varredura de inatividade. A primeira nao ganha indice de
+-- proposito: ela e servida por IX_Conversas_Inbox, e um filtrado por "IS NULL"
+-- cobriria quase toda conversa ativa — seria a inbox indexada duas vezes.
+CREATE INDEX IX_Conversas_EncerramentoPendente
+    ON dbo.Conversas (TenantId, PerguntaDeEncerramentoEnviadaEm)
+    WHERE PerguntaDeEncerramentoEnviadaEm IS NOT NULL;
 GO
 
 /* -----------------------------------------------------------------------------
@@ -520,7 +551,10 @@ GO
    11. MensagensAutomaticas — modelos disparados por evento do atendimento
    -----------------------------------------------------------------------------
    Gatilho: 1 NovoAtendimento, 2 EtapaAlterada, 3 PrazoProximoVencimento,
-            4 PrazoVencido, 5 TriagemSemCorrespondencia
+            4 PrazoVencido, 5 TriagemSemCorrespondencia, 6 TriagemComCorrespondencia,
+            7 ServicoEscolhido, 8 MenuDeContinuacao, 9 PedidoDeAtendente,
+            10 Despedida, 11 RespostaSemCorrespondencia,
+            12 ConfirmacaoDeEncerramento, 13 EncerramentoPorInatividade
 
    Enum, e nao tabela, porque cada valor corresponde a um ponto de codigo que
    precisa existir para disparar. Ja o TEXTO da mensagem e QUAL etapa dispara sao
@@ -546,7 +580,7 @@ CREATE TABLE dbo.MensagensAutomaticas
     CONSTRAINT PK_MensagensAutomaticas PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_MensagensAutomaticas_Tenants     FOREIGN KEY (TenantId)    REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_MensagensAutomaticas_EtapasFunil FOREIGN KEY (EtapaAlvoId) REFERENCES dbo.EtapasFunil (Id),
-    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)),
+    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)),
 
     -- Gatilho de etapa SEM etapa alvo dispararia mensagem ao cliente em toda
     -- movimentacao interna do funil; etapa alvo em gatilho que nao e de etapa e
