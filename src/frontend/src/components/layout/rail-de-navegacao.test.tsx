@@ -60,6 +60,21 @@ describe('RailDeNavegacao', () => {
     expect(container.querySelector('nav')).toHaveClass('overflow-x-hidden')
   })
 
+  it('esconde a barra de rolagem vertical, mas mantém a rolagem', () => {
+    // O tema global pinta o polegar com `--cor-linha-forte`, e sobre o
+    // `bg-tinta` do rail isso vira o maior contraste da interface. Some o
+    // desenho, fica a rolagem: sem `overflow-y-auto` os itens de baixo ficariam
+    // inalcançáveis em janela baixa (o menu transborda a partir de ~700px de
+    // altura). São classes arbitrárias, fáceis de "limpar" num refactor sem
+    // perceber o que se perde — por isso estão travadas aqui.
+    const { container } = renderizarComProvedores(<RailDeNavegacao />)
+    const nav = container.querySelector('nav')
+
+    expect(nav).toHaveClass('[scrollbar-width:none]')
+    expect(nav).toHaveClass('[&::-webkit-scrollbar]:hidden')
+    expect(nav).toHaveClass('overflow-y-auto')
+  })
+
   it('sempre expõe nome acessível dos itens, mesmo fechado', () => {
     renderizarComProvedores(<RailDeNavegacao />)
 

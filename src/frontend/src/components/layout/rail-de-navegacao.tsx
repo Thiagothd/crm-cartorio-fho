@@ -313,7 +313,13 @@ export function RailDeNavegacao() {
             ROLAGEM HORIZONTAL desenhada no pé do rail — a "barra cinza embaixo",
             que ainda por cima aparece estilizada como pílula clara pelo tema de
             scrollbar do projeto e parecia um elemento da interface. */}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden p-2 pt-3">
+        {/* A barra VERTICAL é escondida, não desligada: `overflow-y-auto` fica,
+            então roda, trackpad e teclado continuam rolando o menu — some só o
+            desenho. O tema global (`index.css`) pinta o polegar com
+            `--cor-linha-forte`, e sobre o `bg-tinta` do rail isso vira o maior
+            contraste da interface: uma pílula clara colada nos ícones. Mesmo par
+            de classes de `features/indicadores/abas-de-relatorio.tsx`. */}
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden p-2 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {grupos.map((grupo, indiceDoGrupo) => (
             <div key={grupo.titulo ?? `grupo-${indiceDoGrupo}`}>
               {/* Título e divisor ocupam A MESMA caixa de 16px, trocando por

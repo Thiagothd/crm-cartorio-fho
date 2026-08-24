@@ -891,6 +891,15 @@ com texto `selo` contando para o limite de 3 ocorrências de bordô. O que muda:
   navegador desenhava uma barra de rolagem horizontal no pé do rail, que o tema
   de scrollbar do projeto ainda estilizava como pílula clara e parecia elemento
   da interface.
+- **A barra de rolagem VERTICAL do `<nav>` é escondida, não desligada**
+  (`[scrollbar-width:none]` + `[&::-webkit-scrollbar]:hidden`, 2026-08-24). O
+  tema global pinta o polegar com `--cor-linha-forte`, e sobre o `bg-tinta` do
+  rail isso vira o maior contraste da interface — uma pílula clara colada nos
+  ícones. `overflow-y-auto` **fica**: a partir de ~700px de altura de janela o
+  menu transborda, e sem rolagem os últimos itens ficariam inalcançáveis. Some
+  o desenho, não o comportamento. Decisão explícita do Thiago de manter a barra
+  visível no resto do painel — nas superfícies claras ela é discreta e é a única
+  pista de que há mais conteúdo abaixo.
 
 ### 14.3 Cabeçalho global
 
@@ -1013,6 +1022,53 @@ esperado. Ficam **fora** de `navegacao.ts` de propósito: são subdivisões de u
 tela, e inflariam o menu do rail com detalhe de uma página só. A permissão é
 lida da própria entrada `/indicadores` em `navegacao.ts`, para não haver duas
 verdades sobre quem entra.
+
+### 14.8 Quem rola: a moldura nunca rola
+
+Três regras, e a terceira foi comprada caro.
+
+**1. Cada página traz o próprio scroller.** O `<main>` do shell é
+`flex-col overflow-hidden` e não rola; o padrão de página é
+`flex-1 overflow-y-auto p-3 md:p-6`, repetido em cada uma. A inbox é a exceção
+(`flex min-h-0 flex-1`) porque delega a rolagem a cada coluna interna.
+
+**2. A moldura é `position: relative`** (`shell.tsx`, 2026-08-24). Não é
+decoração — é o que dá **bloco container** aos descendentes posicionados.
+
+**3. A viewport nunca é travada globalmente.** Login e a tela de carregamento
+vivem **fora** do `<Shell>` e dependem da rolagem do documento: num 1366×768 a
+125% o cartão de login passa da altura da janela e precisa ser alcançável. Um
+`html { overflow: hidden }` global cortaria o topo dele justamente quando o
+aviso de Caps Lock ou a caixa de erro crescem o cartão.
+
+#### O defeito que ensinou isto
+
+Relatado pelo Thiago e medido em 2026-08-24 na tela de mensagens automáticas: o
+documento ganhava **980px de rolagem**, e arrastar essa barra levava rail e
+cabeçalho para fora da tela, deixando uma faixa vazia embaixo — `scrollY: 600`
+punha o topo da moldura em `-600`, e nessa faixa não havia elemento nenhum.
+
+A causa não era a página, e nem o `overflow` da moldura: era o utilitário
+**`.sr-only` do Tailwind, que é `position: absolute`**. Um absoluto **sem
+ancestral posicionado** ancora no bloco inicial — a viewport — e ali nenhum
+`overflow: hidden` o alcança, porque overflow só recorta descendente cujo bloco
+container esteja dentro dele. Cada botão "Editar" da tabela carrega um desses;
+o mais baixo ficava em 1700px, e era exatamente o `scrollHeight` do documento.
+
+Duas consequências que valem mais que o conserto:
+
+- **Era latente em toda tela.** A varredura das 14 rotas acusou só uma, porque
+  só ali o conteúdo passava da altura da janela. Bastaria o cartório cadastrar
+  mais linhas para a próxima começar a fazer o mesmo.
+- **Travar a viewport teria mascarado, não corrigido.** Medido: com
+  `html { overflow: hidden }` a barra some, mas `docY` continua 980 e a rolagem
+  programática (`focus()`, `scrollIntoView()`) ainda desloca a moldura. Só
+  `position: relative` (ou `contain`) na moldura zera o `docY` de verdade.
+
+Há uma rede permanente: em desenvolvimento, o `Shell` mede o documento a cada
+troca de rota e joga um `console.error` nomeando a rota se ele voltar a rolar
+(`useAvisoDeMolduraRolando`). Não roda em produção nem em teste — jsdom não faz
+layout, `scrollHeight` seria sempre 0, e o aviso daria falsa segurança.
 
 ---
 
