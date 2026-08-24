@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -153,10 +154,16 @@ public class DisparadorDeMensagemAutomatica(
 
     private async Task<DadosParaMensagem> MontarDadosAsync(Conversa conversa, CancellationToken ct)
     {
-        var clienteNome = await db.Clientes.AsNoTracking()
+        var nomeGravado = await db.Clientes.AsNoTracking()
             .Where(c => c.Id == conversa.ClienteId)
             .Select(c => c.Nome)
             .FirstOrDefaultAsync(ct) ?? string.Empty;
+
+        // Nome que nao serve para chamar alguem nao entra na mensagem: vira vazio,
+        // e PlaceholdersDeMensagem remove o vocativo junto para nao sobrar virgula
+        // orfa. E o que impede "Ola, .!" e "Ola, 5519990001488!" de chegarem a um
+        // cliente de verdade — inclusive para quem ja estava na base assim.
+        var clienteNome = NomeDeContato.EhUtil(nomeGravado) ? nomeGravado : string.Empty;
 
         var dadosDoServico = conversa.TipoServicoId is { } servicoId
             ? await db.TiposServico.AsNoTracking()

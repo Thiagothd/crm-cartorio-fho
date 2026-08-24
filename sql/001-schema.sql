@@ -226,6 +226,12 @@ CREATE TABLE dbo.Clientes
     Observacoes       NVARCHAR(1000)   NULL,
     FotoPerfilUrl     NVARCHAR(500)    NULL,
     FotoPerfilAtualizadaEm DATETIME2(3) NULL,
+
+    -- Quando o sistema perguntou a este contato como quer ser chamado. Fato
+    -- datado, nao estado: "o nome esta pendente" se calcula na leitura. Serve a
+    -- uma coisa so — nao perguntar duas vezes.
+    NomePerguntadoEm  DATETIME2(3)     NULL,
+
     PrimeiroContatoEm DATETIME2(3)     NOT NULL,
     Ativo             BIT              NOT NULL CONSTRAINT DF_Clientes_Ativo DEFAULT (1),
     CriadoEm          DATETIME2(3)     NOT NULL,
@@ -337,6 +343,11 @@ CREATE TABLE dbo.Conversas
     -- proxima coisa que o cliente escrever limpa a flag, tenha ela correspondido a
     -- uma opcao ou nao.
     AguardandoTriagem       BIT              NOT NULL CONSTRAINT DF_Conversas_AguardandoTriagem DEFAULT (0),
+
+    -- O contato chegou sem nome usavel no perfil do WhatsApp e a conversa espera
+    -- que ele diga como quer ser chamado, ANTES de receber o menu. Mesma
+    -- disciplina acima: dura uma mensagem, responda ele um nome ou nao.
+    AguardandoNome          BIT              NOT NULL CONSTRAINT DF_Conversas_AguardandoNome DEFAULT (0),
 
     PrazoIniciadoEm         DATETIME2(3)     NULL,
     PrazoLimite             DATETIME2(3)     NULL,
@@ -554,7 +565,8 @@ GO
             4 PrazoVencido, 5 TriagemSemCorrespondencia, 6 TriagemComCorrespondencia,
             7 ServicoEscolhido, 8 MenuDeContinuacao, 9 PedidoDeAtendente,
             10 Despedida, 11 RespostaSemCorrespondencia,
-            12 ConfirmacaoDeEncerramento, 13 EncerramentoPorInatividade
+            12 ConfirmacaoDeEncerramento, 13 EncerramentoPorInatividade,
+            14 PedidoDeNome
 
    Enum, e nao tabela, porque cada valor corresponde a um ponto de codigo que
    precisa existir para disparar. Ja o TEXTO da mensagem e QUAL etapa dispara sao
@@ -580,7 +592,7 @@ CREATE TABLE dbo.MensagensAutomaticas
     CONSTRAINT PK_MensagensAutomaticas PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_MensagensAutomaticas_Tenants     FOREIGN KEY (TenantId)    REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_MensagensAutomaticas_EtapasFunil FOREIGN KEY (EtapaAlvoId) REFERENCES dbo.EtapasFunil (Id),
-    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)),
+    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)),
 
     -- Gatilho de etapa SEM etapa alvo dispararia mensagem ao cliente em toda
     -- movimentacao interna do funil; etapa alvo em gatilho que nao e de etapa e

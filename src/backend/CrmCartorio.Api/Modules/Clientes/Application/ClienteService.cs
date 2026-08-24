@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -575,7 +576,9 @@ public partial class ClienteService(
             temConversaAtiva,
             c.PercentualDeQualificacao(),
             idade,
-            $"/api/clientes/{c.Id}/foto-perfil");
+            $"/api/clientes/{c.Id}/foto-perfil",
+            !NomeDeContato.EhUtil(c.Nome),
+            c.NomePerguntadoEm);
     }
 
 

@@ -136,6 +136,11 @@ public static class AplicadorDePosAtendimento
         // atendimento e mesmo assim ve a conversa fechar sozinha minutos depois.
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
+        // Pelo mesmo motivo: quem responde "menu" ao pedido de nome esta pedindo o
+        // atendimento, nao se recusando a existir. Deixar a flag ligada faria a
+        // mensagem SEGUINTE dele ser lida como se fosse o nome.
+        conversa.AguardandoNome = false;
+
         db.Mensagens.Add(new Mensagem
         {
             TenantId = conversa.TenantId,
@@ -229,6 +234,7 @@ public static class AplicadorDePosAtendimento
         conversa.AguardandoTriagem = false;
         conversa.AguardandoEscolhaDeServico = false;
         conversa.AguardandoMenuDeContinuacao = false;
+        conversa.AguardandoNome = false;
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
         db.Mensagens.Add(new Mensagem

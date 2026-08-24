@@ -41,7 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { formatarTelefone } from '@/lib/formatacao'
+import { formatarTelefone, nomeDeExibicao } from '@/lib/formatacao'
 import { EtiquetaDePrazo } from './etiqueta-de-prazo'
 import { corSolidaDaEtapa } from './cores-de-etapa'
 import type { Atendente, Conversa, Etapa, Setor, TipoServico } from '@/lib/api/tipos'
@@ -106,6 +106,11 @@ export function CabecalhoDaConversa({
   const podeEditar = souOResponsavel || podeOperarDeTerceiro
   const ativa = conversa.status === 'Ativa'
   const naFila = conversa.atendenteId === null && ativa
+  const nomeExibido = nomeDeExibicao(
+    conversa.clienteNome,
+    conversa.clienteTelefone,
+    conversa.clienteNomePendente,
+  )
 
   return (
     <header className="flex shrink-0 items-center justify-between gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:gap-4 md:px-6 md:py-2.5">
@@ -126,7 +131,7 @@ export function CabecalhoDaConversa({
             Cede o lugar ao botão de voltar no celular: a cor da etapa continua
             na pílula do funil, na mini-pílula da lista e no seletor ao lado. */}
         <Avatar
-          nome={conversa.clienteNome}
+          nome={nomeExibido}
           fotoUrl={conversa.clienteFotoPerfilUrl}
           tamanho="md"
           corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
@@ -147,16 +152,33 @@ export function CabecalhoDaConversa({
               reticências antes que a linha precise de uma segunda altura. */}
           <div className="flex flex-nowrap items-center gap-x-2 overflow-hidden">
             <h2 className="min-w-0 shrink truncate font-titulo text-base leading-tight text-tinta">
-              {conversa.clienteNome}
+              {nomeExibido}
             </h2>
+
+            {/* O contato chegou sem nome utilizável e o título acima está
+                mostrando o telefone. Sem este selo, o atendente leria um número
+                no lugar do nome e suporia cadastro quebrado. */}
+            {conversa.clienteNomePendente ? (
+              <span
+                className="shrink-0 rounded border border-linha px-1 text-[10px] text-tinta-fraca"
+                title="O WhatsApp deste contato não traz um nome utilizável. O sistema já pediu, ou vai pedir, o nome pela conversa."
+              >
+                sem nome
+              </span>
+            ) : null}
+
             {!ativa ? <Badge variant="secondary">Encerrada</Badge> : null}
 
             {/* Container query, nao breakpoint de tela: quem aperta esta
                 linha e o painel de historico abrindo ao lado, com a janela do
                 mesmo tamanho. Abaixo de 42rem de COLUNA o telefone some. */}
-            <span className="hidden shrink-0 font-dado text-xs text-tinta-media @2xl:inline">
-              {formatarTelefone(conversa.clienteTelefone)}
-            </span>
+            {/* Escondido quando o telefone JA e o titulo acima, para nao sair
+                duas vezes na mesma linha. */}
+            {conversa.clienteNomePendente ? null : (
+              <span className="hidden shrink-0 font-dado text-xs text-tinta-media @2xl:inline">
+                {formatarTelefone(conversa.clienteTelefone)}
+              </span>
+            )}
 
             {/* Cadeado no lugar de "Atendido por": mesma informacao, ~70px a
                 menos de linha, e o mesmo tratamento que a linha da inbox ja usa

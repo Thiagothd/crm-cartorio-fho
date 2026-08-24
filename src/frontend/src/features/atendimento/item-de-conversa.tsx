@@ -1,7 +1,7 @@
 import { Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
-import { formatarMomentoRelativo } from '@/lib/formatacao'
+import { formatarMomentoRelativo, nomeDeExibicao } from '@/lib/formatacao'
 import { EtiquetaDePrazo } from './etiqueta-de-prazo'
 import { coresDaEtapa, corSolidaDaEtapa } from './cores-de-etapa'
 import type { Conversa } from '@/lib/api/tipos'
@@ -59,6 +59,11 @@ export function ItemDeConversa({
   const naFila = conversa.atendenteId === null && conversa.status === 'Ativa'
   const encerrada = conversa.status === 'Encerrada'
   const cores = coresDaEtapa(conversa.etapaCor)
+  const nomeExibido = nomeDeExibicao(
+    conversa.clienteNome,
+    conversa.clienteTelefone,
+    conversa.clienteNomePendente,
+  )
 
   return (
     <button
@@ -73,7 +78,7 @@ export function ItemDeConversa({
     >
       {/* Avatar do cliente na cor da etapa atual. Muda junto com a etapa. */}
       <Avatar
-        nome={conversa.clienteNome}
+        nome={nomeExibido}
         fotoUrl={conversa.clienteFotoPerfilUrl}
         tamanho="md"
         corDeFundo={corSolidaDaEtapa(conversa.etapaCor)}
@@ -84,11 +89,20 @@ export function ItemDeConversa({
         <div className="flex items-baseline justify-between gap-2">
           <span
             className={cn(
-              'truncate font-medium',
+              'flex min-w-0 items-baseline gap-1.5 font-medium',
               encerrada ? 'text-tinta-fraca' : 'text-tinta',
             )}
           >
-            {conversa.clienteNome}
+            <span className="truncate">{nomeExibido}</span>
+
+            {/* Sem nome utilizável, o telefone acima ocupa o lugar do nome — e
+                este selo explica ao atendente por que ele está vendo um número.
+                Sem ele, pareceria falha de cadastro. */}
+            {conversa.clienteNomePendente ? (
+              <span className="shrink-0 rounded border border-linha px-1 text-[10px] font-normal text-tinta-fraca">
+                sem nome
+              </span>
+            ) : null}
           </span>
 
           <span className="flex shrink-0 items-center gap-1.5">

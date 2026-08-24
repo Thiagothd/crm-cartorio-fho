@@ -56,6 +56,7 @@ export type GatilhoDeMensagem =
   | 'RespostaSemCorrespondencia'
   | 'ConfirmacaoDeEncerramento'
   | 'EncerramentoPorInatividade'
+  | 'PedidoDeNome'
 
 /**
  * Encerramento automático de conversa parada.
@@ -161,6 +162,12 @@ export interface Conversa {
   motivoEncerramento: string | null
   reabertaEm: string | null
   clienteFotoPerfilUrl: string | null
+  /**
+   * O nome do contato não serve para se dirigir a ele (".", emoji, o próprio
+   * número). A tela mostra o telefone no lugar — a regra vem pronta do backend
+   * para os dois lados não divergirem.
+   */
+  clienteNomePendente: boolean
 }
 
 export interface Mensagem {
@@ -320,6 +327,10 @@ export interface Cliente {
   percentualDeQualificacao: number
   idade: number | null
   fotoPerfilUrl: string | null
+  /** O nome cadastrado não serve para chamar o cliente (".", emoji, o número). */
+  nomePendente: boolean
+  /** Quando o sistema já pediu o nome pelo WhatsApp. Nulo = ninguém tentou. */
+  nomePerguntadoEm: string | null
 }
 
 /** Espelha DadosDeCliente do backend — entrada de criação e edição. */

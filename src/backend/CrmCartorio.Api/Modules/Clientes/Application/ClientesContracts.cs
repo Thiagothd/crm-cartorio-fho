@@ -103,7 +103,18 @@ public record ClienteResponse(
     int PercentualDeQualificacao,
     /// <summary>Idade em anos, quando ha data de nascimento.</summary>
     int? Idade,
-    string? FotoPerfilUrl = null);
+    string? FotoPerfilUrl = null,
+    /// <summary>
+    /// O nome cadastrado nao serve para se dirigir ao cliente (".", emoji, o
+    /// proprio numero). Calculado na leitura, nunca persistido.
+    /// </summary>
+    bool NomePendente = false,
+    /// <summary>
+    /// Quando o sistema ja perguntou o nome a este contato pelo WhatsApp. Nulo
+    /// significa que ninguem tentou ainda — informacao diferente de "ele nao
+    /// quis responder".
+    /// </summary>
+    DateTime? NomePerguntadoEm = null);
 
 public record ResultadoPaginadoDeClientes(
     IReadOnlyList<ClienteResponse> Itens,

@@ -713,6 +713,19 @@ Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilh
                  && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
         .ToQueryString());
 
+// --- Pedido de nome (025) ---------------------------------------------------
+
+Checar("Pedido de nome: existe texto ativo do gatilho 14", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId && m.Ativo && m.Gatilho == GatilhoDeMensagem.PedidoDeNome)
+        .ToQueryString());
+
+// O WHERE do UPDATE que grava o nome capturado. Vale checar porque
+// AplicadorDePedidoDeNome escreve por ExecuteUpdate de proposito — precisa chegar
+// ao banco ANTES de a mensagem de boas-vindas ler o nome de la.
+Checar("Pedido de nome: alvo do UPDATE do nome capturado", () =>
+    db.Clientes.Where(c => c.Id == Guid.Empty).ToQueryString());
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

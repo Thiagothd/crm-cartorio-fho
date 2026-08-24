@@ -74,6 +74,23 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoTriagem { get; set; }
 
     /// <summary>
+    /// O contato chegou sem nome utilizavel no perfil do WhatsApp e a conversa
+    /// espera que ele diga como quer ser chamado — ANTES de receber o menu.
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina de <see cref="AguardandoTriagem"/>: dura UMA mensagem, e
+    /// sai tenha o cliente respondido um nome ou nao. Insistir seria pior aqui do
+    /// que na triagem — quem nao quis dizer o nome na primeira vez nao vai dizer na
+    /// segunda, e o atendimento nao pode ficar preso atras de um dado opcional.
+    /// Sem nome, o menu sai na mesma passada e a conversa segue normalmente.
+    ///
+    /// Diferente das outras flags, esta so liga na conversa recem-aberta, e so
+    /// quando <c>NomeDeContato.EhUtil</c> reprova o nome do cliente E ele nunca foi
+    /// perguntado antes (<c>Cliente.NomePerguntadoEm</c>).
+    /// </remarks>
+    public bool AguardandoNome { get; set; }
+
+    /// <summary>
     /// A triagem não achou setor, a IA respondeu e a conversa segue tentando
     /// resolver — a próxima mensagem do cliente volta para a Resposta Inteligente
     /// em vez de cair direto no encaminhamento humano.

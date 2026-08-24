@@ -154,6 +154,18 @@ export function formatarTelefone(e164: string) {
   return `+${digitos}`
 }
 
+/**
+ * Como chamar o contato na tela. Sem nome utilizável, o telefone formatado toma
+ * o lugar — melhor "(19) 99000-1488" do que um card cujo nome é ".".
+ *
+ * O `pendente` vem pronto do backend (`nomePendente` / `clienteNomePendente`):
+ * a regra do que conta como nome utilizável mora em `NomeDeContato.EhUtil`, e
+ * reimplementá-la aqui em TypeScript criaria dois donos da mesma decisão.
+ */
+export function nomeDeExibicao(nome: string, telefone: string, pendente: boolean) {
+  return pendente ? formatarTelefone(telefone) : nome
+}
+
 export function formatarDocumento(documento: string | null) {
   if (!documento) {
     return null
