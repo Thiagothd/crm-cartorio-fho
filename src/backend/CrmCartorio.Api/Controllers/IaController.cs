@@ -10,7 +10,14 @@ namespace CrmCartorio.Api.Controllers;
 [Route("api/ia")]
 public class IaController(ISituacaoDaIa situacao) : ControllerBase
 {
+    /// <summary>
+    /// <paramref name="de"/>/<paramref name="ate"/> omitidos caem no dia UTC
+    /// corrente — mesmo recorte de sempre. Informados, ampliam só os agregados de
+    /// período (motivos de fallback, economia); o estado dos provedores e a
+    /// franquia do Gemini são sempre "agora".
+    /// </summary>
     [HttpGet("situacao")]
-    public async Task<ActionResult<SituacaoDaIaResponse>> Situacao(CancellationToken ct) =>
-        Ok(await situacao.ObterAsync(ct));
+    public async Task<ActionResult<SituacaoDaIaResponse>> Situacao(
+        [FromQuery] DateTime? de, [FromQuery] DateTime? ate, CancellationToken ct) =>
+        Ok(await situacao.ObterAsync(de, ate, ct));
 }

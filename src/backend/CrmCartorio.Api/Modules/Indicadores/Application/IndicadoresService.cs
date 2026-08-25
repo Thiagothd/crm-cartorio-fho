@@ -12,7 +12,6 @@ using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Indicadores.Application;
 
@@ -31,7 +30,7 @@ public class IndicadoresService(
     CrmDbContext db,
     IContextoDoUsuario ctx,
     IPareamentoDoCanal pareamento,
-    IOptions<OpcoesDaIA> opcoesDaIA,
+    ISituacaoDaIa situacaoDaIa,
     IMemoryCache cache) : IIndicadoresService
 {
     /// <summary>Quanto a Visão Geral e o sino esperam pelo gateway antes de desistir.</summary>
@@ -618,16 +617,10 @@ public class IndicadoresService(
 
         if (ctx.PodeGerirCadastros)
         {
-            var opcoes = opcoesDaIA.Value;
-
-            // Mesmo limite de dia (UTC) que RespostaInteligenteService usa para
-            // conferir o teto.
-            var inicioDoDiaUtc = DateTime.UtcNow.Date;
-
-            var usadoHoje = await db.Mensagens.AsNoTracking()
-                .CountAsync(m => m.TenantId == tenantId && m.GeradaPorIa && m.EnviadaEm >= inicioDoDiaUtc, ct);
-
-            ia = new SaudeDaIaResponse(opcoes.Habilitada, opcoes.EstaConfigurada, opcoes.Modelo, opcoes.LimiteDiario, usadoHoje);
+            // Mesmo calculo que SituacaoDaIa usa para o painel /automacao/ia —
+            // antes duplicado em quatro lugares, agora so aqui e la.
+            var resumo = await situacaoDaIa.ObterResumoAsync(ct);
+            ia = new SaudeDaIaResponse(resumo.Habilitada, resumo.EstaConfigurada, resumo.Modelo, resumo.LimiteDiario, resumo.UsadoHoje);
 
             var ativas = await db.MensagensAutomaticas.AsNoTracking()
                 .CountAsync(m => m.TenantId == tenantId && m.Ativo, ct);
@@ -943,23 +936,15 @@ public class IndicadoresService(
 
         if (ctx.PodeGerirCadastros)
         {
-            var opcoes = opcoesDaIA.Value;
+            var resumo = await situacaoDaIa.ObterResumoAsync(ct);
 
-            if (opcoes.EstaConfigurada)
+            if (resumo.EstaConfigurada && resumo.UsadoHoje >= resumo.LimiteDiario)
             {
-                var inicioDoDiaUtc = DateTime.UtcNow.Date;
-
-                var usadoHoje = await db.Mensagens.AsNoTracking()
-                    .CountAsync(m => m.TenantId == tenantId && m.GeradaPorIa && m.EnviadaEm >= inicioDoDiaUtc, ct);
-
-                if (usadoHoje >= opcoes.LimiteDiario)
-                {
-                    alertas.Add(new AlertaOperacionalResponse(
-                        "ia:limite", "ia_limite_atingido", SeveridadeDeAlerta.Alerta,
-                        "Teto diário da IA atingido",
-                        $"{usadoHoje} de {opcoes.LimiteDiario} respostas hoje. Atendimento humano assume o resto do dia.",
-                        agora, "/automacao/ia"));
-                }
+                alertas.Add(new AlertaOperacionalResponse(
+                    "ia:limite", "ia_limite_atingido", SeveridadeDeAlerta.Alerta,
+                    "Teto diário da IA atingido",
+                    $"{resumo.UsadoHoje} de {resumo.LimiteDiario} respostas hoje. Atendimento humano assume o resto do dia.",
+                    agora, "/automacao/ia"));
             }
         }
 

@@ -861,10 +861,67 @@ export interface AlertaOperacional {
   rota: string
 }
 
+/** `Disponivel`, `Contingencia`, `SemChave` ou `TetoDiarioAtingido`. */
+export type StatusDoProvedorDeIa = 'Disponivel' | 'Contingencia' | 'SemChave' | 'TetoDiarioAtingido'
+
+export interface EstadoDoProvedorDeIa {
+  nome: string
+  modelo: string
+  configurado: boolean
+  status: StatusDoProvedorDeIa
+  voltaATentarEm: string | null
+  motivo: string | null
+}
+
+export interface FranquiaDoGemini {
+  limitesCadastrados: boolean
+  limiteRpd: number | null
+  requisicoesHoje: number
+  limiteRpm: number | null
+  requisicoesNaJanela: number
+  limiteTpm: number | null
+  tokensNaJanela: number
+  percentualDeSeguranca: number
+  sugestaoDeLimiteRpd: number | null
+}
+
+export interface HojeDaIa {
+  totalDeChamadas: number
+  atendidasPeloGemini: number
+  caidasNoHaiku: number
+  percentualGratuito: number
+  custoEstimadoHaikuReais: number
+  tokensDoGemini: number
+}
+
+export interface MotivosDeFallback {
+  quota: number
+  rateLimit: number
+  indisponibilidade: number
+  configuracao: number
+  outros: number
+}
+
+export interface EconomiaDaIa {
+  custoRealHaikuReais: number
+  custoSeFosseTudoHaikuReais: number
+  economiaEstimadaReais: number
+  percentualDeEconomia: number
+}
+
 export interface SituacaoDaIa {
   habilitada: boolean
   estaConfigurada: boolean
-  modelo: string
+  gemini: EstadoDoProvedorDeIa
+  anthropic: EstadoDoProvedorDeIa
   limiteDiario: number
-  usadoHoje: number
+  usadoHojeGeral: number
+  limiteDiarioHaiku: number
+  usadoHojeHaiku: number
+  franquia: FranquiaDoGemini
+  hoje: HojeDaIa
+  motivosDeFallback: MotivosDeFallback
+  economia: EconomiaDaIa
+  periodoDe: string
+  periodoAte: string
 }

@@ -50,4 +50,21 @@ public static class PromptDeSistema
 
         Responda sempre no formato pedido.
         """;
+
+    /// <summary>
+    /// Ajuste específico para o Gemini, concatenado depois de <see cref="Texto"/>
+    /// só quando o provedor é o Gemini. Nasce vazio de propósito: as duas regras
+    /// (grounding, escalonamento) são as mesmas para os dois modelos, e este texto
+    /// só deve crescer se o corpus de qualidade (ver
+    /// <c>verificar-qualidade-ia.cs</c>) mostrar um desvio real e reproduzível —
+    /// nunca por suposição de como "modelos diferentes se comportam diferente".
+    /// Cada trecho adicionado aqui deve vir acompanhado, no PR, do caso do corpus
+    /// que motivou a mudança.
+    /// </summary>
+    public const string AjusteParaGemini = "";
+
+    public static string ParaAnthropic() => Texto;
+
+    public static string ParaGemini() =>
+        string.IsNullOrEmpty(AjusteParaGemini) ? Texto : $"{Texto}\n\n{AjusteParaGemini}";
 }
