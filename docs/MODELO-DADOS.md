@@ -738,7 +738,7 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | --- | --- | --- |
 | PK | `Guid` v7 (`Guid.CreateVersion7()`) | Gerada na aplicação, sequencial — sem fragmentação de índice e sem round-trip |
 | Multi-tenant | `TenantId` em toda tabela de negócio desde a Fase 1 | Retrofit depois é caro e propenso a vazamento de dado entre clientes |
-| Exclusão | Não existe. `Ativo` em cadastro, `Status` em conversa | Exigência do cliente e postura correta em cartório |
+| Exclusão | Não existe. `Ativo` em cadastro, `Status` em conversa. **Exceção: `Cliente` sem `Conversa` vinculada pode ser excluído de verdade** (2026-08-25, decisão do Thiago) — ver `Modules/Clientes/README.md` | Exigência do cliente e postura correta em cartório; a exceção existe para desfazer erro de importação em lote antes de qualquer atendimento acontecer |
 | Concorrência | `rowversion` + `UPDATE` condicional | Ver seção 4 |
 | Situação de prazo | Calculada na leitura | Persistir exigiria job e mentiria entre execuções |
 | Enum no banco | `tinyint` | Legível em `CHECK`, barato de indexar |

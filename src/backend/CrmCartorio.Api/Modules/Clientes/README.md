@@ -37,9 +37,19 @@ DESIGN.md, seção 11.
 Nasce como o nome do perfil do WhatsApp e é corrigido pelo atendente quando a
 identificação real aparece.
 
-## Sem exclusão
+## Sem exclusão — exceto Cliente sem histórico
 
-Só `Ativo = false`. Vale para todo o produto.
+Regra do produto inteiro: só `Ativo = false`, nunca `DELETE`. **`Cliente` é a
+única exceção**, decidida pelo Thiago em 2026-08-25 mesmo depois de eu marcar o
+risco — o caso real era desfazer erro de importação em lote (contato errado
+puxado da agenda do WhatsApp, sem nenhum atendimento ainda).
+
+`ClienteService.ExcluirAsync` faz a exclusão física de verdade, mas **recusa se
+o cliente tiver qualquer `Conversa` vinculada** — `ClientesServiceException
+.NaoPodeExcluirComHistorico()`, 409. Essa trava não é opcional: apagar o cliente
+não pode arrastar o histórico de atendimento junto, e RF-015 proíbe apagar
+conversa (ver MODELO-DADOS.md, seção 4 e 8). Cliente **com** histórico continua
+só podendo ser desativado (`DadosDeCliente.Ativo`), do jeito de sempre.
 
 ## Origem do cadastro
 
