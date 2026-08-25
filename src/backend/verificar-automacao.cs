@@ -1693,8 +1693,16 @@ var telefoneValidoComNono = TelefoneDeContato.Interpretar("(38) 99912-0045");
 Checar("Interpretar aceita 13 digitos com DDD valido",
     telefoneValidoComNono.Valido && telefoneValidoComNono.E164 == "5538999000045");
 
-var telefoneAmbiguo = TelefoneDeContato.Interpretar("38 3212-0045");
-Checar("Interpretar marca 12 digitos com DDD valido como Ambiguo — pode ser fixo ou celular sem o nono",
+var telefoneFixo = TelefoneDeContato.Interpretar("38 3212-0045");
+Checar("Interpretar aceita 12 digitos com assinante comecando em 2-5 como fixo, ja completo",
+    telefoneFixo.Valido && telefoneFixo.E164 == "553832000045");
+
+var telefoneCelularLegado = TelefoneDeContato.Interpretar("38 98179-660");
+Checar("Interpretar insere o nono em 12 digitos com assinante comecando em 6-9 (celular legado)",
+    telefoneCelularLegado.Valido && telefoneCelularLegado.E164 == "5538998000660");
+
+var telefoneAmbiguo = TelefoneDeContato.Interpretar("38 01234567");
+Checar("Interpretar marca Ambiguo so quando o digito do assinante foge de 2-9 (nao deveria acontecer no Brasil)",
     telefoneAmbiguo.Situacao == SituacaoDoTelefone.Ambiguo && telefoneAmbiguo.E164 is null);
 
 var telefoneComDddInvalido = TelefoneDeContato.Interpretar("5500999000045");

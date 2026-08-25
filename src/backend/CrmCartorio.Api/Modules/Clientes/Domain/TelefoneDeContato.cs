@@ -16,8 +16,10 @@ public enum SituacaoDoTelefone
     DddInvalido,
 
     /// <summary>
-    /// 12 dígitos com DDD válido — pode ser um fixo de verdade, ou um celular
-    /// legado sem o nono dígito. Ver <see cref="TelefoneDeContato"/>.
+    /// 12 dígitos com DDD válido e o primeiro dígito do assinante fora das
+    /// faixas 2–5 (fixo) e 6–9 (celular legado) do plano de numeração da
+    /// Anatel — caso residual, não deveria acontecer em número brasileiro
+    /// real. Ver <see cref="TelefoneDeContato"/>.
     /// </summary>
     Ambiguo
 }
@@ -47,16 +49,22 @@ public readonly record struct ResultadoDoTelefone(SituacaoDoTelefone Situacao, s
 ///    vira uma chamada de gateway desperdiçada em sequência — e é esse padrão
 ///    (várias tentativas para número que não existe) que o WhatsApp lê como
 ///    automação suspeita.
-/// 2. <b>Devolver <see cref="SituacaoDoTelefone.Ambiguo"/> em vez de aceitar
-///    12 dígitos como válido.</b> Pode ser um fixo de verdade, ou um celular
-///    brasileiro na forma legada (sem o nono). O gateway resolve essa mesma
-///    ambiguidade em
-///    <see cref="Modules.CanalWhatsApp.Application.NormalizadorDeTelefone.CanonicalizarMovelBrasileiro"/>,
-///    mas só quando quem chama É o dono do número — ali um fixo nunca aparece,
-///    porque o WhatsApp exige celular para parear. Telefone de CONTATO não tem
-///    essa garantia: completar o nono a força inventaria um número que não
-///    existe. Em 500 linhas, adivinhar cria clientes fantasma — melhor marcar
-///    "revisar" e mostrar na tela.
+/// 2. <b>Decidir 12 dígitos com DDD válido pelo plano de numeração, não por
+///    aceitar tudo cegamente.</b> O primeiro dígito do assinante (logo após o
+///    DDD) já diz o tipo, por regra da Anatel que vale para o Brasil inteiro:
+///    <c>2</c>–<c>5</c> é fixo (8 dígitos, já completo, nada a inserir);
+///    <c>6</c>–<c>9</c> é celular na forma legada (sem o nono, que existe só
+///    para não faltar numeração de celular — fixo nunca precisou). Isso não é
+///    a mesma aposta que
+///    <see cref="Modules.CanalWhatsApp.Application.NormalizadorDeTelefone.CanonicalizarMovelBrasileiro"/>
+///    faz (aquele insere o nono em QUALQUER 12 dígitos, seguro só porque ali
+///    quem chama é o dono da própria sessão pareada — fixo nunca aparece,
+///    porque o WhatsApp exige celular para parear). Aqui, telefone de
+///    CONTATO pode ser fixo de verdade, então o dígito do assinante é quem
+///    decide, não o comprimento sozinho.
+///    <see cref="SituacaoDoTelefone.Ambiguo"/> sobra só para o dígito fora
+///    das duas faixas — teoricamente não deveria acontecer em número
+///    brasileiro real, mas nunca inventa um número quando acontece.
 /// </remarks>
 public static class TelefoneDeContato
 {
@@ -114,11 +122,21 @@ public static class TelefoneDeContato
         }
 
         // 13 digitos com DDD valido: 55 + DDD + 9 + numero. Sem ambiguidade.
-        // 12 digitos com DDD valido: fixo de verdade, ou celular sem o nono —
-        // ver o <remarks> da classe.
-        return digitos.Length == 13
-            ? new ResultadoDoTelefone(SituacaoDoTelefone.Valido, digitos)
-            : new ResultadoDoTelefone(SituacaoDoTelefone.Ambiguo, null);
+        if (digitos.Length == 13)
+        {
+            return new ResultadoDoTelefone(SituacaoDoTelefone.Valido, digitos);
+        }
+
+        // 12 digitos com DDD valido: o primeiro digito do assinante (posicao 4,
+        // logo apos os dois do DDD) decide pelo plano de numeracao da Anatel —
+        // ver o <remarks> da classe. "55381234567" -> assinante comeca em "1",
+        // indice 4.
+        return digitos[4] switch
+        {
+            >= '2' and <= '5' => new ResultadoDoTelefone(SituacaoDoTelefone.Valido, digitos),
+            >= '6' and <= '9' => new ResultadoDoTelefone(SituacaoDoTelefone.Valido, digitos.Insert(4, "9")),
+            _ => new ResultadoDoTelefone(SituacaoDoTelefone.Ambiguo, null)
+        };
     }
 
     private static string SomenteDigitos(string valor) =>
