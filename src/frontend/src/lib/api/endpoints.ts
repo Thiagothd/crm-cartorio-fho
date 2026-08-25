@@ -1,11 +1,13 @@
 import { api, montarQuery } from './cliente-http'
 import type {
   AlertaOperacional,
+  AnalisarImportacaoResponse,
   AparenciaDaConversa,
   Atendente,
   CargoNaServentia,
   Cliente,
   ConexaoDoCanal,
+  ConfirmarImportacaoResponse,
   Conversa,
   ConversaDetalhada,
   DadosDeCliente,
@@ -17,7 +19,9 @@ import type {
   Etapa,
   FiltroDeClientes,
   FiltroDeConversas,
+  FonteDeImportacao,
   GatilhoDeMensagem,
+  LinhaParaGravar,
   Mensagem,
   MensagemAutomatica,
   ModoDeRecebimento,
@@ -166,6 +170,27 @@ export const clientesApi = {
 
   atualizar: (id: string, dados: DadosDeCliente) =>
     api.put<Cliente>(`/api/clientes/${id}`, dados),
+}
+
+/**
+ * Duas rotas em vez de um `?apenasPrevia=` porque a prévia é editável: o
+ * operador desmarca linhas antes de confirmar. Ver docs/PROCESSO-DE-AJUSTE.md.
+ */
+export const importacaoDeContatosApi = {
+  analisarTexto: (texto: string) =>
+    api.post<AnalisarImportacaoResponse>('/api/clientes/importacao/analisar', {
+      fonte: 'Texto' satisfies FonteDeImportacao,
+      texto,
+    }),
+
+  /** Lê a agenda do WhatsApp pareado agora — número do canal, seja qual for. */
+  analisarWhatsApp: () =>
+    api.post<AnalisarImportacaoResponse>('/api/clientes/importacao/analisar', {
+      fonte: 'WhatsApp' satisfies FonteDeImportacao,
+    }),
+
+  confirmar: (fonte: FonteDeImportacao, linhas: LinhaParaGravar[]) =>
+    api.post<ConfirmarImportacaoResponse>('/api/clientes/importacao/confirmar', { fonte, linhas }),
 }
 
 // Consultas públicas --------------------------------------------------------

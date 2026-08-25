@@ -48,6 +48,7 @@ using Microsoft.Extensions.Options;
 //  21. "menu" no lugar do nome nao deixa a flag presa
 //  22. O CAMINHO FELIZ: perfil com nome nao ve diferenca nenhuma
 //  23. Gatilho desativado nao deixa o contato mudo; e nao se repergunta
+//  24. TelefoneDeContato e ParserDeListaDeContatos: importacao de contatos (sem banco)
 //
 // ATENCAO: este verificador ESCREVE no banco. Rode SOMENTE contra base de
 // desenvolvimento. Ao final remove tudo que criou, inclusive sobras de execucoes
@@ -1666,6 +1667,74 @@ await using (var db = new CrmDbContext(opcoes))
         !textos.Any(t => t.Contains("como posso te chamar", StringComparison.OrdinalIgnoreCase)));
     Checar("e o atendimento abriu direto", AbriuAtendimento(textos));
 }
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 24 — TelefoneDeContato e ParserDeListaDeContatos, logica pura (sem banco)
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 24 — importacao de contatos: telefone e parser, sem banco");
+
+// ParaE164Basico: a regra de sempre, sem checagem de DDD — o cadastro manual
+// continua usando ela sem mudar nem um bit de comportamento.
+Checar("ParaE164Basico acrescenta 55 a numero de 11 digitos",
+    TelefoneDeContato.ParaE164Basico("38999000045") == "5538999000045");
+Checar("ParaE164Basico acrescenta 55 a numero de 10 digitos",
+    TelefoneDeContato.ParaE164Basico("3832000045") == "553832000045");
+Checar("ParaE164Basico aceita DDD que nao existe (nao valida DDD)",
+    TelefoneDeContato.ParaE164Basico("5500999000045") == "5500999000045");
+Checar("ParaE164Basico recusa numero curto demais", TelefoneDeContato.ParaE164Basico("123") is null);
+Checar("ParaE164Basico recusa vazio", TelefoneDeContato.ParaE164Basico("") is null);
+Checar("ParaE164Basico recusa nulo", TelefoneDeContato.ParaE164Basico(null) is null);
+
+// Interpretar: mais desconfiado, so a importacao em lote usa.
+var telefoneValidoComNono = TelefoneDeContato.Interpretar("(38) 99912-0045");
+Checar("Interpretar aceita 13 digitos com DDD valido",
+    telefoneValidoComNono.Valido && telefoneValidoComNono.E164 == "5538999000045");
+
+var telefoneAmbiguo = TelefoneDeContato.Interpretar("38 3212-0045");
+Checar("Interpretar marca 12 digitos com DDD valido como Ambiguo — pode ser fixo ou celular sem o nono",
+    telefoneAmbiguo.Situacao == SituacaoDoTelefone.Ambiguo && telefoneAmbiguo.E164 is null);
+
+var telefoneComDddInvalido = TelefoneDeContato.Interpretar("5500999000045");
+Checar("Interpretar recusa DDD que nao existe",
+    telefoneComDddInvalido.Situacao == SituacaoDoTelefone.DddInvalido && telefoneComDddInvalido.E164 is null);
+
+var telefoneComFormatoInvalido = TelefoneDeContato.Interpretar("123");
+Checar("Interpretar recusa numero curto demais",
+    telefoneComFormatoInvalido.Situacao == SituacaoDoTelefone.FormatoInvalido);
+
+var telefoneInternacional = TelefoneDeContato.Interpretar("+44 20 7946 0958");
+Checar("Interpretar aceita numero internacional (12 digitos, nao comeca com 55) sem exigir DDD",
+    telefoneInternacional.Valido && telefoneInternacional.E164 == "442079460958");
+
+// ParserDeListaDeContatos: separador, cabecalho em qualquer ordem, sem cabecalho.
+var linhasComCabecalho = ParserDeListaDeContatos.Analisar(
+    "nome,telefone\nMaria Silva,(38) 99999-0001\nJoao Souza,(38) 98888-0002");
+Checar("cabecalho nome,telefone: duas linhas de contato (cabecalho nao vira contato)",
+    linhasComCabecalho.Count == 2);
+Checar("cabecalho nome,telefone: nome na coluna certa", linhasComCabecalho[0].Nome == "Maria Silva");
+Checar("cabecalho nome,telefone: telefone na coluna certa",
+    linhasComCabecalho[0].TelefoneBruto == "(38) 99999-0001");
+
+var linhasComCabecalhoInvertido = ParserDeListaDeContatos.Analisar(
+    "telefone;nome\n(38) 99999-0001;Maria Silva");
+Checar("cabecalho invertido (telefone antes do nome) ainda acha as colunas certas",
+    linhasComCabecalhoInvertido[0].Nome == "Maria Silva"
+    && linhasComCabecalhoInvertido[0].TelefoneBruto == "(38) 99999-0001");
+
+var linhasSemCabecalho = ParserDeListaDeContatos.Analisar(
+    "Maria Silva\t(38) 99999-0001\nJoao Souza\t(38) 98888-0002");
+Checar("sem cabecalho, ordem padrao nome-telefone: duas linhas", linhasSemCabecalho.Count == 2);
+Checar("sem cabecalho: segunda linha lida certa", linhasSemCabecalho[1].Nome == "Joao Souza");
+
+var linhasSoTelefone = ParserDeListaDeContatos.Analisar("(38) 99999-0001\n(38) 98888-0002");
+Checar("linha com uma coluna so: e o telefone, sem adivinhar nome",
+    linhasSoTelefone[0].Nome is null && linhasSoTelefone[0].TelefoneBruto == "(38) 99999-0001");
+
+Checar("texto so com linhas vazias nao gera contato nenhum",
+    ParserDeListaDeContatos.Analisar("\n\n  \n").Count == 0);
 
 Console.WriteLine();
 

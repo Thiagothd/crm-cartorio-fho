@@ -15,6 +15,12 @@ public record EstadoDaInstancia(string Estado, string? QrCodeBase64)
 public record PerfilDaInstancia(string? Numero, string? Nome, string? FotoUrl);
 
 /// <summary>
+/// Um contato como o gateway persiste, cru — sem filtro de grupo/`@lid` e sem
+/// validação de telefone. Quem chama decide o que fazer com o <see cref="Jid"/>.
+/// </summary>
+public record ContatoDoWhatsApp(string Jid, string? Nome);
+
+/// <summary>
 /// Fala com o gateway Evolution. E o unico ponto do sistema que conhece o
 /// formato do terceiro.
 /// </summary>
@@ -88,4 +94,15 @@ public interface IEvolutionClient
     /// Devolve nulo se o contato nao tiver foto, se a privacidade bloquear ou se o canal estiver desligado.
     /// </summary>
     Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct);
+
+    /// <summary>
+    /// Agenda de contatos que o gateway persistiu para a instância pareada —
+    /// para a importação de contatos (Modules/Clientes).
+    /// </summary>
+    /// <remarks>
+    /// Pode vir vazia mesmo com contatos reais no aparelho: a Evolution só
+    /// devolve o que sincronizou no pareamento, não uma leitura ao vivo do
+    /// telefone. Vazio não é erro — só falha de rede/gateway lança.
+    /// </remarks>
+    Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct);
 }
