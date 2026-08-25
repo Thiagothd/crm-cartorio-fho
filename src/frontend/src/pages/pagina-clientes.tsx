@@ -1,14 +1,17 @@
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   Building2,
   FileWarning,
+  Loader2,
   MapPinOff,
   Pencil,
   Plus,
   Search,
   SlidersHorizontal,
+  Trash2,
   Upload,
   Users,
   X,
@@ -24,6 +27,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -35,6 +39,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { clientesApi } from '@/lib/api/endpoints'
+import { ErroDaApi } from '@/lib/api/cliente-http'
 import {
   formatarDataHora,
   formatarDocumento,
@@ -75,6 +80,8 @@ export function PaginaClientes() {
   const [dialogoAberto, setDialogoAberto] = useState(false)
   const [importacaoAberta, setImportacaoAberta] = useState(false)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const [emExclusao, setEmExclusao] = useState<Cliente | null>(null)
+  const [excluindo, setExcluindo] = useState(false)
 
   // A busca global (cabeçalho) manda o cliente encontrado para aqui via
   // `?busca=`. Sem parâmetro, nada muda do comportamento de sempre.
@@ -116,6 +123,24 @@ export function PaginaClientes() {
     setDialogoAberto(true)
   }
 
+  async function confirmarExclusao() {
+    if (!emExclusao) return
+
+    setExcluindo(true)
+
+    try {
+      await clientesApi.excluir(emExclusao.id)
+      toast.success(`${emExclusao.nome} excluído.`)
+      setEmExclusao(null)
+      void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes'] })
+      void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes-opcoes'] })
+    } catch (falha) {
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível excluir o cliente.')
+    } finally {
+      setExcluindo(false)
+    }
+  }
+
   const temFiltroRapido =
     Boolean(filtros.semDocumento) ||
     Boolean(filtros.semEndereco) ||
@@ -142,7 +167,8 @@ export function PaginaClientes() {
         </Button>
         <Button size="sm" onClick={abrirNovo}>
           <Plus />
-          Novo<span className="hidden sm:inline">&nbsp;cliente</span>
+          <span className="sm:hidden">Novo</span>
+          <span className="hidden sm:inline">Novo Cliente</span>
         </Button>
       </AcoesDaPagina>
 
@@ -267,7 +293,7 @@ export function PaginaClientes() {
                     <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Documento</th>
                     <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Qualificação</th>
                     <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Atendimentos</th>
-                    <th className="w-14 md:w-12"><span className="sr-only">Ações</span></th>
+                    <th className="w-24 md:w-20"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
 
@@ -349,9 +375,20 @@ export function PaginaClientes() {
                       </td>
 
                       <td className="px-1 py-2.5 md:px-2">
-                        <Button variant="ghost" size="icon-sm" onClick={() => abrirEdicao(cliente)} aria-label={`Editar ${cliente.nome}`}>
-                          <Pencil />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button variant="ghost" size="icon-sm" onClick={() => abrirEdicao(cliente)} aria-label={`Editar ${cliente.nome}`}>
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setEmExclusao(cliente)}
+                            aria-label={`Excluir ${cliente.nome}`}
+                            className="text-tinta-fraca hover:text-selo"
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -366,7 +403,7 @@ export function PaginaClientes() {
               acao={
                 <Button size="sm" onClick={abrirNovo}>
                   <Plus />
-                  Novo cliente
+                  Novo Cliente
                 </Button>
               }
             />
@@ -392,6 +429,28 @@ export function PaginaClientes() {
           void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes-opcoes'] })
         }}
       />
+
+      <Dialog open={emExclusao !== null} onOpenChange={(aberto) => !aberto && setEmExclusao(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir {emExclusao?.nome}?</DialogTitle>
+            <DialogDescription>
+              Apaga o cadastro de vez — não é como desativar, não tem como desfazer. Só é permitido
+              quando o cliente não tem nenhum atendimento registrado; se tiver, desative o cadastro em
+              vez de excluir.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmExclusao(null)} disabled={excluindo}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmarExclusao()} disabled={excluindo}>
+              {excluindo ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

@@ -194,6 +194,32 @@ public partial class ClienteService(
         return await ObterAsync(cliente.Id, ct);
     }
 
+    /// <summary>
+    /// Exclusão física — único caso no sistema (Modules/Clientes/README.md).
+    /// Recusa quando há conversa vinculada: apagar o cliente não pode arrastar o
+    /// histórico de atendimento junto, e RF-015 proíbe apagar conversa. Para
+    /// esses, o caminho é desativar (<see cref="DadosDeCliente.Ativo"/>), não
+    /// excluir.
+    /// </summary>
+    public async Task ExcluirAsync(Guid id, CancellationToken ct = default)
+    {
+        GarantirPermissao();
+
+        var cliente = await db.Clientes
+            .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
+            ?? throw ClientesServiceException.NaoEncontrado();
+
+        var temHistorico = await db.Conversas.AnyAsync(x => x.ClienteId == id, ct);
+
+        if (temHistorico)
+        {
+            throw ClientesServiceException.NaoPodeExcluirComHistorico();
+        }
+
+        db.Clientes.Remove(cliente);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<OpcoesDeClientesResponse> ObterOpcoesAsync(CancellationToken ct = default)
     {
         var cidades = await db.Clientes.AsNoTracking()
@@ -302,6 +328,14 @@ public partial class ClienteService(
         }
 
         return null;
+    }
+
+    private void GarantirPermissao()
+    {
+        if (!ctx.PodeGerirCadastros)
+        {
+            throw ClientesServiceException.SemPermissao();
+        }
     }
 
     // ------------------------------------------------------------- auxiliares

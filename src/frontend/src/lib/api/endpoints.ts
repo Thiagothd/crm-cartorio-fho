@@ -170,6 +170,9 @@ export const clientesApi = {
 
   atualizar: (id: string, dados: DadosDeCliente) =>
     api.put<Cliente>(`/api/clientes/${id}`, dados),
+
+  /** Exclusão física — recusada pelo backend se o cliente tiver atendimento vinculado. */
+  excluir: (id: string) => api.excluir<void>(`/api/clientes/${id}`),
 }
 
 /**

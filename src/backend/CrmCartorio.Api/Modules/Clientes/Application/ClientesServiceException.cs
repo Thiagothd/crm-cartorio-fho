@@ -68,4 +68,14 @@ public class ClientesServiceException(string codigo, string mensagem, int status
     public static ClientesServiceException ImportacaoMuitoGrande(int total) =>
         new("importacao_muito_grande",
             $"A lista tem {total} linhas. Separe em arquivos de até 5.000 linhas.", 400);
+
+    /// <summary>
+    /// Único caso de exclusão física no sistema — ver Modules/Clientes/README.md.
+    /// Recusada quando há conversa vinculada: apagar o cliente não pode arrastar
+    /// o histórico de atendimento junto (RF-015 proíbe apagar conversa).
+    /// </summary>
+    public static ClientesServiceException NaoPodeExcluirComHistorico() =>
+        new("cliente_tem_historico",
+            "Este cliente tem atendimento registrado e não pode ser excluído. Desative o cadastro em vez de excluir.",
+            409);
 }
