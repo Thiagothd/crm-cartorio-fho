@@ -162,6 +162,9 @@ Checar("Clientes com contadores", () =>
         })
         .ToQueryString());
 
+Checar("Cliente: tem historico de atendimento (guarda da exclusao)", () =>
+    db.Conversas.AsNoTracking().Where(x => x.ClienteId == Guid.Empty).ToQueryString());
+
 // 8. Cadastros com contagem de conversas ativas.
 Checar("Setores com contadores", () =>
     db.Setores.AsNoTracking()

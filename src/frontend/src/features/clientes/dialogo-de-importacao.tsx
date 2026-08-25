@@ -190,14 +190,14 @@ export function DialogoDeImportacao({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={aba} onValueChange={(valor) => setAba(valor as Aba)} className="flex min-h-0 flex-1 flex-col">
+        <Tabs value={aba} onValueChange={(valor) => setAba(valor as Aba)}>
           <TabsList>
             <TabsTrigger value="texto">Colar lista</TabsTrigger>
             <TabsTrigger value="csv">Arquivo CSV</TabsTrigger>
             <TabsTrigger value="whatsapp">Contatos do WhatsApp</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="texto" className="flex min-h-0 flex-1 flex-col gap-3">
+          <TabsContent value="texto" className="flex flex-col gap-3">
             <Textarea
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
@@ -210,7 +210,7 @@ export function DialogoDeImportacao({
             </Button>
           </TabsContent>
 
-          <TabsContent value="csv" className="flex min-h-0 flex-1 flex-col gap-3">
+          <TabsContent value="csv" className="flex flex-col gap-3">
             <input
               ref={seletorDeArquivo}
               type="file"
@@ -232,7 +232,7 @@ export function DialogoDeImportacao({
             </Button>
           </TabsContent>
 
-          <TabsContent value="whatsapp" className="flex min-h-0 flex-1 flex-col gap-3">
+          <TabsContent value="whatsapp" className="flex flex-col gap-3">
             <p className="text-sm text-tinta-media">
               Lê a agenda salva pelo número que está conectado agora — o mesmo que aparece em
               Configurações → WhatsApp. Trocou de número por lá, a consulta busca do número novo.
@@ -251,7 +251,7 @@ export function DialogoDeImportacao({
         </Tabs>
 
         {resultado ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 border-t border-linha pt-3">
+          <div className="flex flex-col gap-2 border-t border-linha pt-3">
             <div className="flex flex-wrap gap-1.5 text-xs">
               <Badge variant="success">{resultado.resumo.novas} novas</Badge>
               {resultado.resumo.jaCadastradas > 0 ? (
@@ -269,7 +269,13 @@ export function DialogoDeImportacao({
               <span className="ml-auto text-tinta-fraca">{resultado.resumo.totalLidas} linhas lidas</span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-linha">
+            {/* max-h em dvh, não flex-1: o diálogo é `position: fixed` com
+                max-height (não height fixo), então um filho flex-1 não tem
+                "espaço restante" nenhum para calcular e cresce pro tamanho
+                natural do conteúdo — foi o que causou a tela toda desmontar
+                com uma lista de centenas de linhas. dvh resolve contra o
+                viewport direto, sem depender da altura do ancestral. */}
+            <div className="max-h-[40dvh] overflow-y-auto rounded-md border border-linha">
               <table className="w-full text-sm">
                 <tbody>
                   {resultado.linhas.map((linha) => (

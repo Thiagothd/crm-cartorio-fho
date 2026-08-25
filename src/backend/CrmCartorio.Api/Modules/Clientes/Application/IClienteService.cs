@@ -10,6 +10,12 @@ public interface IClienteService
 
     Task<ClienteResponse> AtualizarAsync(Guid id, DadosDeCliente dados, CancellationToken ct = default);
 
+    /// <summary>
+    /// Exclusão física — único caso no sistema. Recusa se o cliente tiver
+    /// conversa vinculada; para esses, o caminho é desativar (campo Ativo).
+    /// </summary>
+    Task ExcluirAsync(Guid id, CancellationToken ct = default);
+
     /// <summary>Cidades ja cadastradas, para o filtro da tela.</summary>
     Task<OpcoesDeClientesResponse> ObterOpcoesAsync(CancellationToken ct = default);
 

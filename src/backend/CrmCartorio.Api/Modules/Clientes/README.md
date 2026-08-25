@@ -37,9 +37,19 @@ DESIGN.md, seção 11.
 Nasce como o nome do perfil do WhatsApp e é corrigido pelo atendente quando a
 identificação real aparece.
 
-## Sem exclusão
+## Sem exclusão — exceto Cliente sem histórico
 
-Só `Ativo = false`. Vale para todo o produto.
+Regra do produto inteiro: só `Ativo = false`, nunca `DELETE`. **`Cliente` é a
+única exceção**, decidida pelo Thiago em 2026-08-25 mesmo depois de eu marcar o
+risco — o caso real era desfazer erro de importação em lote (contato errado
+puxado da agenda do WhatsApp, sem nenhum atendimento ainda).
+
+`ClienteService.ExcluirAsync` faz a exclusão física de verdade, mas **recusa se
+o cliente tiver qualquer `Conversa` vinculada** — `ClientesServiceException
+.NaoPodeExcluirComHistorico()`, 409. Essa trava não é opcional: apagar o cliente
+não pode arrastar o histórico de atendimento junto, e RF-015 proíbe apagar
+conversa (ver MODELO-DADOS.md, seção 4 e 8). Cliente **com** histórico continua
+só podendo ser desativado (`DadosDeCliente.Ativo`), do jeito de sempre.
 
 ## Origem do cadastro
 
@@ -80,8 +90,13 @@ arquivo, contra o banco por lote, e `try/catch DbUpdateException` no
 decisão que `RecebimentoDeWhatsApp` já toma pelo mesmo motivo.
 
 `TelefoneDeContato.Interpretar` (`Domain/TelefoneDeContato.cs`) é mais desconfiado
-que a validação do cadastro manual: valida DDD e marca telefone de 12 dígitos com
-DDD válido como `Ambiguo` (pode ser fixo de verdade, ou celular legado sem o nono
-dígito) em vez de adivinhar — em 500 linhas, adivinhar errado cria cliente
-fantasma. O cadastro manual continua usando `ParaE164Basico`, sem esse crivo
-extra: um atendente digitando na tela vê o erro na hora e corrige.
+que a validação do cadastro manual: valida DDD e, para telefone de 12 dígitos com
+DDD válido, decide pelo **primeiro dígito do assinante** (regra da Anatel, válida
+em todo o Brasil) em vez de marcar tudo como "revisar" — `2`–`5` é fixo (8 dígitos,
+já completo), `6`–`9` é celular na forma legada (insere o nono). Só o dígito fora
+dessas duas faixas — o que não deveria acontecer em número brasileiro real — cai
+em `Ambiguo`. Corrigido em 2026-08-25 depois de o cartório parceiro testar a importação de
+verdade: a versão anterior marcava a maioria dos celulares legados como "revisar"
+sem necessidade, porque tratava qualquer 12 dígitos como incerto. O cadastro
+manual continua usando `ParaE164Basico`, sem esse crivo extra: um atendente
+digitando na tela vê o erro na hora e corrige.

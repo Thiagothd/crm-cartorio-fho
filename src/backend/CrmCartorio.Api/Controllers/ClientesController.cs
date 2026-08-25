@@ -59,6 +59,14 @@ public class ClientesController(IClienteService servico, IImportacaoDeContatosSe
         CancellationToken ct) =>
         Ok(await servico.AtualizarAsync(id, dados, ct));
 
+    /// <summary>Exclusão física — recusa se o cliente tiver atendimento vinculado.</summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Excluir(Guid id, CancellationToken ct)
+    {
+        await servico.ExcluirAsync(id, ct);
+        return NoContent();
+    }
+
     /// <summary>Classifica cada linha da lista sem gravar nada — a prévia que o operador revisa.</summary>
     [HttpPost("importacao/analisar")]
     public async Task<ActionResult<AnalisarImportacaoResponse>> AnalisarImportacao(
