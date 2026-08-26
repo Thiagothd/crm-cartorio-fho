@@ -23,7 +23,7 @@ public sealed record SituacaoDoDisjuntor(EstadoDoDisjuntor Estado, DateTime? Vol
 /// da sonda, para não acumular latência em cima de um provedor que pode ainda
 /// estar fora do ar.
 /// </remarks>
-public class DisjuntorDoGemini
+public class DisjuntorDoGemini(TimeSpan? tempoMaximoDeSonda = null)
 {
     private readonly object _lock = new();
     private readonly Dictionary<string, EstadoInterno> _porProjeto = new();
@@ -35,13 +35,58 @@ public class DisjuntorDoGemini
         public DateTime AbertoAte = DateTime.MinValue;
         public TimeSpan CooldownAtual = TimeSpan.Zero;
         public bool SondaEmAndamento;
+        public DateTime SondaIniciadaEm = DateTime.MinValue;
     }
+
+    /// <summary>
+    /// Default de produção de <see cref="_tempoMaximoDeSonda"/> — exposto como
+    /// público só para permitir uma checagem de sanidade na configuração do
+    /// Gemini no startup (ver <c>Program.cs</c>), sem duplicar o número "60" em
+    /// dois lugares.
+    /// </summary>
+    public static readonly TimeSpan TempoMaximoDeSondaPadrao = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Teto de quanto tempo uma sonda pode ficar "em andamento" antes de ser
+    /// considerada perdida. Não depende do <c>TimeoutSegundos</c> configurado do
+    /// Gemini de propósito: <see cref="PodeTentar"/> não tem acesso a
+    /// <see cref="OpcoesDoGemini"/> (é chamado antes da decisão de cota), e este é
+    /// só uma rede de segurança — bem acima de qualquer timeout HTTP razoável.
+    /// Parâmetro de construtor (não constante) só para permitir um valor curto nos
+    /// verificadores — produção usa sempre <see cref="TempoMaximoDeSondaPadrao"/>
+    /// (registro no DI não passa nada).
+    /// </summary>
+    /// <remarks>
+    /// PREMISSA: este valor precisa ser maior que o timeout HTTP efetivo do
+    /// Gemini (<c>Math.Max(5, Gemini.TimeoutSegundos)</c>, aplicado em
+    /// <c>ProvedorGemini.GerarAsync</c> via <c>CancelAfter</c>). Se
+    /// <c>Gemini:TimeoutSegundos</c> for configurado igual ou acima deste valor,
+    /// uma sonda lenta (mas NÃO cancelada) pode ainda estar em voo quando outra
+    /// mensagem a trata como "perdida" e abre uma segunda sonda concorrente —
+    /// risco de duas chamadas reais simultâneas ao Gemini, cada uma podendo
+    /// decidir o estado final do disjuntor. <c>Program.cs</c> registra um aviso
+    /// no boot se essa premissa for violada (não falha o startup — a IA já segue
+    /// a política de nunca travar o sistema por configuração ruim; ver
+    /// <see cref="OpcoesDaIA.EstaConfigurada"/>). Os defaults documentados
+    /// (<c>TimeoutSegundos = 20</c>) ficam bem abaixo deste teto.
+    /// </remarks>
+    private readonly TimeSpan _tempoMaximoDeSonda = tempoMaximoDeSonda ?? TempoMaximoDeSondaPadrao;
 
     /// <summary>
     /// Chamado ANTES de decidir tentar o Gemini. <paramref name="ehSonda"/> vem
     /// verdadeiro no máximo uma vez por ciclo de abertura — enquanto a sonda está
     /// em curso, novas chamadas devolvem falso mesmo com o cooldown já vencido.
     /// </summary>
+    /// <remarks>
+    /// A sonda tem validade (<see cref="_tempoMaximoDeSonda"/>): sem isso, o
+    /// cancelamento da requisição HTTP que carregava a sonda (ex.: o gateway do
+    /// WhatsApp desiste, ou o cliente do webhook aborta) faz
+    /// <see cref="OrquestradorDeProvedores"/> relançar a exceção de cancelamento
+    /// ANTES de chamar <see cref="RegistrarSucesso"/>/<see cref="RegistrarFalha"/>
+    /// — <c>SondaEmAndamento</c> nunca seria limpo, e o Gemini ficaria bloqueado
+    /// para sempre (achado ao vivo, 2026-08-26). Uma sonda "perdida" expira e
+    /// libera uma nova tentativa.
+    /// </remarks>
     public bool PodeTentar(string chaveDeProjeto, out bool ehSonda)
     {
         lock (_lock)
@@ -65,17 +110,23 @@ public class DisjuntorDoGemini
                     // mensagens simultâneas sondem ao mesmo tempo.
                     estado.Estado = EstadoDoDisjuntor.MeioAberto;
                     estado.SondaEmAndamento = true;
+                    estado.SondaIniciadaEm = agora;
                     ehSonda = true;
                     return true;
 
-                case EstadoDoDisjuntor.MeioAberto when estado.SondaEmAndamento:
+                case EstadoDoDisjuntor.MeioAberto when estado.SondaEmAndamento
+                    && agora - estado.SondaIniciadaEm < _tempoMaximoDeSonda:
                     ehSonda = false;
                     return false;
 
                 case EstadoDoDisjuntor.MeioAberto:
-                    // Estado inconsistente (sonda anterior nem fechou nem reabriu
-                    // — não deveria acontecer, mas não trava o disjuntor para sempre).
+                    // Ou nao havia sonda em andamento (estado inconsistente — sonda
+                    // anterior nem fechou nem reabriu, nao deveria acontecer), ou
+                    // havia uma e ela expirou sem nunca reportar sucesso/falha
+                    // (cancelamento da requisicao que a carregava). Nos dois casos,
+                    // esta chamada vira a nova sonda.
                     estado.SondaEmAndamento = true;
+                    estado.SondaIniciadaEm = agora;
                     ehSonda = true;
                     return true;
 

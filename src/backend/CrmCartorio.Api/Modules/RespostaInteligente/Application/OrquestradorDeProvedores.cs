@@ -55,6 +55,17 @@ public class OrquestradorDeProvedores(
 
         var respondeuComSucesso = false;
 
+        // Rastreia se a reserva do teto do Haiku chegou a ser CONCEDIDA (nao so
+        // tentada) — o finally usa as duas flags juntas para decidir o que
+        // devolver: reservou+sucesso = fica consumida; reservou+(falha OU
+        // cancelamento em QUALQUER ponto, inclusive durante a propria chamada ao
+        // Haiku) = devolve; nunca reservou = nao ha nada para devolver. Um so
+        // lugar de liberacao evita tanto o vazamento (visto ao vivo,
+        // 2026-08-26: cancelamento durante a chamada ao Haiku pulava a liberacao
+        // que antes ficava inline logo apos aquela chamada) quanto a liberacao
+        // dupla (a mesma reserva nunca e' devolvida em dois lugares diferentes).
+        var reservouHaiku = false;
+
         try
         {
             var decisao = await politica.DecidirAsync(opcoesDaIA.Gemini, ct);
@@ -70,8 +81,12 @@ public class OrquestradorDeProvedores(
                 {
                     disjuntor.RegistrarSucesso(decisao.ChaveDeProjeto!, decisao.EhSonda);
 
+                    // ReservaDeCota (nao ChaveDeProjeto) corrige o slot EXATO que
+                    // esta chamada abriu na janela de 1 minuto — nulo para a sonda
+                    // (que pula a reserva preventiva de proposito) e' um no-op
+                    // seguro dentro do proprio metodo.
                     await cotaDoGemini.RegistrarTokensReaisAsync(
-                        decisao.ChaveDeProjeto!,
+                        decisao.ReservaDeCota,
                         resultado.TokensEntrada + resultado.TokensSaida + resultado.TokensPensamento,
                         ct);
 
@@ -99,7 +114,7 @@ public class OrquestradorDeProvedores(
                 return NaoRespondeu(motivoDoFallback ?? "Gemini indisponível e Haiku sem chave configurada.");
             }
 
-            var reservouHaiku = await limiteDiario.TentarReservarAsync(
+            reservouHaiku = await limiteDiario.TentarReservarAsync(
                 tenantId, CategoriaDeLimiteDiario.Haiku, opcoesDaIA.Anthropic.LimiteDiarioHaiku, ct);
 
             if (!reservouHaiku)
@@ -125,14 +140,14 @@ public class OrquestradorDeProvedores(
                 return resultadoHaiku.Resposta!;
             }
 
-            // A reserva do teto do Haiku foi feita para uma chamada que acabou
-            // falhando — devolve a vaga, senao um dia inteiro de Haiku fora do ar
-            // esgotaria o teto sem produzir nenhuma resposta de verdade.
-            await limiteDiario.LiberarAsync(tenantId, CategoriaDeLimiteDiario.Haiku, ct);
-
-            // Motivo final cita as DUAS falhas quando o Gemini chegou a ser
-            // tentado — só a falha do Haiku, sozinha, esconderia por que o
-            // Gemini não assumiu primeiro (achado pelo verificador, cenário 7).
+            // A liberacao da reserva do Haiku NAO acontece aqui — foi movida para
+            // o finally externo (junto com a do teto Geral), justamente para
+            // cobrir tambem o caminho de cancelamento: se `ct` for cancelado
+            // DURANTE TentarProvedorAsync (a chamada ao Haiku acima), a excecao
+            // pula direto para o finally sem passar por este ponto. Uma unica
+            // liberacao central evita tanto o vazamento (a reserva ficava presa
+            // no cancelamento) quanto a liberacao dupla (nunca dois releases da
+            // mesma reserva).
             var motivoDaFalhaDoHaiku = DescreverFalha("Haiku", resultadoHaiku);
             var motivoFinal = motivoDoFallback is null
                 ? motivoDaFalhaDoHaiku
@@ -144,7 +159,20 @@ public class OrquestradorDeProvedores(
         {
             if (!respondeuComSucesso)
             {
-                await limiteDiario.LiberarAsync(tenantId, CategoriaDeLimiteDiario.Geral, ct);
+                // CancellationToken.None: limpeza de reserva tem que acontecer
+                // mesmo que quem chamou (o request HTTP) ja tenha cancelado —
+                // senao a vaga vaza a cada cancelamento. Cobre os tres jeitos de
+                // chegar aqui sem uma resposta final entregue: Gemini e Haiku
+                // falharam normalmente; Haiku sem vaga (reservouHaiku fica falso,
+                // nada a liberar do lado do Haiku); ou a requisicao foi cancelada
+                // em QUALQUER ponto — durante o Gemini, durante a sonda, ou
+                // durante a propria chamada ao Haiku (achado ao vivo, 2026-08-26).
+                await limiteDiario.LiberarAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+
+                if (reservouHaiku)
+                {
+                    await limiteDiario.LiberarAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+                }
             }
         }
     }
@@ -191,7 +219,7 @@ public class OrquestradorDeProvedores(
             PodeResponder = resultado.Sucesso ? resultado.Resposta!.PodeResponder : null,
             TipoDeFalha = resultado.Falha,
             CodigoHttp = resultado.CodigoHttp,
-            MotivoDoFallback = foiFallback ? motivoDoFallback : null,
+            MotivoDoFallback = foiFallback ? TruncarParaColuna(motivoDoFallback) : null,
             FoiFallback = foiFallback,
             TokensEntrada = resultado.TokensEntrada,
             TokensSaida = resultado.TokensSaida,
@@ -222,6 +250,20 @@ public class OrquestradorDeProvedores(
 
     private static string DescreverFalha(string provedor, ResultadoDoProvedor resultado) =>
         $"{provedor}: {resultado.Falha} ({(resultado.CodigoHttp is { } codigo ? codigo.ToString() : "sem codigo")}) — {resultado.Detalhe}";
+
+    // dbo.ChamadasDeIa.MotivoDoFallback e' NVARCHAR(200) (ver
+    // ChamadaDeIaConfiguration.HasMaxLength(200)). A mensagem real do 429 do
+    // Gemini free tier, sozinha, ja chega perto do limite — achado ao vivo,
+    // 2026-08-26: sem truncar aqui, o SaveChanges falha por tamanho e a linha
+    // inteira (a que mais importa para o painel) se perde, engolida pelo
+    // try/catch do RegistradorDeChamadas. O log completo continua indo para o
+    // ILogger, sem perda — so a coluna do banco e' que precisa caber.
+    private const int TamanhoMaximoDoMotivo = 200;
+
+    private static string? TruncarParaColuna(string? motivo) =>
+        motivo is { Length: > TamanhoMaximoDoMotivo }
+            ? motivo[..TamanhoMaximoDoMotivo]
+            : motivo;
 
     private static RespostaDaIA NaoRespondeu(string motivo) => new(false, string.Empty, motivo);
 }

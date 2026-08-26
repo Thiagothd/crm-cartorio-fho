@@ -21,10 +21,19 @@ public interface IRespostaInteligenteService
     /// Trocas anteriores desta tentativa, mais antiga primeiro. Vazio na primeira
     /// pergunta fora do menu.
     /// </param>
+    /// <param name="conversaId">
+    /// Os fluxos reais (triagem, pós-atendimento, escolha de serviço, painel e
+    /// webhook — todos via <c>AplicadorDeRespostaInteligente</c>) sempre passam a
+    /// conversa. Opcional (nulo permitido) só pela mesma disciplina ctx-free do
+    /// resto do slice, para não obrigar um chamador futuro sem conversa em mãos a
+    /// inventar uma. Só usada para registrar <c>ChamadaDeIa.ConversaId</c> (fins
+    /// de observabilidade) — nunca muda o comportamento da resposta em si.
+    /// </param>
     Task<RespostaDaIA> ResponderAsync(
         Guid tenantId,
         IReadOnlyList<TrocaAnterior> historico,
         string mensagemDoCliente,
+        Guid? conversaId = null,
         CancellationToken ct = default);
 }
 

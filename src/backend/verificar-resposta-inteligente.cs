@@ -2,6 +2,11 @@
 #:property PublishAot=false
 #:package Microsoft.EntityFrameworkCore.InMemory@10.0.9
 
+using System.Globalization;
+using System.Net;
+using System.Net.Http;
+using System.Reflection;
+using System.Text;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
@@ -105,7 +110,7 @@ OpcoesDaIA NovasOpcoes(
 
 (OrquestradorDeProvedores Orquestrador, ProvedorFake Gemini, ProvedorFake Anthropic, DisjuntorDoGemini Disjuntor,
     ContadorDeCotaDoGemini Cota, ContadorDeLimiteDiario Limite, IServiceScopeFactory Escopos, CrmDbContext Db)
-    MontarAmbiente(OpcoesDaIA? opcoesCustom = null)
+    MontarAmbiente(OpcoesDaIA? opcoesCustom = null, TimeSpan? tempoMaximoDeSonda = null)
 {
     var (db, escopos) = NovoBanco();
     var opcoes = Options.Create(opcoesCustom ?? NovasOpcoes());
@@ -113,7 +118,7 @@ OpcoesDaIA NovasOpcoes(
     var gemini = new ProvedorFake(ProvedorDeIa.Gemini, "gemini-3.7-flash");
     var anthropic = new ProvedorFake(ProvedorDeIa.Anthropic, "claude-haiku-4-5");
 
-    var disjuntor = new DisjuntorDoGemini();
+    var disjuntor = new DisjuntorDoGemini(tempoMaximoDeSonda);
     var cota = new ContadorDeCotaDoGemini(escopos);
     var limite = new ContadorDeLimiteDiario(escopos);
     var politica = new PoliticaDeSelecao(cota, disjuntor);
@@ -491,6 +496,328 @@ Console.WriteLine("CENARIO 14 — cota do Gemini e global; tetos diarios sao por
 }
 Console.WriteLine();
 
+// ============================================================================
+// CENARIO 15 — cancelamento da requisicao DURANTE a sonda do meio-aberto nao
+// trava o disjuntor para sempre (achado ao vivo, 2026-08-26). Sonda tem
+// validade curta neste ambiente so para o teste nao esperar 60s de verdade.
+// ============================================================================
+Console.WriteLine("CENARIO 15 — cancelamento durante a sonda nao trava o Gemini para sempre");
+{
+    var opcoes = NovasOpcoes(limiteRpd: 1000, falhasParaAbrir: 1, cooldownSegundos: 1, cooldownMaximoSegundos: 2);
+    var (orq, gemini, anthropic, disjuntor, _, limite, _, _) =
+        MontarAmbiente(opcoes, tempoMaximoDeSonda: TimeSpan.FromMilliseconds(300));
+    var chave = FingerprintDeChave.Calcular("chave-fake-de-verificacao");
+
+    // Abre o disjuntor (mesma receita do cenario 6) e espera o cooldown vencer.
+    // Esta primeira chamada e' respondida com sucesso pelo Haiku — CONSOME
+    // legitimamente 1 unidade do teto geral, que fica reservada (nao e um bug;
+    // e' o mesmo comportamento provado no cenario 11).
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 503, 50, "fora do ar"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "haiku assumiu", ""), 10, 10, 0, 50));
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    await Task.Delay(TimeSpan.FromMilliseconds(1100));
+
+    var usadoGeralAntesDaSonda = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+
+    // A sonda chega ao Gemini, mas o CALLER cancela a requisicao antes de
+    // qualquer provedor responder — simula o webhook do WhatsApp/gateway
+    // desistindo em pleno voo.
+    var ctsDaSonda = new CancellationTokenSource();
+    gemini.EnfileirarCancelamento(ctsDaSonda);
+
+    var lancouCancelamento = false;
+    try
+    {
+        await orq.ResponderAsync(tenantId, null, NovoPedido(), ctsDaSonda.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        lancouCancelamento = true;
+    }
+
+    Checar("O cancelamento propagou (nao foi engolido como falha comum)", lancouCancelamento);
+    Checar("A sonda foi de fato tentada no Gemini", gemini.Chamadas == 2);
+    Checar(
+        "Disjuntor fica em MeioAberto logo apos o cancelamento (sonda perdida, nao fechada nem reaberta)",
+        disjuntor.Consultar(chave).Estado == EstadoDoDisjuntor.MeioAberto);
+
+    // A reserva feita PARA A SONDA CANCELADA tem que voltar exatamente ao mesmo
+    // patamar de antes dela (a unidade legitima da primeira chamada continua
+    // contada — so a reserva da tentativa cancelada e' que precisa ser devolvida).
+    var usadoGeralLogoApos = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+    Checar(
+        "A reserva do teto geral foi devolvida mesmo com o token ja cancelado (CancellationToken.None no Liberar)",
+        usadoGeralLogoApos == usadoGeralAntesDaSonda,
+        $"antes={usadoGeralAntesDaSonda} depois={usadoGeralLogoApos}");
+
+    // Sem o fix, o proximo PodeTentar cairia sempre no ramo
+    // "MeioAberto quando SondaEmAndamento" e devolveria falso PARA SEMPRE — aqui
+    // so esperamos a sonda expirar (300ms configurados) para provar que uma
+    // NOVA tentativa e' liberada, em vez de bloqueada eternamente.
+    await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "gemini recuperou", ""), 10, 10, 0, 40));
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    Checar("Apos a sonda expirar, uma NOVA tentativa ao Gemini acontece (nao ficou travado)", gemini.Chamadas == 3);
+    Checar("E essa tentativa teve sucesso", resposta.PodeResponder && resposta.Resposta == "gemini recuperou");
+    Checar("Disjuntor fechou depois do sucesso", disjuntor.Consultar(chave).Estado == EstadoDoDisjuntor.Fechado);
+}
+Console.WriteLine();
+
+// ============================================================================
+// CENARIO 16 — motivo de fallback maior que a coluna (NVARCHAR(200) em
+// dbo.ChamadasDeIa.MotivoDoFallback) e' truncado no codigo, nao perde a linha
+// inteira. NOTA: o provedor InMemory do EF nao aplica MaxLength — este cenario
+// prova que o TRUNCAMENTO ACONTECE (a mensagem gravada cabe em 200), nao que o
+// SaveChanges falharia sem ele; a falha real so aparece contra SQL Server de
+// verdade.
+// ============================================================================
+Console.WriteLine("CENARIO 16 — motivo de fallback gigante e truncado, nao perde a linha");
+{
+    var (orq, gemini, anthropic, _, _, _, escopos, _) = MontarAmbiente();
+
+    // Maior que a mensagem real do 429 do free tier do Gemini (~170 caracteres,
+    // ver comentario em ProvedorGemini.ClassificarErro) — aqui exagerado de
+    // proposito para nao depender do tamanho exato de um texto real.
+    var detalheGigante = new string('x', 500);
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.RateLimit, 429, 80, detalheGigante));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "resposta do haiku", ""), 10, 10, 0, 50));
+
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    Checar("Resposta ainda saiu pelo Haiku, apesar do motivo gigante", resposta.PodeResponder);
+
+    var linhas = await LerChamadasAsync(escopos);
+    var linhaDoHaiku = linhas.SingleOrDefault(l => l.Provedor == ProvedorDeIa.Anthropic);
+
+    Checar("A linha do Haiku foi gravada (nao se perdeu por causa do motivo gigante)", linhaDoHaiku is not null);
+    Checar(
+        "MotivoDoFallback coube no limite da coluna (<=200 caracteres)",
+        linhaDoHaiku?.MotivoDoFallback is { Length: <= 200 },
+        $"tamanho={linhaDoHaiku?.MotivoDoFallback?.Length}");
+    Checar(
+        "MotivoDoFallback truncado preserva o inicio da descricao original",
+        linhaDoHaiku?.MotivoDoFallback?.StartsWith("Gemini: RateLimit") == true);
+}
+Console.WriteLine();
+
+// ============================================================================
+// CENARIO 17 — o retryDelay do 429 do Gemini e' interpretado em cultura
+// invariante, nao na cultura do processo (achado ao vivo, 2026-08-25/26: em
+// pt-BR, "30.5" sem CultureInfo.InvariantCulture vira 305). Via reflection
+// porque ExtrairRetryDelayDoTexto e' privado — nao existe caminho publico para
+// isto sem literalmente sofrer um 429 de verdade contra a rede.
+// ============================================================================
+Console.WriteLine("CENARIO 17 — retryDelay do Gemini em cultura invariante (nao pt-BR)");
+{
+    var metodo = typeof(ProvedorGemini).GetMethod(
+        "ExtrairRetryDelayDoTexto", BindingFlags.NonPublic | BindingFlags.Static);
+
+    if (metodo is null)
+    {
+        Checar("Metodo ExtrairRetryDelayDoTexto encontrado via reflection (verificador desatualizado?)", false);
+    }
+    else
+    {
+        var resultado = (TimeSpan?)metodo.Invoke(null, ["Please retry in 30.5s."]);
+        Checar(
+            "\"retry in 30.5s\" vira 30,5 segundos — nao 305 nem 30500 (parse em cultura invariante)",
+            resultado == TimeSpan.FromSeconds(30.5), $"resultado={resultado}");
+    }
+}
+Console.WriteLine();
+
+// ============================================================================
+// CENARIO 18 — cancelamento DURANTE a chamada ao HAIKU (nao ao Gemini/sonda)
+// tambem devolve a reserva do teto do Haiku, alem da do teto Geral. Achado
+// numa revisao critica em 2026-08-26, depois do fix do cenario 15: aquele
+// cenario so cancelava durante o Gemini — cancelar durante o Haiku seguia um
+// caminho diferente (a liberacao ficava inline, DEPOIS da chamada, e por isso
+// nunca era alcancada quando a chamada em si era cancelada).
+// ============================================================================
+Console.WriteLine("CENARIO 18 — cancelamento durante a chamada ao Haiku devolve as duas reservas");
+{
+    var (orq, gemini, anthropic, _, _, limite, escopos, _) = MontarAmbiente();
+
+    var usadoGeralAntes = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+    var usadoHaikuAntes = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+
+    // Gemini falha NORMALMENTE (nao cancelado) — precisa disso para o fluxo
+    // chegar ao Haiku e conseguir a reserva do teto do Haiku antes do
+    // cancelamento acontecer.
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 60, "gemini fora do ar"));
+
+    // O CALLER cancela DURANTE a chamada ao Haiku — simula o webhook/gateway
+    // desistindo enquanto o Haiku ainda estava respondendo.
+    var ctsDoHaiku = new CancellationTokenSource();
+    anthropic.EnfileirarCancelamento(ctsDoHaiku);
+
+    var lancouCancelamento = false;
+    try
+    {
+        await orq.ResponderAsync(tenantId, null, NovoPedido(), ctsDoHaiku.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        lancouCancelamento = true;
+    }
+
+    Checar("O cancelamento propagou (mesma semantica do cenario 15)", lancouCancelamento);
+    Checar("O Gemini foi tentado e falhou normalmente antes do cancelamento", gemini.Chamadas == 1);
+    Checar("O Haiku foi de fato tentado (a reserva chegou a ser concedida)", anthropic.Chamadas == 1);
+
+    var usadoGeralDepois = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+    var usadoHaikuDepois = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+
+    Checar(
+        "Teto GERAL voltou a linha de base (nao consumiu unidade sem resposta entregue)",
+        usadoGeralDepois == usadoGeralAntes, $"antes={usadoGeralAntes} depois={usadoGeralDepois}");
+    Checar(
+        "Teto HAIKU voltou a linha de base (a reserva concedida antes do cancelamento foi devolvida)",
+        usadoHaikuDepois == usadoHaikuAntes, $"antes={usadoHaikuAntes} depois={usadoHaikuDepois}");
+
+    // Divida de observabilidade conhecida (registrada na revisao, item 5): a
+    // tentativa cancelada do Haiku NAO gera ChamadaDeIa — TentarProvedorAsync
+    // relanca antes de montar a linha. So a falha normal do Gemini fica
+    // registrada. Nao e' o que este cenario existe para corrigir, so para nao
+    // fingir que a linha existe.
+    var linhasAposCancelamento = await LerChamadasAsync(escopos);
+    Checar(
+        "So a linha do Gemini (falha normal) foi gravada; a tentativa cancelada do Haiku nao gera linha",
+        linhasAposCancelamento.Count == 1 && linhasAposCancelamento[0].Provedor == ProvedorDeIa.Gemini);
+
+    // Prova final: nada ficou preso. Uma tentativa NORMAL subsequente ainda
+    // consegue reservar e responder pelos dois tetos.
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 60, "gemini ainda fora do ar"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "haiku respondeu normalmente", ""), 10, 10, 0, 50));
+
+    var respostaNormal = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    Checar(
+        "Tentativa subsequente reserva e responde normalmente (nada ficou preso)",
+        respostaNormal.PodeResponder && respostaNormal.Resposta == "haiku respondeu normalmente");
+
+    var usadoGeralFinal = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+    var usadoHaikuFinal = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+    Checar(
+        "Essa resposta bem-sucedida soma +1 no teto geral em relacao a linha de base",
+        usadoGeralFinal == usadoGeralAntes + 1, $"usadoGeralFinal={usadoGeralFinal}");
+    Checar(
+        "E +1 no teto do Haiku em relacao a linha de base",
+        usadoHaikuFinal == usadoHaikuAntes + 1, $"usadoHaikuFinal={usadoHaikuFinal}");
+}
+Console.WriteLine();
+
+// ============================================================================
+// CENARIO 19 — variante ESTRUTURADA do retryDelay (details[].RetryInfo.retryDelay,
+// nao o texto livre da mensagem) tambem precisa de cultura invariante — o
+// mesmo fix do cenario 17 cobre os DOIS pontos de parse alterados em
+// ProvedorGemini.cs, mas so o de texto livre tinha prova direta ate agora.
+// Via HttpMessageHandler fake + ProvedorGemini.GerarAsync PUBLICO (nao
+// reflection): exercita tambem ClassificarErro e a desserializacao real dos
+// DTOs de erro do Google. CurrentCulture fica EXPLICITAMENTE pt-BR durante o
+// teste — nao depende da cultura do ambiente onde o verificador roda.
+// ============================================================================
+Console.WriteLine("CENARIO 19 — retryDelay ESTRUTURADO (RetryInfo) em cultura invariante, sob pt-BR");
+{
+    var culturaOriginal = CultureInfo.CurrentCulture;
+    CultureInfo.CurrentCulture = new CultureInfo("pt-BR");
+
+    try
+    {
+        var opcoesDaIA = NovasOpcoes();
+
+        async Task<ResultadoDoProvedor> ChamarComRetryDelayAsync(string retryDelay)
+        {
+            // Sem interpolacao no raw string: JSON tem varios "}}" literais
+            // seguidos, que colidiriam com o delimitador de interpolacao "$$".
+            // Placeholder + Replace evita a confusao.
+            var corpoDoErro = """
+                {"error":{"code":429,"message":"quota exceeded","status":"RESOURCE_EXHAUSTED",
+                "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"__RETRY_DELAY__"}]}}
+                """.Replace("__RETRY_DELAY__", retryDelay);
+
+            using var handler = new HandlerFake(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent(corpoDoErro, Encoding.UTF8, "application/json")
+            });
+            using var http = new HttpClient(handler) { BaseAddress = new Uri("https://fake.gemini.local/v1/") };
+            var provedor = new ProvedorGemini(http, Options.Create(opcoesDaIA), NullLogger<ProvedorGemini>.Instance);
+
+            return await provedor.GerarAsync(NovoPedido(), CancellationToken.None);
+        }
+
+        var normal = await ChamarComRetryDelayAsync("1.5s");
+        Checar(
+            "\"1.5s\" estruturado vira 1,5 segundo — nao 15 (decimal com ponto, cultura invariante)",
+            normal.RetryApos == TimeSpan.FromSeconds(1.5), $"RetryApos={normal.RetryApos}");
+        Checar(
+            "Classificado como falha 429 (RateLimit/QuotaEsgotada), nunca sucesso",
+            !normal.Sucesso && normal.Falha is TipoDeFalhaDeIa.RateLimit or TipoDeFalhaDeIa.QuotaEsgotada);
+
+        var absurdo = await ChamarComRetryDelayAsync("999999s");
+        Checar(
+            "retryDelay estruturado absurdo (>3600s) e' descartado pela mesma protecao (SanidadeDoRetryDelay)",
+            absurdo.RetryApos is null, $"RetryApos={absurdo.RetryApos}");
+    }
+    finally
+    {
+        CultureInfo.CurrentCulture = culturaOriginal;
+    }
+}
+Console.WriteLine();
+
+// ============================================================================
+// CENARIO 20 — Haiku sem cota disponivel (teto diario do Haiku ja esgotado):
+// TentarReservarAsync devolve falso, o Haiku nunca chega a ser chamado, e a
+// reserva do teto GERAL feita para essa tentativa e' devolvida. Fecha a ultima
+// linha da matriz de consumo pedida na revisao — a unica sem cobertura direta
+// ate agora. limiteRpd alto de proposito: tira o Gemini do modo de descoberta
+// (que tem um freio de ~12s entre tentativas) para as duas chamadas do teste
+// nao dependerem de tempo de espera nenhum.
+// ============================================================================
+Console.WriteLine("CENARIO 20 — Haiku sem cota disponivel: Geral devolvido, Haiku nunca tentado");
+{
+    var opcoes = NovasOpcoes(limiteDiarioHaiku: 1, limiteRpd: 1000);
+    var (orq, gemini, anthropic, _, _, limite, escopos, _) = MontarAmbiente(opcoes);
+
+    // Primeira chamada consome a UNICA vaga do teto do Haiku (Gemini falha, Haiku responde).
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 60, "fora do ar"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "primeira resposta", ""), 10, 10, 0, 40));
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    var usadoHaikuAposPrimeira = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+    Checar("Teto do Haiku (=1) ja esta no limite apos a primeira chamada", usadoHaikuAposPrimeira == 1);
+
+    var usadoGeralAntes = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+
+    // Segunda chamada: Gemini falha de novo (RPD cadastrado e alto — sem freio
+    // de descoberta, entao o Gemini E' tentado de novo, sem esperar). O Haiku
+    // NAO TEM MAIS VAGA — TentarReservarAsync devolve falso e GerarAsync do
+    // Haiku nunca chega a ser chamado.
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 60, "ainda fora do ar"));
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    Checar("Resposta final e' negativa (nem Gemini nem Haiku responderam)", !resposta.PodeResponder);
+    Checar("Gemini foi tentado nas duas chamadas", gemini.Chamadas == 2);
+    Checar("O Haiku foi chamado SO na primeira vez (sem vaga na segunda, nunca tentado)", anthropic.Chamadas == 1);
+
+    var usadoGeralDepois = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Geral, CancellationToken.None);
+    var usadoHaikuDepois = await limite.ConsultarUsadoAsync(tenantId, CategoriaDeLimiteDiario.Haiku, CancellationToken.None);
+
+    Checar(
+        "Teto GERAL volta a linha de base (a reserva da segunda tentativa foi devolvida)",
+        usadoGeralDepois == usadoGeralAntes, $"antes={usadoGeralAntes} depois={usadoGeralDepois}");
+    Checar(
+        "Teto HAIKU permanece EXATAMENTE no mesmo nivel de antes (nada foi reservado para a segunda tentativa)",
+        usadoHaikuDepois == usadoHaikuAposPrimeira, $"antes={usadoHaikuAposPrimeira} depois={usadoHaikuDepois}");
+
+    var linhas = await LerChamadasAsync(escopos);
+    Checar(
+        "3 linhas no total (2 falhas do Gemini + 1 sucesso do Haiku) — nenhuma tentativa fantasma ao Haiku sem vaga",
+        linhas.Count == 3 && linhas.Count(l => l.Provedor == ProvedorDeIa.Anthropic) == 1);
+}
+Console.WriteLine();
+
 Console.WriteLine(falhas == 0 ? "TODOS OS CENARIOS PASSARAM." : $"{falhas} CENARIO(S) COM FALHA.");
 return falhas == 0 ? 0 : 1;
 
@@ -499,14 +826,29 @@ return falhas == 0 ? 0 : 1;
 // ============================================================================
 file sealed class ProvedorFake(ProvedorDeIa identidade, string modelo) : IProvedorDeIa
 {
-    private readonly Queue<ResultadoDoProvedor> _fila = new();
+    // Func em vez de ResultadoDoProvedor puro: permite enfileirar tanto uma
+    // resposta normal quanto um cancelamento simulado (CENARIO 15).
+    private readonly Queue<Func<CancellationToken, ResultadoDoProvedor>> _fila = new();
 
     public ProvedorDeIa Identidade => identidade;
     public string Modelo => modelo;
     public bool EstaConfigurado { get; set; } = true;
     public int Chamadas { get; private set; }
 
-    public void Enfileirar(ResultadoDoProvedor resultado) => _fila.Enqueue(resultado);
+    public void Enfileirar(ResultadoDoProvedor resultado) => _fila.Enqueue(_ => resultado);
+
+    /// <summary>
+    /// Simula o request HTTP real sendo abortado (gateway do WhatsApp desiste, ou
+    /// o webhook cancela) ENQUANTO o provedor estava em voo — cancela o
+    /// <paramref name="cts"/> compartilhado com quem chama <c>ResponderAsync</c> e
+    /// lança <see cref="OperationCanceledException"/> referenciando o mesmo token,
+    /// exatamente como <c>HttpClient.SendAsync</c> faria.
+    /// </summary>
+    public void EnfileirarCancelamento(CancellationTokenSource cts) => _fila.Enqueue(_ =>
+    {
+        cts.Cancel();
+        throw new OperationCanceledException("Cancelado pelo chamador (simulado).", cts.Token);
+    });
 
     public Task<ResultadoDoProvedor> GerarAsync(PedidoDeIa pedido, CancellationToken ct)
     {
@@ -518,6 +860,17 @@ file sealed class ProvedorFake(ProvedorDeIa identidade, string modelo) : IProved
                 $"ProvedorFake({identidade}) chamado sem resultado enfileirado — o cenario de teste esta incompleto.");
         }
 
-        return Task.FromResult(_fila.Dequeue());
+        return Task.FromResult(_fila.Dequeue()(ct));
     }
+}
+
+// ============================================================================
+// Handler HTTP fake para o CENARIO 19 — devolve a resposta configurada sem
+// abrir conexao nenhuma, exercitando o ProvedorGemini PUBLICO de verdade
+// (leitura do corpo, desserializacao do DTO de erro, ClassificarErro).
+// ============================================================================
+file sealed class HandlerFake(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(responder(request));
 }
