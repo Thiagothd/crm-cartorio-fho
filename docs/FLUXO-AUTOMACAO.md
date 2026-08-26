@@ -4,7 +4,7 @@
 > só escala por pedido explícito; Fase 2H — encerramento automático por
 > inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um; Fase
 > 2J — dois provedores de IA, Gemini principal e Haiku de contingência).
-> **Última atualização:** 2026-08-25
+> **Última atualização:** 2026-08-26
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -31,6 +31,16 @@ Três mecanismos garantem isso, em camadas, do mais específico para o mais gera
 3. **`AplicadorDePosAtendimento`** — o piso final. Roda sempre que nenhuma das
    flags de fluxo está ligada, e é ele quem garante que a camada 2 seja
    tentada mesmo quando a conversa "já acabou" do ponto de vista estruturado.
+
+> **Exceção, desde 2026-08-26 (BUG-ATD-01 — Human Takeover):** a regra acima
+> vale só enquanto a conversa está em modo automático. Assim que
+> `Conversa.EmAtendimentoHumano` liga — cliente pediu atendente, ou um
+> atendente assumiu — nenhum dos três mecanismos acima roda mais para
+> mensagens do cliente. A mensagem continua sendo gravada e chegando ao
+> painel; só a automação conversacional é que se cala. Ver §5 (o gate entra
+> ANTES de tudo, inclusive antes da pergunta de encerramento pendente) e o
+> README do módulo Atendimento, seção "Human Takeover", para o detalhe
+> completo.
 
 ---
 
@@ -115,7 +125,13 @@ Ver §10.
 
 Se um atendente rotear a conversa manualmente enquanto `AguardandoTriagem`
 está ligada, a escolha da pessoa vale: a flag é limpa em silêncio, sem
-mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método).
+mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método, testando
+`SetorId is not null`). **Historicamente esta era a única proteção contra
+automação reagindo com atendente já na conversa** — e cobria só este caso
+específico (setor já definido). Desde 2026-08-26 (BUG-ATD-01), o gate de
+`EmAtendimentoHumano` (§5) intercepta ANTES de `AplicadorDeTriagem` sequer
+ser chamado, cobrindo todos os casos — esta guarda por `SetorId` continua
+aqui, mas ficou redundante na prática.
 
 ---
 
@@ -136,7 +152,9 @@ divergência só apareceria na conversa de um cliente de verdade.
 
 ```mermaid
 flowchart TD
-    A[Mensagem do cliente chega] --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
+    A[Mensagem do cliente chega] --> H0{EmAtendimentoHumano?}
+    H0 -- sim --> H1[So limpa PerguntaDeEncerramentoEnviadaEm<br/>se havia uma pendente — nenhum Aplicador* roda]
+    H0 -- não --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
     Y -- sim --> Y1[AplicadorDeEncerramentoPorInatividade<br/>limpa o marcador sempre]
     Y1 -- "Confirmou / Negou<br/>(consumiu a mensagem)" --> FIM[Despedida + encerra,<br/>ou MenuDeContinuacao]
     Y1 -- "NaoEntendeu<br/>(não consumiu)" --> Z
@@ -162,6 +180,7 @@ flowchart TD
     L -- sim --> K[IA responde, grounded<br/>no catálogo cadastrado]
     L -- não --> M[Gatilho 11 — não promete<br/>atendente, continua ouvindo]
 
+    style H0 fill:#f4ead5,stroke:#8a6516
     style Y fill:#f4ead5,stroke:#8a6516
     style Z fill:#f4ead5,stroke:#8a6516
     style X fill:#f4ead5,stroke:#8a6516
@@ -169,8 +188,17 @@ flowchart TD
     style H fill:#f4ead5,stroke:#8a6516
 ```
 
+**`EmAtendimentoHumano` (`H0`) é checado ANTES de tudo, inclusive antes da
+pergunta de encerramento pendente — desde 2026-08-26 (BUG-ATD-01).** Nenhuma
+automação conversacional roda para uma conversa já entregue a um humano; a
+única exceção é limpar `PerguntaDeEncerramentoEnviadaEm` como prova de vida,
+se houver uma pendente (mesmo raciocínio de `Y`, aplicado sem acionar
+`AplicadorDeEncerramentoPorInatividade`). Ver README do módulo, seção
+"Human Takeover".
+
 **A pergunta pendente de encerramento (`Y`) é checada ANTES até do "menu" —
-é o primeiro passo do despacho, desde 2026-08-22.** `TratarRespostaAsync`
+é o primeiro passo do despacho automático (depois do gate acima), desde
+2026-08-22.** `TratarRespostaAsync`
 **sempre** limpa o marcador antes de decidir, porque qualquer mensagem, seja
 qual for o conteúdo, prova que o cliente ainda está ali. Se a resposta for
 `Confirmou` ou `Negou`, a mensagem foi tratada por completo (despedida +
@@ -204,8 +232,12 @@ achado no mesmo dia: sem isso, um cliente que já tinha setor definido e pedia
 "menu" ficava com o campo preenchido mesmo depois de "recomeçar", e
 `AplicadorDeTriagem` — ao ver `SetorId != null` com `AguardandoTriagem` ligada
 — interpreta isso como "um atendente já assumiu manualmente" (guarda pensada
-para outro cenário, ver §6) e **não faz nada**: nem responde, nem escala.
-"Do zero" agora é literal.
+para este cenário específico, ver §6) e **não faz nada**: nem responde, nem
+escala. "Do zero" agora é literal. **Nota 2026-08-26:** este continua sendo o
+comportamento para `SetorId` preenchido sem `EmAtendimentoHumano` ligado (ex.:
+conversa aberta pelo painel já com setor) — quando `EmAtendimentoHumano` está
+ligado, quem intercepta primeiro é o gate do §5, e `AplicadorDeTriagem` nem
+chega a ser chamado.
 
 **A segunda caixa (B/C/D) é o nível externo** — três flags específicas, cada
 uma com um `Aplicador*` próprio. **`AplicadorDePosAtendimento` é o `else`** —
@@ -866,8 +898,10 @@ num lado exige mexer no outro.
 
 Registrados para não serem "descobertos" de novo e tratados como bug:
 
-- **Triagem com atendente já na conversa** — REQUISITOS.md §5.8. Decisão do
-  cartório parceiro, não código.
+- ~~**Triagem com atendente já na conversa** — REQUISITOS.md §5.8.~~
+  **Resolvido em 2026-08-26** como efeito colateral do BUG-ATD-01 (Human
+  Takeover) — não por decisão de atendimento tomada com o cartório parceiro. Ver
+  REQUISITOS.md §5.8 para o status atual.
 - **Setor sem serviço vinculado** — §7 deste documento. Lacuna estrutural,
   não reproduzível com o cadastro atual, sinalizada para correção futura.
 - **`LimiteDiario` estourado** não é falha — é o sistema trocando "IA

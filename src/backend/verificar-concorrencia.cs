@@ -83,8 +83,9 @@ await using (var db = new CrmDbContext(opcoes))
     // Um cliente por conversa: CriarAsync recusa abrir um segundo atendimento
     // para quem ja tem um em aberto, e essa regra nao e o que estamos testando.
     //
-    // Simultaneas para o teste 1, mais um para o teste 2 e um para o teste 3.
-    for (var i = 0; i < Simultaneas + 2; i++)
+    // Simultaneas para o teste 1, mais um para o teste 2, um para o teste 3 e
+    // um para o teste 4 (BUG-ATD-01).
+    for (var i = 0; i < Simultaneas + 3; i++)
     {
         var telefone = $"559999900{i:D3}";
 
@@ -443,6 +444,137 @@ else
 }
 
 // ---------------------------------------------------------------------------
+// TESTE 4 — Human Takeover (BUG-ATD-01): IA em voo quando o atendente assume
+// — a resposta gerada ANTES do takeover nao pode ser entregue DEPOIS.
+//
+// Cenarios B/G do plano: a chamada a IA pode levar segundos; nesse meio
+// tempo um atendente pode assumir a conversa. AplicadorDeRespostaInteligente
+// releu' o estado (recheck) logo apos a IA responder, exatamente para fechar
+// esta corrida — este teste teve prova real, sob concorrencia de verdade
+// (dois DbContext/conexoes distintas), nao so a logica isolada.
+//
+// Duas conclusoes SAO aceitas como corretas, e o teste distingue qual
+// aconteceu: (a) o recheck descarta a resposta, SimularRecebimentoAsync
+// termina normalmente, zero mensagem da IA gravada; ou (b) o SaveChanges
+// final de SimularRecebimentoAsync colide com o RowVersion que o Assumir
+// concorrente ja avancou (colisao PRE-EXISTENTE, documentada no plano —
+// nao e' o que este teste foi desenhado para fechar) e a chamada inteira
+// e desfeita, o que tambem satisfaz a garantia central: nenhuma resposta
+// da IA e' entregue por cima do atendente. So (b) NAO seria aceitavel se a
+// mensagem do cliente tambem se perdesse SEM nenhuma indicacao — por isso o
+// teste loga qual caminho ocorreu, em vez de esconder a diferenca.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 4 — IA em voo quando o atendente assume; resposta nao pode ser entregue depois");
+
+Guid conversaEmVoo;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 2], null, null, "Oi"));
+
+    conversaEmVoo = criada.Id;
+
+    // Pula direto para "ja passou da triagem, a IA esta ouvindo" — o mesmo
+    // atalho usado em verificar-automacao.cs para este cenario.
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversaEmVoo);
+    c.AguardandoTriagem = false;
+    c.AguardandoRespostaInteligente = true;
+    await db.SaveChangesAsync();
+}
+
+var iaEmVoo = new TaskCompletionSource();
+var liberaResposta = new TaskCompletionSource();
+var atendenteQueAssumiu = atendentes[0];
+Exception? excecaoDaSimulacao = null;
+
+var tarefaDaIa = Task.Run(async () =>
+{
+    await using var db = new CrmDbContext(opcoes);
+    var ctx = new ContextoFixo(tenantId, atendenteQueAssumiu.Id, atendenteQueAssumiu.Nome, PerfilDeAtendente.Atendente);
+    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = true });
+
+    var mensagens = new MensagemService(
+        db,
+        ctx,
+        Servico(db, 0),
+        new NotificadorSilencioso(),
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
+        new AnexosEmMemoria(),
+        new RespostaInteligenteAtrasada(iaEmVoo, liberaResposta.Task),
+        opcoesDaIA,
+        NullLogger<MensagemService>.Instance);
+
+    try
+    {
+        await mensagens.SimularRecebimentoAsync(conversaEmVoo, new SimularMensagemDeClienteRequest("uma pergunta qualquer"));
+    }
+    catch (Exception ex)
+    {
+        excecaoDaSimulacao = ex;
+    }
+});
+
+// So dispara o Assumir DEPOIS que a IA de fato comecou a "responder" — senao
+// o teste nao prova nada sobre a corrida.
+await iaEmVoo.Task;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await Servico(db, 0).AssumirAsync(conversaEmVoo);
+}
+
+// So agora libera a resposta da IA — DEPOIS que o takeover ja aconteceu de
+// verdade no banco.
+liberaResposta.SetResult();
+await tarefaDaIa;
+
+int mensagensDaIaGravadas;
+bool emAtendimentoHumanoApos;
+Guid? atendenteApos;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    mensagensDaIaGravadas = await db.Mensagens
+        .CountAsync(m => m.ConversaId == conversaEmVoo && m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa);
+
+    var conversaApos = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversaEmVoo);
+    emAtendimentoHumanoApos = conversaApos.EmAtendimentoHumano;
+    atendenteApos = conversaApos.AtendenteId;
+}
+
+Console.WriteLine($"  mensagens da IA gravadas .. {mensagensDaIaGravadas}");
+Console.WriteLine($"  EmAtendimentoHumano ....... {emAtendimentoHumanoApos}");
+Console.WriteLine($"  atendente que assumiu ..... {(atendenteApos == atendenteQueAssumiu.Id ? "confirmado" : "ERRADO")}");
+Console.WriteLine(excecaoDaSimulacao is DbUpdateConcurrencyException
+    ? "  caminho ................... (b) colisao de RowVersion desfez a chamada inteira (aceitavel, ver comentario acima)"
+    : excecaoDaSimulacao is null
+        ? "  caminho ................... (a) recheck descartou a resposta, chamada terminou normalmente"
+        : $"  caminho ................... EXCECAO INESPERADA: {excecaoDaSimulacao.GetType().Name}: {excecaoDaSimulacao.Message.Split('\n')[0]}");
+
+if (excecaoDaSimulacao is not null and not DbUpdateConcurrencyException)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — excecao inesperada (nao e a colisao de RowVersion conhecida).");
+}
+else if (mensagensDaIaGravadas > 0)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — a resposta da IA gerada ANTES do takeover foi gravada mesmo assim.");
+}
+else if (!emAtendimentoHumanoApos || atendenteApos != atendenteQueAssumiu.Id)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — estado da conversa inconsistente apos o takeover.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — a resposta da IA em voo nunca foi entregue; o takeover venceu a corrida.");
+}
+
+// ---------------------------------------------------------------------------
 // Limpeza
 //
 // Aqui SIM ha DELETE, e e a unica parte do repositorio que apaga alguma coisa.
@@ -560,4 +692,29 @@ file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
     public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
             "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+}
+
+/// <summary>
+/// Para o TESTE 4 (BUG-ATD-01): simula a IA "em voo" sob concorrencia real —
+/// sinaliza <paramref name="sinalDeEntrada"/> assim que e' chamada (o teste
+/// usa isso para so entao disparar o Assumir concorrente) e so devolve a
+/// resposta depois que <paramref name="liberar"/> completar (o teste controla
+/// esse instante, DEPOIS de confirmar que o takeover ja aconteceu no banco).
+/// </summary>
+file sealed class RespostaInteligenteAtrasada(TaskCompletionSource sinalDeEntrada, Task liberar)
+    : IRespostaInteligenteService
+{
+    public async Task<RespostaDaIA> ResponderAsync(
+        Guid tenantId,
+        IReadOnlyList<TrocaAnterior> historico,
+        string mensagemDoCliente,
+        Guid? conversaId = null,
+        CancellationToken ct = default)
+    {
+        sinalDeEntrada.TrySetResult();
+        await liberar;
+
+        return new RespostaDaIA(
+            true, "Resposta gerada ANTES do takeover — nao deveria ser entregue.", "");
+    }
 }

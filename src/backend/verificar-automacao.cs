@@ -511,7 +511,19 @@ if (servicosDoSetorEsperado.Count > 0)
             !depoisDoPedido.AguardandoRespostaInteligente);
     }
 
-    // "menu" reabre do zero, em qualquer ponto da conversa.
+    // ATUALIZADO EM 2026-08-26 (BUG-ATD-01): ate aqui, "menu" reabria a
+    // triagem em QUALQUER ponto da conversa — inclusive depois de um pedido
+    // explicito de atendente, mesmo sem nenhum atendente ter assumido ainda.
+    // Isso era exatamente a classe de furo que o Human Takeover corrigiu:
+    // pedir atendente liga Conversa.EmAtendimentoHumano (ver
+    // AplicadorDeRespostaInteligente.EscalarAsync), e a partir dai NENHUMA
+    // automacao conversacional pode reagir a mensagem do cliente — nem
+    // "menu", que e exatamente "interpretar uma frase comum como fluxo
+    // automatico" sobre uma conversa ja entregue a fila humana. O
+    // comportamento ANTIGO testado aqui (reabrir a triagem) e o proprio bug
+    // relatado, espelhado.
+    var automaticasAntesDoMenuEmModoHumano = (await FioAsync(conversa1)).Count(m => m.Automatica);
+
     await using (var db = new CrmDbContext(opcoes))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
@@ -521,13 +533,13 @@ if (servicosDoSetorEsperado.Count > 0)
     await using (var db = new CrmDbContext(opcoes))
     {
         var depoisDoMenu = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
-        Checar("\"menu\" reabre a triagem (AguardandoTriagem ligada de novo)",
-            depoisDoMenu.AguardandoTriagem);
+        Checar("BUG-ATD-01: \"menu\" NAO reabre a triagem depois do pedido de atendente (modo humano)",
+            !depoisDoMenu.AguardandoTriagem);
+        Checar("BUG-ATD-01: EmAtendimentoHumano continua ligado", depoisDoMenu.EmAtendimentoHumano);
     }
 
-    var respostaAoMenu = (await FioAsync(conversa1)).LastOrDefault(m => m.Automatica);
-    Checar("\"menu\" reenviou o menu de setores",
-        respostaAoMenu.Conteudo?.Contains(setorEsperado.Nome) == true, respostaAoMenu.Conteudo);
+    Checar("BUG-ATD-01: \"menu\" em modo humano nao gera nenhuma mensagem automatica",
+        (await FioAsync(conversa1)).Count(m => m.Automatica) == automaticasAntesDoMenuEmModoHumano);
 }
 
 Console.WriteLine();
@@ -548,10 +560,18 @@ await using (var db = new CrmDbContext(opcoes))
     conversa2 = criada.Id;
 }
 
+// ACHADO NA INVESTIGACAO DO BUG-ATD-01 (2026-08-26): a frase original aqui
+// ("quero falar com alguem sobre um assunto") contem "falar com alguem",
+// que e' um dos gatilhos LITERAIS de TriagemAutomatica.PediuHumano — este
+// teste, sem querer, sempre escalou de verdade, mesmo antes do Human
+// Takeover existir. So passou despercebido porque nao havia
+// EmAtendimentoHumano para expor a diferenca. Trocada por uma frase que
+// realmente NAO corresponde a nenhuma opcao e NAO pede atendente, para
+// testar o que o titulo do teste promete: o fallback da IA, sem escalar.
 await using (var db = new CrmDbContext(opcoes))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
-        conversa2, new SimularMensagemDeClienteRequest("quero falar com alguem sobre um assunto"));
+        conversa2, new SimularMensagemDeClienteRequest("preciso de uma informacao qualquer"));
 }
 
 await using (var db = new CrmDbContext(opcoes))
@@ -1747,6 +1767,511 @@ Checar("texto so com linhas vazias nao gera contato nenhum",
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 25 — Human Takeover (BUG-ATD-01): pedir humano, assumir, responder,
+// liberar, transferir — a IA nunca volta a responder em nenhum desses pontos.
+// A VIRADA CRITICA e o Liberar: AtendenteId volta a nulo, mas
+// EmAtendimentoHumano tem que continuar true.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 25 — Human Takeover: pedir humano -> assumir -> liberar -> transferir, IA sempre muda");
+
+Guid conversa25;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Human Takeover"), null, null, "Oi"));
+
+    conversa25 = criada.Id;
+
+    // Pula direto para o estado "ja passou da triagem, IA esta ouvindo" —
+    // o caminho ate aqui ja e coberto pelos testes 1-3.
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversa25);
+    c.AguardandoTriagem = false;
+    c.SetorId = setores[0].Id;
+    c.AguardandoRespostaInteligente = true;
+    await db.SaveChangesAsync();
+}
+
+// 1) Cliente pede humano — a fila humana comeca AQUI, antes de qualquer
+// atendente assumir.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa25, new SimularMensagemDeClienteRequest("quero falar com um atendente"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
+    Checar("pedido de humano liga EmAtendimentoHumano", c.EmAtendimentoHumano);
+    Checar("pedido de humano NAO assume sozinho (fila humana, sem dono ainda)", c.AtendenteId is null);
+    Checar("AguardandoRespostaInteligente desligou (EscalarAsync)", !c.AguardandoRespostaInteligente);
+}
+
+// 2) Mensagem do cliente NA FILA HUMANA (sem atendente ainda) — automacao
+// tem que ficar muda.
+var automaticasAntesDaFila = (await FioAsync(conversa25)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa25, new SimularMensagemDeClienteRequest("alguem ai?"));
+}
+
+Checar("nenhuma mensagem automatica nova enquanto espera na fila humana",
+    (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDaFila);
+
+// 3) Assumir.
+await using (var db = new CrmDbContext(opcoes))
+{
+    var resumo = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa25);
+    Checar("assumir preenche AtendenteId", resumo.AtendenteId == atendenteId);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
+    Checar("EmAtendimentoHumano continua true depois de assumir", c.EmAtendimentoHumano);
+}
+
+// 4) Cliente escreve com atendente na conversa — automacao muda.
+var automaticasAntesDoAssumir = (await FioAsync(conversa25)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa25, new SimularMensagemDeClienteRequest("uma duvida rapida"));
+}
+
+Checar("nenhuma mensagem automatica nova com atendente ja atribuido",
+    (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDoAssumir);
+
+// 5) Liberar — A VIRADA CRITICA da hipotese original.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome).LiberarAsync(conversa25);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
+    Checar("Liberar zera AtendenteId", c.AtendenteId is null);
+    Checar("Liberar NAO desliga EmAtendimentoHumano — bug original seria exatamente isto",
+        c.EmAtendimentoHumano);
+}
+
+// 6) Cliente escreve com a conversa liberada (fila humana de novo, sem
+// dono) — automacao continua muda.
+var automaticasAntesDoLiberar = (await FioAsync(conversa25)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa25, new SimularMensagemDeClienteRequest("ainda estou aqui"));
+}
+
+Checar("nenhuma mensagem automatica nova depois de Liberar (a prova central do BUG-ATD-01)",
+    (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDoLiberar);
+
+// 7) Assume de novo e transfere.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa25);
+    var transferida = await NovaConversaService(db, atendenteId, atendenteNome).TransferirAsync(
+        conversa25, new TransferirConversaRequest(outroAtendenteId, null));
+
+    Checar("transferir muda o responsavel", transferida.AtendenteId == outroAtendenteId);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
+    Checar("EmAtendimentoHumano continua true depois de transferir", c.EmAtendimentoHumano);
+}
+
+// 8) Cliente escreve depois da transferencia — automacao continua muda.
+var automaticasAntesDaTransferencia = (await FioAsync(conversa25)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, outroAtendenteId, outroAtendenteNome).SimularRecebimentoAsync(
+        conversa25, new SimularMensagemDeClienteRequest("obrigado"));
+}
+
+Checar("nenhuma mensagem automatica nova depois de Transferir",
+    (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDaTransferencia);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
+    Checar("MensagensNaoLidas segue contando as mensagens do cliente normalmente",
+        c.MensagensNaoLidas >= 4, $"MensagensNaoLidas={c.MensagensNaoLidas}");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 26 — Human Takeover: responder direto da fila (auto-assume) tambem
+// liga o modo humano; encerrar desliga; reabrir religa.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 26 — Human Takeover: auto-assume ao responder da fila; encerrar/reabrir");
+
+Guid conversa26;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Auto-assume"), setores[0].Id, null, "Oi"));
+
+    conversa26 = criada.Id;
+
+    Checar("conversa nasce sem atendente (fila)", criada.AtendenteId is null);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
+    Checar("conversa nasce fora do modo humano (automatica)", !c.EmAtendimentoHumano);
+}
+
+// Responde SEM clicar em Assumir — MensagemService.EnviarAsync assume
+// implicitamente (PrepararEnvioAsync reusa AssumirAsync).
+await using (var db = new CrmDbContext(opcoes))
+{
+    var resposta = await NovaMensagemService(db, atendenteId, atendenteNome).EnviarAsync(
+        conversa26, new EnviarMensagemRequest("Ja te ajudo!"));
+
+    Checar("mensagem manual saiu como Atendente", resposta.AutorTipo == AutorTipo.Atendente);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
+    Checar("responder da fila assume implicitamente", c.AtendenteId == atendenteId);
+    Checar("responder da fila liga EmAtendimentoHumano (mesmo sem Assumir explicito)",
+        c.EmAtendimentoHumano);
+}
+
+var automaticasAntesDoAutoAssume = (await FioAsync(conversa26)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+        conversa26, new SimularMensagemDeClienteRequest("perfeito, obrigado"));
+}
+
+Checar("nenhuma automacao depois de responder direto da fila",
+    (await FioAsync(conversa26)).Count(m => m.Automatica) == automaticasAntesDoAutoAssume);
+
+// Encerra e confere que o modo humano desliga junto com o resto do ciclo.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome).EncerrarAsync(
+        conversa26, new EncerrarConversaRequest(null));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
+    Checar("EncerrarAsync desliga EmAtendimentoHumano", !c.EmAtendimentoHumano);
+    Checar("EncerrarAsync tambem zera as flags Aguardando* (fecha a divergencia com EncerrarPeloCliente)",
+        !c.AguardandoTriagem && !c.AguardandoEscolhaDeServico && !c.AguardandoRespostaInteligente
+        && !c.AguardandoMenuDeContinuacao && !c.AguardandoNome && c.TentativasRespostaInteligente == 0);
+}
+
+// Reabre — religa o modo humano, atribuido a quem reabriu.
+await using (var db = new CrmDbContext(opcoes))
+{
+    var reaberta = await NovaConversaService(db, outroAtendenteId, outroAtendenteNome).ReabrirAsync(conversa26);
+    Checar("reabrir atribui a quem reabriu", reaberta.AtendenteId == outroAtendenteId);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
+    Checar("reabrir religa EmAtendimentoHumano", c.EmAtendimentoHumano);
+}
+
+var automaticasAntesDaReabertura = (await FioAsync(conversa26)).Count(m => m.Automatica);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemService(db, outroAtendenteId, outroAtendenteNome).SimularRecebimentoAsync(
+        conversa26, new SimularMensagemDeClienteRequest("voltei"));
+}
+
+Checar("nenhuma automacao depois de reabrir manualmente",
+    (await FioAsync(conversa26)).Count(m => m.Automatica) == automaticasAntesDaReabertura);
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 27 — Human Takeover: zero chamada ao orquestrador de IA em modo
+// humano, com a IA REALMENTE armada (nao so desligada) — e a mesma regra
+// vale nos dois caminhos de entrada (WhatsApp real x simulacao).
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 27 — Human Takeover: IA armada nunca e chamada em modo humano (simulacao e WhatsApp real)");
+
+Guid conversa27Sim;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("IA armada simulacao"), setores[0].Id, null, "Oi"));
+
+    conversa27Sim = criada.Id;
+
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversa27Sim);
+    c.AtendenteId = atendenteId;
+    c.EmAtendimentoHumano = true;
+    await db.SaveChangesAsync();
+}
+
+var orquestradorSim = new OrquestradorContador();
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaMensagemServiceComIaArmada(db, atendenteId, atendenteNome, orquestradorSim).SimularRecebimentoAsync(
+        conversa27Sim, new SimularMensagemDeClienteRequest("me ajuda com uma duvida qualquer"));
+}
+
+Checar("simulacao: orquestrador de IA nao foi chamado em modo humano", orquestradorSim.Chamadas == 0,
+    $"Chamadas={orquestradorSim.Chamadas}");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var count = await db.ChamadasDeIa.AsNoTracking().CountAsync(c => c.ConversaId == conversa27Sim);
+    Checar("simulacao: nenhuma linha em ChamadasDeIa para esta conversa", count == 0, $"linhas={count}");
+}
+
+// Mesmo cenario, mas pelo WEBHOOK real — nao aceito correcao que funcione so
+// na simulacao.
+Guid clienteWhatsAppId;
+var telefoneWhatsApp27 = "55380009" + Random.Shared.Next(10000, 99999);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    clienteWhatsAppId = await NovoClienteAsync("IA armada webhook");
+
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(clienteWhatsAppId, setores[0].Id, null, "Oi"));
+
+    var c = await db.Conversas.FirstAsync(x => x.Id == criada.Id);
+    c.AtendenteId = atendenteId;
+    c.EmAtendimentoHumano = true;
+    c.Canal = CanalOrigem.WhatsApp;
+
+    // O webhook resolve a conversa pelo TELEFONE do cliente, nao pelo Id —
+    // precisa bater com MensagemDoCanal.TelefoneE164 abaixo.
+    await using var dbCliente = new CrmDbContext(opcoes);
+    var cliente = await dbCliente.Clientes.FirstAsync(x => x.Id == clienteWhatsAppId);
+    cliente.TelefoneWhatsapp = telefoneWhatsApp27;
+    await dbCliente.SaveChangesAsync();
+
+    await db.SaveChangesAsync();
+}
+
+var orquestradorWebhook = new OrquestradorContador();
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoRecebimentoComIaArmada(db, orquestradorWebhook, new NotificadorSilencioso()).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneWhatsApp27, null, "me ajuda com uma duvida qualquer",
+            TipoMensagem.Texto, $"wamid.testeatd01.{Guid.NewGuid():N}"));
+}
+
+Checar("webhook real: orquestrador de IA nao foi chamado em modo humano", orquestradorWebhook.Chamadas == 0,
+    $"Chamadas={orquestradorWebhook.Chamadas}");
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 28 — Human Takeover: a mensagem continua persistida, no fio,
+// atualizando contadores e chegando por SignalR mesmo em modo humano — o
+// gate so silencia a AUTOMACAO, nunca a observabilidade normal da conversa.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 28 — Human Takeover: persistencia e SignalR continuam normais em modo humano");
+
+Guid conversa28;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Observabilidade"), setores[0].Id, null, "Oi"));
+
+    conversa28 = criada.Id;
+
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversa28);
+    c.AtendenteId = atendenteId;
+    c.EmAtendimentoHumano = true;
+    await db.SaveChangesAsync();
+}
+
+var naoLidasAntes = 0;
+await using (var db = new CrmDbContext(opcoes))
+{
+    naoLidasAntes = (await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa28)).MensagensNaoLidas;
+}
+
+var notificador28 = new NotificadorContador();
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var ctx = new ContextoFixo(tenantId, atendenteId, atendenteNome, PerfilDeAtendente.Administrador);
+    var servico = new MensagemService(
+        db, ctx, NovaConversaService(db, atendenteId, atendenteNome),
+        notificador28,
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(), new AnexosEmMemoria(),
+        new RespostaInteligenteService(
+            db, new OrquestradorNuncaChamado(), Options.Create(new OpcoesDaIA { Habilitada = false }),
+            NullLogger<RespostaInteligenteService>.Instance),
+        Options.Create(new OpcoesDaIA { Habilitada = false }),
+        NullLogger<MensagemService>.Instance);
+
+    await servico.SimularRecebimentoAsync(conversa28, new SimularMensagemDeClienteRequest("teste de observabilidade"));
+}
+
+Checar("SignalR (MensagemRecebidaAsync) continua disparando em modo humano", notificador28.MensagensRecebidas == 1,
+    $"MensagensRecebidas={notificador28.MensagensRecebidas}");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa28);
+    Checar("MensagensNaoLidas incrementou normalmente", c.MensagensNaoLidas == naoLidasAntes + 1,
+        $"antes={naoLidasAntes} depois={c.MensagensNaoLidas}");
+}
+
+var fio28 = await FioAsync(conversa28);
+Checar("mensagem do cliente esta no fio", fio28.Any(m => m.Autor == AutorTipo.Cliente && m.Conteudo == "teste de observabilidade"));
+Checar("nenhuma mensagem automatica foi adicionada", fio28.Count(m => m.Automatica) == 0);
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 29 — Human Takeover: novo atendimento depois de encerrado volta a
+// nascer automatico (nao herda o modo humano do atendimento anterior).
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 29 — Human Takeover: atendimento novo depois de encerrado volta ao automatico");
+
+Guid clienteQueVoltaAtd01;
+var telefoneQueVolta = "55380009" + Random.Shared.Next(10000, 99999);
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    clienteQueVoltaAtd01 = await NovoClienteAsync("Volta depois de encerrado");
+
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(clienteQueVoltaAtd01, setores[0].Id, null, "Oi"));
+
+    var c = await db.Conversas.FirstAsync(x => x.Id == criada.Id);
+    c.AtendenteId = atendenteId;
+    c.EmAtendimentoHumano = true;
+    c.Canal = CanalOrigem.WhatsApp;
+    await db.SaveChangesAsync();
+
+    await using var dbCliente = new CrmDbContext(opcoes);
+    var cliente = await dbCliente.Clientes.FirstAsync(x => x.Id == clienteQueVoltaAtd01);
+    cliente.TelefoneWhatsapp = telefoneQueVolta;
+    await dbCliente.SaveChangesAsync();
+
+    await NovaConversaService(db, atendenteId, atendenteNome).EncerrarAsync(
+        criada.Id, new EncerrarConversaRequest(null));
+}
+
+// Mesmo telefone, mensagem nova, pelo WEBHOOK — ResolverConversaAsync nao
+// reaproveita conversa Encerrada, entao isto cria um atendimento NOVO.
+await using (var db = new CrmDbContext(opcoes))
+{
+    var orquestrador = new OrquestradorContador();
+
+    var novaConversaId = await NovoRecebimentoComIaArmada(db, orquestrador, new NotificadorSilencioso()).ReceberAsync(
+        tenantId,
+        new MensagemDoCanal(telefoneQueVolta, null, "Oi de novo", TipoMensagem.Texto, $"wamid.testeatd01.{Guid.NewGuid():N}"));
+
+    await using var dbConfere = new CrmDbContext(opcoes);
+    var nova = await dbConfere.Conversas.AsNoTracking().FirstAsync(x => x.Id == novaConversaId);
+
+    Checar("atendimento novo nasce SEM modo humano (automatico)", !nova.EmAtendimentoHumano);
+    Checar("atendimento novo nasce aguardando triagem (boas-vindas normais)", nova.AguardandoTriagem);
+    Checar("e' de fato uma conversa NOVA, nao a antiga reaproveitada",
+        nova.Id != Guid.Empty && await dbConfere.Conversas.CountAsync(x => x.ClienteId == clienteQueVoltaAtd01) == 2);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 30 — Human Takeover: Fase 2 da inatividade nao encerra uma conversa
+// que esta em modo humano (SS9.2 do plano) — nem quem assumiu, nem quem esta
+// na fila humana depois de liberada.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 30 — Human Takeover: varredura de inatividade (fase 2) nao encerra conversa em modo humano");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.Tenants.Where(t => t.Id == tenantId)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(t => t.MinutosParaPerguntarEncerramento, 20)
+            .SetProperty(t => t.MinutosParaEncerrarSemResposta, 30)
+            .SetProperty(t => t.EncerramentoHoraInicial, (int?)null)
+            .SetProperty(t => t.EncerramentoHoraFinal, (int?)null));
+}
+
+Guid conversa30Humana, conversa30Automatica;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var humana = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Inatividade em modo humano"), setores[0].Id, null, "Oi"));
+    conversa30Humana = humana.Id;
+
+    var automatica = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Inatividade automatica"), setores[0].Id, null, "Oi"));
+    conversa30Automatica = automatica.Id;
+
+    var agoraDoTeste = DateTime.UtcNow;
+
+    // As duas ja tem a pergunta de encerramento pendente, vencida ha tempo —
+    // so a diferenca entre elas e EmAtendimentoHumano.
+    var ch = await db.Conversas.FirstAsync(x => x.Id == conversa30Humana);
+    ch.AtendenteId = atendenteId;
+    ch.EmAtendimentoHumano = true;
+    ch.PerguntaDeEncerramentoEnviadaEm = agoraDoTeste.AddMinutes(-40);
+    ch.UltimaMensagemEm = agoraDoTeste.AddMinutes(-40);
+
+    var ca = await db.Conversas.FirstAsync(x => x.Id == conversa30Automatica);
+    ca.PerguntaDeEncerramentoEnviadaEm = agoraDoTeste.AddMinutes(-40);
+    ca.UltimaMensagemEm = agoraDoTeste.AddMinutes(-40);
+
+    await db.SaveChangesAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovoVarredorDeInatividade(db).ExecutarAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var humana = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa30Humana);
+    var automatica = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa30Automatica);
+
+    Checar("conversa EM MODO HUMANO nao foi encerrada pela fase 2 da inatividade",
+        humana.Status == StatusConversa.Ativa, $"Status={humana.Status}");
+    Checar("conversa AUTOMATICA (controle) foi encerrada normalmente pela fase 2",
+        automatica.Status == StatusConversa.Encerrada, $"Status={automatica.Status}");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
@@ -1874,6 +2399,65 @@ VarredorDeInatividade NovoVarredorDeInatividade(CrmDbContext db) =>
         new CanalSilencioso(),
         NullLogger<VarredorDeInatividade>.Instance);
 
+// Variante de NovaMensagemService para os testes de Human Takeover
+// (BUG-ATD-01): a IA fica REALMENTE "armada" (Habilitada=true, com uma chave
+// falsa so para passar EstaConfigurada) em vez de desligada. Se o gate do
+// modo humano falhar e a automacao tentar responder mesmo assim, o
+// orquestrador passado (normalmente OrquestradorContador) e quem prova isso
+// — nao dependemos de "a IA estava desligada de qualquer jeito" como o resto
+// deste arquivo.
+MensagemService NovaMensagemServiceComIaArmada(
+    CrmDbContext db, Guid quem, string nome, IOrquestradorDeProvedores orquestrador)
+{
+    var ctx = new ContextoFixo(tenantId, quem, nome, PerfilDeAtendente.Administrador);
+
+    var opcoesDaIA = Options.Create(new OpcoesDaIA
+    {
+        Habilitada = true,
+        Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
+    });
+
+    var respostaInteligente = new RespostaInteligenteService(
+        db, orquestrador, opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
+
+    return new MensagemService(
+        db,
+        ctx,
+        NovaConversaService(db, quem, nome),
+        new NotificadorSilencioso(),
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
+        new AnexosEmMemoria(),
+        respostaInteligente,
+        opcoesDaIA,
+        NullLogger<MensagemService>.Instance);
+}
+
+// Mesma ideia de NovoRecebimento, mas com IA armada e notificador
+// substituivel — usado pelos testes de Human Takeover que precisam espiar o
+// que o SignalR receberia.
+RecebimentoDeWhatsApp NovoRecebimentoComIaArmada(
+    CrmDbContext db, IOrquestradorDeProvedores orquestrador, INotificadorDeAtendimento notificador)
+{
+    var opcoesDaIA = Options.Create(new OpcoesDaIA
+    {
+        Habilitada = true,
+        Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
+    });
+
+    return new RecebimentoDeWhatsApp(
+        db,
+        new GeradorDeProtocolo(db),
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        notificador,
+        new CanalSilencioso(),
+        new AnexosEmMemoria(),
+        new RespostaInteligenteService(
+            db, orquestrador, opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
+        opcoesDaIA,
+        NullLogger<RecebimentoDeWhatsApp>.Instance);
+}
+
 // O SERVICO REAL do webhook, com os mesmos dubles silenciosos do resto do
 // arquivo. Ate 2026-08-24 nenhum verificador exercitava este caminho —
 // verificar-canal-whatsapp.cs para no ProcessadorDeWebhook, com um
@@ -1986,4 +2570,53 @@ file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
     public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
             "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+}
+
+/// <summary>
+/// Para os testes de Human Takeover (BUG-ATD-01): conta chamadas em vez de
+/// lancar, porque RespostaInteligenteService.ResponderAsync engole qualquer
+/// excecao do orquestrador e devolve "nao respondeu" — um
+/// OrquestradorNuncaChamado que lanca ficaria mascarado, o teste passaria
+/// mesmo se o gate do modo humano falhasse. Contando, a asercao
+/// "Chamadas == 0" e direta e nao depende de como a excecao e tratada rio
+/// acima.
+/// </summary>
+file sealed class OrquestradorContador : IOrquestradorDeProvedores
+{
+    public int Chamadas { get; private set; }
+
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct)
+    {
+        Chamadas++;
+        return Task.FromResult(new RespostaDaIA(false, "", "OrquestradorContador nao deveria ser chamado em modo humano."));
+    }
+}
+
+/// <summary>
+/// Para o teste de Human Takeover que prova que o SignalR continua recebendo
+/// eventos em modo humano — NotificadorSilencioso nao permitiria espiar isso.
+/// </summary>
+file sealed class NotificadorContador : INotificadorDeAtendimento
+{
+    public int MensagensRecebidas { get; private set; }
+    public int ConversasAtualizadas { get; private set; }
+
+    public Task ConversaAtribuidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaLiberadaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaTransferidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task ConversaAtualizadaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default)
+    {
+        ConversasAtualizadas++;
+        return Task.CompletedTask;
+    }
+
+    public Task ConversaEncerradaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaReabertaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default)
+    {
+        MensagensRecebidas++;
+        return Task.CompletedTask;
+    }
 }

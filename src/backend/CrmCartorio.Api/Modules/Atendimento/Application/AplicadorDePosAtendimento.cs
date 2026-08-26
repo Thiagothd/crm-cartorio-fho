@@ -183,6 +183,11 @@ public static class AplicadorDePosAtendimento
                 : GatilhoDeMensagem.PedidoDeAtendente;
 
             await automaticas.EnfileirarAsync(conversa, gatilho, ct: ct);
+
+            // Segundo caminho de pedido de humano, paralelo ao de
+            // AplicadorDeRespostaInteligente.EscalarAsync — mesmo efeito,
+            // mesma necessidade de ligar o modo humano aqui (BUG-ATD-01).
+            conversa.EmAtendimentoHumano = true;
         }
         else if (escolhido == OpcaoEncerrar)
         {
@@ -236,6 +241,7 @@ public static class AplicadorDePosAtendimento
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoNome = false;
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
+        conversa.EmAtendimentoHumano = false;
 
         db.Mensagens.Add(new Mensagem
         {

@@ -86,7 +86,31 @@ public class RecebimentoDeWhatsApp(
         conversa.UltimaMensagemEm = agora;
         conversa.MensagensNaoLidas += 1;
 
-        if (ehNova)
+        // BUG-ATD-01 — checado ANTES de qualquer outra coisa, inclusive
+        // "ehNova": a conversa ja foi entregue a um humano (cliente pediu
+        // atendente, ou um atendente assumiu por conta propria) e a
+        // automacao conversacional fica muda. A mensagem ja foi gravada e os
+        // contadores acima ja foram atualizados — so falta a notificacao no
+        // fim do metodo, que continua incondicional.
+        //
+        // A pergunta de encerramento por inatividade e a UNICA excecao: se
+        // havia uma pendente, o cliente escrever prova que ele esta vivo —
+        // mesmo principio ja usado em MensagemService.ConcluirEnvioAsync
+        // quando o ATENDENTE responde. Sem isto, a segunda fase da varredura
+        // de inatividade (VarredorDeInatividade.EncerrarSemRespostaAsync)
+        // podia encerrar uma conversa que o cliente acabou de responder, so
+        // porque a automacao nunca chegou a limpar o carimbo.
+        //
+        // SE MEXER AQUI, MEXA EM MensagemService.SimularRecebimentoAsync
+        // TAMBEM — mesma cadeia de despacho, duplicada por enquanto.
+        if (conversa.EmAtendimentoHumano)
+        {
+            if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
+            {
+                conversa.PerguntaDeEncerramentoEnviadaEm = null;
+            }
+        }
+        else if (ehNova)
         {
             // Conversa recem-aberta: sai o menu, e so. Aplicar triagem aqui
             // responderia a pergunta com a MESMA mensagem que a provocou — o
