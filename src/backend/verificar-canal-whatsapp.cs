@@ -951,33 +951,10 @@ var mensagemPermitida = new Mensagem
 db.AddRange(clientePermitido, conversaPermitida, mensagemPermitida);
 await db.SaveChangesAsync();
 
-// Cancela dentro do double depois de contar a chamada. Isso prova que o envio
-// autorizado atravessa o gate sem depender de ExecuteUpdate, que o provider em
-// memória deliberadamente não implementa.
-var gatewayPermitido = new GatewayFake { CancelarEnvios = true };
-var enviadorPermitido = new EnviadorPeloWhatsApp(
-    db,
-    gatewayPermitido,
-    anexosFake,
-    regrasDoProcessador,
-    Options.Create(canalDeTeste),
-    NullLogger<EnviadorPeloWhatsApp>.Instance);
-var cancelamentoEsperado = false;
-
-try
-{
-    await enviadorPermitido.EnviarAsync(mensagemPermitida.Id);
-}
-catch (OperationCanceledException)
-{
-    cancelamentoEsperado = true;
-}
-
-Checar(
-    "Enviador deixa exatamente um envio de texto chegar ao gateway para o contato autorizado",
-    cancelamentoEsperado
-    && gatewayPermitido.EnviosDeTexto == 1
-    && gatewayPermitido.EnviosDeMidia == 0);
+// O caminho autorizado agora depende de ExecuteUpdate atomico. EF InMemory nao
+// implementa essa operacao; a prova de envio e concorrencia usa SQL Server real
+// em verificar-concorrencia-saida-whatsapp.cs. Este verificador continua
+// responsável pelo gate que impede qualquer efeito externo quando ha bloqueio.
 
 var gatewayDeFotos = new GatewayFake();
 using var cache = new MemoryCache(new MemoryCacheOptions());

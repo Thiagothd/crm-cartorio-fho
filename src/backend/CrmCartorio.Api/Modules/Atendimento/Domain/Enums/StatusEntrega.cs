@@ -11,5 +11,6 @@ public enum StatusEntrega : byte
     Enviada = 2,
     Entregue = 3,
     Lida = 4,
-    Falha = 5
+    Falha = 5,
+    Enviando = 6
 }

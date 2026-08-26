@@ -23,6 +23,11 @@ public class EnviadorPeloWhatsApp(
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<EnviadorPeloWhatsApp> log) : IEnviadorDeCanal
 {
+    // Um claim sem chamada externa iniciada pode ser retomado depois deste prazo.
+    // Cinco minutos e deliberadamente conservador: validacoes e leitura de anexo
+    // acontecem antes do claim, portanto o intervalo protege apenas trabalho local curto.
+    private static readonly TimeSpan ExpiracaoDoClaim = TimeSpan.FromMinutes(5);
+
     private readonly OpcoesDoCanalWhatsApp _opcoes = opcoes.Value;
 
     public async Task<string?> EnviarAsync(Guid mensagemId, CancellationToken ct = default)
@@ -77,7 +82,7 @@ public class EnviadorPeloWhatsApp(
         if (string.IsNullOrWhiteSpace(alvo.Telefone))
         {
             log.LogWarning("Mensagem {MensagemId} sem telefone de destino.", mensagemId);
-            await MarcarAsync(mensagemId, StatusEntrega.Falha, null, ct);
+            await MarcarFalhaAntesDoDisparoAsync(mensagemId, ct);
             return null;
         }
 
@@ -101,29 +106,72 @@ public class EnviadorPeloWhatsApp(
             return null;
         }
 
+        byte[]? conteudoDoArquivo = null;
+        string? nomeDoArquivo = null;
+        string? tipoMime = null;
+        string? legenda = null;
+
+        // Ler e validar o arquivo antes do claim: uma falha local comprovadamente
+        // anterior ao POST continua retentavel e nunca deixa a linha presa.
+        if (alvo.ArquivoCaminho is { Length: > 0 } caminho)
+        {
+            try
+            {
+                (conteudoDoArquivo, nomeDoArquivo, tipoMime, legenda) =
+                    await PrepararArquivoAsync(
+                        caminho,
+                        alvo.ArquivoNome,
+                        alvo.ArquivoTipoMime,
+                        alvo.Conteudo,
+                        ct);
+            }
+            catch (Exception falha) when (falha is not OperationCanceledException)
+            {
+                log.LogError(falha,
+                    "Falha local antes do envio da mensagem {MensagemId} pelo WhatsApp.", mensagemId);
+                await MarcarFalhaAntesDoDisparoAsync(mensagemId, ct);
+                return null;
+            }
+        }
+
+        if (await TentarAdquirirClaimAsync(mensagemId, ct) is not { } claimAdquiridoEm)
+        {
+            return null;
+        }
+
+        if (!await MarcarDisparoAsync(mensagemId, claimAdquiridoEm, ct))
+        {
+            log.LogWarning(
+                "Mensagem {MensagemId} perdeu o estado Enviando antes do disparo e nao sera enviada.",
+                mensagemId);
+            return null;
+        }
+
         try
         {
-            var idExterno = alvo.ArquivoCaminho is { Length: > 0 } caminho
-                ? await EnviarComArquivoAsync(
+            var idExterno = conteudoDoArquivo is not null
+                ? await gateway.EnviarMidiaAsync(
                     alvo.Telefone,
-                    caminho,
-                    alvo.ArquivoNome,
-                    alvo.ArquivoTipoMime,
-                    alvo.Conteudo,
+                    conteudoDoArquivo,
+                    tipoMime!,
+                    nomeDoArquivo!,
+                    legenda,
                     ct)
                 : await gateway.EnviarTextoAsync(alvo.Telefone, alvo.Conteudo, ct);
 
-            await MarcarAsync(mensagemId, StatusEntrega.Enviada, idExterno, ct);
+            await MarcarEnviadaAsync(mensagemId, claimAdquiridoEm, idExterno, ct);
 
             return idExterno;
         }
-        catch (Exception falha) when (falha is not OperationCanceledException)
+        catch (Exception falha)
         {
             log.LogError(
-                falha, "Falha ao enviar a mensagem {MensagemId} pelo WhatsApp.", mensagemId);
+                falha,
+                "Resultado ambiguo ao enviar a mensagem {MensagemId}: o disparo foi iniciado, " +
+                "mas nao e possivel confirmar se a Evolution aceitou. A mensagem permanecera Enviando.",
+                mensagemId);
 
-            await MarcarAsync(mensagemId, StatusEntrega.Falha, null, ct);
-
+            if (falha is OperationCanceledException) throw;
             return null;
         }
     }
@@ -160,7 +208,9 @@ public class EnviadorPeloWhatsApp(
         var pendentes = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId
                      && m.EhAutomatica
-                     && (m.StatusEntrega == StatusEntrega.Pendente || m.StatusEntrega == StatusEntrega.Falha))
+                     && (m.StatusEntrega == StatusEntrega.Pendente
+                         || m.StatusEntrega == StatusEntrega.Falha
+                         || m.StatusEntrega == StatusEntrega.Enviando))
             .OrderBy(m => m.EnviadaEm)
             .ThenBy(m => m.Id)
             .Select(m => m.Id)
@@ -172,6 +222,18 @@ public class EnviadorPeloWhatsApp(
             // em que foram escritos, e disparar junto embaralharia os dois no
             // aparelho dele.
             await EnviarAsync(id, ct);
+
+            // Uma anterior ainda Enviando e barreira: pode estar em voo ou ter
+            // resultado ambiguo. Uma Falha tambem nao pode ser ultrapassada.
+            var statusAtual = await db.Mensagens.AsNoTracking()
+                .Where(m => m.Id == id)
+                .Select(m => m.StatusEntrega)
+                .FirstOrDefaultAsync(ct);
+
+            if (statusAtual is StatusEntrega.Enviando or StatusEntrega.Falha)
+            {
+                break;
+            }
         }
     }
 
@@ -188,8 +250,7 @@ public class EnviadorPeloWhatsApp(
     /// <see cref="StatusEntrega.Falha"/>: melhor o atendente ver que nao saiu do
     /// que o cliente receber uma mensagem vazia no lugar do documento.
     /// </remarks>
-    private async Task<string> EnviarComArquivoAsync(
-        string telefone,
+    private async Task<(byte[] Conteudo, string Nome, string TipoMime, string? Legenda)> PrepararArquivoAsync(
         string caminho,
         string? nome,
         string? tipoMime,
@@ -206,13 +267,11 @@ public class EnviadorPeloWhatsApp(
             ? null
             : conteudo;
 
-        return await gateway.EnviarMidiaAsync(
-            telefone,
+        return (
             bytes,
-            string.IsNullOrWhiteSpace(tipoMime) ? "application/octet-stream" : tipoMime,
             nomeDoArquivo,
-            legenda,
-            ct);
+            string.IsNullOrWhiteSpace(tipoMime) ? "application/octet-stream" : tipoMime,
+            legenda);
     }
 
     /// <summary>
@@ -231,19 +290,82 @@ public class EnviadorPeloWhatsApp(
     /// <c>SaveChanges</c> da mensagem, e recarregar a entidade aqui so criaria
     /// chance de conflito com quem estiver atendendo a mesma conversa.
     /// </remarks>
-    private async Task MarcarAsync(
+    private async Task<DateTime?> TentarAdquirirClaimAsync(Guid mensagemId, CancellationToken ct)
+    {
+        var agora = DateTime.UtcNow;
+        var expiradoAntesDe = agora - ExpiracaoDoClaim;
+
+        // Recuperacao lazy exclusivamente do caso seguro: o processo adquiriu o
+        // claim, mas ainda nao marcou o inicio da chamada externa.
+        await db.Mensagens
+            .Where(m => m.Id == mensagemId
+                     && m.StatusEntrega == StatusEntrega.Enviando
+                     && m.EnvioDisparadoEm == null
+                     && m.EnvioIniciadoEm < expiradoAntesDe)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.StatusEntrega, StatusEntrega.Falha)
+                .SetProperty(m => m.EnvioIniciadoEm, (DateTime?)null)
+                .SetProperty(m => m.AtualizadoEm, agora), ct);
+
+        var afetadas = await db.Mensagens
+            .Where(m => m.Id == mensagemId
+                     && (m.StatusEntrega == StatusEntrega.Pendente
+                         || m.StatusEntrega == StatusEntrega.Falha))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.StatusEntrega, StatusEntrega.Enviando)
+                .SetProperty(m => m.EnvioIniciadoEm, agora)
+                .SetProperty(m => m.EnvioDisparadoEm, (DateTime?)null)
+                .SetProperty(m => m.AtualizadoEm, agora), ct);
+
+        return afetadas == 1 ? agora : null;
+    }
+
+    private async Task<bool> MarcarDisparoAsync(
         Guid mensagemId,
-        StatusEntrega status,
-        string? idExterno,
+        DateTime claimAdquiridoEm,
+        CancellationToken ct)
+    {
+        var agora = DateTime.UtcNow;
+
+        return await db.Mensagens
+            .Where(m => m.Id == mensagemId
+                     && m.StatusEntrega == StatusEntrega.Enviando
+                     && m.EnvioIniciadoEm == claimAdquiridoEm)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.EnvioDisparadoEm, agora)
+                .SetProperty(m => m.AtualizadoEm, agora), ct) == 1;
+    }
+
+    private async Task MarcarEnviadaAsync(
+        Guid mensagemId,
+        DateTime claimAdquiridoEm,
+        string idExterno,
         CancellationToken ct)
     {
         var agora = DateTime.UtcNow;
 
         await db.Mensagens
-            .Where(m => m.Id == mensagemId)
+            .Where(m => m.Id == mensagemId
+                     && m.StatusEntrega == StatusEntrega.Enviando
+                     && m.EnvioIniciadoEm == claimAdquiridoEm)
             .ExecuteUpdateAsync(s => s
-                .SetProperty(m => m.StatusEntrega, status)
+                .SetProperty(m => m.StatusEntrega, StatusEntrega.Enviada)
                 .SetProperty(m => m.IdExternoWhatsapp, idExterno)
+                .SetProperty(m => m.EnvioIniciadoEm, (DateTime?)null)
+                .SetProperty(m => m.EnvioDisparadoEm, (DateTime?)null)
+                .SetProperty(m => m.AtualizadoEm, agora), ct);
+    }
+
+    private async Task MarcarFalhaAntesDoDisparoAsync(Guid mensagemId, CancellationToken ct)
+    {
+        var agora = DateTime.UtcNow;
+
+        await db.Mensagens
+            .Where(m => m.Id == mensagemId
+                     && (m.StatusEntrega == StatusEntrega.Pendente
+                         || m.StatusEntrega == StatusEntrega.Falha))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.StatusEntrega, StatusEntrega.Falha)
                 .SetProperty(m => m.AtualizadoEm, agora), ct);
     }
 }

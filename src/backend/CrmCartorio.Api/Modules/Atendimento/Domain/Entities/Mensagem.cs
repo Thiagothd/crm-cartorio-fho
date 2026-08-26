@@ -28,6 +28,15 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
 
     public StatusEntrega StatusEntrega { get; set; } = StatusEntrega.Enviada;
 
+    /// <summary>Instante em que uma execucao adquiriu o claim exclusivo de envio.</summary>
+    public DateTime? EnvioIniciadoEm { get; set; }
+
+    /// <summary>
+    /// Instante persistido imediatamente antes da chamada externa. Quando preenchido,
+    /// o resultado pode ser ambiguo e a mensagem nao pode ser retentada automaticamente.
+    /// </summary>
+    public DateTime? EnvioDisparadoEm { get; set; }
+
     /// <summary>
     /// A mensagem foi gerada por uma regra de <c>MensagemAutomatica</c>, nao escrita
     /// por gente.

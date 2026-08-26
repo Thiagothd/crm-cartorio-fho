@@ -60,6 +60,8 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         // Propriedade so de leitura sobre ArquivoCaminho — nao vira coluna.
         builder.Ignore(m => m.TemArquivo);
         builder.Property(m => m.EnviadaEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.EnvioIniciadoEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.EnvioDisparadoEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.LidaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.FixadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.OcultaEm).HasColumnType("datetime2(3)");

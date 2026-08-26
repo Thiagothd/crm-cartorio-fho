@@ -449,8 +449,13 @@ CREATE TABLE dbo.Mensagens
     -- 1 Texto, 2 Imagem, 3 Documento, 4 Audio, 5 Video (midia so na Fase 2)
     Tipo              TINYINT          NOT NULL CONSTRAINT DF_Mensagens_Tipo DEFAULT (1),
 
-    -- 1 Pendente, 2 Enviada, 3 Entregue, 4 Lida, 5 Falha
+    -- 1 Pendente, 2 Enviada, 3 Entregue, 4 Lida, 5 Falha, 6 Enviando
     StatusEntrega     TINYINT          NOT NULL CONSTRAINT DF_Mensagens_Status DEFAULT (2),
+
+    -- Claim persistente do envio. Disparado preenchido significa que a chamada
+    -- externa pode ter comecado e, portanto, nao admite retry automatico cego.
+    EnvioIniciadoEm   DATETIME2(3)     NULL,
+    EnvioDisparadoEm  DATETIME2(3)     NULL,
 
     -- Gerada por regra de MensagemAutomatica. Combinada com AutorTipo = 3, separa a
     -- anotacao interna do fio ("Conversa assumida por Fulano", que o cliente nunca
@@ -497,7 +502,7 @@ CREATE TABLE dbo.Mensagens
     CONSTRAINT FK_Mensagens_EncaminhadaDe  FOREIGN KEY (EncaminhadaDeMensagemId) REFERENCES dbo.Mensagens (Id),
     CONSTRAINT CK_Mensagens_AutorTipo     CHECK (AutorTipo     IN (1, 2, 3)),
     CONSTRAINT CK_Mensagens_Tipo          CHECK (Tipo          IN (1, 2, 3, 4, 5)),
-    CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5)),
+    CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5, 6)),
 
     -- Rede de seguranca do RF-007 no banco: mensagem de atendente sem AtendenteId
     -- nao entra, venha de onde vier (API, importacao, webhook da Fase 2).
