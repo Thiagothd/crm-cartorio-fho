@@ -398,7 +398,9 @@ export const indicadoresApi = {
 // IA --------------------------------------------------------------------------
 
 export const iaApi = {
-  situacao: () => api.get<SituacaoDaIa>('/api/ia/situacao'),
+  /** `de`/`ate` omitidos caem no dia UTC corrente — o mesmo recorte de sempre. */
+  situacao: (filtro?: { de?: string; ate?: string }) =>
+    api.get<SituacaoDaIa>(`/api/ia/situacao${montarQuery({ ...filtro })}`),
 }
 
 // Atendentes ----------------------------------------------------------------

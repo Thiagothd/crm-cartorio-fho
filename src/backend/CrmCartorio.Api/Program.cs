@@ -16,6 +16,8 @@ using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
 using CrmCartorio.Api.Modules.Indicadores.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
@@ -114,15 +116,53 @@ builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
-// Resposta Inteligente (Fase 2B). Sem chave configurada, o SDK sobe do mesmo jeito
-// — GarantirConfigurado nunca chega a chamar a API. O cliente e' singleton porque
-// nao guarda estado de requisicao; o timeout de rede real fica no CancelAfter do
-// proprio servico, nao aqui.
+// Resposta Inteligente (Fase 2B, dois provedores desde a Fase 2G): Gemini 3.7
+// Flash principal, Haiku 4.5 de contingencia — ver Modules/RespostaInteligente/README.md.
+// Sem chave configurada, os dois sobem do mesmo jeito; EstaConfigurado de cada
+// provedor decide se ele e tentado, nunca o registro no DI.
+//
+// AnthropicClient continua singleton com a ApiKey capturada no boot (mesma
+// ressalva de sempre: rotacionar a chave exige reciclar o processo).
+// ApiKeyDoAnthropicResolvida cai para a chave legada (RespostaInteligente:ApiKey)
+// quando RespostaInteligente:Anthropic:ApiKey esta vazio — sem isso, o primeiro
+// deploy desta mudanca subiria producao sem IA (appsettings.Production.json nao
+// e sobrescrito pelo deploy).
 builder.Services.AddSingleton(sp =>
 {
     var opcoesDaIA = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value;
-    return new AnthropicClient { ApiKey = opcoesDaIA.ApiKey };
+    return new AnthropicClient { ApiKey = opcoesDaIA.ApiKeyDoAnthropicResolvida };
 });
+// Registrados via chave (AddKeyedScoped) e nao pelo tipo concreto: o
+// OrquestradorDeProvedores so conhece IProvedorDeIa, o que permite substituir os
+// dois por fakes nos verificadores sem tocar em HttpClient/AnthropicClient real.
+builder.Services.AddScoped<ProvedorAnthropic>();
+builder.Services.AddKeyedScoped<IProvedorDeIa>(
+    ChaveDoProvedor.Anthropic, (sp, _) => sp.GetRequiredService<ProvedorAnthropic>());
+
+// HttpClient tipado, mesmo padrao do EvolutionClient — nao existe SDK .NET
+// oficial para a Interactions API do Gemini (o pacote Google.GenAI so cobre o
+// generateContent legado).
+builder.Services.AddHttpClient<ProvedorGemini>((sp, http) =>
+{
+    var opcoesGemini = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value.Gemini;
+    http.BaseAddress = new Uri(opcoesGemini.BaseUrl);
+});
+builder.Services.AddKeyedScoped<IProvedorDeIa>(
+    ChaveDoProvedor.Gemini, (sp, _) => sp.GetRequiredService<ProvedorGemini>());
+
+// Cota do Gemini e o disjuntor de fallback sao GLOBAIS do projeto Google (a
+// franquia nao e por tenant), por isso singleton com particionamento interno por
+// ChaveDeProjeto — ver ContadorDeCotaDoGemini e DisjuntorDoGemini. Os dois tetos
+// diarios por tenant (LimiteDiario, LimiteDiarioHaiku) tambem viram reserva
+// atomica em memoria, corrigindo a race condition que a contagem direta no banco
+// tinha antes dos dois provedores.
+builder.Services.AddSingleton<ContadorDeCotaDoGemini>();
+builder.Services.AddSingleton<DisjuntorDoGemini>();
+builder.Services.AddSingleton<ContadorDeLimiteDiario>();
+builder.Services.AddScoped<PoliticaDeSelecao>();
+builder.Services.AddScoped<RegistradorDeChamadas>();
+builder.Services.AddScoped<IOrquestradorDeProvedores, OrquestradorDeProvedores>();
+
 builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
 builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
 

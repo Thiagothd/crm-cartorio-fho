@@ -3,7 +3,7 @@
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
 > (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I" nas seções
 > abaixo.
-> **Última atualização:** 2026-08-24
+> **Última atualização:** 2026-08-25
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -551,6 +551,39 @@ um texto com marcadores — e são opostas na responsabilidade: a de 3.11 o sist
 assina, esta o atendente assina. É por isso que o `AtendenteId` da mensagem
 resultante continua sendo o dele, e o RF-007 continua valendo.
 
+### 3.13 ChamadaDeIa
+
+Uma linha por **tentativa** de chamada a um provedor de IA (Gemini ou
+Anthropic) — nunca conteúdo de mensagem, dado do cliente, chave ou trecho de
+prompt, só metadado técnico. Ver [FLUXO-AUTOMACAO.md §8](FLUXO-AUTOMACAO.md).
+
+| Campo | Tipo | Obrig. | Observação |
+| --- | --- | --- | --- |
+| Id | Guid | sim | PK |
+| TenantId | Guid | sim | FK → Tenant |
+| ConversaId | Guid | não | Nula quando a chamada não é de uma conversa específica (ex.: sonda do disjuntor) |
+| ChaveDeProjeto | string(16) | não | Fingerprint (SHA-256) da chave do Gemini — nunca a chave. Nula para Anthropic |
+| Provedor | tinyint | sim | 1 Gemini, 2 Anthropic |
+| Modelo | string(60) | sim | |
+| IniciadaEm | datetime2(3) | sim | |
+| LatenciaMs | int | sim | |
+| Sucesso | bool | sim | A tentativa produziu resposta do modelo — inclui `podeResponder=false`, que é resultado válido |
+| PodeResponder | bool | não | Só preenchido quando `Sucesso=true` |
+| TipoDeFalha | tinyint | sim | 0 Nenhuma .. 7 RespostaInvalida — ver `TipoDeFalhaDeIa` |
+| CodigoHttp | int | não | |
+| MotivoDoFallback | string(200) | não | Preenchido só nas tentativas de fallback (Anthropic, quando o Gemini falhou ou foi pulado) |
+| FoiFallback | bool | sim | |
+| TokensEntrada / TokensSaida / TokensPensamento | int | sim | |
+| CustoEstimadoUsd | decimal(10,6) | não | Sempre nulo para o Gemini (gratuito dentro da franquia) |
+| NivelDeRaciocinio | string(10) | não | `low`/`medium`/`high` — só Gemini |
+| CriadoEm / AtualizadoEm | datetime2(3) | sim | |
+
+**Sem FK para Conversa** de propósito: uma sonda do disjuntor pode não ter
+conversa nenhuma, e o log de observabilidade não pode travar nenhuma rotina de
+manutenção futura sobre `Conversas`. Gravada num `DbContext` próprio,
+independente da transação de negócio da requisição — sobrevive a rollback e a
+falha total (os dois provedores caindo, sem `Mensagem` nenhuma criada).
+
 ---
 
 ## 4. Trava de conversa
@@ -780,9 +813,14 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/024-encerramento-por-inatividade.sql`](../sql/024-encerramento-por-inatividade.sql) | Encerramento automático por inatividade (Fase 2H) — `Conversas.PerguntaDeEncerramentoEnviadaEm`, as 4 colunas novas de `Tenants`, os gatilhos 12/13 e o índice filtrado |
 | [`sql/025-pedido-de-nome.sql`](../sql/025-pedido-de-nome.sql) | Pedido de nome quando o perfil do WhatsApp não traz um (Fase 2I) — `Conversas.AguardandoNome`, `Clientes.NomePerguntadoEm` e o gatilho 14 |
 | [`sql/026-origem-do-cadastro-de-cliente.sql`](../sql/026-origem-do-cadastro-de-cliente.sql) | `Clientes.OrigemDoCadastro` — de onde o cadastro veio, para a importação de contatos em lote (sem disparo de mensagem; ver CLAUDE.md, seção 2) |
+| [`sql/027-provedores-de-ia.sql`](../sql/027-provedores-de-ia.sql) | Cria `dbo.ChamadasDeIa` (Fase 2G) — histórico de tentativas de chamada aos provedores de IA (Gemini principal, Anthropic contingência): tokens, latência, falha, motivo de fallback e custo estimado. Ver 3.13 |
 
-`001-schema.sql` é mantido **atualizado**: já contém tudo que 003 a 026
-acrescentaram. Base nova roda só `001` + `002`; base que já existe roda as migrações.
+`001-schema.sql` é mantido **atualizado** para colunas acrescentadas em
+tabelas que ele já cria (ex.: `Conversas.AguardandoNome`, de 025). **Tabelas
+inteiramente novas** (`CanalWhatsapp*` de 010, `VersaoDoSchema` de 021,
+`ChamadasDeIa` de 027) ficam só na própria migração — não são fundidas de
+volta em `001`. Base nova roda `001` + `002` + as migrações que criam tabela
+nova; base que já existe roda as migrações pendentes.
 
 Todos os scripts foram aplicados somente no banco local `CRM_Cartorio_Dev`.
 

@@ -2,8 +2,9 @@
 
 > **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
 > só escala por pedido explícito; Fase 2H — encerramento automático por
-> inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um).
-> **Última atualização:** 2026-08-24
+> inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um; Fase
+> 2J — dois provedores de IA, Gemini principal e Haiku de contingência).
+> **Última atualização:** 2026-08-25
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -291,6 +292,13 @@ Camada de contingência: responde **só com o que está cadastrado**, nunca
 inventa. Ver também o `README` do módulo
 [`RespostaInteligente`](../src/backend/CrmCartorio.Api/Modules/RespostaInteligente/README.md).
 
+**Desde 2026-08-25 (Fase 2J — dois provedores):** por trás de
+`IRespostaInteligenteService` existem dois provedores, escolhidos por um
+`OrquestradorDeProvedores` — **Gemini 3.7 Flash é o principal** (gratuito
+dentro da franquia), **Claude Haiku 4.5 é a contingência** (paga). A troca é
+transparente: o cliente nunca sabe qual dos dois respondeu. Detalhe completo
+na §8.1 abaixo.
+
 ### Quando é chamada
 
 - Nível 1 ou nível 2 não reconheceram a resposta do cliente.
@@ -388,13 +396,105 @@ perguntas genuinamente fora do catálogo.
 
 Quando escala de verdade, o texto varia por contexto — ver §11.
 
-### O teto de segurança: `LimiteDiario`
+### 8.1 Gemini principal, Haiku de contingência
 
-Não é sobre qualidade de resposta, é sobre custo: `OpcoesDaIA.LimiteDiario`
-(padrão 300/dia, por tenant) é a rede contra um loop malformado gastando
-crédito sem controle. Estourado, a IA para de responder pelo resto do dia
-(UTC) e cai no mesmo encaminhamento humano de sempre — nunca trava o cliente
-em silêncio, só troca "IA responde" por "atendente responde".
+`OrquestradorDeProvedores` (`Modules/RespostaInteligente/Application/`) decide,
+a cada mensagem, se tenta o Gemini e cai para o Haiku quando necessário — sem
+retry duplo, sem duas respostas para a mesma mensagem. O prompt (§ acima) é o
+mesmo texto para os dois provedores; só o transporte HTTP muda (Gemini fala
+pela Interactions API do Google, `POST /v1/interactions`, via `HttpClient`
+tipado — não existe SDK .NET oficial para essa API; Haiku continua no SDK
+`Anthropic`).
+
+**Quando o Gemini é pulado preventivamente** (antes de qualquer chamada):
+
+- Sem chave configurada ou `Gemini:Habilitado=false`.
+- Margem de segurança da franquia atingida (§8.2).
+- Disjuntor aberto (§8.3) — Gemini teve falha recente e está em cooldown.
+
+**Fallback reativo** — o Gemini é tentado e o Haiku assume quando ele:
+
+| Situação | Classificação (`TipoDeFalhaDeIa`) |
+| --- | --- |
+| `429` de limite de requisições | `RateLimit` |
+| `429` de cota diária esgotada | `QuotaEsgotada` |
+| `500`/`502`/`503`/`504` | `Indisponibilidade` |
+| Timeout da nossa chamada | `Timeout` |
+| Falha de rede/DNS | `Rede` |
+| `400`/`401`/`403` (chave ou requisição inválida) | `Configuracao` — **log em nível `Error`**, nunca mascarado |
+| JSON fora do esquema pedido, resposta vazia | `RespostaInvalida` |
+
+`podeResponder=false` **não é falha** — é resposta válida do modelo (ele
+respondeu, só não sabia o que dizer). Nesse caso o Haiku **não** é chamado; o
+fluxo cai no mesmo `RespostaSemCorrespondencia` de sempre (§ acima).
+
+Cada tentativa (sucesso ou falha) vira uma linha em `dbo.ChamadasDeIa` —
+tokens, latência, custo estimado, motivo do fallback quando houver. Gravada
+num `DbContext` **próprio** (não o da requisição): fica registrada mesmo
+quando os dois provedores falham e nenhuma `Mensagem` chega a ser criada.
+
+### 8.2 Controle de cota do Gemini — global do projeto, não por tenant
+
+A franquia gratuita do Gemini é por **projeto Google**, não por tenant nem por
+chave individual — por isso `ContadorDeCotaDoGemini` e `DisjuntorDoGemini` são
+**singletons globais**, particionados só por um fingerprint não-secreto da
+chave (`FingerprintDeChave`, nunca a chave em si). Dois tenants usando o mesmo
+projeto Google **compartilham** RPM/TPM/RPD; os tetos de negócio (§8.4) e as
+métricas de custo continuam por tenant.
+
+`Gemini:LimiteRpm`/`LimiteTpm`/`LimiteRpd` nascem em `0` (não cadastrado) — o
+Google parou de publicar esses números na documentação pública; só aparecem
+no painel `aistudio.google.com/rate-limit` de cada conta. **Confirmado por
+chamada real em 2026-08-25** (conta de teste, free tier): a resposta de erro
+citou explicitamente `limit: 20` para a métrica
+`generate_content_free_tier_requests` do modelo `gemini-3.7-flash` — ou seja,
+RPM=20 **naquela conta**. É um dado real, não suposição, mas é por projeto:
+reconfirme antes de usar em produção.
+
+Com os limites cadastrados, o Gemini só é escolhido enquanto o consumo fica
+abaixo de `PercentualDeSeguranca` (85% por padrão) de cada limite. Com os
+limites em `0`, não existe "85% de uma cota desconhecida": o sistema aplica
+só um freio local conservador (`LimiteRpmDeDescoberta`) e deixa a camada
+reativa (429 real) ser a autoridade.
+
+### 8.3 O disjuntor — recuperação automática
+
+`DisjuntorDoGemini`: `Fechado` → `Aberto` → `Meio-Aberto`. Falhas normais
+(indisponibilidade, timeout, resposta inválida) abrem o circuito depois de
+`FalhasParaAbrirDisjuntor` (3) consecutivas; `429` de rate limit e erro de
+credencial (`401`/`403`) abrem **na hora**, sem esperar 3 falhas. Cota diária
+esgotada abre até a **meia-noite do horário do Pacífico** (é quando o RPD do
+Google reseta), não o cooldown curto.
+
+Vencido o cooldown, a **próxima mensagem real** vira uma sonda: se o Gemini
+responder, o circuito fecha e ele volta a ser principal; se falhar, o
+cooldown dobra (até `CooldownMaximoSegundos`). Só uma sonda por vez — outras
+mensagens simultâneas continuam no Haiku sem esperar o resultado dela.
+
+### 8.4 Os dois tetos diários
+
+| Teto | Conta o quê | Ao estourar |
+| --- | --- | --- |
+| `RespostaInteligente:LimiteDiario` (300, por tenant, dia UTC) | Respostas **entregues** ao cliente, qualquer provedor — uma por mensagem | IA para de responder pelo resto do dia; cai no encaminhamento humano de sempre |
+| `RespostaInteligente:Anthropic:LimiteDiarioHaiku` (60, por tenant, dia UTC) | Só respostas produzidas **pelo Anthropic** | Gemini continua normalmente até o teto geral; só o Haiku para |
+
+Os dois são reservados de forma atômica (`ContadorDeLimiteDiario`, em
+memória, hidratado de `ChamadasDeIa` na primeira mensagem do processo) —
+corrige a condição de corrida que a contagem direta no banco tinha antes de
+existirem dois provedores. Gemini falhar e o Haiku responder conta **1** no
+teto geral e **1** no teto do Haiku — nunca 2 no geral.
+
+Se os dois estourarem no mesmo dia, cai no atendimento humano de sempre —
+nunca deixa o cliente mudo.
+
+### 8.5 Painel `/automacao/ia`
+
+Mostra estado dos dois provedores (disponível / contingência / sem chave /
+teto atingido), consumo de hoje, franquia do Gemini (ou aviso de "não
+cadastrada"), motivos de fallback do período e economia estimada vs. 100%
+Haiku. Backend: `GET /api/ia/situacao` (`ISituacaoDaIa`) — o mesmo cálculo
+alimenta o card "Saúde da operação" da Visão Geral e o alerta `ia_limite_atingido`
+do sino, que antes duplicavam a contagem em 3 lugares diferentes.
 
 ---
 

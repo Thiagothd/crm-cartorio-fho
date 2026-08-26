@@ -1,7 +1,6 @@
 #:project CrmCartorio.Api/CrmCartorio.Api.csproj
 #:property PublishAot=false
 
-using Anthropic;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
@@ -13,6 +12,7 @@ using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -229,7 +229,7 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
     // correspondencia escala para humano — sem precisar de chave da Anthropic.
     var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
     var respostaInteligente = new RespostaInteligenteService(
-        db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
+        db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
 
     return new MensagemService(
         db,
@@ -1892,7 +1892,7 @@ RecebimentoDeWhatsApp NovoRecebimento(CrmDbContext db)
         new CanalSilencioso(),
         new AnexosEmMemoria(),
         new RespostaInteligenteService(
-            db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
+            db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
         opcoesDaIA,
         NullLogger<RecebimentoDeWhatsApp>.Instance);
 }
@@ -1972,4 +1972,18 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
     public Task ConversaEncerradaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task ConversaReabertaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Nunca deveria ser chamado nestes testes — o OpcoesDaIA usado aqui e sempre
+/// Habilitada=false, e RespostaInteligenteService.ResponderAsync ja retorna cedo
+/// nesse caso, antes de tocar no orquestrador. Existe so para preencher o
+/// parametro do construtor; se algum dia for chamado de verdade, o teste deve
+/// falhar alto, nao silenciosamente.
+/// </summary>
+file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
+{
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct) =>
+        throw new InvalidOperationException(
+            "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
 }
