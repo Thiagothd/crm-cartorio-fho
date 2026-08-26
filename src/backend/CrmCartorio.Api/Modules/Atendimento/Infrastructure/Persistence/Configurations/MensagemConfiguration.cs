@@ -111,5 +111,14 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
 
         builder.HasIndex(m => new { m.TenantId, m.AtendenteId })
             .HasDatabaseName("IX_Mensagens_Tenant_Atendente");
+
+        // Idempotencia do webhook: o mesmo evento recebido nao pode abrir dois
+        // ciclos de automacao. Restrito ao autor Cliente porque esta coluna tambem
+        // guarda o id devolvido pelo gateway para mensagens de saida, cujo namespace
+        // nao precisa coincidir com o das mensagens recebidas.
+        builder.HasIndex(m => new { m.TenantId, m.IdExternoWhatsapp })
+            .IsUnique()
+            .HasFilter("[IdExternoWhatsapp] IS NOT NULL AND [AutorTipo] = 1")
+            .HasDatabaseName("UQ_Mensagens_Tenant_IdExterno_Cliente");
     }
 }

@@ -45,7 +45,8 @@ public static class AplicadorDeRespostaInteligente
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         if (TriagemAutomatica.PediuHumano(conteudo))
         {
@@ -56,7 +57,7 @@ public static class AplicadorDeRespostaInteligente
             return;
         }
 
-        var historico = await MontarHistoricoAsync(db, conversa.Id, ct);
+        var historico = await MontarHistoricoAsync(db, conversa.Id, mensagemAtualId, ct);
         var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, conversa.Id, ct);
 
         // BUG-ATD-01, corrida B/G do plano: a chamada acima pode levar
@@ -169,10 +170,10 @@ public static class AplicadorDeRespostaInteligente
     /// Reconstrói as trocas já feitas nesta sequência a partir do banco.
     /// </summary>
     /// <remarks>
-    /// A mensagem do cliente que provocou esta chamada já foi adicionada ao
-    /// <c>DbContext</c> por quem chamou, mas ainda não foi salva — uma consulta
-    /// <c>AsNoTracking</c> não a enxerga, então o histórico aqui é sempre só o que
-    /// veio ANTES dela, sem duplicar a pergunta atual.
+    /// No webhook, a mensagem que provocou a chamada ja foi salva para reivindicar
+    /// atomicamente o IdExterno; <paramref name="mensagemAtualId"/> a exclui do
+    /// historico porque ela ja segue separada como a pergunta atual. Na simulacao
+    /// pelo painel ela ainda nao foi salva e o parametro fica nulo.
     ///
     /// Exclui a primeiríssima mensagem do cliente na conversa (o "bom dia" que abriu
     /// o atendimento e disparou as boas-vindas) — ela nunca passou pela IA. As
@@ -180,7 +181,7 @@ public static class AplicadorDeRespostaInteligente
     /// exatamente esta sequência: nenhuma outra combinação de autor gera esse par.
     /// </remarks>
     private static async Task<IReadOnlyList<TrocaAnterior>> MontarHistoricoAsync(
-        CrmDbContext db, Guid conversaId, CancellationToken ct)
+        CrmDbContext db, Guid conversaId, Guid? mensagemAtualId, CancellationToken ct)
     {
         var primeiraMensagemClienteId = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId && m.AutorTipo == AutorTipo.Cliente)
@@ -190,6 +191,7 @@ public static class AplicadorDeRespostaInteligente
 
         var mensagens = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId
+                     && m.Id != mensagemAtualId
                      && ((m.AutorTipo == AutorTipo.Cliente && m.Id != primeiraMensagemClienteId)
                          || (m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa)))
             .OrderBy(m => m.EnviadaEm).ThenBy(m => m.Id)

@@ -7,6 +7,7 @@ using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -35,7 +36,9 @@ public class RecebimentoDeWhatsApp(
         // esta checagem, uma reentrega viraria mensagem duplicada no fio — e, no
         // primeiro contato, um segundo protocolo para o mesmo "bom dia".
         var jaRegistrada = await db.Mensagens.AsNoTracking()
-            .Where(m => m.TenantId == tenantId && m.IdExternoWhatsapp == mensagem.IdExterno)
+            .Where(m => m.TenantId == tenantId
+                     && m.AutorTipo == AutorTipo.Cliente
+                     && m.IdExternoWhatsapp == mensagem.IdExterno)
             .Select(m => (Guid?)m.ConversaId)
             .FirstOrDefaultAsync(ct);
 
@@ -61,30 +64,65 @@ public class RecebimentoDeWhatsApp(
         // "Ola, !" na primeira mensagem que o cliente recebe do cartorio.
         //
         // Continua tudo na mesma transacao: se algo falhar adiante, nada fica.
-        await db.SaveChangesAsync(ct);
+        Mensagem recebida;
 
-        var recebida = new Mensagem
+        try
         {
-            TenantId = tenantId,
-            ConversaId = conversa.Id,
-            AutorTipo = AutorTipo.Cliente,
-            AtendenteId = null,
-            Conteudo = mensagem.Conteudo,
-            Tipo = mensagem.Tipo,
+            await db.SaveChangesAsync(ct);
 
-            // Chegou de verdade: Entregue, nao Enviada. Quem entrega para nos e o
-            // WhatsApp, e ele so entrega o que ja chegou.
-            StatusEntrega = StatusEntrega.Entregue,
-            IdExternoWhatsapp = mensagem.IdExterno,
-            EnviadaEm = agora
-        };
+            recebida = new Mensagem
+            {
+                TenantId = tenantId,
+                ConversaId = conversa.Id,
+                AutorTipo = AutorTipo.Cliente,
+                AtendenteId = null,
+                Conteudo = mensagem.Conteudo,
+                Tipo = mensagem.Tipo,
 
-        await GravarAnexoAsync(recebida, mensagem.Arquivo, agora, ct);
+                // Chegou de verdade: Entregue, nao Enviada. Quem entrega para nos e o
+                // WhatsApp, e ele so entrega o que ja chegou.
+                StatusEntrega = StatusEntrega.Entregue,
+                IdExternoWhatsapp = mensagem.IdExterno,
+                EnviadaEm = agora
+            };
 
-        db.Mensagens.Add(recebida);
+            await GravarAnexoAsync(recebida, mensagem.Arquivo, agora, ct);
 
-        conversa.UltimaMensagemEm = agora;
-        conversa.MensagensNaoLidas += 1;
+            db.Mensagens.Add(recebida);
+
+            // Esta e a reivindicacao atomica do evento externo. O indice UNIQUE
+            // filtrado segura a chave ate o fim da transacao: uma reentrega concorrente
+            // para neste SaveChanges e nunca alcanca Gemini/Haiku. Se esta transacao
+            // reverter, a chave e liberada e a outra entrega pode assumir normalmente.
+            await db.SaveChangesAsync(ct);
+
+            // So depois do claim: salvar a Conversa antes da IA manteria um lock
+            // de escrita nela durante toda a chamada externa e impediria um humano
+            // de assumir enquanto a IA esta em voo. O recheck de Human Takeover
+            // depende de a linha da conversa continuar livre nesse intervalo.
+            conversa.UltimaMensagemEm = agora;
+            conversa.MensagensNaoLidas += 1;
+        }
+        catch (DbUpdateException falha) when (EhViolacaoDeUnicidade(falha))
+        {
+            await transacao.RollbackAsync(CancellationToken.None);
+
+            var conversaVencedoraId = await ObterConversaVencedoraAsync(
+                tenantId, mensagem.IdExterno, CancellationToken.None);
+
+            if (conversaVencedoraId is not { } vencedora)
+            {
+                // 2601/2627 tambem pode vir de telefone, protocolo ou outro indice.
+                // So a existencia da identidade EXATA permite chamar isto de reentrega.
+                throw;
+            }
+
+            log.LogInformation(
+                "Mensagem {IdExterno} foi registrada por outra requisicao; reentrega concorrente ignorada.",
+                mensagem.IdExterno);
+
+            return vencedora;
+        }
 
         // BUG-ATD-01 — checado ANTES de qualquer outra coisa, inclusive
         // "ehNova": a conversa ja foi entregue a um humano (cliente pediu
@@ -166,14 +204,14 @@ public class RecebimentoDeWhatsApp(
             // o banco compara GUID.
             await AplicadorDeTriagem.AplicarAsync(
                 db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
         }
         else if (conversa.AguardandoEscolhaDeServico)
         {
             // Mesmo ajuste de um milissegundo dos outros ramos, e pelo mesmo motivo.
             await AplicadorDeEscolhaDeServico.AplicarAsync(
                 db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
         }
         else if (conversa.AguardandoRespostaInteligente)
         {
@@ -182,7 +220,7 @@ public class RecebimentoDeWhatsApp(
             // a provocou, e Guid v7 sozinho nao garante isso com timestamp igual.
             await AplicadorDeRespostaInteligente.AplicarAsync(
                 db, respostaInteligente, automaticas, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
         }
         else
         {
@@ -192,7 +230,7 @@ public class RecebimentoDeWhatsApp(
             // pela IA. Mesmo ajuste de um milissegundo dos outros ramos.
             await AplicadorDePosAtendimento.AplicarAsync(
                 db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
+                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
         }
 
         await db.SaveChangesAsync(ct);
@@ -562,5 +600,28 @@ public class RecebimentoDeWhatsApp(
                 "Mensagem gravada na conversa {ConversaId}, mas a notificacao em tempo real falhou",
                 conversaId);
         }
+    }
+
+    private static bool EhViolacaoDeUnicidade(DbUpdateException falha) =>
+        falha.InnerException is SqlException { Number: 2601 or 2627 };
+
+    /// <remarks>
+    /// Contexto novo de proposito: depois de DbUpdateException o contexto perdedor
+    /// ainda rastreia a Mensagem como Added. A consulta que classifica a colisao nao
+    /// pode compartilhar esse estado nem a transacao que acabou de ser revertida.
+    /// </remarks>
+    private async Task<Guid?> ObterConversaVencedoraAsync(
+        Guid tenantId, string idExterno, CancellationToken ct)
+    {
+        var opcoes = new DbContextOptionsBuilder<CrmDbContext>();
+        ConfiguracaoDoBanco.Configurar(opcoes, db.Database.GetConnectionString());
+        await using var consulta = new CrmDbContext(opcoes.Options);
+
+        return await consulta.Mensagens.AsNoTracking()
+            .Where(m => m.TenantId == tenantId
+                     && m.AutorTipo == AutorTipo.Cliente
+                     && m.IdExternoWhatsapp == idExterno)
+            .Select(m => (Guid?)m.ConversaId)
+            .SingleOrDefaultAsync(ct);
     }
 }
