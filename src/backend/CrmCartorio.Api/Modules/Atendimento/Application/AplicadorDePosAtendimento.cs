@@ -56,7 +56,8 @@ public static class AplicadorDePosAtendimento
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         // "menu"/"voltar" ja foi tratado no despacho, antes desta classe ser
         // chamada (ver ReabrirDoZeroAsync) — nao precisa checar de novo aqui.
@@ -88,7 +89,7 @@ public static class AplicadorDePosAtendimento
         // sozinha (so por pedido explicito). Nunca sobra mensagem sem passar
         // por aqui.
         await AplicadorDeRespostaInteligente.AplicarAsync(
-            db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+            db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct, mensagemAtualId);
     }
 
     /// <summary>

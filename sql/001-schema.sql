@@ -520,6 +520,9 @@ CREATE INDEX IX_Mensagens_Conversa_Enviada ON dbo.Mensagens (ConversaId, Enviada
 CREATE INDEX IX_Mensagens_Tenant_Atendente ON dbo.Mensagens (TenantId, AtendenteId);
 CREATE INDEX IX_Mensagens_MensagemRespondida ON dbo.Mensagens (MensagemRespondidaId) WHERE MensagemRespondidaId IS NOT NULL;
 CREATE INDEX IX_Mensagens_Fixada ON dbo.Mensagens (ConversaId) WHERE FixadaEm IS NOT NULL;
+CREATE UNIQUE INDEX UQ_Mensagens_Tenant_IdExterno_Cliente
+    ON dbo.Mensagens (TenantId, IdExternoWhatsapp)
+    WHERE IdExternoWhatsapp IS NOT NULL AND AutorTipo = 1;
 GO
 
 /* -----------------------------------------------------------------------------
