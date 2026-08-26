@@ -264,6 +264,27 @@ builder.Services.AddCors(opcoes =>
 
 var app = builder.Build();
 
+// Checagem de sanidade, nao um Validate/ValidateOnStart: a IA segue a mesma
+// politica de "nunca travar o sistema por configuracao ruim" do resto do
+// modulo (OpcoesDaIA.EstaConfigurada) — um TimeoutSegundos alto demais vira
+// aviso no log de boot, nunca impede o processo de subir. Ver a premissa
+// documentada em DisjuntorDoGemini.TempoMaximoDeSondaPadrao.
+{
+    var opcoesGeminiNoBoot = app.Services.GetRequiredService<IOptions<OpcoesDaIA>>().Value.Gemini;
+    var timeoutEfetivoSegundos = Math.Max(5, opcoesGeminiNoBoot.TimeoutSegundos);
+
+    if (timeoutEfetivoSegundos >= DisjuntorDoGemini.TempoMaximoDeSondaPadrao.TotalSeconds)
+    {
+        app.Logger.LogWarning(
+            "RespostaInteligente:Gemini:TimeoutSegundos ({TimeoutSegundos}s, efetivo {TimeoutEfetivo}s) " +
+            "esta igual ou acima do teto de validade da sonda do disjuntor ({TempoMaximoDeSonda}s). " +
+            "Uma sonda lenta (nao cancelada) pode ser tratada como perdida antes de terminar, abrindo uma " +
+            "segunda sonda concorrente. Reduza o timeout ou aumente o teto da sonda (DisjuntorDoGemini).",
+            opcoesGeminiNoBoot.TimeoutSegundos, timeoutEfetivoSegundos,
+            DisjuntorDoGemini.TempoMaximoDeSondaPadrao.TotalSeconds);
+    }
+}
+
 // ------------------------------------------------------------------ execucao
 
 app.UseMiddleware<TratamentoDeErroMiddleware>();

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -280,9 +281,15 @@ public partial class ProvedorGemini(
             return null;
         }
 
-        // Duracao no formato protobuf ("13s", "1.500s").
+        // Duracao no formato protobuf ("13s", "1.500s"). Parse sempre em cultura
+        // invariante — achado ao vivo em 2026-08-25/26: sem isso, o processo em
+        // pt-BR le "40.76" (ponto = separador de milhar) como 4076, inflando o
+        // cooldown em ~100x. E' a causa real por tras do "retryApos de anos" que
+        // motivou o clamp em SanidadeDoRetryDelay; o clamp continua como segunda
+        // camada de defesa, mas o parse em si tinha que ser corrigido.
         var casado = RegexDeRetryDelay().Match(bruto);
-        return casado.Success && double.TryParse(casado.Groups[1].Value, out var segundos)
+        return casado.Success && double.TryParse(
+                casado.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var segundos)
             ? SanidadeDoRetryDelay(segundos)
             : null;
     }
@@ -309,7 +316,8 @@ public partial class ProvedorGemini(
     private static TimeSpan? ExtrairRetryDelayDoTexto(string mensagem)
     {
         var casado = RegexDeRetryNoTexto().Match(mensagem);
-        return casado.Success && double.TryParse(casado.Groups[1].Value, out var segundos)
+        return casado.Success && double.TryParse(
+                casado.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var segundos)
             ? SanidadeDoRetryDelay(segundos)
             : null;
     }

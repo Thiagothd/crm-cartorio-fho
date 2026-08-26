@@ -57,7 +57,7 @@ public static class AplicadorDeRespostaInteligente
         }
 
         var historico = await MontarHistoricoAsync(db, conversa.Id, ct);
-        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, ct);
+        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, conversa.Id, ct);
 
         if (!resposta.PodeResponder)
         {

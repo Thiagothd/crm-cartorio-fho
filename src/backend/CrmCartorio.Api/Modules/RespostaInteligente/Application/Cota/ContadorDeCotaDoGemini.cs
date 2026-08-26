@@ -4,9 +4,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 
-public sealed record DecisaoDeCota(bool Permitido, string? MotivoDoBloqueio)
+/// <summary>
+/// <paramref name="Reserva"/> é um handle opaco (só <see cref="ContadorDeCotaDoGemini"/>
+/// sabe o que fazer com ele) para o slot exato que <see cref="ContadorDeCotaDoGemini.AvaliarEReservarAsync"/>
+/// abriu na janela de 1 minuto — devolvido em
+/// <see cref="ContadorDeCotaDoGemini.RegistrarTokensReaisAsync"/> para corrigir o
+/// slot CERTO com o consumo real de tokens, mesmo sob chamadas concorrentes.
+/// </summary>
+public sealed record DecisaoDeCota(bool Permitido, string? MotivoDoBloqueio, object? Reserva = null)
 {
-    public static DecisaoDeCota Permite() => new(true, null);
+    public static DecisaoDeCota Permite(object reserva) => new(true, null, reserva);
     public static DecisaoDeCota Bloqueia(string motivo) => new(false, motivo);
 }
 
@@ -35,10 +42,25 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
     private readonly SemaphoreSlim _semaforo = new(1, 1);
     private readonly Dictionary<string, EstadoDoProjeto> _porProjeto = new();
 
+    /// <summary>
+    /// Mutável de propósito — <see cref="RegistrarTokensReaisAsync"/> precisa
+    /// corrigir o slot EXATO que uma chamada reservou. Antes disso era uma tupla de
+    /// valor (<c>(DateTime, int)</c>) e o ajuste sempre mirava o último item da
+    /// lista: sob duas conversas simultâneas, a primeira chamada a terminar
+    /// carimbava os tokens na reserva da OUTRA (achado ao vivo, 2026-08-26). Uma
+    /// classe dá identidade própria a cada reserva, correlacionável mesmo com
+    /// chamadas concorrentes terminando fora de ordem.
+    /// </summary>
+    private sealed class ItemDaJanela
+    {
+        public required DateTime Instante { get; init; }
+        public int Tokens { get; set; }
+    }
+
     private sealed class EstadoDoProjeto
     {
         public bool Hidratado;
-        public readonly List<(DateTime Instante, int Tokens)> JanelaDeUmMinuto = [];
+        public readonly List<ItemDaJanela> JanelaDeUmMinuto = [];
         public DateOnly DiaPacifico;
         public int RequisicoesHoje;
         public DateTime UltimaChamadaDeDescoberta = DateTime.MinValue;
@@ -71,8 +93,9 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
 
                 estado.UltimaChamadaDeDescoberta = DateTime.UtcNow;
                 estado.RequisicoesHoje++;
-                estado.JanelaDeUmMinuto.Add((DateTime.UtcNow, 0));
-                return DecisaoDeCota.Permite();
+                var itemDeDescoberta = new ItemDaJanela { Instante = DateTime.UtcNow };
+                estado.JanelaDeUmMinuto.Add(itemDeDescoberta);
+                return DecisaoDeCota.Permite(itemDeDescoberta);
             }
 
             var margem = Math.Clamp(opcoes.PercentualDeSeguranca, 1, 100) / 100.0;
@@ -96,8 +119,9 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
             }
 
             estado.RequisicoesHoje++;
-            estado.JanelaDeUmMinuto.Add((DateTime.UtcNow, 0));
-            return DecisaoDeCota.Permite();
+            var item = new ItemDaJanela { Instante = DateTime.UtcNow };
+            estado.JanelaDeUmMinuto.Add(item);
+            return DecisaoDeCota.Permite(item);
         }
         finally
         {
@@ -105,20 +129,28 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
         }
     }
 
-    /// <summary>Ajusta a reserva feita em <see cref="AvaliarEReservarAsync"/> com o consumo real de tokens da chamada que acabou de terminar com sucesso.</summary>
-    public async Task RegistrarTokensReaisAsync(string chaveDeProjeto, int tokensTotal, CancellationToken ct)
+    /// <summary>
+    /// Ajusta a reserva feita em <see cref="AvaliarEReservarAsync"/> com o consumo
+    /// real de tokens da chamada que acabou de terminar com sucesso.
+    /// </summary>
+    /// <param name="reserva">
+    /// O <c>Reserva</c> devolvido por <see cref="DecisaoDeCota"/> — corrige o slot
+    /// exato que aquela chamada abriu, nunca "o último da janela" (que pode já
+    /// pertencer a outra chamada concorrente). Nulo (sonda, ou franquia não
+    /// reservada por algum motivo) é um no-op silencioso: não há slot para corrigir.
+    /// </param>
+    public async Task RegistrarTokensReaisAsync(object? reserva, int tokensTotal, CancellationToken ct)
     {
+        if (reserva is not ItemDaJanela item)
+        {
+            return;
+        }
+
         await _semaforo.WaitAsync(ct);
 
         try
         {
-            if (!_porProjeto.TryGetValue(chaveDeProjeto, out var estado) || estado.JanelaDeUmMinuto.Count == 0)
-            {
-                return;
-            }
-
-            var ultimo = estado.JanelaDeUmMinuto[^1];
-            estado.JanelaDeUmMinuto[^1] = (ultimo.Instante, tokensTotal);
+            item.Tokens = tokensTotal;
         }
         finally
         {
@@ -188,12 +220,16 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
             var db = escopo.ServiceProvider.GetRequiredService<CrmDbContext>();
 
             var inicioDoDiaPacifico = RelogioPacifico.DiaAtual();
+            var inicioDoDiaPacificoUtc = RelogioPacifico.InicioDoDiaAtualUtc();
             var inicioDaJanela = DateTime.UtcNow.AddMinutes(-1);
 
+            // Filtra pelo inicio do dia PACIFICO em UTC, nao por UtcNow.Date — o
+            // Pacifico fica 7-8h atras de UTC, entao boa parte do dia Pacifico
+            // corrente tem IniciadaEm no dia UTC anterior (ver RelogioPacifico).
             var chamadasDeHoje = await db.ChamadasDeIa.AsNoTracking()
                 .Where(c => c.ChaveDeProjeto == chaveDeProjeto
                          && c.Provedor == ProvedorDeIa.Gemini
-                         && c.IniciadaEm >= DateTime.UtcNow.Date)
+                         && c.IniciadaEm >= inicioDoDiaPacificoUtc)
                 .Select(c => new { c.IniciadaEm, c.TokensEntrada, c.TokensSaida, c.TokensPensamento })
                 .ToListAsync(ct);
 
@@ -201,7 +237,11 @@ public class ContadorDeCotaDoGemini(IServiceScopeFactory scopeFactory)
 
             foreach (var chamada in chamadasDeHoje.Where(c => c.IniciadaEm >= inicioDaJanela))
             {
-                estado.JanelaDeUmMinuto.Add((chamada.IniciadaEm, chamada.TokensEntrada + chamada.TokensSaida + chamada.TokensPensamento));
+                estado.JanelaDeUmMinuto.Add(new ItemDaJanela
+                {
+                    Instante = chamada.IniciadaEm,
+                    Tokens = chamada.TokensEntrada + chamada.TokensSaida + chamada.TokensPensamento
+                });
             }
         }
         catch (Exception)

@@ -28,6 +28,21 @@ internal static class RelogioPacifico
         return DateOnly.FromDateTime(agora);
     }
 
+    /// <summary>
+    /// Início (meia-noite) do dia atual do Pacífico, convertido para UTC. NÃO é
+    /// <c>DateTime.UtcNow.Date</c> — o Pacífico está 7-8h atrás de UTC, então o dia
+    /// Pacífico corrente começou ontem em termos de data UTC na maior parte do dia
+    /// brasileiro. Achado ao vivo, 2026-08-26: uma consulta de hidratação que
+    /// filtrava por <c>UtcNow.Date</c> perdia praticamente todas as chamadas do
+    /// dia Pacífico corrente, porque a maioria delas tem <c>IniciadaEm</c> no dia
+    /// UTC ANTERIOR.
+    /// </summary>
+    public static DateTime InicioDoDiaAtualUtc()
+    {
+        var meiaNoitePacifico = DiaAtual().ToDateTime(TimeOnly.MinValue);
+        return TimeZoneInfo.ConvertTimeToUtc(meiaNoitePacifico, Fuso);
+    }
+
     public static DateTime ProximaMeiaNoiteUtc()
     {
         var agora = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Fuso);

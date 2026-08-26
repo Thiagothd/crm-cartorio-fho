@@ -1,9 +1,10 @@
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 
-public sealed record DecisaoDeSelecao(bool TentarOGemini, string? MotivoParaPular, string? ChaveDeProjeto, bool EhSonda)
+public sealed record DecisaoDeSelecao(
+    bool TentarOGemini, string? MotivoParaPular, string? ChaveDeProjeto, bool EhSonda, object? ReservaDeCota = null)
 {
-    public static DecisaoDeSelecao TentarGemini(string chaveDeProjeto, bool ehSonda) =>
-        new(true, null, chaveDeProjeto, ehSonda);
+    public static DecisaoDeSelecao TentarGemini(string chaveDeProjeto, bool ehSonda, object? reservaDeCota = null) =>
+        new(true, null, chaveDeProjeto, ehSonda, reservaDeCota);
 
     public static DecisaoDeSelecao PularGemini(string motivo, string? chaveDeProjeto = null) =>
         new(false, motivo, chaveDeProjeto, false);
@@ -48,6 +49,8 @@ public class PoliticaDeSelecao(ContadorDeCotaDoGemini contador, DisjuntorDoGemin
                 return DecisaoDeSelecao.PularGemini(
                     decisaoDeCota.MotivoDoBloqueio ?? "Margem de segurança do Gemini atingida.", chaveDeProjeto);
             }
+
+            return DecisaoDeSelecao.TentarGemini(chaveDeProjeto, ehSonda, decisaoDeCota.Reserva);
         }
 
         return DecisaoDeSelecao.TentarGemini(chaveDeProjeto, ehSonda);
