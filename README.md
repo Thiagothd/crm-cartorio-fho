@@ -67,11 +67,13 @@ Rodam de `src/backend/`. Chamam os **serviços reais**, não cópias da consulta
 ```bash
 dotnet run verificar-traducao.cs      # LINQ → SQL, não toca em banco
 dotnet run verificar-concorrencia.cs  # protocolo e trava sob corrida (escreve)
+dotnet run verificar-concorrencia-saida-whatsapp.cs # claim de envio com SQL Server real (escreve)
 dotnet run verificar-automacao.cs     # triagem, avisos e transferência (escreve)
 dotnet run verificar-canal-whatsapp.cs # restrições e adaptadores com banco/gateway falsos locais
 ```
 
-`verificar-concorrencia.cs` e `verificar-automacao.cs` escrevem no banco:
+`verificar-concorrencia.cs`, `verificar-concorrencia-saida-whatsapp.cs` e
+`verificar-automacao.cs` escrevem no banco:
 **só contra base de desenvolvimento**, e removem tudo que criam. Os outros dois
 não abrem conexão; o verificador do canal usa apenas um banco descartável em memória.
 

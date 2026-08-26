@@ -33,7 +33,7 @@ export type AutorTipo = 'Cliente' | 'Atendente' | 'Sistema'
 
 export type TipoMensagem = 'Texto' | 'Imagem' | 'Documento' | 'Audio' | 'Video'
 
-export type StatusEntrega = 'Pendente' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
+export type StatusEntrega = 'Pendente' | 'Enviando' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
 
 export type SituacaoPrazo = 'SemPrazo' | 'EmDia' | 'EmAlerta' | 'Atrasada'
 
