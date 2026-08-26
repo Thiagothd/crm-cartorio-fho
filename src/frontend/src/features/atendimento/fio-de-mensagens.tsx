@@ -58,13 +58,22 @@ function IconeDeEntrega({
   status: StatusEntrega
   automatica?: boolean
 }) {
-  const configuracao = {
+  const configuracoes: Record<
+    StatusEntrega,
+    { rotulo: string; icone: typeof Clock; classe: string }
+  > = {
     Pendente: { rotulo: 'Pendente', icone: Clock, classe: '' },
+    Enviando: {
+      rotulo: 'Envio em andamento ou aguardando confirmação',
+      icone: Clock,
+      classe: 'text-tinta-fraca',
+    },
     Enviada: { rotulo: 'Enviada', icone: Check, classe: '' },
     Entregue: { rotulo: 'Entregue', icone: CheckCheck, classe: '' },
     Lida: { rotulo: 'Lida pelo cliente', icone: CheckCheck, classe: 'text-verde' },
     Falha: { rotulo: 'Falha no envio', icone: TriangleAlert, classe: 'text-selo' },
-  }[status]
+  }
+  const configuracao = configuracoes[status] ?? configuracoes.Pendente
   const Icone = configuracao.icone
 
   // Toda mensagem automática nasce Pendente na Fase 1 — não há WhatsApp conectado
