@@ -229,7 +229,17 @@ public class VarredorDeInatividade(
             .Where(c => c.TenantId == configuracao.TenantId
                      && c.Status == StatusConversa.Ativa
                      && c.PerguntaDeEncerramentoEnviadaEm != null
-                     && c.PerguntaDeEncerramentoEnviadaEm < limite)
+                     && c.PerguntaDeEncerramentoEnviadaEm < limite
+
+                     // BUG-ATD-01: a Fase 1 (pergunta) continua saindo mesmo
+                     // com atendente na conversa — decisao separada,
+                     // registrada em REQUISITOS.md SS5.8, nao mexida aqui. Mas
+                     // a Fase 2 (encerrar sozinha por silencio) nao pode
+                     // fechar uma conversa que um humano e responsavel por
+                     // ela agora — nem quem assumiu, nem quem esta na fila
+                     // humana depois de liberada (LiberarAsync nao desliga
+                     // EmAtendimentoHumano de proposito).
+                     && !c.EmAtendimentoHumano)
             .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);

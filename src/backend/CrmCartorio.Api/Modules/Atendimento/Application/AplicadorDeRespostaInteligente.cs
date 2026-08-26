@@ -59,6 +59,33 @@ public static class AplicadorDeRespostaInteligente
         var historico = await MontarHistoricoAsync(db, conversa.Id, ct);
         var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, conversa.Id, ct);
 
+        // BUG-ATD-01, corrida B/G do plano: a chamada acima pode levar
+        // segundos (rede) — tempo suficiente para um atendente assumir
+        // enquanto a IA ainda esta "em voo". Sem este recheck, a resposta
+        // gerada ANTES do takeover ainda seria entregue ao cliente por cima
+        // do atendente. Leitura fresca (fora do change tracker) do mesmo
+        // campo que o despacho externo ja consultou no inicio deste request —
+        // se mudou nesse meio tempo, descarta a resposta e nao faz nada.
+        //
+        // Janela residual, aceita de proposito: entre esta leitura e o commit
+        // final de quem chamou sobra uma janela de milissegundos, so operacao
+        // local, sem chamada de rede — fechar por completo exigiria segurar
+        // lock pelo tempo do timeout do provedor de IA (pior para throughput)
+        // ou separar a persistencia da automacao em duas transacoes, fora do
+        // escopo desta correcao.
+        var conversaFoiAssumidaEnquantoRespondia = await db.Conversas.AsNoTracking()
+            .Where(c => c.Id == conversa.Id)
+            .Select(c => c.EmAtendimentoHumano)
+            .SingleAsync(ct);
+
+        if (conversaFoiAssumidaEnquantoRespondia)
+        {
+            log.LogInformation(
+                "Conversa {ConversaId} entrou em atendimento humano enquanto a IA respondia; resposta descartada.",
+                conversa.Id);
+            return;
+        }
+
         if (!resposta.PodeResponder)
         {
             log.LogInformation(
@@ -124,6 +151,12 @@ public static class AplicadorDeRespostaInteligente
     {
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
+
+        // O cliente pediu humano AGORA — a fila humana comeca aqui, antes de
+        // qualquer atendente clicar em Assumir. BUG-ATD-01: sem isto, uma
+        // mensagem que chegasse enquanto a conversa ainda esta na fila (sem
+        // atendente atribuido) continuaria caindo na automacao.
+        conversa.EmAtendimentoHumano = true;
 
         var gatilho = conversa.SetorId is null
             ? GatilhoDeMensagem.TriagemSemCorrespondencia

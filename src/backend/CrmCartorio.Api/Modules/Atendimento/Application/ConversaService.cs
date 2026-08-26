@@ -382,6 +382,7 @@ public class ConversaService(
                      && c.Status == StatusConversa.Ativa)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.AtendenteId, atendenteId)
+                .SetProperty(c => c.EmAtendimentoHumano, true)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         if (afetadas == 0)
@@ -460,6 +461,13 @@ public class ConversaService(
         var agora = DateTime.UtcNow;
 
         conversa.AtendenteId = destino.Id;
+
+        // Redundante na pratica — GarantirQuePodeOperarAsync ja exige
+        // AtendenteId != null para chegar aqui, entao EmAtendimentoHumano ja
+        // teria de ser true. Setado explicitamente mesmo assim: defensivo, e
+        // deixa a intencao clara para quem ler este metodo sem o contexto do
+        // BUG-ATD-01.
+        conversa.EmAtendimentoHumano = true;
 
         var texto = string.IsNullOrWhiteSpace(request.Observacao)
             ? $"Conversa transferida por {ctx.Nome} para {destino.Nome}."
@@ -670,6 +678,21 @@ public class ConversaService(
         // resolver aqui.
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
+        // Ciclo automatico nao pode vazar para o proximo. Mesmo reset que
+        // AplicadorDePosAtendimento.EncerrarPeloCliente ja faz quando quem
+        // encerra e o proprio cliente pelo menu — ate agora so aquele caminho
+        // fazia isso (o comentario "SE MEXER AQUI, MEXA LA" la avisava
+        // exatamente sobre esta divergencia). Sem isto, uma conversa reaberta
+        // mais tarde podia herdar, por exemplo, AguardandoRespostaInteligente
+        // ligada de um ciclo que ja tinha acabado.
+        conversa.EmAtendimentoHumano = false;
+        conversa.AguardandoTriagem = false;
+        conversa.AguardandoEscolhaDeServico = false;
+        conversa.AguardandoRespostaInteligente = false;
+        conversa.AguardandoMenuDeContinuacao = false;
+        conversa.AguardandoNome = false;
+        conversa.TentativasRespostaInteligente = 0;
+
         var texto = conversa.MotivoEncerramento is null
             ? $"Atendimento encerrado por {ctx.Nome}."
             : $"Atendimento encerrado por {ctx.Nome}. Motivo: {conversa.MotivoEncerramento}";
@@ -718,6 +741,10 @@ public class ConversaService(
         // Reabertura devolve a conversa a quem reabriu: deixar sem dono faria a
         // conversa reaparecer na fila sem ninguem responsavel por ela.
         conversa.AtendenteId = ctx.AtendenteId;
+
+        // Reabrir e um atendente assumindo, na pratica — o bot nao pode
+        // responder por cima de quem acabou de reabrir a conversa na mao.
+        conversa.EmAtendimentoHumano = true;
 
         db.Mensagens.Add(MensagemDeSistema(
             id, conversa.TenantId, $"Atendimento reaberto por {ctx.Nome}.", agora));

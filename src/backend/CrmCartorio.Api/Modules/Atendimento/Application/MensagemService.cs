@@ -392,7 +392,28 @@ public class MensagemService(
         // essa flag ligada mesmo sem saber responder (mesmo dia, ver
         // AplicadorDeRespostaInteligente). Cliente pedindo "menu" no meio de uma
         // troca com a IA ia direto para ela, que nao entende "menu" como comando.
-        if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
+        // BUG-ATD-01 — checado ANTES de qualquer outra coisa: a conversa ja
+        // foi entregue a um humano (cliente pediu atendente, ou um atendente
+        // assumiu por conta propria) e a automacao conversacional fica muda.
+        // A mensagem ja foi gravada e os contadores acima ja foram
+        // atualizados — so falta a notificacao no fim do metodo, que
+        // continua incondicional.
+        //
+        // A pergunta de encerramento por inatividade e a UNICA excecao: se
+        // havia uma pendente, o cliente escrever prova que ele esta vivo —
+        // mesmo principio ja usado em ConcluirEnvioAsync quando o ATENDENTE
+        // responde.
+        //
+        // SE MEXER AQUI, MEXA EM RecebimentoDeWhatsApp.ReceberAsync TAMBEM —
+        // mesma cadeia de despacho, duplicada por enquanto.
+        if (conversa.EmAtendimentoHumano)
+        {
+            if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
+            {
+                conversa.PerguntaDeEncerramentoEnviadaEm = null;
+            }
+        }
+        else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
                 db, automaticas, conversa, conteudo, agora, ct))
         {
             // Primeiro de todos, ate antes do "menu": a pergunta de encerramento

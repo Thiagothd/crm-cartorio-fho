@@ -3,7 +3,7 @@
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
 > (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I" nas seções
 > abaixo.
-> **Última atualização:** 2026-08-25
+> **Última atualização:** 2026-08-26
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -353,6 +353,7 @@ Entidade central. É onde mora a trava.
 | ClienteId | Guid | sim | FK → Cliente |
 | Protocolo | string(20) | sim | **Único por tenant.** Formato `AAAAMM-NNNN` |
 | AtendenteId | Guid | não | FK → Atendente. **Nulo = na fila. Preenchido = travada** |
+| EmAtendimentoHumano | bool | sim | **`sql/028`, 2026-08-26 (BUG-ATD-01).** A conversa já foi entregue a um humano neste ciclo — liga ao pedir/assumir atendente, só desliga no encerramento. **Não é o mesmo que `AtendenteId != null`**: continua ligado depois de `LiberarAsync` (fila humana). Único campo que o despacho de mensagem consulta antes de decidir chamar automação — ver FLUXO-AUTOMACAO.md §1 e §5 |
 | SetorId | Guid | não | FK → Setor |
 | EtapaId | Guid | não | FK → EtapaFunil |
 | TipoServicoId | Guid | não | FK → TipoServico. Preenchido na captação |
@@ -814,6 +815,7 @@ indexá-las seria carregar peso morto numa consulta que roda a cada poucos minut
 | [`sql/025-pedido-de-nome.sql`](../sql/025-pedido-de-nome.sql) | Pedido de nome quando o perfil do WhatsApp não traz um (Fase 2I) — `Conversas.AguardandoNome`, `Clientes.NomePerguntadoEm` e o gatilho 14 |
 | [`sql/026-origem-do-cadastro-de-cliente.sql`](../sql/026-origem-do-cadastro-de-cliente.sql) | `Clientes.OrigemDoCadastro` — de onde o cadastro veio, para a importação de contatos em lote (sem disparo de mensagem; ver CLAUDE.md, seção 2) |
 | [`sql/027-provedores-de-ia.sql`](../sql/027-provedores-de-ia.sql) | Cria `dbo.ChamadasDeIa` (Fase 2G) — histórico de tentativas de chamada aos provedores de IA (Gemini principal, Anthropic contingência): tokens, latência, falha, motivo de fallback e custo estimado. Ver 3.13 |
+| [`sql/028-atendimento-humano.sql`](../sql/028-atendimento-humano.sql) | `Conversas.EmAtendimentoHumano` (BUG-ATD-01 — Human Takeover) — automação conversacional para de responder assim que a conversa é entregue a um humano. Backfill para conversas já assumidas no momento da migração. Ver 3.8 e FLUXO-AUTOMACAO.md §1/§5 |
 
 `001-schema.sql` é mantido **atualizado** para colunas acrescentadas em
 tabelas que ele já cria (ex.: `Conversas.AguardandoNome`, de 025). **Tabelas

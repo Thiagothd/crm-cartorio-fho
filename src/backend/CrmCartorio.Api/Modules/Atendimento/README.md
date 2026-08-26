@@ -31,6 +31,65 @@ cliente recebe respostas contraditórias. Este módulo trata isso em três camad
 `MensagemService.EnviarAsync` fecha o cerco do outro lado: quem não é o
 responsável não escreve.
 
+## Human Takeover — a IA nunca responde por cima de um atendente
+
+A trava acima protege atendente × atendente. Até 2026-08-26 não existia
+proteção equivalente para atendente × automação: um cliente que já tinha um
+humano cuidando da conversa continuava recebendo respostas da IA (ou do bot
+de menu) por cima dele — **BUG-ATD-01**, reproduzido ao vivo em `testecrm`.
+
+A causa raiz: nenhum ponto do despacho de mensagem do cliente
+(`RecebimentoDeWhatsApp.ReceberAsync`, `MensagemService.SimularRecebimentoAsync`)
+olhava `Conversa.AtendenteId` antes de decidir chamar automação — a decisão
+era só pelas flags `Aguardando*`, com um piso (`AplicadorDePosAtendimento`)
+desenhado de propósito para nunca deixar mensagem sem resposta. E
+`AtendenteId` sozinho não bastaria mesmo que fosse checado:
+`ConversaService.LiberarAsync` zera esse campo para devolver a conversa à
+fila, mas a conversa continua devendo humano, não devendo bot.
+
+**`Conversa.EmAtendimentoHumano`** é o campo que resolve a ambiguidade — ver
+o XML-doc da propriedade para a lista completa de quando liga/desliga. Regra
+central: liga assim que o cliente pede atendente OU um atendente assume
+(o que vier primeiro), e só desliga no encerramento — nunca em
+`LiberarAsync` nem `TransferirAsync`.
+
+Um único gate, no topo de cada cadeia de despacho (antes de QUALQUER flag,
+inclusive antes de "menu"/`AguardandoTriagem`): se `EmAtendimentoHumano` é
+verdadeiro, nenhum `Aplicador*` é chamado — a mensagem é só persistida
+(já aconteceu antes do gate), `UltimaMensagemEm`/`MensagensNaoLidas`
+continuam atualizando normalmente, e o SignalR continua dis­parando. A única
+exceção é `PerguntaDeEncerramentoEnviadaEm`: se havia uma pendente, a
+mensagem do cliente ainda conta como prova de vida e limpa o carimbo — mesmo
+princípio já usado em `MensagemService.ConcluirEnvioAsync` quando o
+ATENDENTE responde.
+
+**Corrida de IA "em voo":** a chamada à IA pode levar segundos; um atendente
+pode assumir nesse meio-tempo.
+`AplicadorDeRespostaInteligente.AplicarAsync` relê `EmAtendimentoHumano`
+(leitura fresca, fora do change tracker) logo depois que a IA responde e
+antes de gravar — se mudou nesse intervalo, descarta a resposta em vez de
+entregá-la. Prova sob concorrência real em `verificar-concorrencia.cs`
+(Teste 4).
+
+`VarredorDeInatividade.EncerrarSemRespostaAsync` (fase 2) também respeita o
+modo humano — filtra `!EmAtendimentoHumano` no WHERE, para não encerrar
+sozinha uma conversa que um atendente está respondendo (ou que está na fila
+humana, aguardando outro). A fase 1 (a pergunta "ainda está aí?") **não**
+foi alterada — continua saindo mesmo com atendente na conversa; é decisão de
+produto separada, registrada em `docs/REQUISITOS.md` §5.8.
+
+As flags `Aguardando*` **não são zeradas** ao entrar em modo humano — ficam
+congeladas no valor que tinham no instante do takeover, porque o gate as
+torna irrelevantes enquanto `EmAtendimentoHumano` for verdadeiro. Só são
+zeradas no encerramento (`ConversaService.EncerrarAsync`, espelhando
+`AplicadorDePosAtendimento.EncerrarPeloCliente`), que é fronteira de ciclo de
+vida, não de takeover.
+
+Efeito colateral bem-vindo: como o gate intercepta antes de
+`AplicadorDeTriagem`, o caso registrado em `docs/REQUISITOS.md` §5.8 original
+(triagem reagindo com atendente já na conversa) deixou de acontecer — mesmo
+sem nenhuma mudança específica naquele arquivo.
+
 ## Decisões que parecem estranhas mas não são
 
 - **Mensagem de sistema não move a conversa na inbox.** `UltimaMensagemEm` só é

@@ -699,12 +699,13 @@ Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enu
         .Take(200)
         .ToQueryString());
 
-Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta", () =>
+Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAtendimentoHumano, BUG-ATD-01)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm != null
-                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30))
+                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30)
+                 && !c.EmAtendimentoHumano)
         .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
         .Take(200)
         .ToQueryString());
@@ -714,6 +715,14 @@ Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilh
         .Where(m => m.TenantId == tenantId
                  && m.Ativo
                  && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
+        .ToQueryString());
+
+// --- Human Takeover / BUG-ATD-01 (028) --------------------------------------
+
+Checar("EmAtendimentoHumano: recheck pos-IA em AplicadorDeRespostaInteligente (projecao de bool unico)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.Id == tenantId)
+        .Select(c => c.EmAtendimentoHumano)
         .ToQueryString());
 
 // --- Pedido de nome (025) ---------------------------------------------------
