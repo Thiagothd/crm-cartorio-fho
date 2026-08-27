@@ -36,6 +36,15 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// <summary>Desligamento corta o acesso sem apagar o historico de mensagens.</summary>
     public bool Ativo { get; set; } = true;
 
+    /// <summary>
+    /// SEC-01: sobe a cada troca de senha, desativacao ou mudanca de Perfil. Todo
+    /// JWT emitido carrega a versao vigente no instante da emissao, e o token so
+    /// continua valido enquanto ela bater com este valor — e o mecanismo de
+    /// revogacao de sessao. Nunca volta para tras, nem na reativacao. Ver
+    /// <see cref="CrmCartorio.Api.Infrastructure.Security.IValidadorDeSessao"/>.
+    /// </summary>
+    public int TokenVersion { get; set; } = 1;
+
     public DateTime? UltimoAcessoEm { get; set; }
 
     public bool PodeGerirCadastros =>

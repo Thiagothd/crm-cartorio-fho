@@ -58,6 +58,14 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
     setTenant(sessao.tenant)
   }, [])
 
+  // SEC-01: logout local nao e revogacao individual de token. Isto so apaga o
+  // token deste navegador — o JWT em si continua criptograficamente valido
+  // ate expirar (ate 8h), e continuaria funcionando em qualquer outra aba ou
+  // dispositivo onde ainda esteja salvo. TokenVersion (backend) deliberadamente
+  // NAO sobe aqui: subir a versao no logout derrubaria TODOS os
+  // computadores/dispositivos do atendente, nao so esta sessao. Revogar so o
+  // token individual exigiria SessionId/jti persistido por dispositivo — fora
+  // do escopo deste PR (ver Modules/Usuarios/README.md, secao SEC-01).
   const sair = useCallback(() => {
     limparToken()
 

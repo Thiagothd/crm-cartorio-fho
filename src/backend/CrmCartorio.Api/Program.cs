@@ -22,6 +22,7 @@ using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -79,6 +80,13 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IHashDeSenha, HashDeSenha>();
 builder.Services.AddScoped<IContextoDoUsuario, ContextoDoUsuario>();
 builder.Services.AddScoped<IGeradorDeToken, GeradorDeToken>();
+
+// SEC-01: revogacao de sessao. ValidadorDeSessao confere Ativo/TokenVersion no
+// banco; SessaoAtivaHandler acopla essa checagem a policy padrao de
+// autorizacao (registrada mais abaixo), cobrindo controllers e o Hub do
+// SignalR com o mesmo componente.
+builder.Services.AddScoped<IValidadorDeSessao, ValidadorDeSessao>();
+builder.Services.AddScoped<IAuthorizationHandler, SessaoAtivaHandler>();
 
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();
 builder.Services.AddScoped<IAtendenteService, AtendenteService>();
@@ -228,11 +236,34 @@ builder.Services
                 }
 
                 return Task.CompletedTask;
+            },
+
+            // SEC-01: SessaoAtivaRequirement falha com Forbid (403) por
+            // convencao do framework quando o usuario esta autenticado mas a
+            // policy nao passa. Para quem chama a API, token revogado deve
+            // parecer "nao autenticado" — 401, igual a token expirado ou
+            // ausente — nunca 403 (este projeto nunca usa 403 de policy do
+            // framework; permissao fina e sempre erro de negocio dentro do
+            // service, via IContextoDoUsuario).
+            OnForbidden = contexto =>
+            {
+                contexto.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
             }
         };
     });
 
-builder.Services.AddAuthorization();
+// SEC-01: a policy padrao (usada por todo [Authorize] sem policy nomeada —
+// controllers e o Hub do SignalR, nenhum deste projeto nomeia policy hoje)
+// passa a exigir tambem SessaoAtivaRequirement: sessao ativa no banco, nao so
+// JWT com assinatura e expiracao validas. Ver SessaoAtivaHandler.
+builder.Services.AddAuthorization(opcoes =>
+{
+    opcoes.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser()
+        .AddRequirements(new SessaoAtivaRequirement())
+        .Build();
+});
 
 // ------------------------------------------------------------------- pipeline
 

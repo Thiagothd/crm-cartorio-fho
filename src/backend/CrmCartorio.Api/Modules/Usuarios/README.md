@@ -35,6 +35,51 @@ aumentá-lo no futuro não invalida as senhas já cadastradas.
 - **`ObterSessaoAsync` não emite token novo.** O cliente já tem o dele e a
   validade não muda por consultar a sessão.
 
+## SEC-01 — revogação de sessão (TokenVersion)
+
+Até 2026-08-26, um JWT emitido no login continuava válido até expirar (até
+8h) mesmo depois de troca de senha, desativação ou mudança de `Perfil` — o
+backend nunca revalidava nada além de assinatura e expiração do próprio
+token. `Atendente.TokenVersion` é o mecanismo de revogação:
+
+- Todo JWT carrega a `TokenVersion` vigente no instante da emissão (claim
+  `token_version`, `Infrastructure/Identity/ClaimsDoAtendente.cs`).
+- Todo request autenticado confere, no banco, se essa versão ainda bate com a
+  atual — `Infrastructure/Security/ValidadorDeSessao.cs`, acoplado à policy
+  padrão de autorização via `SessaoAtivaHandler` (`Program.cs`). Cobre
+  controllers e o handshake do Hub do SignalR com o mesmo componente. Falhar
+  aqui responde `401`, nunca `403` — para quem chama a API, sessão revogada
+  deve parecer "não autenticado", igual a token expirado.
+- **Sobe** (atomicamente, via `ExecuteUpdateAsync`, nunca ler-e-somar em
+  memória) quando: o próprio atendente troca a senha
+  (`AutenticacaoService.AlterarSenhaAsync`); um administrador redefine a senha
+  de outro (`AtendenteService.RedefinirSenhaAsync`); `Ativo` vira `false`; ou
+  `Perfil` muda (as duas últimas em `AtendenteService.AtualizarAsync`, na
+  mesma instrução SQL que grava os campos, comparando com o valor que está no
+  banco no instante do `UPDATE` — não com uma leitura anterior).
+- **Não desce.** Reativar (`Ativo` volta a `true`) não reduz nem zera a
+  versão — só evita que ela suba de novo por causa da reativação em si. Um
+  token emitido antes da desativação continua inválido depois da reativação;
+  só um login novo (que sempre lê a versão atual) devolve acesso.
+- **Logout normal não sobe a versão.** Ver o comentário em
+  `contexto-de-autenticacao.tsx` (`sair`): com só `TokenVersion`, subir a
+  versão no logout derrubaria todos os dispositivos do atendente, não só a
+  aba que fez logout. **Logout local não é revogação individual de token** —
+  continua sendo só client-side (`localStorage`) nesta fase. Revogar um único
+  dispositivo/aba exigiria `SessionId`/`jti` persistido por sessão, fora do
+  escopo deste PR.
+- **SEC-01B — limitação aberta.** Uma conexão SignalR **já estabelecida**
+  antes do evento de revogação não é encerrada por este mecanismo — o
+  handshake é reavaliado a cada conexão nova, não a cada mensagem de uma
+  conexão já aberta. Ela some quando cai por outro motivo (rede, fechar a
+  aba, reciclagem do App Pool, ou o próprio JWT expirar de verdade). Encerrar
+  a conexão ativa no instante da revogação exigiria rastrear `ConnectionId`
+  por `AtendenteId` e abortar a conexão explicitamente — não implementado
+  aqui.
+- Custo por request: uma consulta `AsNoTracking` por `Id` + `TenantId`
+  (índice de chave primária), sem `IMemoryCache` — a revogação vale a partir
+  do próximo request, sem janela de tolerância.
+
 ## Pendência da Fase 3
 
 `AutenticacaoService.AutenticarAsync` busca o atendente só pelo e-mail, porque no

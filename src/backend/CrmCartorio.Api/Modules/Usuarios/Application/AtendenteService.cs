@@ -125,7 +125,7 @@ public class AtendenteService(
     {
         GarantirPermissao();
 
-        var atendente = await db.Atendentes
+        var atendente = await db.Atendentes.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == ctx.TenantId, ct)
             ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
 
@@ -146,16 +146,28 @@ public class AtendenteService(
             throw UsuariosServiceException.NaoPodeDesativarASiMesmo();
         }
 
-        atendente.Nome = request.Nome.Trim();
-        atendente.Email = email;
-        atendente.Perfil = request.Perfil;
-        atendente.Cargo = request.Cargo;
-        atendente.SetorPadraoId = request.SetorPadraoId;
-        atendente.Ativo = request.Ativo;
+        // SEC-01: TokenVersion sobe dentro da MESMA instrucao atomica que grava
+        // Perfil/Ativo, comparando com o valor que esta no banco no instante do
+        // UPDATE — nunca com o `atendente` lido acima, que pode estar
+        // desatualizado sob concorrencia. So sobe quando o Perfil muda ou
+        // quando Ativo vira false; reativar (false -> true) nao mexe na
+        // versao, so nao deixa reduzi-la nem zera-la.
+        await db.Atendentes
+            .Where(a => a.Id == id && a.TenantId == ctx.TenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Nome, request.Nome.Trim())
+                .SetProperty(a => a.Email, email)
+                .SetProperty(a => a.Perfil, request.Perfil)
+                .SetProperty(a => a.Cargo, request.Cargo)
+                .SetProperty(a => a.SetorPadraoId, request.SetorPadraoId)
+                .SetProperty(a => a.Ativo, request.Ativo)
+                .SetProperty(a => a.TokenVersion, a =>
+                    a.Perfil != request.Perfil || (a.Ativo && !request.Ativo)
+                        ? a.TokenVersion + 1
+                        : a.TokenVersion),
+                ct);
 
-        await db.SaveChangesAsync(ct);
-
-        return await MapearAsync(atendente, ct);
+        return await ObterAsync(id, ct);
     }
 
     public async Task RedefinirSenhaAsync(
@@ -170,13 +182,20 @@ public class AtendenteService(
             throw UsuariosServiceException.SenhaFraca();
         }
 
-        var atendente = await db.Atendentes
-            .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == ctx.TenantId, ct)
-            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+        var novoHash = hash.Gerar(request.NovaSenha);
 
-        atendente.SenhaHash = hash.Gerar(request.NovaSenha);
+        // SEC-01: mesma logica atomica de AutenticacaoService.AlterarSenhaAsync
+        // — grava o hash e sobe TokenVersion numa unica instrucao SQL.
+        var afetadas = await db.Atendentes
+            .Where(a => a.Id == id && a.TenantId == ctx.TenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.SenhaHash, novoHash)
+                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
 
-        await db.SaveChangesAsync(ct);
+        if (afetadas == 0)
+        {
+            throw UsuariosServiceException.AtendenteNaoEncontrado();
+        }
     }
 
     private void GarantirPermissao()
