@@ -10,21 +10,33 @@ namespace CrmCartorio.Api.Infrastructure.Realtime;
 /// proprio tenant, o que garante que nenhum evento de um cartorio chegue a outro.
 /// </summary>
 /// <remarks>
-/// SEC-01: <c>[Authorize]</c> ja usa a policy padrao (Program.cs), que inclui
-/// <see cref="SessaoAtivaRequirement"/> — um handshake novo com JWT revogado e
-/// recusado antes mesmo de <see cref="OnConnectedAsync"/> rodar. A checagem em
-/// <see cref="IValidadorDeSessao"/> feita aqui dentro e defesa em profundidade,
-/// nao a unica linha de defesa.
+/// SEC-01 — dois mecanismos DIFERENTES, nao confundir:
 ///
-/// SEC-01B — limitacao que continua aberta: isto cobre HANDSHAKE NOVO, nao uma
-/// conexao ja estabelecida antes da revogacao. Uma aba com WebSocket aberto
-/// continua recebendo eventos do grupo do tenant ate cair por outro motivo
-/// (queda de rede, fechar a aba, reciclagem do App Pool, ou o JWT expirar de
-/// verdade — o ASP.NET Core fecha conexao de SignalR cujo token expira, mas
-/// isso e sobre o `exp` do token, nao sobre TokenVersion). Encerrar a conexao
-/// ativa no instante da revogacao exigiria rastrear ConnectionId por
-/// AtendenteId e abortar a conexao explicitamente — infraestrutura fora do
-/// escopo deste PR (ver Modules/Usuarios/README.md).
+/// 1. REVOGACAO POR TokenVersion (troca de senha, desativacao, mudanca de
+///    Perfil). <c>[Authorize]</c> usa a policy padrao (Program.cs), que inclui
+///    <see cref="SessaoAtivaRequirement"/> — um handshake NOVO com JWT
+///    revogado e recusado antes mesmo de <see cref="OnConnectedAsync"/>
+///    rodar. A checagem em <see cref="IValidadorDeSessao"/> feita aqui dentro
+///    e defesa em profundidade, nao a unica linha de defesa. Numa chamada
+///    REST o mesmo evento derruba o token no proximo request (401).
+///
+///    SEC-01B — limitacao que continua aberta: o que este mecanismo NAO
+///    cobre e uma conexao SignalR JA ABERTA antes da revogacao. Uma aba com
+///    WebSocket aberto continua recebendo eventos do grupo do tenant depois
+///    que TokenVersion muda — a checagem acima so roda no handshake de uma
+///    conexao NOVA, nao a cada mensagem de uma conexao existente. Encerrar a
+///    conexao ativa no instante da revogacao exigiria rastrear ConnectionId
+///    por AtendenteId e abortar a conexao explicitamente — infraestrutura
+///    fora do escopo deste PR (ver Modules/Usuarios/README.md).
+///
+/// 2. EXPIRACAO DO JWT (`exp`, nada a ver com TokenVersion). Program.cs
+///    configura <c>CloseOnAuthenticationExpiration = true</c> no
+///    <c>MapHub</c> deste hub — com isso, o ASP.NET Core fecha a conexao
+///    quando o token chega ao `exp`, mesmo uma conexao ja aberta. Isto NAO
+///    resolve SEC-01B: um token revogado por TokenVersion mas ainda dentro
+///    da validade (`exp` no futuro) nao e afetado por
+///    CloseOnAuthenticationExpiration — a conexao so cai quando o relogio
+///    chega no `exp` original do token, nao quando a versao muda no banco.
 /// </remarks>
 [Authorize]
 public class AtendimentoHub(IValidadorDeSessao validador) : Hub

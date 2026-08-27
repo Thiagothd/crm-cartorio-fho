@@ -22,14 +22,16 @@ using Microsoft.IdentityModel.JsonWebTokens;
 // (SET TokenVersion = TokenVersion + 1), que o provedor InMemory nao traduz e
 // nao prova nada sobre concorrencia real entre conexoes.
 //
-// O que este verificador NAO cobre: o handshake HTTP/WebSocket do SignalR em
-// si (isto exigiria subir um servidor Kestrel de verdade, fora do padrao dos
-// verificadores deste projeto). O que ele prova em vez disso: que
-// ValidadorDeSessao — o MESMO componente que SessaoAtivaHandler usa na policy
-// padrao de autorizacao (controllers) e que AtendimentoHub.OnConnectedAsync usa
-// em defesa de profundidade — recusa corretamente um token revogado. Como os
-// dois pontos de entrada delegam para este mesmo metodo, prova-lo aqui prova
-// os dois. Ver comentario no cenario 10, abaixo.
+// O que este verificador NAO cobre: um handshake HTTP/WebSocket do SignalR
+// real — isto exigiria subir um servidor Kestrel de verdade e um cliente
+// SignalR de verdade, fora do padrao dos verificadores deste projeto (e fora
+// do escopo deste PR). O cenario 10 NAO deve ser lido como prova de handshake
+// — ele prova so o componente de validacao que tanto a policy padrao
+// (controllers) quanto o Hub chamam; a fiacao em si (SessaoAtivaHandler e
+// AtendimentoHub.OnConnectedAsync de fato invocando este metodo) fica
+// verificada por leitura de codigo, nao por este teste. O handshake SignalR
+// end-to-end sera validado no ambiente TESTE. Ver comentario no cenario 10,
+// abaixo.
 //
 // ATENCAO: este verificador ESCREVE no banco. Rode SOMENTE contra base de
 // desenvolvimento. Ao final remove tudo que criou.
@@ -310,15 +312,19 @@ try
         versaoFinalConcorrencia == versaoInicialConcorrencia + Concorrentes);
 
     // ------------------------------------------------------------- cenario 10
-    // SignalR: SessaoAtivaHandler (policy padrao, controllers) e
-    // AtendimentoHub.OnConnectedAsync (defesa em profundidade) chamam os DOIS
-    // o mesmo ValidadorDeSessao.SessaoValidaAsync — provar que ele recusa um
-    // token revogado prova que um handshake NOVO com esse token e recusado
-    // nos dois pontos de entrada. Nao sobe um servidor Kestrel/WebSocket real.
+    // NAO e um teste de handshake SignalR real (nao sobe Kestrel nem cliente
+    // SignalR). SessaoAtivaHandler (policy padrao, controllers) e
+    // AtendimentoHub.OnConnectedAsync chamam, por leitura de codigo, este
+    // MESMO ValidadorDeSessao.SessaoValidaAsync — o que este cenario prova e
+    // so que o validador compartilhado recusa corretamente um TokenVersion
+    // revogado; nao prova a fiacao REST/SignalR em si, nem o comportamento do
+    // handshake HTTP/WebSocket. O handshake SignalR end-to-end (negotiate +
+    // upgrade recusados com token revogado, conexao aberta sobrevivendo a
+    // revogacao — SEC-01B) sera validado no ambiente TESTE.
 
     await using (var db = new CrmDbContext(opcoes))
     {
-        Checar("10. Handshake novo (REST e SignalR, via ValidadorDeSessao) com token revogado -> recusado",
+        Checar("10. Validador compartilhado por REST/SignalR recusa TokenVersion revogado",
             !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDaDesativacao));
     }
 

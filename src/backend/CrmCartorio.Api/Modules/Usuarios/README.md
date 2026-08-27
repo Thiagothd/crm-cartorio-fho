@@ -68,14 +68,24 @@ token. `Atendente.TokenVersion` é o mecanismo de revogação:
   continua sendo só client-side (`localStorage`) nesta fase. Revogar um único
   dispositivo/aba exigiria `SessionId`/`jti` persistido por sessão, fora do
   escopo deste PR.
+- **Resumo por canal, para não confundir revogação com expiração:**
+
+  | Evento | REST | Handshake SignalR novo | Conexão SignalR já aberta |
+  | --- | --- | --- | --- |
+  | TokenVersion revogado (senha/desativação/perfil) | `401` no próximo request | Recusado | **Continua aberta — SEC-01B** |
+  | JWT chega ao `exp` | `401` (já era assim) | Recusado | Encerrada — `CloseOnAuthenticationExpiration = true` no `MapHub` (`Program.cs`) |
+
 - **SEC-01B — limitação aberta.** Uma conexão SignalR **já estabelecida**
-  antes do evento de revogação não é encerrada por este mecanismo — o
-  handshake é reavaliado a cada conexão nova, não a cada mensagem de uma
-  conexão já aberta. Ela some quando cai por outro motivo (rede, fechar a
-  aba, reciclagem do App Pool, ou o próprio JWT expirar de verdade). Encerrar
-  a conexão ativa no instante da revogação exigiria rastrear `ConnectionId`
-  por `AtendenteId` e abortar a conexão explicitamente — não implementado
-  aqui.
+  antes do evento de revogação **não é encerrada por TokenVersion** — o
+  handshake só é reavaliado ao abrir uma conexão nova, nunca a cada mensagem
+  de uma conexão já aberta. `CloseOnAuthenticationExpiration = true` **não
+  resolve isto**: ele fecha a conexão quando o `exp` do próprio token chega,
+  o que é um evento diferente e independente de TokenVersion — um token
+  revogado mas ainda dentro do prazo de validade continua servindo a conexão
+  já aberta até ela cair por outro motivo (rede, fechar a aba, reciclagem do
+  App Pool, ou o `exp` do token de fato chegar). Encerrar a conexão ativa no
+  instante da revogação exigiria rastrear `ConnectionId` por `AtendenteId` e
+  abortar a conexão explicitamente — não implementado aqui.
 - Custo por request: uma consulta `AsNoTracking` por `Id` + `TenantId`
   (índice de chave primária), sem `IMemoryCache` — a revogação vale a partir
   do próximo request, sem janela de tolerância.

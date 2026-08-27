@@ -342,7 +342,19 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<AtendimentoHub>("/hubs/atendimento");
+
+// SEC-01: sem isto, CloseOnAuthenticationExpiration fica no padrao (false) e a
+// conexao NUNCA cai sozinha quando o proprio JWT expira — so quando algo mais
+// a derruba (rede, aba fechada, reciclagem do App Pool). Com true, o SignalR
+// fecha a conexao no `exp` do token, do mesmo jeito que uma chamada REST com
+// token expirado ja falha. Isto e SOBRE EXPIRACAO, nao sobre revogacao por
+// TokenVersion — nao fecha uma conexao cujo token ainda esta dentro da
+// validade mas foi revogado por troca de senha/desativacao/perfil (SEC-01B,
+// ver AtendimentoHub.cs e Modules/Usuarios/README.md).
+app.MapHub<AtendimentoHub>("/hubs/atendimento", opcoes =>
+{
+    opcoes.CloseOnAuthenticationExpiration = true;
+});
 
 // Vivo: o processo subiu e responde. NAO prova que o banco responde — de
 // proposito, para servir de liveness barato (o IIS e o tunel batem aqui).
