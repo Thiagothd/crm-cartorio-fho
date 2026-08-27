@@ -19,6 +19,7 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.SenhaHash).HasMaxLength(500).IsRequired().IsUnicode(false);
         builder.Property(a => a.Perfil).HasConversion<byte>();
         builder.Property(a => a.Cargo).HasConversion<byte>();
+        builder.Property(a => a.TokenVersion).HasDefaultValue(1);
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.AtualizadoEm).HasColumnType("datetime2(3)");

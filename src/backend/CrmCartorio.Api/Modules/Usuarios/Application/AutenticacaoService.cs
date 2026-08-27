@@ -76,7 +76,7 @@ public class AutenticacaoService(
             throw UsuariosServiceException.SenhaFraca();
         }
 
-        var atendente = await db.Atendentes
+        var atendente = await db.Atendentes.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == ctx.AtendenteId && a.TenantId == ctx.TenantId, ct)
             ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
 
@@ -85,9 +85,18 @@ public class AutenticacaoService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        atendente.SenhaHash = hash.Gerar(request.NovaSenha);
+        var novoHash = hash.Gerar(request.NovaSenha);
 
-        await db.SaveChangesAsync(ct);
+        // SEC-01: grava o novo hash e sobe TokenVersion na MESMA instrucao SQL
+        // atomica (UPDATE ... SET TokenVersion = TokenVersion + 1), nao lendo o
+        // valor em memoria e somando — sob duas trocas concorrentes isso
+        // perderia incremento. Sobe a versao derruba todo JWT emitido antes
+        // desta troca, em qualquer dispositivo, no proximo request de cada um.
+        await db.Atendentes
+            .Where(a => a.Id == atendente.Id && a.TenantId == ctx.TenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.SenhaHash, novoHash)
+                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
 
         log.LogInformation("Senha alterada por {AtendenteId}", atendente.Id);
     }

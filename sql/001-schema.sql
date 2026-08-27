@@ -162,6 +162,13 @@ CREATE TABLE dbo.Atendentes
 
     SetorPadraoId  UNIQUEIDENTIFIER NULL,
     Ativo          BIT              NOT NULL CONSTRAINT DF_Atendentes_Ativo DEFAULT (1),
+
+    -- SEC-01: sobe a cada troca de senha, desativacao ou mudanca de Perfil.
+    -- Todo JWT carrega a versao vigente no instante em que foi emitido; o
+    -- token so continua valido enquanto ela bater com esta coluna. Nunca
+    -- volta para tras, nem quando o atendente e reativado.
+    TokenVersion   INT              NOT NULL CONSTRAINT DF_Atendentes_TokenVersion DEFAULT (1),
+
     UltimoAcessoEm DATETIME2(3)     NULL,
     CriadoEm       DATETIME2(3)     NOT NULL,
     AtualizadoEm   DATETIME2(3)     NOT NULL,
