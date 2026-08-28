@@ -516,6 +516,7 @@ try
     var processandoRecenteVarredura = await CriarConversaAsync("varredura-processando-recente", humano: true);
     var processandoStaleVarredura = await CriarConversaAsync("varredura-processando-stale", humano: true);
     var saidaVarredura = await CriarConversaAsync("varredura-saida", humano: true);
+    var saidaSimuladaVarredura = await CriarConversaAsync("varredura-saida-simulada", humano: true, canal: CanalOrigem.Simulado);
     string telefonePendente, telefoneFalhaFutura, telefoneFalhaVencida, telefoneRecente, telefoneStale;
     await using (var db = new CrmDbContext(opcoes))
     {
@@ -544,22 +545,34 @@ try
         await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R6-processando-stale").ExecuteUpdateAsync(s => s
             .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Processando)
             .SetProperty(m => m.ProcessamentoEntradaIniciadoEm, DateTime.UtcNow.AddMinutes(-10)));
-        db.Mensagens.Add(new Mensagem
-        {
-            TenantId = tenantId,
-            ConversaId = saidaVarredura.ConversaId,
-            AutorTipo = AutorTipo.Sistema,
-            Conteudo = "saida automatica pendente",
-            EhAutomatica = true,
-            StatusEntrega = StatusEntrega.Pendente,
-            EnviadaEm = DateTime.UtcNow
-        });
+        db.Mensagens.AddRange(
+            new Mensagem
+            {
+                TenantId = tenantId,
+                ConversaId = saidaVarredura.ConversaId,
+                AutorTipo = AutorTipo.Sistema,
+                Conteudo = "saida automatica WhatsApp pendente",
+                EhAutomatica = true,
+                StatusEntrega = StatusEntrega.Pendente,
+                EnviadaEm = DateTime.UtcNow
+            },
+            new Mensagem
+            {
+                TenantId = tenantId,
+                ConversaId = saidaSimuladaVarredura.ConversaId,
+                AutorTipo = AutorTipo.Sistema,
+                Conteudo = "saida automatica Simulado pendente",
+                EhAutomatica = true,
+                StatusEntrega = StatusEntrega.Pendente,
+                EnviadaEm = DateTime.UtcNow
+            });
         await db.SaveChangesAsync();
     }
     IReadOnlyList<Guid> conversasDaVarredura;
     await using (var db = new CrmDbContext(opcoes)) conversasDaVarredura = await NovoProcessador(db, new IaFake()).ListarConversasPendentesAsync();
-    Checar("varredura encontra pendente, falha vencida, claim stale e saida pendente", conversasDaVarredura.Contains(pendenteVarredura.ConversaId) && conversasDaVarredura.Contains(falhaVencidaVarredura.ConversaId) && conversasDaVarredura.Contains(processandoStaleVarredura.ConversaId) && conversasDaVarredura.Contains(saidaVarredura.ConversaId));
+    Checar("varredura encontra pendente, falha vencida, claim stale e saida WhatsApp pendente", conversasDaVarredura.Contains(pendenteVarredura.ConversaId) && conversasDaVarredura.Contains(falhaVencidaVarredura.ConversaId) && conversasDaVarredura.Contains(processandoStaleVarredura.ConversaId) && conversasDaVarredura.Contains(saidaVarredura.ConversaId));
     Checar("varredura respeita backoff e claim recente", !conversasDaVarredura.Contains(falhaFuturaVarredura.ConversaId) && !conversasDaVarredura.Contains(processandoRecenteVarredura.ConversaId));
+    Checar("varredura nao acorda saida pendente de Simulado", !conversasDaVarredura.Contains(saidaSimuladaVarredura.ConversaId));
 
     // L — o processador chama a mesma porta de saida; WA-OUT-01 tem verificador proprio.
     var canal = new CanalContador();

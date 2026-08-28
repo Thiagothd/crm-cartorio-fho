@@ -62,6 +62,8 @@ public sealed class ProcessadorDeEntradaWhatsapp(
             .Where(m => m.AutorTipo == AutorTipo.Sistema
                      && m.EhAutomatica
                      && m.StatusEntrega == StatusEntrega.Pendente
+                     && db.Conversas.Any(c => c.Id == m.ConversaId
+                                            && c.Canal == CanalOrigem.WhatsApp)
                      && !entradas.Contains(m.ConversaId))
             .OrderBy(m => m.EnviadaEm)
             .Select(m => m.ConversaId)
