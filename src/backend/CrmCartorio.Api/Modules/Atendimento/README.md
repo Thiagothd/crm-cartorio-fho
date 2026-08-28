@@ -90,6 +90,62 @@ Efeito colateral bem-vindo: como o gate intercepta antes de
 (triagem reagindo com atendente já na conversa) deixou de acontecer — mesmo
 sem nenhuma mudança específica naquele arquivo.
 
+## Entrada WhatsApp durável e ordenada
+
+O webhook não mantém mais a mensagem recebida na mesma transação das
+automações. `RecebimentoDeWhatsApp` faz uma aceitação curta: resolve
+cliente/conversa, insere a `Mensagem` como `Pendente`, incrementa
+`MensagensNaoLidas` atomicamente, avança `UltimaMensagemEm` somente quando o
+novo instante é maior e confirma a transação. Depois disso o HTTP pode terminar;
+IA, Evolution e SignalR não seguram essa transação.
+
+`ProcessadorDeEntradaWhatsapp` consome a fila persistida em `Mensagens`. Quatro
+workers locais dão paralelismo entre conversas, mas um `sp_getapplock` exclusivo
+por `ConversaId` serializa as transições da mesma conversa no SQL Server. O lock
+é por sessão, não por transação: funciona entre processos IIS e é liberado pelo
+próprio SQL quando uma conexão morre, sem manter transação aberta durante IA ou
+Evolution.
+
+Dentro da conversa, a ordem é `EnviadaEm` e `Id`. A entrada anterior precisa
+estar `Processada` antes de a posterior adquirir claim. `Processando` antigo e
+`Falha` cujo prazo chegou podem ser retomados; a varredura a cada cinco segundos
+reencontra mensagens mesmo depois de reciclagem do IIS. O canal em memória só
+reduz a latência — nunca é a fonte da verdade.
+
+Uma falha é retentada no máximo **seis vezes**, com backoff de 1, 2, 4, 8, 16 e
+32 minutos. Na sexta falha ela permanece em `Falha`, sem horário de nova
+disponibilidade e com o prefixo `FALHA TERMINAL` no diagnóstico; o processador
+emite `LogCritical`, não tenta novamente e não deixa entradas posteriores
+ultrapassarem a mensagem problemática. A saída operacional é intervenção humana
+na conversa e no erro registrado — a mensagem recebida nunca é apagada nem é
+marcada como processada com sucesso.
+
+Antes de gravar automação, o worker confronta o estado atual da conversa com o
+snapshot que carregou. Só rebasa o `RowVersion` quando a diferença é limitada a
+`MensagensNaoLidas`, `UltimaMensagemEm`, `AtualizadoEm` e ao próprio token,
+efeitos técnicos da aceitação de outra entrada. Qualquer mudança de negócio —
+status, takeover, atendente, etapa, setor, serviço, flags ou ciclo de
+encerramento/reabertura — descarta todo o `ChangeTracker` da automação e conclui
+somente a entrada recebida. Assim uma IA lenta não sobrescreve decisão humana nem
+deixa alterações colaterais em cliente, histórico ou mensagens automáticas.
+
+Há no máximo uma conversa ativa por cliente, tenant e canal. A regra global
+anterior vinha da Fase 1, quando `Simulado` era o único canal. Agora `Simulado`
+continua isolado como demonstração: uma entrada WhatsApp nunca o reutiliza nem o
+promove, pois isso poderia liberar mensagens antigas no gateway real. O índice
+`UQ_Conversas_Tenant_Cliente_Canal_Ativa` impede que duas primeiras mensagens
+simultâneas do WhatsApp abram dois protocolos ativos; o mesmo cliente pode ter
+em paralelo uma conversa Simulada, que permanece fora do envio real. Colisão de
+telefone, conversa ativa ou protocolo repete somente a transação curta, antes de
+qualquer efeito externo. O índice IA-03 (`TenantId + IdExternoWhatsapp`,
+filtrado para cliente) continua decidindo reentregas: o mesmo ID produz uma
+mensagem lógica e um processamento lógico.
+
+Há uma janela residual inevitável para IA sem chave idempotente: se o processo
+morrer depois de o provedor responder e antes de persistir a resposta, a retomada
+pode chamar o provedor outra vez. Evolution continua protegido separadamente pelo
+claim WA-OUT-01; a resposta automática é persistida antes do envio.
+
 ## Decisões que parecem estranhas mas não são
 
 - **Mensagem de sistema não move a conversa na inbox.** `UltimaMensagemEm` só é
@@ -116,9 +172,10 @@ sem nenhuma mudança específica naquele arquivo.
 | `AplicadorDeEncerramentoPorInatividade` | Interpreta a resposta do cliente à pergunta pendente |
 
 - **O disparador enfileira, não grava.** As mensagens entram no `DbContext` e quem
-  chamou decide o `SaveChanges`. É o que põe a mensagem de boas-vindas na mesma
-  transação que cria a conversa e gera o protocolo — gravando por conta própria, um
-  erro depois deixaria uma boas-vindas órfã apontando para conversa inexistente.
+  chamou decide o `SaveChanges`. No webhook durável, cliente/conversa/entrada já
+  foram confirmados antes; o processador grava a resposta automática e a transição
+  de estado juntas, e só então chama o canal. Nos fluxos interativos continua
+  valendo a transação definida por quem chamou.
 - **O disparador não conhece `IContextoDoUsuario`.** O tenant vem da conversa. Sem
   isso, o varredor — que roda em serviço de fundo, sem requisição HTTP nem token —
   não conseguiria usá-lo. Pelo mesmo motivo o varredor projeta com
@@ -179,8 +236,9 @@ mensagem automática são cadastro de `Configuracoes`; lê-las aqui segue essa m
 fronteira.
 
 `INotificadorDeAtendimento` é porta deste slice; o adaptador SignalR vive em
-`Infrastructure/Realtime`. `IVarredorDePrazos` e `IVarredorDeInatividade` são
-chamados por um `BackgroundService` cada, em `Infrastructure/Automacao`, que é só
-relógio e escopo — a regra fica aqui. Os quatro campos de configuração do
+`Infrastructure/Realtime`. `IVarredorDePrazos`, `IVarredorDeInatividade` e
+`IProcessadorDeEntradaWhatsapp` são chamados por hosts em
+`Infrastructure/Automacao`, que contêm apenas relógio, canal local e escopo — a
+regra e o estado durável ficam aqui. Os quatro campos de configuração do
 encerramento automático moram em `Tenant` (módulo `Tenants`); ler esse cadastro
 segue a mesma fronteira de ler `Configuracoes`.

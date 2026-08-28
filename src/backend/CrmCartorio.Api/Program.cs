@@ -116,6 +116,8 @@ builder.Services.AddScoped<SemeadorDeDemonstracao>();
 // O recebimento fica no Atendimento porque e regra de atendimento; so o formato
 // do gateway mora no slice CanalWhatsApp.
 builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();
+builder.Services.AddScoped<IProcessadorDeEntradaWhatsapp, ProcessadorDeEntradaWhatsapp>();
+builder.Services.AddSingleton<SinalizadorDeEntradaWhatsapp>();
 builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
@@ -202,6 +204,10 @@ builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
 // ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
 // boas-vindas, sem triagem. Ver IVarredorDeInatividade.
 builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
+
+// O webhook confirma depois do commit curto; automacao/IA/saida sao retomadas
+// por workers coordenados no SQL Server, inclusive apos reciclagem do IIS.
+builder.Services.AddHostedService<HospedeDoProcessamentoDeEntradaWhatsapp>();
 
 // ---------------------------------------------------------------- autenticacao
 

@@ -75,6 +75,27 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     public string? IdExternoWhatsapp { get; set; }
 
     /// <summary>
+    /// Estado do processamento posterior da entrada. Nulo para mensagens que nao
+    /// vieram do webhook e para o historico anterior a esta funcionalidade.
+    /// </summary>
+    public EstadoProcessamentoEntradaWhatsapp? EstadoProcessamentoEntrada { get; set; }
+
+    /// <summary>Instante em que um processador adquiriu o claim desta entrada.</summary>
+    public DateTime? ProcessamentoEntradaIniciadoEm { get; set; }
+
+    /// <summary>Instante em que automacoes e transicoes desta entrada foram persistidas.</summary>
+    public DateTime? ProcessamentoEntradaConcluidoEm { get; set; }
+
+    /// <summary>Quando uma entrada em falha volta a estar disponivel para tentativa.</summary>
+    public DateTime? ProcessamentoEntradaDisponivelEm { get; set; }
+
+    /// <summary>Quantidade de claims adquiridos, inclusive recuperacoes apos falha/crash.</summary>
+    public int TentativasProcessamentoEntrada { get; set; }
+
+    /// <summary>Diagnostico curto da ultima falha; nunca contem payload ou segredo.</summary>
+    public string? ErroProcessamentoEntrada { get; set; }
+
+    /// <summary>
     /// Nome com que o arquivo chegou. Dado EXIBIDO, nunca caminho.
     /// </summary>
     /// <remarks>

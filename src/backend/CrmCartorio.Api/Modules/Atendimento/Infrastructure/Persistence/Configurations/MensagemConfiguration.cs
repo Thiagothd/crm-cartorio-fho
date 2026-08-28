@@ -33,6 +33,13 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
                 "CK_Mensagens_IaEhAutomatica",
                 "([GeradaPorIa] = 0) OR ([GeradaPorIa] = 1 AND [EhAutomatica] = 1)");
 
+            // Estado de processamento existe apenas para entrada real de cliente.
+            // Mensagem manual/simulada e toda saida permanecem com estado nulo.
+            t.HasCheckConstraint(
+                "CK_Mensagens_ProcessamentoEntrada",
+                "[EstadoProcessamentoEntrada] IS NULL OR " +
+                "([AutorTipo] = 1 AND [IdExternoWhatsapp] IS NOT NULL AND [EstadoProcessamentoEntrada] IN (1, 2, 3, 4))");
+
             // Ou o anexo esta inteiro, ou nao ha anexo. Meia linha gravada —
             // caminho sem tipo, tipo sem caminho — daria um fio que promete
             // arquivo e um download que devolve 404.
@@ -51,7 +58,9 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.AutorTipo).HasConversion<byte>();
         builder.Property(m => m.Tipo).HasConversion<byte>();
         builder.Property(m => m.StatusEntrega).HasConversion<byte>();
+        builder.Property(m => m.EstadoProcessamentoEntrada).HasConversion<byte?>();
         builder.Property(m => m.IdExternoWhatsapp).HasMaxLength(80).IsUnicode(false);
+        builder.Property(m => m.ErroProcessamentoEntrada).HasMaxLength(1000);
 
         builder.Property(m => m.ArquivoNome).HasMaxLength(260);
         builder.Property(m => m.ArquivoTipoMime).HasMaxLength(150).IsUnicode(false);
@@ -62,6 +71,9 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.EnviadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.EnvioIniciadoEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.EnvioDisparadoEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.ProcessamentoEntradaIniciadoEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.ProcessamentoEntradaConcluidoEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.ProcessamentoEntradaDisponivelEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.LidaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.FixadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.OcultaEm).HasColumnType("datetime2(3)");
@@ -122,5 +134,18 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
             .IsUnique()
             .HasFilter("[IdExternoWhatsapp] IS NOT NULL AND [AutorTipo] = 1")
             .HasDatabaseName("UQ_Mensagens_Tenant_IdExterno_Cliente");
+
+        // Fila duravel de entrada. O filtro mantem mensagens de saida e historico
+        // processado fora do indice quente varrido pelos workers.
+        builder.HasIndex(m => new
+            {
+                m.EstadoProcessamentoEntrada,
+                m.ProcessamentoEntradaDisponivelEm,
+                m.ProcessamentoEntradaIniciadoEm,
+                m.ConversaId,
+                m.EnviadaEm
+            })
+            .HasFilter("[EstadoProcessamentoEntrada] IN (1, 2, 4)")
+            .HasDatabaseName("IX_Mensagens_ProcessamentoEntrada");
     }
 }

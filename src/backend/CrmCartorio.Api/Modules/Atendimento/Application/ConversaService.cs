@@ -260,6 +260,7 @@ public class ConversaService(
         var conversaAberta = await db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId
                      && c.ClienteId == cliente.Id
+                     && c.Canal == CanalOrigem.Simulado
                      && c.Status == StatusConversa.Ativa)
             .Select(c => c.Protocolo)
             .FirstOrDefaultAsync(ct);
@@ -353,8 +354,23 @@ public class ConversaService(
             conversa.AguardandoTriagem = boasVindas.Count > 0;
         }
 
-        await db.SaveChangesAsync(ct);
-        await transacao.CommitAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await transacao.CommitAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            await transacao.RollbackAsync(CancellationToken.None);
+            var protocoloConcorrente = await ObterProtocoloAtivoAsync(
+                tenantId, cliente.Id, CanalOrigem.Simulado, null, CancellationToken.None);
+            if (protocoloConcorrente is not null)
+            {
+                throw AtendimentoServiceException.ClienteJaTemConversaAtiva(protocoloConcorrente);
+            }
+
+            throw;
+        }
 
         var resumo = await ObterResumoAsync(conversa.Id, ct);
         await notificador.ConversaAtualizadaAsync(tenantId, resumo, ct);
@@ -718,6 +734,13 @@ public class ConversaService(
             throw AtendimentoServiceException.ConversaJaAtiva();
         }
 
+        var conversaAberta = await ObterProtocoloAtivoAsync(
+            conversa.TenantId, conversa.ClienteId, conversa.Canal, conversa.Id, ct);
+        if (conversaAberta is not null)
+        {
+            throw AtendimentoServiceException.ClienteJaTemConversaAtiva(conversaAberta);
+        }
+
         var agora = DateTime.UtcNow;
 
         conversa.Status = StatusConversa.Ativa;
@@ -749,7 +772,21 @@ public class ConversaService(
         db.Mensagens.Add(MensagemDeSistema(
             id, conversa.TenantId, $"Atendimento reaberto por {ctx.Nome}.", agora));
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbUpdateConcurrencyException)
+        {
+            var protocoloConcorrente = await ObterProtocoloAtivoAsync(
+                conversa.TenantId, conversa.ClienteId, conversa.Canal, null, CancellationToken.None);
+            if (protocoloConcorrente is not null)
+            {
+                throw AtendimentoServiceException.ClienteJaTemConversaAtiva(protocoloConcorrente);
+            }
+
+            throw;
+        }
 
         var resumo = await ObterResumoAsync(id, ct);
         await notificador.ConversaReabertaAsync(conversa.TenantId, resumo, ct);
@@ -805,6 +842,22 @@ public class ConversaService(
     private async Task<Conversa> CarregarAsync(Guid id, CancellationToken ct) =>
         await db.Conversas.FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
         ?? throw AtendimentoServiceException.ConversaNaoEncontrada();
+
+    private async Task<string?> ObterProtocoloAtivoAsync(
+        Guid tenantId,
+        Guid clienteId,
+        CanalOrigem canal,
+        Guid? excluirConversaId,
+        CancellationToken ct) =>
+        await db.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId
+                     && c.ClienteId == clienteId
+                     && c.Canal == canal
+                     && c.Status == StatusConversa.Ativa
+                     && (excluirConversaId == null || c.Id != excluirConversaId))
+            .OrderBy(c => c.IniciadaEm)
+            .Select(c => c.Protocolo)
+            .FirstOrDefaultAsync(ct);
 
     private static void GarantirAtiva(Conversa conversa)
     {
