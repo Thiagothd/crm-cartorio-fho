@@ -6,6 +6,8 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.EntityFrameworkCore;
@@ -252,16 +254,46 @@ try
         Checar("primeiro contato concorrente preserva as duas mensagens", await db.Mensagens.CountAsync(m => m.ConversaId == primeiras[0] && (m.IdExternoWhatsapp == $"{prefixoId}P-1" || m.IdExternoWhatsapp == $"{prefixoId}P-2")) == 2);
     }
 
-    // P2 — a regra histórica é uma conversa ativa por cliente, não por canal.
+    // P2 — Simulado e WhatsApp sao fios independentes do mesmo cliente.
     var outroCanal = await CriarConversaAsync("canal-simulado", humano: true, canal: CanalOrigem.Simulado);
     string telefoneOutroCanal;
     await using (var db = new CrmDbContext(opcoes))
         telefoneOutroCanal = await db.Clientes.Where(c => c.Id == outroCanal.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
-    var conversaReaproveitada = await AceitarAsync(telefoneOutroCanal, $"{prefixoId}P2-whatsapp");
+    var conversaWhatsapp = await AceitarAsync(telefoneOutroCanal, $"{prefixoId}P2-whatsapp");
+    var gatewayP2 = new GatewayDeContagem();
     await using (var db = new CrmDbContext(opcoes))
     {
-        Checar("entrada WhatsApp reaproveita conversa ativa de outro canal", conversaReaproveitada == outroCanal.ConversaId);
-        Checar("entrada WhatsApp nao abre protocolo paralelo por canal", await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == outroCanal.ClienteId && c.Status == StatusConversa.Ativa) == 1);
+        var entrada = await db.Mensagens.SingleAsync(m => m.IdExternoWhatsapp == $"{prefixoId}P2-whatsapp");
+        Checar("entrada WhatsApp cria conversa propria, sem reutilizar Simulado", conversaWhatsapp != outroCanal.ConversaId);
+        Checar("conversa Simulado permanece intacta", await db.Conversas.AnyAsync(c => c.Id == outroCanal.ConversaId && c.Canal == CanalOrigem.Simulado && c.Status == StatusConversa.Ativa));
+        Checar("entrada pertence a conversa WhatsApp ativa", entrada.ConversaId == conversaWhatsapp && await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == outroCanal.ClienteId && c.Canal == CanalOrigem.WhatsApp && c.Status == StatusConversa.Ativa) == 1);
+
+        db.Mensagens.AddRange(
+            new Mensagem
+            {
+                TenantId = tenantId, ConversaId = conversaWhatsapp, AutorTipo = AutorTipo.Sistema,
+                Conteudo = "automatica WhatsApp", EhAutomatica = true, StatusEntrega = StatusEntrega.Pendente, EnviadaEm = DateTime.UtcNow
+            },
+            new Mensagem
+            {
+                TenantId = tenantId, ConversaId = outroCanal.ConversaId, AutorTipo = AutorTipo.Sistema,
+                Conteudo = "automatica Simulado", EhAutomatica = true, StatusEntrega = StatusEntrega.Pendente, EnviadaEm = DateTime.UtcNow
+            });
+        await db.SaveChangesAsync();
+
+        var enviador = new EnviadorPeloWhatsApp(
+            db, gatewayP2, anexos, new RegrasPermissivas(),
+            Options.Create(new OpcoesDoCanalWhatsApp
+            {
+                Habilitado = true, BaseUrl = "http://verificador.local", ApiKey = "teste",
+                NomeDaInstancia = "verificador", TokenDoWebhook = "teste"
+            }),
+            NullLogger<EnviadorPeloWhatsApp>.Instance);
+        await enviador.EnviarPendentesAsync(conversaWhatsapp);
+        await enviador.EnviarPendentesAsync(outroCanal.ConversaId);
+
+        Checar("automatica WhatsApp percorre a porta real de saida", gatewayP2.EnviosDeTexto == 1);
+        Checar("automatica Simulado continua bloqueada na porta de saida", gatewayP2.EnviosDeTexto == 1 && await db.Mensagens.Where(m => m.ConversaId == outroCanal.ConversaId && m.Conteudo == "automatica Simulado").Select(m => m.StatusEntrega).SingleAsync() == StatusEntrega.Pendente);
     }
 
     // G — Human Takeover: processa a entrada, IA silenciosa.
@@ -411,9 +443,26 @@ try
     await using (var db = new CrmDbContext(opcoes)) telefoneTecnico = await db.Clientes.Where(c => c.Id == tecnicoEmVoo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
     await AceitarAsync(telefoneTecnico, $"{prefixoId}R4-tecnico");
     var iaControladaTecnica = new IaControlada();
+    int naoLidasAntes;
+    DateTime ultimaMensagemAntes;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var antes = await db.Conversas.Where(c => c.Id == tecnicoEmVoo.ConversaId)
+            .Select(c => new { c.MensagensNaoLidas, c.UltimaMensagemEm })
+            .SingleAsync();
+        naoLidasAntes = antes.MensagensNaoLidas;
+        ultimaMensagemAntes = antes.UltimaMensagemEm;
+    }
     var processamentoTecnico = ProcessarAsync(tecnicoEmVoo.ConversaId, iaControladaTecnica);
     await iaControladaTecnica.AguardarInicioAsync();
-    var instanteTecnico = DateTime.UtcNow;
+    var referenciaTecnica = DateTime.UtcNow > ultimaMensagemAntes
+        ? DateTime.UtcNow
+        : ultimaMensagemAntes;
+    var instanteTecnicoComPrecisaoDoBanco = referenciaTecnica.AddMinutes(1);
+    var instanteTecnico = new DateTime(
+        instanteTecnicoComPrecisaoDoBanco.Ticks
+            - instanteTecnicoComPrecisaoDoBanco.Ticks % TimeSpan.TicksPerMillisecond,
+        DateTimeKind.Utc);
     await using (var db = new CrmDbContext(opcoes))
         await db.Conversas.Where(c => c.Id == tecnicoEmVoo.ConversaId).ExecuteUpdateAsync(s => s
             .SetProperty(c => c.MensagensNaoLidas, c => c.MensagensNaoLidas + 1)
@@ -423,8 +472,13 @@ try
     await processamentoTecnico;
     await using (var db = new CrmDbContext(opcoes))
     {
-        Checar("conflito apenas tecnico conclui sem repetir IA", iaControladaTecnica.Chamadas == 1 && await db.Mensagens.CountAsync(m => m.ConversaId == tecnicoEmVoo.ConversaId && m.GeradaPorIa) == 1);
+        var respostasIaPersistidas = await db.Mensagens.CountAsync(m => m.ConversaId == tecnicoEmVoo.ConversaId && m.GeradaPorIa);
+        Checar("conflito apenas tecnico conclui sem repetir IA", iaControladaTecnica.Chamadas == 1 && respostasIaPersistidas == 1);
         Checar("conflito apenas tecnico conclui a entrada", await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R4-tecnico").Select(m => m.EstadoProcessamentoEntrada).SingleAsync() == EstadoProcessamentoEntradaWhatsapp.Processada);
+        var final = await db.Conversas.SingleAsync(c => c.Id == tecnicoEmVoo.ConversaId);
+        Checar("rebase tecnico preserva incremento de nao lidas", final.MensagensNaoLidas == naoLidasAntes + 1);
+        Checar("rebase tecnico preserva UltimaMensagemEm concorrente", final.UltimaMensagemEm >= instanteTecnico);
+        Console.WriteLine($"R4 final: MensagensNaoLidas={final.MensagensNaoLidas}; UltimaMensagemEm={final.UltimaMensagemEm:O}; ChamadasIA={iaControladaTecnica.Chamadas}; RespostasIAPersistidas={respostasIaPersistidas}");
     }
 
     // R5 — poison message: seis falhas, diagnostico terminal e bloqueio explicito.
@@ -595,6 +649,38 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
 {
     public Task<string?> EnviarAsync(Guid mensagemId, CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task EnviarPendentesAsync(Guid conversaId, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+file sealed class GatewayDeContagem : IEvolutionClient
+{
+    public int EnviosDeTexto { get; private set; }
+
+    public Task<string> EnviarTextoAsync(string telefoneE164, string conteudo, CancellationToken ct)
+    {
+        EnviosDeTexto++;
+        return Task.FromResult("ENVIO-VERIFICADOR");
+    }
+
+    public Task<EstadoDaInstancia> GarantirInstanciaAsync(string urlDoWebhook, CancellationToken ct) => throw new NotSupportedException();
+    public Task<EstadoDaInstancia> ObterEstadoAsync(CancellationToken ct) => throw new NotSupportedException();
+    public Task<EstadoDaInstancia> IniciarConexaoAsync(CancellationToken ct) => throw new NotSupportedException();
+    public Task DesconectarAsync(CancellationToken ct) => throw new NotSupportedException();
+    public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) => throw new NotSupportedException();
+    public Task<string> EnviarMidiaAsync(string telefoneE164, byte[] conteudo, string tipoMime, string nomeDoArquivo, string? legenda, CancellationToken ct) => throw new NotSupportedException();
+    public Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct) => throw new NotSupportedException();
+    public Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct) => throw new NotSupportedException();
+    public Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct) => throw new NotSupportedException();
+}
+
+file sealed class RegrasPermissivas : IRegrasDoCanal
+{
+    public Task<VeredictoDoNumero> PodeFalarComAsync(Guid tenantId, string telefoneE164, CancellationToken ct = default) => Task.FromResult(new VeredictoDoNumero(true, null));
+    public Task<RegrasDoCanalResponse> ObterAsync(CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<RegrasDoCanalResponse> DefinirModoAsync(DefinirModoRequest request, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<NumeroDoCanalResponse> AdicionarAsync(AdicionarNumeroRequest request, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task RemoverAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task RegistrarDescarteAsync(Guid tenantId, string telefoneE164, MotivoDoDescarte motivo, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<DescartesResponse> DescartesRecentesAsync(CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 file sealed class AnexosSilenciosos : IArmazenamentoDeAnexos

@@ -129,16 +129,17 @@ encerramento/reabertura — descarta todo o `ChangeTracker` da automação e con
 somente a entrada recebida. Assim uma IA lenta não sobrescreve decisão humana nem
 deixa alterações colaterais em cliente, histórico ou mensagens automáticas.
 
-Há no máximo uma conversa ativa por cliente dentro do tenant, sem separar por
-canal. Esta é a invariante usada por `ConversaService.CriarAsync` e pelo
-recebimento histórico: uma entrada WhatsApp de um cliente que já tem atendimento
-Simulado ativo é anexada àquela conversa, sem abrir protocolo paralelo. O índice
-`UQ_Conversas_Tenant_Cliente_Ativa` impede que duas primeiras mensagens
-simultâneas abram dois protocolos ativos. Colisão de telefone, conversa ativa ou
-protocolo repete somente a transação curta, antes de qualquer efeito externo. O
-índice IA-03 (`TenantId + IdExternoWhatsapp`, filtrado para cliente) continua
-decidindo reentregas: o mesmo ID produz uma mensagem lógica e um processamento
-lógico.
+Há no máximo uma conversa ativa por cliente, tenant e canal. A regra global
+anterior vinha da Fase 1, quando `Simulado` era o único canal. Agora `Simulado`
+continua isolado como demonstração: uma entrada WhatsApp nunca o reutiliza nem o
+promove, pois isso poderia liberar mensagens antigas no gateway real. O índice
+`UQ_Conversas_Tenant_Cliente_Canal_Ativa` impede que duas primeiras mensagens
+simultâneas do WhatsApp abram dois protocolos ativos; o mesmo cliente pode ter
+em paralelo uma conversa Simulada, que permanece fora do envio real. Colisão de
+telefone, conversa ativa ou protocolo repete somente a transação curta, antes de
+qualquer efeito externo. O índice IA-03 (`TenantId + IdExternoWhatsapp`,
+filtrado para cliente) continua decidindo reentregas: o mesmo ID produz uma
+mensagem lógica e um processamento lógico.
 
 Há uma janela residual inevitável para IA sem chave idempotente: se o processo
 morrer depois de o provedor responder e antes de persistir a resposta, a retomada

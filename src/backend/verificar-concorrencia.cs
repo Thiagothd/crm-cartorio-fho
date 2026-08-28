@@ -83,9 +83,8 @@ await using (var db = new CrmDbContext(opcoes))
     // Um cliente por conversa: CriarAsync recusa abrir um segundo atendimento
     // para quem ja tem um em aberto, e essa regra nao e o que estamos testando.
     //
-    // Simultaneas para o teste 1, mais um para o teste 2, um para o teste 3 e
-    // um para o teste 4 (BUG-ATD-01).
-    for (var i = 0; i < Simultaneas + 3; i++)
+    // Simultaneas para o teste 1, mais um para cada um dos testes 2 a 6.
+    for (var i = 0; i < Simultaneas + 5; i++)
     {
         var telefone = $"559999900{i:D3}";
 
@@ -572,6 +571,145 @@ else if (!emAtendimentoHumanoApos || atendenteApos != atendenteQueAssumiu.Id)
 else
 {
     Console.WriteLine("  RESULTADO: OK — a resposta da IA em voo nunca foi entregue; o takeover venceu a corrida.");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 5 — reabrir nao atravessa conversa ativa no mesmo cliente e canal.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 5 — reabrir retorna conflito funcional quando ja existe conversa ativa");
+
+Guid conversaFechadaComOutraAtiva;
+await using (var db = new CrmDbContext(opcoes))
+{
+    var fechada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 3], null, null, "Conversa que sera fechada."));
+    conversaFechadaComOutraAtiva = fechada.Id;
+    await db.Conversas.Where(c => c.Id == fechada.Id).ExecuteUpdateAsync(s => s
+        .SetProperty(c => c.Status, StatusConversa.Encerrada)
+        .SetProperty(c => c.EncerradaEm, DateTime.UtcNow));
+    await Servico(db, 1).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 3], null, null, "Nova conversa ativa."));
+}
+
+string? codigoDaReabertura = null;
+Exception? erroDaReabertura = null;
+try
+{
+    await using var db = new CrmDbContext(opcoes);
+    await Servico(db, 0).ReabrirAsync(conversaFechadaComOutraAtiva);
+}
+catch (AtendimentoServiceException ex)
+{
+    codigoDaReabertura = ex.Codigo;
+}
+catch (Exception ex)
+{
+    erroDaReabertura = ex;
+}
+
+Console.WriteLine($"  codigo devolvido .......... {codigoDaReabertura ?? "(nenhum)"}");
+Console.WriteLine($"  erro inesperado ........... {(erroDaReabertura is null ? "nenhum" : erroDaReabertura.GetType().Name)}");
+if (erroDaReabertura is not null || codigoDaReabertura != "cliente_ja_tem_conversa_ativa")
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — reabrir nao devolveu o conflito funcional esperado.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — reabrir foi bloqueado com cliente_ja_tem_conversa_ativa.");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 6 — Criar e Reabrir concorrem pela mesma vaga do mesmo canal.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 6 — criar e reabrir concorrentes devolvem conflito funcional");
+
+Guid conversaFechadaParaCorrida;
+var clienteDaCorrida = clientesDeTeste[Simultaneas + 4];
+await using (var db = new CrmDbContext(opcoes))
+{
+    var fechada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clienteDaCorrida, null, null, "Conversa para corrida de reabertura."));
+    conversaFechadaParaCorrida = fechada.Id;
+    await db.Conversas.Where(c => c.Id == fechada.Id).ExecuteUpdateAsync(s => s
+        .SetProperty(c => c.Status, StatusConversa.Encerrada)
+        .SetProperty(c => c.EncerradaEm, DateTime.UtcNow));
+}
+
+var largada6 = new TaskCompletionSource();
+var sucessosDaCorrida = new ConcurrentBag<string>();
+var conflitosDaCorrida = new ConcurrentBag<string>();
+var errosDaCorrida = new ConcurrentBag<string>();
+
+var criarOuReabrir = new[]
+{
+    Task.Run(async () =>
+    {
+        await largada6.Task;
+        try
+        {
+            await using var db = new CrmDbContext(opcoes);
+            await Servico(db, 0).ReabrirAsync(conversaFechadaParaCorrida);
+            sucessosDaCorrida.Add("reabrir");
+        }
+        catch (AtendimentoServiceException ex) when (ex.Codigo == "cliente_ja_tem_conversa_ativa")
+        {
+            conflitosDaCorrida.Add("reabrir");
+        }
+        catch (Exception ex)
+        {
+            errosDaCorrida.Add($"reabrir: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+        }
+    }),
+    Task.Run(async () =>
+    {
+        await largada6.Task;
+        try
+        {
+            await using var db = new CrmDbContext(opcoes);
+            await Servico(db, 1).CriarAsync(
+                new CriarConversaRequest(clienteDaCorrida, null, null, "Criacao concorrente."));
+            sucessosDaCorrida.Add("criar");
+        }
+        catch (AtendimentoServiceException ex) when (ex.Codigo == "cliente_ja_tem_conversa_ativa")
+        {
+            conflitosDaCorrida.Add("criar");
+        }
+        catch (Exception ex)
+        {
+            errosDaCorrida.Add($"criar: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+        }
+    })
+};
+
+largada6.SetResult();
+await Task.WhenAll(criarOuReabrir);
+
+int ativasDaCorrida;
+await using (var db = new CrmDbContext(opcoes))
+    ativasDaCorrida = await db.Conversas.CountAsync(c => c.ClienteId == clienteDaCorrida
+        && c.Canal == CanalOrigem.Simulado && c.Status == StatusConversa.Ativa);
+
+Console.WriteLine($"  sucessos .................. {sucessosDaCorrida.Count}");
+Console.WriteLine($"  conflitos funcionais ...... {conflitosDaCorrida.Count}");
+Console.WriteLine($"  erros inesperados ......... {errosDaCorrida.Count}");
+Console.WriteLine($"  conversas ativas .......... {ativasDaCorrida}");
+foreach (var erro in errosDaCorrida) Console.WriteLine($"    ! {erro}");
+
+if (sucessosDaCorrida.Count != 1 || conflitosDaCorrida.Count != 1 || errosDaCorrida.Count != 0 || ativasDaCorrida != 1)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — a corrida nao terminou em uma vaga e um conflito funcional.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — uma operacao venceu; a outra recebeu cliente_ja_tem_conversa_ativa.");
 }
 
 // ---------------------------------------------------------------------------

@@ -267,6 +267,7 @@ public sealed class RecebimentoDeWhatsApp(
         var ativa = await contexto.Conversas.FirstOrDefaultAsync(
             c => c.TenantId == tenantId
               && c.ClienteId == cliente.Id
+              && c.Canal == CanalOrigem.WhatsApp
               && c.Status == StatusConversa.Ativa, ct);
 
         if (ativa is not null)

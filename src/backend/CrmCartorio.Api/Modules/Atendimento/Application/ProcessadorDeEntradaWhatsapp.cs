@@ -409,9 +409,10 @@ public sealed class ProcessadorDeEntradaWhatsapp(
 
                 // Rebase estritamente condicionado: a versao concorrente provou
                 // diferir apenas dos agregados tecnicos da aceitacao de entrada.
-                // Estados de negocio (inclusive flags, etapa, setor e encerramento)
-                // nunca passam por este caminho.
-                db.Entry(conversa).OriginalValues.SetValues(valoresAtuais);
+                // Tambem atualiza o CurrentValues desses campos, para que o retry
+                // nao grave de volta um valor tecnico obsoleto sobre o incremento
+                // ou timestamp que acabou de vencer a concorrencia.
+                RebasearAgregadosTecnicos(db.Entry(conversa), valoresAtuais);
             }
         }
     }
@@ -434,6 +435,18 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         }
 
         return true;
+    }
+
+    private static void RebasearAgregadosTecnicos(
+        EntityEntry<Conversa> entrada,
+        PropertyValues valoresDoBanco)
+    {
+        foreach (var nomeDaPropriedade in PropriedadesTecnicasDaAceitacao)
+        {
+            entrada.CurrentValues[nomeDaPropriedade] = valoresDoBanco[nomeDaPropriedade];
+            entrada.OriginalValues[nomeDaPropriedade] = valoresDoBanco[nomeDaPropriedade];
+            entrada.Property(nomeDaPropriedade).IsModified = false;
+        }
     }
 
     private async Task DescartarAutomacaoEConcluirEntradaAsync(

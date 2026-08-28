@@ -117,12 +117,12 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.HasIndex(c => new { c.TenantId, c.ClienteId })
             .HasDatabaseName("IX_Conversas_Cliente");
 
-        // Uma unica conversa ativa por cliente, independentemente do canal. Esta
-        // e a mesma invariante de CriarAsync e do recebimento historico.
-        builder.HasIndex(c => new { c.TenantId, c.ClienteId })
+        // Uma unica conversa ativa por cliente e canal. Simulado e demonstracao;
+        // jamais pode absorver uma entrada real do WhatsApp.
+        builder.HasIndex(c => new { c.TenantId, c.ClienteId, c.Canal })
             .IsUnique()
             .HasFilter("[Status] = 1")
-            .HasDatabaseName("UQ_Conversas_Tenant_Cliente_Ativa");
+            .HasDatabaseName("UQ_Conversas_Tenant_Cliente_Canal_Ativa");
 
         // Sustenta o filtro e os contadores de situacao de prazo do painel.
         builder.HasIndex(c => new { c.TenantId, c.Status, c.PrazoLimite })
