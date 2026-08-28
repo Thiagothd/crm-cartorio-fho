@@ -415,8 +415,8 @@ CREATE INDEX IX_Conversas_Atendente ON dbo.Conversas (TenantId, AtendenteId, Sta
 CREATE INDEX IX_Conversas_Etapa     ON dbo.Conversas (TenantId, EtapaId, Status);
 CREATE INDEX IX_Conversas_Setor     ON dbo.Conversas (TenantId, SetorId, Status);
 CREATE INDEX IX_Conversas_Cliente   ON dbo.Conversas (TenantId, ClienteId);
-CREATE UNIQUE INDEX UQ_Conversas_Tenant_Cliente_Canal_Ativa
-    ON dbo.Conversas (TenantId, ClienteId, Canal)
+CREATE UNIQUE INDEX UQ_Conversas_Tenant_Cliente_Ativa
+    ON dbo.Conversas (TenantId, ClienteId)
     WHERE Status = 1;
 CREATE INDEX IX_Conversas_Prazo     ON dbo.Conversas (TenantId, Status, PrazoLimite);
 

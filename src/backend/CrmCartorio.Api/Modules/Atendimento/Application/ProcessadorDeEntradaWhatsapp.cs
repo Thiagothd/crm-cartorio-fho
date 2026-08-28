@@ -7,6 +7,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
@@ -22,6 +23,14 @@ public sealed class ProcessadorDeEntradaWhatsapp(
     ILogger<ProcessadorDeEntradaWhatsapp> log) : IProcessadorDeEntradaWhatsapp
 {
     private static readonly TimeSpan ExpiracaoDoClaim = TimeSpan.FromMinutes(5);
+    private const int MaximoDeTentativasDaEntrada = 6;
+    private static readonly HashSet<string> PropriedadesTecnicasDaAceitacao =
+    [
+        nameof(Conversa.MensagensNaoLidas),
+        nameof(Conversa.UltimaMensagemEm),
+        nameof(Conversa.AtualizadoEm),
+        nameof(Conversa.RowVersion)
+    ];
     private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
 
     public async Task<IReadOnlyList<Guid>> ListarConversasPendentesAsync(
@@ -36,8 +45,8 @@ public sealed class ProcessadorDeEntradaWhatsapp(
                      && m.IdExternoWhatsapp != null
                      && (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Pendente
                          || (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Falha
-                             && (m.ProcessamentoEntradaDisponivelEm == null
-                                 || m.ProcessamentoEntradaDisponivelEm <= agora))
+                             && m.ProcessamentoEntradaDisponivelEm != null
+                             && m.ProcessamentoEntradaDisponivelEm <= agora)
                          || (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processando
                              && m.ProcessamentoEntradaIniciadoEm < expiradoAntesDe)))
             .OrderBy(m => m.EnviadaEm)
@@ -152,7 +161,8 @@ public sealed class ProcessadorDeEntradaWhatsapp(
             || (proxima.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processando
                 && proxima.ProcessamentoEntradaIniciadoEm >= expiradoAntesDe)
             || (proxima.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Falha
-                && proxima.ProcessamentoEntradaDisponivelEm > agora))
+                && (proxima.ProcessamentoEntradaDisponivelEm is null
+                    || proxima.ProcessamentoEntradaDisponivelEm > agora)))
         {
             return null;
         }
@@ -160,7 +170,8 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         var afetadas = await db.Mensagens
             .Where(m => m.Id == proxima.Id
                      && (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Pendente
-                         || m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Falha
+                         || (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Falha
+                             && m.ProcessamentoEntradaDisponivelEm != null)
                          || (m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processando
                              && m.ProcessamentoEntradaIniciadoEm < expiradoAntesDe)))
             .ExecuteUpdateAsync(s => s
@@ -184,6 +195,7 @@ public sealed class ProcessadorDeEntradaWhatsapp(
             .SingleAsync(c => c.Id == recebida.ConversaId, ct);
         var cliente = await db.Clientes
             .SingleAsync(c => c.Id == conversa.ClienteId, ct);
+        var estadoDeNegocioOriginal = db.Entry(conversa).OriginalValues.Clone();
 
         try
         {
@@ -207,12 +219,14 @@ public sealed class ProcessadorDeEntradaWhatsapp(
             recebida.ProcessamentoEntradaDisponivelEm = null;
             recebida.ErroProcessamentoEntrada = null;
 
-            await SalvarSemRepetirEfeitosAsync(conversa, ct);
+            var automacaoPersistida = await SalvarSemRepetirEfeitosAsync(
+                conversa, recebida.Id, estadoDeNegocioOriginal, ct);
 
             log.LogInformation(
-                "WhatsApp: entrada {MensagemId} processada em ordem na conversa {ConversaId}.",
+                "WhatsApp: entrada {MensagemId} processada em ordem na conversa {ConversaId}; automacao {Automacao}.",
                 recebida.Id,
-                conversa.Id);
+                conversa.Id,
+                automacaoPersistida ? "persistida" : "descartada por alteracao humana concorrente");
 
             await NotificarAsync(conversa.TenantId, conversa.Id, ct);
             return true;
@@ -229,9 +243,12 @@ public sealed class ProcessadorDeEntradaWhatsapp(
                 .Where(m => m.Id == mensagemId)
                 .Select(m => m.TentativasProcessamentoEntrada)
                 .SingleAsync(CancellationToken.None);
-            var minutos = Math.Min(60, Math.Max(1, 1 << Math.Min(tentativas - 1, 5)));
             var agora = DateTime.UtcNow;
-            var erro = $"{ex.GetType().Name}: {ex.Message}";
+            var falhaTerminal = tentativas >= MaximoDeTentativasDaEntrada;
+            var minutos = Math.Min(60, Math.Max(1, 1 << Math.Min(tentativas - 1, 5)));
+            var erro = falhaTerminal
+                ? $"FALHA TERMINAL apos {tentativas} tentativas: {ex.GetType().Name}: {ex.Message}"
+                : $"{ex.GetType().Name}: {ex.Message}";
             if (erro.Length > 1000)
             {
                 erro = erro[..1000];
@@ -243,15 +260,27 @@ public sealed class ProcessadorDeEntradaWhatsapp(
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Falha)
                     .SetProperty(m => m.ProcessamentoEntradaIniciadoEm, (DateTime?)null)
-                    .SetProperty(m => m.ProcessamentoEntradaDisponivelEm, agora.AddMinutes(minutos))
+                    .SetProperty(m => m.ProcessamentoEntradaDisponivelEm,
+                        falhaTerminal ? (DateTime?)null : agora.AddMinutes(minutos))
                     .SetProperty(m => m.ErroProcessamentoEntrada, erro)
                     .SetProperty(m => m.AtualizadoEm, agora), CancellationToken.None);
 
-            log.LogError(
-                ex,
-                "Falha ao processar entrada {MensagemId}; nova tentativa em {Minutos} minuto(s).",
-                mensagemId,
-                minutos);
+            if (falhaTerminal)
+            {
+                log.LogCritical(
+                    ex,
+                    "Entrada {MensagemId} atingiu o limite terminal de {Tentativas} tentativas; a conversa exige intervencao humana e as posteriores permanecem bloqueadas.",
+                    mensagemId,
+                    MaximoDeTentativasDaEntrada);
+            }
+            else
+            {
+                log.LogError(
+                    ex,
+                    "Falha ao processar entrada {MensagemId}; nova tentativa em {Minutos} minuto(s).",
+                    mensagemId,
+                    minutos);
+            }
 
             return false;
         }
@@ -343,78 +372,104 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         conversa.AguardandoTriagem = boasVindas.Count > 0;
     }
 
-    private async Task SalvarSemRepetirEfeitosAsync(Conversa conversa, CancellationToken ct)
+    private async Task<bool> SalvarSemRepetirEfeitosAsync(
+        Conversa conversa,
+        Guid mensagemId,
+        PropertyValues estadoDeNegocioOriginal,
+        CancellationToken ct)
     {
         for (var tentativa = 1; ; tentativa++)
         {
-            await SuprimirAutomacaoSeTakeoverAconteceuAsync(conversa, ct);
+            var valoresAtuais = await db.Entry(conversa).GetDatabaseValuesAsync(ct)
+                ?? throw new InvalidOperationException($"Conversa {conversa.Id} deixou de existir durante o processamento.");
+
+            if (!AlteracoesSaoSomenteTecnicas(estadoDeNegocioOriginal, valoresAtuais))
+            {
+                await DescartarAutomacaoEConcluirEntradaAsync(
+                    conversa.Id, mensagemId, "alteracao humana ou de negocio concorrente", ct);
+                return false;
+            }
 
             try
             {
                 await db.SaveChangesAsync(ct);
-                return;
+                return true;
             }
             catch (DbUpdateConcurrencyException) when (tentativa < 5)
             {
-                // Uma entrada aceita em paralelo atualiza apenas os agregados por
-                // SQL atomico e, com isso, avanca a RowVersion. Rebaseamos somente
-                // o token original: as propriedades nao modificadas pelo fluxo nao
-                // sao sobrescritas, e IA/automacao nao sao executadas outra vez.
-                var rowVersionAtual = await db.Conversas.AsNoTracking()
-                    .Where(c => c.Id == conversa.Id)
-                    .Select(c => c.RowVersion)
-                    .SingleAsync(ct);
+                valoresAtuais = await db.Entry(conversa).GetDatabaseValuesAsync(ct)
+                    ?? throw new InvalidOperationException($"Conversa {conversa.Id} deixou de existir durante o processamento.");
 
-                db.Entry(conversa).Property(c => c.RowVersion).OriginalValue = rowVersionAtual;
+                if (!AlteracoesSaoSomenteTecnicas(estadoDeNegocioOriginal, valoresAtuais))
+                {
+                    await DescartarAutomacaoEConcluirEntradaAsync(
+                        conversa.Id, mensagemId, "alteracao humana ou de negocio durante o commit", ct);
+                    return false;
+                }
+
+                // Rebase estritamente condicionado: a versao concorrente provou
+                // diferir apenas dos agregados tecnicos da aceitacao de entrada.
+                // Estados de negocio (inclusive flags, etapa, setor e encerramento)
+                // nunca passam por este caminho.
+                db.Entry(conversa).OriginalValues.SetValues(valoresAtuais);
             }
         }
     }
 
-    private async Task SuprimirAutomacaoSeTakeoverAconteceuAsync(
-        Conversa conversa,
+    private static bool AlteracoesSaoSomenteTecnicas(
+        PropertyValues original,
+        PropertyValues atual)
+    {
+        foreach (var propriedade in original.Properties)
+        {
+            if (PropriedadesTecnicasDaAceitacao.Contains(propriedade.Name))
+            {
+                continue;
+            }
+
+            if (!Equals(original[propriedade], atual[propriedade]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private async Task DescartarAutomacaoEConcluirEntradaAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        string motivo,
         CancellationToken ct)
     {
-        // Se esta propria mensagem pediu humano, o valor local ja e true e as
-        // mensagens de encaminhamento fazem parte do resultado correto. O caso
-        // abaixo e outro: um atendente assumiu DEPOIS de o despacho comecar.
-        if (conversa.EmAtendimentoHumano)
+        // Limpa TODAS as entidades rastreadas, nao so Conversa/Mensagem/Historico:
+        // uma automacao de nome tambem pode ter alterado Cliente.NomePerguntadoEm.
+        // A unica escrita que sobrevive e o estado da entrada ja aceita, por UPDATE
+        // isolado e sem RowVersion da conversa.
+        db.ChangeTracker.Clear();
+
+        var agora = DateTime.UtcNow;
+        var concluidas = await db.Mensagens
+            .Where(m => m.Id == mensagemId
+                     && m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processando)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Processada)
+                .SetProperty(m => m.ProcessamentoEntradaConcluidoEm, agora)
+                .SetProperty(m => m.ProcessamentoEntradaDisponivelEm, (DateTime?)null)
+                .SetProperty(m => m.ErroProcessamentoEntrada, (string?)null)
+                .SetProperty(m => m.AtualizadoEm, agora), ct);
+
+        if (concluidas != 1)
         {
-            return;
+            throw new InvalidOperationException(
+                $"Entrada {mensagemId} deixou o estado Processando durante o descarte conservador da automacao.");
         }
-
-        var humanoNoBanco = await db.Conversas.AsNoTracking()
-            .Where(c => c.Id == conversa.Id)
-            .Select(c => c.EmAtendimentoHumano)
-            .SingleAsync(ct);
-
-        if (!humanoNoBanco)
-        {
-            return;
-        }
-
-        foreach (var entrada in db.ChangeTracker.Entries<Mensagem>()
-                     .Where(e => e.State == EntityState.Added)
-                     .ToList())
-        {
-            entrada.State = EntityState.Detached;
-        }
-
-        foreach (var entrada in db.ChangeTracker.Entries<HistoricoEtapa>()
-                     .Where(e => e.State == EntityState.Added)
-                     .ToList())
-        {
-            entrada.State = EntityState.Detached;
-        }
-
-        var valoresDoBanco = await db.Entry(conversa).GetDatabaseValuesAsync(ct)
-            ?? throw new InvalidOperationException($"Conversa {conversa.Id} deixou de existir durante o processamento.");
-        db.Entry(conversa).CurrentValues.SetValues(valoresDoBanco);
-        db.Entry(conversa).OriginalValues.SetValues(valoresDoBanco);
-        db.Entry(conversa).State = EntityState.Unchanged;
 
         log.LogInformation(
-            "Conversa {ConversaId} entrou em atendimento humano antes do commit; automacao local descartada.",
-            conversa.Id);
+            "Automacao da entrada {MensagemId} na conversa {ConversaId} foi descartada; {Motivo}. A mensagem recebida permaneceu processada sem efeitos conversacionais.",
+            mensagemId,
+            conversaId,
+            motivo);
     }
 
     private async Task NotificarAsync(Guid tenantId, Guid conversaId, CancellationToken ct)

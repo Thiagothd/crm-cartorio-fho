@@ -112,12 +112,33 @@ estar `Processada` antes de a posterior adquirir claim. `Processando` antigo e
 reencontra mensagens mesmo depois de reciclagem do IIS. O canal em memória só
 reduz a latência — nunca é a fonte da verdade.
 
-O índice `UQ_Conversas_Tenant_Cliente_Canal_Ativa` impede que duas primeiras
-mensagens simultâneas abram dois protocolos ativos. Colisão de telefone,
-conversa ativa ou protocolo repete somente a transação curta, antes de qualquer
-efeito externo. O índice IA-03 (`TenantId + IdExternoWhatsapp`, filtrado para
-cliente) continua decidindo reentregas: o mesmo ID produz uma mensagem lógica e
-um processamento lógico.
+Uma falha é retentada no máximo **seis vezes**, com backoff de 1, 2, 4, 8, 16 e
+32 minutos. Na sexta falha ela permanece em `Falha`, sem horário de nova
+disponibilidade e com o prefixo `FALHA TERMINAL` no diagnóstico; o processador
+emite `LogCritical`, não tenta novamente e não deixa entradas posteriores
+ultrapassarem a mensagem problemática. A saída operacional é intervenção humana
+na conversa e no erro registrado — a mensagem recebida nunca é apagada nem é
+marcada como processada com sucesso.
+
+Antes de gravar automação, o worker confronta o estado atual da conversa com o
+snapshot que carregou. Só rebasa o `RowVersion` quando a diferença é limitada a
+`MensagensNaoLidas`, `UltimaMensagemEm`, `AtualizadoEm` e ao próprio token,
+efeitos técnicos da aceitação de outra entrada. Qualquer mudança de negócio —
+status, takeover, atendente, etapa, setor, serviço, flags ou ciclo de
+encerramento/reabertura — descarta todo o `ChangeTracker` da automação e conclui
+somente a entrada recebida. Assim uma IA lenta não sobrescreve decisão humana nem
+deixa alterações colaterais em cliente, histórico ou mensagens automáticas.
+
+Há no máximo uma conversa ativa por cliente dentro do tenant, sem separar por
+canal. Esta é a invariante usada por `ConversaService.CriarAsync` e pelo
+recebimento histórico: uma entrada WhatsApp de um cliente que já tem atendimento
+Simulado ativo é anexada àquela conversa, sem abrir protocolo paralelo. O índice
+`UQ_Conversas_Tenant_Cliente_Ativa` impede que duas primeiras mensagens
+simultâneas abram dois protocolos ativos. Colisão de telefone, conversa ativa ou
+protocolo repete somente a transação curta, antes de qualquer efeito externo. O
+índice IA-03 (`TenantId + IdExternoWhatsapp`, filtrado para cliente) continua
+decidindo reentregas: o mesmo ID produz uma mensagem lógica e um processamento
+lógico.
 
 Há uma janela residual inevitável para IA sem chave idempotente: se o processo
 morrer depois de o provedor responder e antes de persistir a resposta, a retomada

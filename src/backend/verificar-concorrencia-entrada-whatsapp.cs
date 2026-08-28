@@ -76,7 +76,8 @@ async Task<(Guid ClienteId, Guid ConversaId)> CriarConversaAsync(
     string marcador,
     bool humano = false,
     bool aguardandoIa = false,
-    bool comMensagemAnterior = false)
+    bool comMensagemAnterior = false,
+    CanalOrigem canal = CanalOrigem.WhatsApp)
 {
     await using var db = new CrmDbContext(opcoes);
     var telefone = $"5598{Random.Shared.NextInt64(100000000, 999999999)}";
@@ -94,7 +95,7 @@ async Task<(Guid ClienteId, Guid ConversaId)> CriarConversaAsync(
         TenantId = tenantId,
         ClienteId = cliente.Id,
         Protocolo = $"WI2-{Guid.NewGuid():N}"[..20],
-        Canal = CanalOrigem.WhatsApp,
+        Canal = canal,
         Status = StatusConversa.Ativa,
         EmAtendimentoHumano = humano,
         AguardandoRespostaInteligente = aguardandoIa,
@@ -143,6 +144,21 @@ async Task<int> ContarEntradaExataAsync(Guid conversaId, string idExterno)
     return await db.Mensagens.CountAsync(m => m.ConversaId == conversaId
         && m.AutorTipo == AutorTipo.Cliente
         && m.IdExternoWhatsapp == idExterno);
+}
+
+Task ProcessarAsync(Guid conversaId, IRespostaInteligenteService ia, IEnviadorDeCanal? canal = null) =>
+    Task.Run(async () =>
+    {
+        await using var db = new CrmDbContext(opcoes);
+        await NovoProcessador(db, ia, canal).ProcessarConversaAsync(conversaId);
+    });
+
+async Task<Guid> ObterAtendenteAtivoAsync()
+{
+    await using var db = new CrmDbContext(opcoes);
+    return await db.Atendentes.Where(a => a.TenantId == tenantId && a.Ativo)
+        .Select(a => a.Id)
+        .FirstAsync();
 }
 
 try
@@ -232,8 +248,20 @@ try
     {
         var clienteP = await db.Clientes.SingleAsync(c => c.TenantId == tenantId && c.TelefoneWhatsapp == telefonePrimeiro);
         Checar("primeiro contato concorrente cria um cliente", await db.Clientes.CountAsync(c => c.TenantId == tenantId && c.TelefoneWhatsapp == telefonePrimeiro) == 1);
-        Checar("primeiro contato concorrente cria uma conversa ativa", await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == clienteP.Id && c.Canal == CanalOrigem.WhatsApp && c.Status == StatusConversa.Ativa) == 1);
+        Checar("primeiro contato concorrente cria uma conversa ativa", await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == clienteP.Id && c.Status == StatusConversa.Ativa) == 1);
         Checar("primeiro contato concorrente preserva as duas mensagens", await db.Mensagens.CountAsync(m => m.ConversaId == primeiras[0] && (m.IdExternoWhatsapp == $"{prefixoId}P-1" || m.IdExternoWhatsapp == $"{prefixoId}P-2")) == 2);
+    }
+
+    // P2 — a regra histórica é uma conversa ativa por cliente, não por canal.
+    var outroCanal = await CriarConversaAsync("canal-simulado", humano: true, canal: CanalOrigem.Simulado);
+    string telefoneOutroCanal;
+    await using (var db = new CrmDbContext(opcoes))
+        telefoneOutroCanal = await db.Clientes.Where(c => c.Id == outroCanal.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    var conversaReaproveitada = await AceitarAsync(telefoneOutroCanal, $"{prefixoId}P2-whatsapp");
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        Checar("entrada WhatsApp reaproveita conversa ativa de outro canal", conversaReaproveitada == outroCanal.ConversaId);
+        Checar("entrada WhatsApp nao abre protocolo paralelo por canal", await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == outroCanal.ClienteId && c.Status == StatusConversa.Ativa) == 1);
     }
 
     // G — Human Takeover: processa a entrada, IA silenciosa.
@@ -304,6 +332,181 @@ try
         Checar("claim abandonado e recuperado", entrada.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processada && entrada.TentativasProcessamentoEntrada >= 1);
     }
 
+    // R1 — IA em voo perde para takeover humano, em DbContexts independentes.
+    var atendenteHumanoId = await ObterAtendenteAtivoAsync();
+    var takeoverEmVoo = await CriarConversaAsync("takeover-em-voo", aguardandoIa: true, comMensagemAnterior: true);
+    string telefoneTakeover;
+    await using (var db = new CrmDbContext(opcoes)) telefoneTakeover = await db.Clientes.Where(c => c.Id == takeoverEmVoo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    await AceitarAsync(telefoneTakeover, $"{prefixoId}R1-takeover");
+    var iaControladaTakeover = new IaControlada();
+    var processamentoTakeover = ProcessarAsync(takeoverEmVoo.ConversaId, iaControladaTakeover);
+    await iaControladaTakeover.AguardarInicioAsync();
+    await using (var db = new CrmDbContext(opcoes))
+        await db.Conversas.Where(c => c.Id == takeoverEmVoo.ConversaId).ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.AtendenteId, atendenteHumanoId)
+            .SetProperty(c => c.EmAtendimentoHumano, true)
+            .SetProperty(c => c.AtualizadoEm, DateTime.UtcNow));
+    iaControladaTakeover.Liberar();
+    await processamentoTakeover;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        Checar("IA em voo nao persiste resposta apos takeover humano", await db.Mensagens.CountAsync(m => m.ConversaId == takeoverEmVoo.ConversaId && m.GeradaPorIa) == 0);
+        Checar("takeover concorrente preserva a entrada processada", await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R1-takeover").Select(m => m.EstadoProcessamentoEntrada).SingleAsync() == EstadoProcessamentoEntradaWhatsapp.Processada);
+    }
+
+    // R2 — encerrar durante IA em voo tambem vence, mesmo com EmAtendimentoHumano falso.
+    var encerramentoEmVoo = await CriarConversaAsync("encerramento-em-voo", aguardandoIa: true, comMensagemAnterior: true);
+    string telefoneEncerramento;
+    await using (var db = new CrmDbContext(opcoes)) telefoneEncerramento = await db.Clientes.Where(c => c.Id == encerramentoEmVoo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    await AceitarAsync(telefoneEncerramento, $"{prefixoId}R2-encerrar");
+    var iaControladaEncerramento = new IaControlada();
+    var processamentoEncerramento = ProcessarAsync(encerramentoEmVoo.ConversaId, iaControladaEncerramento);
+    await iaControladaEncerramento.AguardarInicioAsync();
+    await using (var db = new CrmDbContext(opcoes))
+        await db.Conversas.Where(c => c.Id == encerramentoEmVoo.ConversaId).ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.Status, StatusConversa.Encerrada)
+            .SetProperty(c => c.EncerradaEm, DateTime.UtcNow)
+            .SetProperty(c => c.EmAtendimentoHumano, false)
+            .SetProperty(c => c.AguardandoRespostaInteligente, false)
+            .SetProperty(c => c.AtualizadoEm, DateTime.UtcNow));
+    iaControladaEncerramento.Liberar();
+    await processamentoEncerramento;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var conversaEncerrada = await db.Conversas.SingleAsync(c => c.Id == encerramentoEmVoo.ConversaId);
+        Checar("encerramento humano em voo permanece encerrado", conversaEncerrada.Status == StatusConversa.Encerrada && conversaEncerrada.EncerradaEm != null);
+        Checar("encerramento humano descarta resposta automatica obsoleta", await db.Mensagens.CountAsync(m => m.ConversaId == encerramentoEmVoo.ConversaId && m.GeradaPorIa) == 0);
+        Checar("encerramento humano preserva a entrada recebida", await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R2-encerrar").Select(m => m.EstadoProcessamentoEntrada).SingleAsync() == EstadoProcessamentoEntradaWhatsapp.Processada);
+    }
+
+    // R3 — mover etapa e transferir durante IA em voo nao podem ser sobrescritos.
+    var moverEmVoo = await CriarConversaAsync("mover-em-voo", aguardandoIa: true, comMensagemAnterior: true);
+    Guid etapaHumanaId;
+    await using (var db = new CrmDbContext(opcoes))
+        etapaHumanaId = await db.EtapasFunil.Where(e => e.TenantId == tenantId && e.Ativo).Select(e => e.Id).FirstAsync();
+    string telefoneMover;
+    await using (var db = new CrmDbContext(opcoes)) telefoneMover = await db.Clientes.Where(c => c.Id == moverEmVoo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    await AceitarAsync(telefoneMover, $"{prefixoId}R3-mover");
+    var iaControladaMover = new IaControlada();
+    var processamentoMover = ProcessarAsync(moverEmVoo.ConversaId, iaControladaMover);
+    await iaControladaMover.AguardarInicioAsync();
+    await using (var db = new CrmDbContext(opcoes))
+        await db.Conversas.Where(c => c.Id == moverEmVoo.ConversaId).ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.EtapaId, etapaHumanaId)
+            .SetProperty(c => c.AtendenteId, atendenteHumanoId)
+            .SetProperty(c => c.EmAtendimentoHumano, true)
+            .SetProperty(c => c.AtualizadoEm, DateTime.UtcNow));
+    iaControladaMover.Liberar();
+    await processamentoMover;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var conversaMovida = await db.Conversas.SingleAsync(c => c.Id == moverEmVoo.ConversaId);
+        Checar("movimentacao e transferencia humanas vencem o processamento", conversaMovida.EtapaId == etapaHumanaId && conversaMovida.AtendenteId == atendenteHumanoId && conversaMovida.EmAtendimentoHumano);
+        Checar("movimentacao humana descarta resposta automatica", await db.Mensagens.CountAsync(m => m.ConversaId == moverEmVoo.ConversaId && m.GeradaPorIa) == 0);
+    }
+
+    // R4 — conflito somente dos agregados tecnicos permite concluir sem segunda IA.
+    var tecnicoEmVoo = await CriarConversaAsync("tecnico-em-voo", aguardandoIa: true, comMensagemAnterior: true);
+    string telefoneTecnico;
+    await using (var db = new CrmDbContext(opcoes)) telefoneTecnico = await db.Clientes.Where(c => c.Id == tecnicoEmVoo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    await AceitarAsync(telefoneTecnico, $"{prefixoId}R4-tecnico");
+    var iaControladaTecnica = new IaControlada();
+    var processamentoTecnico = ProcessarAsync(tecnicoEmVoo.ConversaId, iaControladaTecnica);
+    await iaControladaTecnica.AguardarInicioAsync();
+    var instanteTecnico = DateTime.UtcNow;
+    await using (var db = new CrmDbContext(opcoes))
+        await db.Conversas.Where(c => c.Id == tecnicoEmVoo.ConversaId).ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.MensagensNaoLidas, c => c.MensagensNaoLidas + 1)
+            .SetProperty(c => c.UltimaMensagemEm, instanteTecnico)
+            .SetProperty(c => c.AtualizadoEm, instanteTecnico));
+    iaControladaTecnica.Liberar();
+    await processamentoTecnico;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        Checar("conflito apenas tecnico conclui sem repetir IA", iaControladaTecnica.Chamadas == 1 && await db.Mensagens.CountAsync(m => m.ConversaId == tecnicoEmVoo.ConversaId && m.GeradaPorIa) == 1);
+        Checar("conflito apenas tecnico conclui a entrada", await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R4-tecnico").Select(m => m.EstadoProcessamentoEntrada).SingleAsync() == EstadoProcessamentoEntradaWhatsapp.Processada);
+    }
+
+    // R5 — poison message: seis falhas, diagnostico terminal e bloqueio explicito.
+    var poison = await CriarConversaAsync("poison", aguardandoIa: true, comMensagemAnterior: true);
+    string telefonePoison;
+    await using (var db = new CrmDbContext(opcoes)) telefonePoison = await db.Clientes.Where(c => c.Id == poison.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    var poisonId = $"{prefixoId}R5-poison";
+    await AceitarAsync(telefonePoison, poisonId);
+    var iaPoison = new IaFake(falhar: true);
+    for (var tentativa = 1; tentativa <= 6; tentativa++)
+    {
+        await ProcessarAsync(poison.ConversaId, iaPoison);
+        if (tentativa < 6)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            await db.Mensagens.Where(m => m.IdExternoWhatsapp == poisonId).ExecuteUpdateAsync(s =>
+                s.SetProperty(m => m.ProcessamentoEntradaDisponivelEm, DateTime.UtcNow.AddSeconds(-1)));
+        }
+    }
+    await AceitarAsync(telefonePoison, $"{prefixoId}R5-posterior");
+    await ProcessarAsync(poison.ConversaId, iaPoison);
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        var entradaPoison = await db.Mensagens.SingleAsync(m => m.IdExternoWhatsapp == poisonId);
+        var posteriorPoison = await db.Mensagens.SingleAsync(m => m.IdExternoWhatsapp == $"{prefixoId}R5-posterior");
+        Checar("poison chega ao limite sem retry infinito", iaPoison.Chamadas == 6 && entradaPoison.TentativasProcessamentoEntrada == 6);
+        Checar("poison fica em Falha terminal diagnosticavel", entradaPoison.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Falha && entradaPoison.ProcessamentoEntradaDisponivelEm == null && entradaPoison.ErroProcessamentoEntrada!.StartsWith("FALHA TERMINAL"));
+        Checar("poison preserva posterior duravel e bloqueada em ordem", posteriorPoison.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Pendente);
+    }
+
+    // R6 — varredura: pendente, backoff, stale e saida automatica.
+    var pendenteVarredura = await CriarConversaAsync("varredura-pendente", humano: true);
+    var falhaFuturaVarredura = await CriarConversaAsync("varredura-falha-futura", humano: true);
+    var falhaVencidaVarredura = await CriarConversaAsync("varredura-falha-vencida", humano: true);
+    var processandoRecenteVarredura = await CriarConversaAsync("varredura-processando-recente", humano: true);
+    var processandoStaleVarredura = await CriarConversaAsync("varredura-processando-stale", humano: true);
+    var saidaVarredura = await CriarConversaAsync("varredura-saida", humano: true);
+    string telefonePendente, telefoneFalhaFutura, telefoneFalhaVencida, telefoneRecente, telefoneStale;
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        telefonePendente = await db.Clientes.Where(c => c.Id == pendenteVarredura.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+        telefoneFalhaFutura = await db.Clientes.Where(c => c.Id == falhaFuturaVarredura.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+        telefoneFalhaVencida = await db.Clientes.Where(c => c.Id == falhaVencidaVarredura.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+        telefoneRecente = await db.Clientes.Where(c => c.Id == processandoRecenteVarredura.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+        telefoneStale = await db.Clientes.Where(c => c.Id == processandoStaleVarredura.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    }
+    await AceitarAsync(telefonePendente, $"{prefixoId}R6-pendente");
+    await AceitarAsync(telefoneFalhaFutura, $"{prefixoId}R6-falha-futura");
+    await AceitarAsync(telefoneFalhaVencida, $"{prefixoId}R6-falha-vencida");
+    await AceitarAsync(telefoneRecente, $"{prefixoId}R6-processando-recente");
+    await AceitarAsync(telefoneStale, $"{prefixoId}R6-processando-stale");
+    await using (var db = new CrmDbContext(opcoes))
+    {
+        await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R6-falha-futura").ExecuteUpdateAsync(s => s
+            .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Falha)
+            .SetProperty(m => m.ProcessamentoEntradaDisponivelEm, DateTime.UtcNow.AddMinutes(10)));
+        await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R6-falha-vencida").ExecuteUpdateAsync(s => s
+            .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Falha)
+            .SetProperty(m => m.ProcessamentoEntradaDisponivelEm, DateTime.UtcNow.AddMinutes(-1)));
+        await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R6-processando-recente").ExecuteUpdateAsync(s => s
+            .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Processando)
+            .SetProperty(m => m.ProcessamentoEntradaIniciadoEm, DateTime.UtcNow));
+        await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}R6-processando-stale").ExecuteUpdateAsync(s => s
+            .SetProperty(m => m.EstadoProcessamentoEntrada, EstadoProcessamentoEntradaWhatsapp.Processando)
+            .SetProperty(m => m.ProcessamentoEntradaIniciadoEm, DateTime.UtcNow.AddMinutes(-10)));
+        db.Mensagens.Add(new Mensagem
+        {
+            TenantId = tenantId,
+            ConversaId = saidaVarredura.ConversaId,
+            AutorTipo = AutorTipo.Sistema,
+            Conteudo = "saida automatica pendente",
+            EhAutomatica = true,
+            StatusEntrega = StatusEntrega.Pendente,
+            EnviadaEm = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+    IReadOnlyList<Guid> conversasDaVarredura;
+    await using (var db = new CrmDbContext(opcoes)) conversasDaVarredura = await NovoProcessador(db, new IaFake()).ListarConversasPendentesAsync();
+    Checar("varredura encontra pendente, falha vencida, claim stale e saida pendente", conversasDaVarredura.Contains(pendenteVarredura.ConversaId) && conversasDaVarredura.Contains(falhaVencidaVarredura.ConversaId) && conversasDaVarredura.Contains(processandoStaleVarredura.ConversaId) && conversasDaVarredura.Contains(saidaVarredura.ConversaId));
+    Checar("varredura respeita backoff e claim recente", !conversasDaVarredura.Contains(falhaFuturaVarredura.ConversaId) && !conversasDaVarredura.Contains(processandoRecenteVarredura.ConversaId));
+
     // L — o processador chama a mesma porta de saida; WA-OUT-01 tem verificador proprio.
     var canal = new CanalContador();
     await using (var db = new CrmDbContext(opcoes)) await NovoProcessador(db, new IaFake(), canal).ProcessarConversaAsync(lenta.ConversaId);
@@ -347,6 +550,32 @@ file sealed class IaFake(TimeSpan? atraso = null, bool falhar = false) : IRespos
         {
             Interlocked.Decrement(ref _simultaneas);
         }
+    }
+}
+
+file sealed class IaControlada : IRespostaInteligenteService
+{
+    private readonly TaskCompletionSource _iniciada = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _liberada = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _chamadas;
+
+    public int Chamadas => _chamadas;
+
+    public Task AguardarInicioAsync() => _iniciada.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+    public void Liberar() => _liberada.TrySetResult();
+
+    public async Task<RespostaDaIA> ResponderAsync(
+        Guid tenantId,
+        IReadOnlyList<TrocaAnterior> historico,
+        string mensagemDoCliente,
+        Guid? conversaId = null,
+        CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _chamadas);
+        _iniciada.TrySetResult();
+        await _liberada.Task.WaitAsync(ct);
+        return new RespostaDaIA(true, $"Resposta controlada para: {mensagemDoCliente}", "ok");
     }
 }
 
