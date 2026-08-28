@@ -2436,7 +2436,7 @@ MensagemService NovaMensagemServiceComIaArmada(
 // Mesma ideia de NovoRecebimento, mas com IA armada e notificador
 // substituivel — usado pelos testes de Human Takeover que precisam espiar o
 // que o SignalR receberia.
-RecebimentoDeWhatsApp NovoRecebimentoComIaArmada(
+RecebimentoParaTeste NovoRecebimentoComIaArmada(
     CrmDbContext db, IOrquestradorDeProvedores orquestrador, INotificadorDeAtendimento notificador)
 {
     var opcoesDaIA = Options.Create(new OpcoesDaIA
@@ -2445,17 +2445,19 @@ RecebimentoDeWhatsApp NovoRecebimentoComIaArmada(
         Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
     });
 
-    return new RecebimentoDeWhatsApp(
-        db,
-        new GeradorDeProtocolo(db),
-        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
-        notificador,
-        new CanalSilencioso(),
-        new AnexosEmMemoria(),
-        new RespostaInteligenteService(
-            db, orquestrador, opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
-        opcoesDaIA,
-        NullLogger<RecebimentoDeWhatsApp>.Instance);
+    var sinalizador = new SinalizadorDeEntradaWhatsapp();
+    var anexos = new AnexosEmMemoria();
+    var canal = new CanalSilencioso();
+    var automaticas = new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance);
+    var resposta = new RespostaInteligenteService(
+        db, orquestrador, opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
+
+    return new RecebimentoParaTeste(
+        new RecebimentoDeWhatsApp(
+            db, anexos, notificador, sinalizador, NullLogger<RecebimentoDeWhatsApp>.Instance),
+        new ProcessadorDeEntradaWhatsapp(
+            db, automaticas, notificador, canal, resposta, opcoesDaIA,
+            NullLogger<ProcessadorDeEntradaWhatsapp>.Instance));
 }
 
 // O SERVICO REAL do webhook, com os mesmos dubles silenciosos do resto do
@@ -2464,24 +2466,41 @@ RecebimentoDeWhatsApp NovoRecebimentoComIaArmada(
 // RecebimentoFake no lugar deste. Como o pedido de nome so acontece na PRIMEIRA
 // mensagem de um contato novo, e isso e territorio exclusivo do webhook, cobrir
 // de verdade custou estas dez linhas.
-RecebimentoDeWhatsApp NovoRecebimento(CrmDbContext db)
+RecebimentoParaTeste NovoRecebimento(CrmDbContext db)
 {
     var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
 
-    return new RecebimentoDeWhatsApp(
-        db,
-        new GeradorDeProtocolo(db),
-        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
-        new NotificadorSilencioso(),
-        new CanalSilencioso(),
-        new AnexosEmMemoria(),
-        new RespostaInteligenteService(
-            db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
-        opcoesDaIA,
-        NullLogger<RecebimentoDeWhatsApp>.Instance);
+    var notificador = new NotificadorSilencioso();
+    var sinalizador = new SinalizadorDeEntradaWhatsapp();
+    var automaticas = new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance);
+    var resposta = new RespostaInteligenteService(
+        db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
+
+    return new RecebimentoParaTeste(
+        new RecebimentoDeWhatsApp(
+            db, new AnexosEmMemoria(), notificador, sinalizador,
+            NullLogger<RecebimentoDeWhatsApp>.Instance),
+        new ProcessadorDeEntradaWhatsapp(
+            db, automaticas, notificador, new CanalSilencioso(), resposta, opcoesDaIA,
+            NullLogger<ProcessadorDeEntradaWhatsapp>.Instance));
 }
 
 // ---------------------------------------------------------------------------
+
+file sealed class RecebimentoParaTeste(
+    IRecebimentoDeWhatsApp recebimento,
+    IProcessadorDeEntradaWhatsapp processador)
+{
+    public async Task<Guid> ReceberAsync(
+        Guid tenantId,
+        MensagemDoCanal mensagem,
+        CancellationToken ct = default)
+    {
+        var conversaId = await recebimento.ReceberAsync(tenantId, mensagem, ct);
+        await processador.ProcessarConversaAsync(conversaId, ct);
+        return conversaId;
+    }
+}
 
 /// <summary>Identidade fixa, no lugar das claims do token.</summary>
 file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, PerfilDeAtendente perfil)

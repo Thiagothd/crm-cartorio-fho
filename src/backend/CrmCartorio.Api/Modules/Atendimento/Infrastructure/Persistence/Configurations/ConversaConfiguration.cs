@@ -117,6 +117,13 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.HasIndex(c => new { c.TenantId, c.ClienteId })
             .HasDatabaseName("IX_Conversas_Cliente");
 
+        // Uma unica conversa ativa por canal. O indice e a garantia persistente
+        // para duas primeiras mensagens simultaneas, em qualquer instancia IIS.
+        builder.HasIndex(c => new { c.TenantId, c.ClienteId, c.Canal })
+            .IsUnique()
+            .HasFilter("[Status] = 1")
+            .HasDatabaseName("UQ_Conversas_Tenant_Cliente_Canal_Ativa");
+
         // Sustenta o filtro e os contadores de situacao de prazo do painel.
         builder.HasIndex(c => new { c.TenantId, c.Status, c.PrazoLimite })
             .HasDatabaseName("IX_Conversas_Prazo");

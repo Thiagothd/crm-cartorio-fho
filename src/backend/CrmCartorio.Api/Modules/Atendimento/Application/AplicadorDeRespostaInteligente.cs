@@ -192,6 +192,12 @@ public static class AplicadorDeRespostaInteligente
         var mensagens = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId
                      && m.Id != mensagemAtualId
+                     // No webhook duravel, mensagens posteriores ja podem estar
+                     // persistidas como Pendente. Elas nao pertencem ao historico
+                     // da entrada atual ate serem processadas em ordem.
+                     && (m.AutorTipo != AutorTipo.Cliente
+                         || m.IdExternoWhatsapp == null
+                         || m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processada)
                      && ((m.AutorTipo == AutorTipo.Cliente && m.Id != primeiraMensagemClienteId)
                          || (m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa)))
             .OrderBy(m => m.EnviadaEm).ThenBy(m => m.Id)

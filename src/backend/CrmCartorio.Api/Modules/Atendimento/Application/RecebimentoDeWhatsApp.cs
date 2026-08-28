@@ -1,253 +1,135 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
-using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
-using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
-using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
-/// <inheritdoc cref="IRecebimentoDeWhatsApp"/>
-public class RecebimentoDeWhatsApp(
+/// <summary>
+/// Aceita a entrada do webhook em uma transacao curta. Automacao, IA, Evolution
+/// e SignalR ficam fora do commit que torna a mensagem duravel.
+/// </summary>
+public sealed class RecebimentoDeWhatsApp(
     CrmDbContext db,
-    IGeradorDeProtocolo protocolos,
-    IDisparadorDeMensagemAutomatica automaticas,
-    INotificadorDeAtendimento notificador,
-    IEnviadorDeCanal canal,
     IArmazenamentoDeAnexos anexos,
-    IRespostaInteligenteService respostaInteligente,
-    IOptions<OpcoesDaIA> opcoesDaIA,
+    INotificadorDeAtendimento notificador,
+    SinalizadorDeEntradaWhatsapp sinalizador,
     ILogger<RecebimentoDeWhatsApp> log) : IRecebimentoDeWhatsApp
 {
-    private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
+    private const int MaximoDeTentativasDeAceitacao = 5;
+    private readonly string? _connectionString = db.Database.GetConnectionString();
 
     public async Task<Guid> ReceberAsync(
         Guid tenantId,
         MensagemDoCanal mensagem,
         CancellationToken ct = default)
     {
-        // O gateway reentrega o mesmo evento quando nao recebe 200 a tempo. Sem
-        // esta checagem, uma reentrega viraria mensagem duplicada no fio — e, no
-        // primeiro contato, um segundo protocolo para o mesmo "bom dia".
-        var jaRegistrada = await db.Mensagens.AsNoTracking()
-            .Where(m => m.TenantId == tenantId
-                     && m.AutorTipo == AutorTipo.Cliente
-                     && m.IdExternoWhatsapp == mensagem.IdExterno)
-            .Select(m => (Guid?)m.ConversaId)
-            .FirstOrDefaultAsync(ct);
-
-        if (jaRegistrada is { } existente)
+        for (var tentativa = 1; tentativa <= MaximoDeTentativasDeAceitacao; tentativa++)
         {
-            log.LogInformation(
-                "Mensagem {IdExterno} ja registrada; reentrega do gateway ignorada.",
-                mensagem.IdExterno);
+            await using var aceitacao = NovoContexto();
 
-            return existente;
-        }
-
-        var agora = DateTime.UtcNow;
-
-        await using var transacao = await db.Database.BeginTransactionAsync(ct);
-
-        var cliente = await ResolverClienteAsync(tenantId, mensagem, agora, ct);
-        var (conversa, ehNova) = await ResolverConversaAsync(tenantId, cliente, agora, ct);
-
-        // Grava cliente e conversa ANTES de enfileirar as automaticas. O
-        // disparador resolve {NomeCliente} por CONSULTA ao banco, e um cliente que
-        // so existe no change tracker nao aparece nela — o resultado era um
-        // "Ola, !" na primeira mensagem que o cliente recebe do cartorio.
-        //
-        // Continua tudo na mesma transacao: se algo falhar adiante, nada fica.
-        Mensagem recebida;
-
-        try
-        {
-            await db.SaveChangesAsync(ct);
-
-            recebida = new Mensagem
+            var existente = await ObterConversaDaMensagemAsync(
+                aceitacao, tenantId, mensagem.IdExterno, ct);
+            if (existente is { } conversaExistente)
             {
-                TenantId = tenantId,
-                ConversaId = conversa.Id,
-                AutorTipo = AutorTipo.Cliente,
-                AtendenteId = null,
-                Conteudo = mensagem.Conteudo,
-                Tipo = mensagem.Tipo,
-
-                // Chegou de verdade: Entregue, nao Enviada. Quem entrega para nos e o
-                // WhatsApp, e ele so entrega o que ja chegou.
-                StatusEntrega = StatusEntrega.Entregue,
-                IdExternoWhatsapp = mensagem.IdExterno,
-                EnviadaEm = agora
-            };
-
-            await GravarAnexoAsync(recebida, mensagem.Arquivo, agora, ct);
-
-            db.Mensagens.Add(recebida);
-
-            // Esta e a reivindicacao atomica do evento externo. O indice UNIQUE
-            // filtrado segura a chave ate o fim da transacao: uma reentrega concorrente
-            // para neste SaveChanges e nunca alcanca Gemini/Haiku. Se esta transacao
-            // reverter, a chave e liberada e a outra entrega pode assumir normalmente.
-            await db.SaveChangesAsync(ct);
-
-            // So depois do claim: salvar a Conversa antes da IA manteria um lock
-            // de escrita nela durante toda a chamada externa e impediria um humano
-            // de assumir enquanto a IA esta em voo. O recheck de Human Takeover
-            // depende de a linha da conversa continuar livre nesse intervalo.
-            conversa.UltimaMensagemEm = agora;
-            conversa.MensagensNaoLidas += 1;
-        }
-        catch (DbUpdateException falha) when (EhViolacaoDeUnicidade(falha))
-        {
-            await transacao.RollbackAsync(CancellationToken.None);
-
-            var conversaVencedoraId = await ObterConversaVencedoraAsync(
-                tenantId, mensagem.IdExterno, CancellationToken.None);
-
-            if (conversaVencedoraId is not { } vencedora)
-            {
-                // 2601/2627 tambem pode vir de telefone, protocolo ou outro indice.
-                // So a existencia da identidade EXATA permite chamar isto de reentrega.
-                throw;
+                sinalizador.Sinalizar(conversaExistente);
+                return conversaExistente;
             }
 
-            log.LogInformation(
-                "Mensagem {IdExterno} foi registrada por outra requisicao; reentrega concorrente ignorada.",
-                mensagem.IdExterno);
+            await using var transacao = await aceitacao.Database.BeginTransactionAsync(ct);
+            var agora = DateTime.UtcNow;
 
-            return vencedora;
-        }
-
-        // BUG-ATD-01 — checado ANTES de qualquer outra coisa, inclusive
-        // "ehNova": a conversa ja foi entregue a um humano (cliente pediu
-        // atendente, ou um atendente assumiu por conta propria) e a
-        // automacao conversacional fica muda. A mensagem ja foi gravada e os
-        // contadores acima ja foram atualizados — so falta a notificacao no
-        // fim do metodo, que continua incondicional.
-        //
-        // A pergunta de encerramento por inatividade e a UNICA excecao: se
-        // havia uma pendente, o cliente escrever prova que ele esta vivo —
-        // mesmo principio ja usado em MensagemService.ConcluirEnvioAsync
-        // quando o ATENDENTE responde. Sem isto, a segunda fase da varredura
-        // de inatividade (VarredorDeInatividade.EncerrarSemRespostaAsync)
-        // podia encerrar uma conversa que o cliente acabou de responder, so
-        // porque a automacao nunca chegou a limpar o carimbo.
-        //
-        // SE MEXER AQUI, MEXA EM MensagemService.SimularRecebimentoAsync
-        // TAMBEM — mesma cadeia de despacho, duplicada por enquanto.
-        if (conversa.EmAtendimentoHumano)
-        {
-            if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
+            try
             {
-                conversa.PerguntaDeEncerramentoEnviadaEm = null;
+                var cliente = await ResolverClienteAsync(aceitacao, tenantId, mensagem, agora, ct);
+                var (conversa, ehNova) = await ResolverConversaAsync(
+                    aceitacao, tenantId, cliente, agora, ct);
+
+                // Cliente/conversa precisam existir antes da mensagem, mas ainda
+                // dentro do mesmo commit curto. Nenhum efeito externo ocorreu.
+                await aceitacao.SaveChangesAsync(ct);
+
+                var recebida = new Mensagem
+                {
+                    TenantId = tenantId,
+                    ConversaId = conversa.Id,
+                    AutorTipo = AutorTipo.Cliente,
+                    AtendenteId = null,
+                    Conteudo = mensagem.Conteudo,
+                    Tipo = mensagem.Tipo,
+                    StatusEntrega = StatusEntrega.Entregue,
+                    IdExternoWhatsapp = mensagem.IdExterno,
+                    EnviadaEm = agora,
+                    EstadoProcessamentoEntrada = EstadoProcessamentoEntradaWhatsapp.Pendente
+                };
+
+                await GravarAnexoAsync(recebida, mensagem.Arquivo, agora, ct);
+                aceitacao.Mensagens.Add(recebida);
+
+                // Este INSERT e o claim IA-03. O UNIQUE filtrado continua sendo a
+                // autoridade para reentregas simultaneas do mesmo id externo.
+                await aceitacao.SaveChangesAsync(ct);
+
+                // Agregados sem tracking e sem RowVersion antiga: incremento
+                // atomico e timestamp monotono, dentro do mesmo commit da entrada.
+                var atualizadas = await aceitacao.Conversas
+                    .Where(c => c.Id == conversa.Id && c.TenantId == tenantId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.MensagensNaoLidas, c => c.MensagensNaoLidas + 1)
+                        .SetProperty(
+                            c => c.UltimaMensagemEm,
+                            c => c.UltimaMensagemEm < agora ? agora : c.UltimaMensagemEm)
+                        .SetProperty(c => c.AtualizadoEm, agora), ct);
+
+                if (atualizadas != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Conversa {conversa.Id} nao foi atualizada durante a aceitacao da entrada.");
+                }
+
+                await transacao.CommitAsync(ct);
+
+                log.LogInformation(
+                    "WhatsApp: mensagem {IdExterno} aceita na conversa {ConversaId} ({Origem}).",
+                    mensagem.IdExterno,
+                    conversa.Id,
+                    ehNova ? "conversa nova" : "conversa existente");
+
+                sinalizador.Sinalizar(conversa.Id);
+                await NotificarAsync(tenantId, conversa.Id, ct);
+                return conversa.Id;
+            }
+            catch (DbUpdateException ex) when (EhViolacaoDeUnicidade(ex))
+            {
+                await transacao.RollbackAsync(CancellationToken.None);
+
+                await using var consulta = NovoContexto();
+                var vencedora = await ObterConversaDaMensagemAsync(
+                    consulta, tenantId, mensagem.IdExterno, CancellationToken.None);
+                if (vencedora is { } conversaVencedora)
+                {
+                    // Mesmo id externo: sucesso idempotente, sem novo ciclo logico.
+                    sinalizador.Sinalizar(conversaVencedora);
+                    return conversaVencedora;
+                }
+
+                // Telefone ou conversa ativa foram criados pela outra primeira
+                // mensagem. Repetimos somente a transacao local de aceitacao; IA,
+                // Evolution e automacoes ainda nao foram chamadas.
+                if (tentativa == MaximoDeTentativasDeAceitacao)
+                {
+                    throw;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(10 * tentativa), ct);
             }
         }
-        else if (ehNova)
-        {
-            // Conversa recem-aberta: sai o menu, e so. Aplicar triagem aqui
-            // responderia a pergunta com a MESMA mensagem que a provocou — o
-            // "bom dia" nunca casa com opcao nenhuma, e o cliente receberia o
-            // menu e o "vou encaminhar para um atendente" na mesma tacada, sem
-            // chance de escolher.
-            await EnfileirarPrimeiroContatoAsync(conversa, cliente, agora, ct);
-        }
-        else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
-                     db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), ct))
-        {
-            // Primeiro de todos, ate antes do "menu": a pergunta de encerramento
-            // pode ter saido com a conversa em qualquer estado, entao tratar isso
-            // dentro de um ramo especifico a deixaria refem de qual flag estava
-            // ligada. Ver AplicadorDeEncerramentoPorInatividade.
-            //
-            // CUIDADO: esta condicao tem efeito colateral quando devolve false —
-            // ela ja cancelou a pergunta pendente, e a mensagem segue a cadeia
-            // abaixo de proposito. Nao e um `if` puro.
-        }
-        else if (TriagemAutomatica.PediuMenu(mensagem.Conteudo))
-        {
-            // Checado ANTES de qualquer flag — achado ao vivo, 2026-08-18: so
-            // dentro de AplicadorDePosAtendimento deixava a saida de emergencia
-            // refem de AguardandoRespostaInteligente estar desligada, o que
-            // deixou de ser garantido quando a IA passou a manter essa flag
-            // ligada mesmo sem saber responder (mesmo dia). Ver
-            // AplicadorDePosAtendimento.ReabrirDoZeroAsync.
-            await AplicadorDePosAtendimento.ReabrirDoZeroAsync(
-                db, automaticas, conversa, agora.AddMilliseconds(1), ct);
-        }
-        else if (conversa.AguardandoNome)
-        {
-            // Abaixo do "menu" de proposito: a saida de emergencia foi hasteada
-            // acima de TODAS as flags em 2026-08-18 justamente para nenhuma delas
-            // toma-la refem, e esta e mais uma flag. Quem digitar "menu" em vez do
-            // nome recomeca do zero — e ReabrirDoZeroAsync limpa AguardandoNome.
-            //
-            // O retorno deste aplicador NAO e condicao de despacho: ele consome a
-            // mensagem sempre. Ver o remark dele para o porque.
-            await AplicadorDePedidoDeNome.AplicarAsync(
-                db, automaticas, conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct);
-        }
-        else if (conversa.AguardandoTriagem)
-        {
-            // Um milissegundo a frente, e nao o mesmo `agora`: o fio ordena por
-            // EnviadaEm e desempata por Id, mas o SQL Server compara
-            // uniqueidentifier numa ordem de bytes propria que NAO e a ordem
-            // cronologica do Guid v7. Com timestamp igual, a resposta da triagem
-            // podia aparecer acima da mensagem que a provocou — observado no fio.
-            //
-            // Separar o instante torna a ordem determinista sem depender de como
-            // o banco compara GUID.
-            await AplicadorDeTriagem.AplicarAsync(
-                db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
-        }
-        else if (conversa.AguardandoEscolhaDeServico)
-        {
-            // Mesmo ajuste de um milissegundo dos outros ramos, e pelo mesmo motivo.
-            await AplicadorDeEscolhaDeServico.AplicarAsync(
-                db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
-        }
-        else if (conversa.AguardandoRespostaInteligente)
-        {
-            // Mesmo ajuste de um milissegundo do ramo da triagem acima, e pelo
-            // mesmo motivo: a resposta da IA tem de aparecer DEPOIS da mensagem que
-            // a provocou, e Guid v7 sozinho nao garante isso com timestamp igual.
-            await AplicadorDeRespostaInteligente.AplicarAsync(
-                db, respostaInteligente, automaticas, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
-        }
-        else
-        {
-            // Nenhuma flag de fluxo ligada — o atendimento estruturado ja
-            // terminou. Sem este ramo a mensagem so era gravada e nada respondia
-            // (achado ao vivo, 2026-08-17): agora e sempre tratada, nem que seja
-            // pela IA. Mesmo ajuste de um milissegundo dos outros ramos.
-            await AplicadorDePosAtendimento.AplicarAsync(
-                db, automaticas, respostaInteligente, _opcoesDaIA,
-                conversa, mensagem.Conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
-        }
 
-        await db.SaveChangesAsync(ct);
-        await transacao.CommitAsync(ct);
-
-        log.LogInformation(
-            "WhatsApp: mensagem de {Telefone} registrada na conversa {ConversaId} ({Origem}).",
-            mensagem.TelefoneE164, conversa.Id, ehNova ? "conversa nova" : "conversa existente");
-
-        // Boas-vindas, menu de triagem e o aviso de encaminhamento saem AQUI —
-        // depois do commit, nunca dentro da transacao. Uma chamada de rede presa
-        // numa transacao aberta segura o lock da conversa pelo tempo do gateway.
-        await canal.EnviarPendentesAsync(conversa.Id, ct);
-
-        await NotificarAsync(tenantId, conversa.Id, ct);
-
-        return conversa.Id;
+        throw new InvalidOperationException("A aceitacao da mensagem excedeu o numero de tentativas.");
     }
 
     public async Task AtualizarEntregaAsync(
@@ -257,13 +139,6 @@ public class RecebimentoDeWhatsApp(
         CancellationToken ct = default)
     {
         var agora = DateTime.UtcNow;
-
-        // So anda para frente. O WhatsApp entrega confirmacoes fora de ordem com
-        // frequencia; sem o filtro por StatusEntrega, um DELIVERY_ACK atrasado
-        // rebaixaria para "Entregue" uma mensagem que o cliente ja leu.
-        //
-        // ExecuteUpdate e nao entidade rastreada: Conversa carrega RowVersion, e o
-        // caminho do webhook nao pode colidir com quem esta atendendo.
         var afetadas = status switch
         {
             StatusEntrega.Entregue => await db.Mensagens
@@ -312,24 +187,127 @@ public class RecebimentoDeWhatsApp(
         }
     }
 
-    /// <summary>
-    /// Grava o anexo em disco e carimba os campos na mensagem.
-    /// </summary>
-    /// <remarks>
-    /// <b>Falha aqui nao derruba a mensagem.</b> Tipo fora da lista de
-    /// permitidos, arquivo grande demais, disco cheio — em todos, a mensagem
-    /// entra no fio com a legenda e sem o arquivo. O oposto seria perder a
-    /// mensagem do cliente por causa de um anexo, e uma figurinha recusada
-    /// silenciaria uma pergunta de verdade.
-    ///
-    /// O <c>Tipo</c> passa a ser o que a lista de permitidos diz, e nao o que o
-    /// WhatsApp declarou: e a mesma informacao vinda de uma fonte que nos
-    /// controlamos.
-    ///
-    /// Arquivo gravado com a transacao aberta pode virar orfao em disco se o
-    /// commit falhar adiante. Preferido ao contrario — linha apontando para
-    /// arquivo que nunca existiu quebra o fio; arquivo sem linha so ocupa espaco.
-    /// </remarks>
+    private CrmDbContext NovoContexto()
+    {
+        var opcoes = new DbContextOptionsBuilder<CrmDbContext>();
+        ConfiguracaoDoBanco.Configurar(opcoes, _connectionString);
+        return new CrmDbContext(opcoes.Options);
+    }
+
+    private static async Task<Guid?> ObterConversaDaMensagemAsync(
+        CrmDbContext contexto,
+        Guid tenantId,
+        string idExterno,
+        CancellationToken ct) =>
+        await contexto.Mensagens.AsNoTracking()
+            .Where(m => m.TenantId == tenantId
+                     && m.AutorTipo == AutorTipo.Cliente
+                     && m.IdExternoWhatsapp == idExterno)
+            // A unicidade IA-03 protege as novas entradas. A ordenação torna a
+            // recuperação idempotente também diante de registros históricos
+            // eventualmente duplicados, sem transformar um redelivery em erro.
+            .OrderBy(m => m.CriadoEm)
+            .Select(m => (Guid?)m.ConversaId)
+            .FirstOrDefaultAsync(ct);
+
+    private static async Task<Cliente> ResolverClienteAsync(
+        CrmDbContext contexto,
+        Guid tenantId,
+        MensagemDoCanal mensagem,
+        DateTime agora,
+        CancellationToken ct)
+    {
+        var cliente = await contexto.Clientes.FirstOrDefaultAsync(
+            c => c.TenantId == tenantId && c.TelefoneWhatsapp == mensagem.TelefoneE164, ct);
+
+        if (cliente is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(mensagem.NomeDoPerfil)
+                && !NomeDeContato.EhUtil(cliente.Nome)
+                && NomeDeContato.EhUtil(mensagem.NomeDoPerfil))
+            {
+                cliente.Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164);
+                cliente.AtualizadoEm = agora;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mensagem.FotoPerfilUrl)
+                && cliente.FotoPerfilUrl != mensagem.FotoPerfilUrl)
+            {
+                cliente.FotoPerfilUrl = mensagem.FotoPerfilUrl;
+                cliente.FotoPerfilAtualizadaEm = agora;
+                cliente.AtualizadoEm = agora;
+            }
+
+            return cliente;
+        }
+
+        cliente = new Cliente
+        {
+            TenantId = tenantId,
+            Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164),
+            TelefoneWhatsapp = mensagem.TelefoneE164,
+            FotoPerfilUrl = mensagem.FotoPerfilUrl,
+            FotoPerfilAtualizadaEm = mensagem.FotoPerfilUrl is not null ? agora : null,
+            Ativo = true,
+            OrigemDoCadastro = OrigemDoCadastro.Webhook,
+            CriadoEm = agora,
+            AtualizadoEm = agora
+        };
+        contexto.Clientes.Add(cliente);
+        return cliente;
+    }
+
+    private static async Task<(Conversa Conversa, bool EhNova)> ResolverConversaAsync(
+        CrmDbContext contexto,
+        Guid tenantId,
+        Cliente cliente,
+        DateTime agora,
+        CancellationToken ct)
+    {
+        var ativa = await contexto.Conversas.FirstOrDefaultAsync(
+            c => c.TenantId == tenantId
+              && c.ClienteId == cliente.Id
+              && c.Canal == CanalOrigem.WhatsApp
+              && c.Status == StatusConversa.Ativa, ct);
+
+        if (ativa is not null)
+        {
+            return (ativa, false);
+        }
+
+        var etapaInicial = await contexto.EtapasFunil.AsNoTracking()
+            .Where(e => e.TenantId == tenantId && e.Ativo)
+            .OrderBy(e => e.Ordem)
+            .Select(e => (Guid?)e.Id)
+            .FirstOrDefaultAsync(ct);
+        var protocolo = await new GeradorDeProtocolo(contexto).GerarAsync(tenantId, agora, ct);
+
+        var conversa = new Conversa
+        {
+            TenantId = tenantId,
+            ClienteId = cliente.Id,
+            Protocolo = protocolo,
+            EtapaId = etapaInicial,
+            Status = StatusConversa.Ativa,
+            Canal = CanalOrigem.WhatsApp,
+            IniciadaEm = agora,
+            UltimaMensagemEm = agora
+        };
+        contexto.Conversas.Add(conversa);
+        contexto.HistoricoEtapas.Add(new HistoricoEtapa
+        {
+            TenantId = tenantId,
+            ConversaId = conversa.Id,
+            TipoMudanca = TipoMudancaHistorico.Abertura,
+            EtapaNovaId = etapaInicial,
+            AtendenteId = null,
+            OcorridoEm = agora,
+            Observacao = $"Atendimento aberto pelo WhatsApp com o protocolo {protocolo}."
+        });
+
+        return (conversa, true);
+    }
+
     private async Task GravarAnexoAsync(
         Mensagem mensagem,
         ArquivoDoCanal? arquivo,
@@ -351,237 +329,18 @@ public class RecebimentoDeWhatsApp(
                 arquivo.Nome,
                 arquivo.TipoMime,
                 ct);
-
             mensagem.ArquivoCaminho = gravado.CaminhoRelativo;
             mensagem.ArquivoNome = gravado.Nome;
             mensagem.ArquivoTipoMime = gravado.TipoMime;
             mensagem.ArquivoTamanhoBytes = gravado.TamanhoBytes;
             mensagem.Tipo = gravado.Tipo;
         }
-        catch (Exception falha) when (falha is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            log.LogWarning(
-                falha,
-                "Anexo da mensagem {IdExterno} nao foi gravado; a mensagem entra sem arquivo.",
-                mensagem.IdExternoWhatsapp);
+            log.LogWarning(ex, "Anexo da mensagem {IdExterno} falhou; a entrada sera preservada sem arquivo.", mensagem.IdExternoWhatsapp);
         }
     }
 
-    /// <summary>
-    /// Acha o cliente pelo telefone ou cria um com o nome do perfil do WhatsApp.
-    /// </summary>
-    /// <remarks>
-    /// O telefone e a identidade (README de Clientes): unico por tenant, guardado
-    /// em E.164 sem simbolos. Nome nasce do perfil e e corrigido pelo atendente
-    /// quando a identificacao real aparece — exigir qualificacao no primeiro "bom
-    /// dia" travaria o atendimento.
-    /// </remarks>
-    private async Task<Cliente> ResolverClienteAsync(
-        Guid tenantId,
-        MensagemDoCanal mensagem,
-        DateTime agora,
-        CancellationToken ct)
-    {
-        var cliente = await db.Clientes
-            .FirstOrDefaultAsync(
-                c => c.TenantId == tenantId && c.TelefoneWhatsapp == mensagem.TelefoneE164, ct);
-
-        if (cliente is not null)
-        {
-            // Cliente cadastrado sem nome util (".", emoji, o proprio telefone)
-            // ganha o nome do perfil assim que ele melhorar. Nome ja utilizavel NAO
-            // e sobrescrito: pode ter sido corrigido a mao por um atendente, ou dito
-            // pelo proprio cliente, e o perfil do WhatsApp e dele, nao nosso.
-            //
-            // A guarda era `IsNullOrWhiteSpace(cliente.Nome)` e nunca disparava: o
-            // fallback do telefone (abaixo) garante que o campo nunca fica vazio,
-            // entao a promessa deste comentario existia so no comentario. Com
-            // EhUtil ela passa a valer de verdade — e para quem ja tem nome bom a
-            // condicao continua falsa, exatamente como antes.
-            if (!string.IsNullOrWhiteSpace(mensagem.NomeDoPerfil)
-                && !NomeDeContato.EhUtil(cliente.Nome)
-                && NomeDeContato.EhUtil(mensagem.NomeDoPerfil))
-            {
-                cliente.Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164);
-                cliente.AtualizadoEm = agora;
-            }
-
-            if (!string.IsNullOrWhiteSpace(mensagem.FotoPerfilUrl) && cliente.FotoPerfilUrl != mensagem.FotoPerfilUrl)
-            {
-                cliente.FotoPerfilUrl = mensagem.FotoPerfilUrl;
-                cliente.FotoPerfilAtualizadaEm = agora;
-                cliente.AtualizadoEm = agora;
-            }
-
-            return cliente;
-        }
-
-        cliente = new Cliente
-        {
-            TenantId = tenantId,
-            // Mesmo resultado de sempre para perfil real; DoPerfil so acrescenta o
-            // Trim e o corte em 200 caracteres, que impedia uma classe de mensagem
-            // perdida — ver NomeDeContato.DoPerfil.
-            Nome = NomeDeContato.DoPerfil(mensagem.NomeDoPerfil, mensagem.TelefoneE164),
-            TelefoneWhatsapp = mensagem.TelefoneE164,
-            FotoPerfilUrl = mensagem.FotoPerfilUrl,
-            FotoPerfilAtualizadaEm = mensagem.FotoPerfilUrl is not null ? agora : null,
-            Ativo = true,
-            OrigemDoCadastro = OrigemDoCadastro.Webhook,
-            CriadoEm = agora,
-            AtualizadoEm = agora
-        };
-
-        db.Clientes.Add(cliente);
-
-        log.LogInformation("WhatsApp: cliente novo criado para {Telefone}.", mensagem.TelefoneE164);
-
-        return cliente;
-    }
-
-    /// <summary>
-    /// Reaproveita a conversa ativa do cliente ou abre uma nova.
-    /// </summary>
-    /// <remarks>
-    /// Reaproveitar e o comportamento certo: cada mensagem nova do mesmo cliente
-    /// abrindo um protocolo faria uma conversa de cinco linhas virar cinco
-    /// atendimentos. Conversa encerrada NAO e reaberta automaticamente — o cliente
-    /// que volta depois de encerrado tem um assunto novo, e o historico anterior
-    /// continua consultavel pelo protocolo.
-    /// </remarks>
-    private async Task<(Conversa Conversa, bool EhNova)> ResolverConversaAsync(
-        Guid tenantId,
-        Cliente cliente,
-        DateTime agora,
-        CancellationToken ct)
-    {
-        var ativa = await db.Conversas
-            .FirstOrDefaultAsync(
-                c => c.TenantId == tenantId
-                  && c.ClienteId == cliente.Id
-                  && c.Status == StatusConversa.Ativa, ct);
-
-        if (ativa is not null)
-        {
-            return (ativa, false);
-        }
-
-        var etapaInicial = await db.EtapasFunil.AsNoTracking()
-            .Where(e => e.TenantId == tenantId && e.Ativo)
-            .OrderBy(e => e.Ordem)
-            .Select(e => (Guid?)e.Id)
-            .FirstOrDefaultAsync(ct);
-
-        var protocolo = await protocolos.GerarAsync(tenantId, agora, ct);
-
-        var conversa = new Conversa
-        {
-            TenantId = tenantId,
-            ClienteId = cliente.Id,
-            Protocolo = protocolo,
-            EtapaId = etapaInicial,
-            Status = StatusConversa.Ativa,
-
-            // O que separa esta conversa das 11 de demonstracao. E por este campo
-            // que o envio decide se sai pelo gateway ou fica so no painel.
-            Canal = CanalOrigem.WhatsApp,
-            IniciadaEm = agora,
-            UltimaMensagemEm = agora
-        };
-
-        db.Conversas.Add(conversa);
-
-        db.HistoricoEtapas.Add(new HistoricoEtapa
-        {
-            TenantId = tenantId,
-            ConversaId = conversa.Id,
-            TipoMudanca = TipoMudancaHistorico.Abertura,
-            EtapaNovaId = etapaInicial,
-            AtendenteId = null,
-            OcorridoEm = agora,
-            Observacao = $"Atendimento aberto pelo WhatsApp com o protocolo {protocolo}."
-        });
-
-        return (conversa, true);
-    }
-
-    /// <summary>
-    /// O que sai na primeira mensagem de um contato: ou a pergunta do nome, ou as
-    /// boas-vindas de sempre.
-    /// </summary>
-    /// <remarks>
-    /// Perguntar antes do menu tem uma razao pratica alem da cortesia: as
-    /// boas-vindas resolvem <c>{NomeCliente}</c>, entao mandar o menu primeiro
-    /// significaria mandar "Ola, .!" para so depois descobrir como a pessoa se
-    /// chama. Com a pergunta na frente, a primeira mensagem que traz o nome ja
-    /// traz o nome certo.
-    ///
-    /// <b>Tres condicoes, e todas precisam ser verdade:</b> o nome nao serve, o
-    /// contato nunca foi perguntado, e existe texto cadastrado para o gatilho. A
-    /// terceira nao e detalhe — <c>EnfileirarAsync</c> devolve lista vazia quando
-    /// a serventia desativou a regra, e sem este teto um clique no Switch da tela
-    /// deixaria o contato novo sem pergunta, sem menu e sem flag: mudo. Cai para as
-    /// boas-vindas na MESMA passada, porque "Ola!" e infinitamente melhor que
-    /// silencio (FLUXO-AUTOMACAO.md, secao 1).
-    /// </remarks>
-    private async Task EnfileirarPrimeiroContatoAsync(
-        Conversa conversa,
-        Cliente cliente,
-        DateTime agora,
-        CancellationToken ct)
-    {
-        if (!NomeDeContato.EhUtil(cliente.Nome) && cliente.NomePerguntadoEm is null)
-        {
-            var pedido = await automaticas.EnfileirarAsync(
-                conversa, GatilhoDeMensagem.PedidoDeNome, ct: ct);
-
-            if (pedido.Count > 0)
-            {
-                conversa.AguardandoNome = true;
-                cliente.NomePerguntadoEm = agora;
-
-                log.LogInformation(
-                    "WhatsApp: contato {Telefone} chegou sem nome utilizavel; pergunta enviada.",
-                    cliente.TelefoneWhatsapp);
-
-                return;
-            }
-        }
-
-        await EnfileirarBoasVindasAsync(conversa, ct);
-    }
-
-    /// <summary>
-    /// Boas-vindas com o menu de triagem.
-    /// </summary>
-    /// <remarks>
-    /// Roda depois de o cliente ja estar gravado, e depois da mensagem dele
-    /// entrar na fila: o disparador resolve {NomeCliente} por consulta ao banco, e
-    /// a ordem de insercao e o que faz o menu aparecer DEPOIS do "bom dia" no fio.
-    ///
-    /// A flag depende de o menu ter REALMENTE saido: sem regra cadastrada nao ha
-    /// menu, e esperar resposta de uma pergunta que ninguem fez faria a proxima
-    /// mensagem do cliente receber um fallback vindo do nada.
-    /// </remarks>
-    private async Task EnfileirarBoasVindasAsync(Conversa conversa, CancellationToken ct)
-    {
-        var boasVindas = await automaticas.EnfileirarAsync(
-            conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
-
-        conversa.AguardandoTriagem = boasVindas.Count > 0;
-    }
-
-    /// <summary>
-    /// Empurra a conversa para os paineis abertos.
-    /// </summary>
-    /// <remarks>
-    /// Nao usa <c>IConversaService</c> de proposito — aquele servico le TenantId de
-    /// <c>IContextoDoUsuario</c>, que aqui nao existe. As projecoes estaticas
-    /// recebem o tenant explicitamente e servem aos dois mundos.
-    ///
-    /// Falha de notificacao nao pode desfazer o que ja foi gravado: a mensagem
-    /// aparece na proxima leitura do painel de qualquer forma.
-    /// </remarks>
     private async Task NotificarAsync(Guid tenantId, Guid conversaId, CancellationToken ct)
     {
         try
@@ -589,39 +348,15 @@ public class RecebimentoDeWhatsApp(
             var projecao = await ProjecaoDeConversa
                 .De(db, db.Conversas.AsNoTracking().Where(c => c.Id == conversaId))
                 .FirstAsync(ct);
-
             await notificador.ConversaAtualizadaAsync(
                 tenantId, projecao.ParaResposta(DateTime.UtcNow), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            log.LogWarning(
-                ex,
-                "Mensagem gravada na conversa {ConversaId}, mas a notificacao em tempo real falhou",
-                conversaId);
+            log.LogWarning(ex, "Entrada aceita na conversa {ConversaId}, mas o SignalR falhou.", conversaId);
         }
     }
 
     private static bool EhViolacaoDeUnicidade(DbUpdateException falha) =>
         falha.InnerException is SqlException { Number: 2601 or 2627 };
-
-    /// <remarks>
-    /// Contexto novo de proposito: depois de DbUpdateException o contexto perdedor
-    /// ainda rastreia a Mensagem como Added. A consulta que classifica a colisao nao
-    /// pode compartilhar esse estado nem a transacao que acabou de ser revertida.
-    /// </remarks>
-    private async Task<Guid?> ObterConversaVencedoraAsync(
-        Guid tenantId, string idExterno, CancellationToken ct)
-    {
-        var opcoes = new DbContextOptionsBuilder<CrmDbContext>();
-        ConfiguracaoDoBanco.Configurar(opcoes, db.Database.GetConnectionString());
-        await using var consulta = new CrmDbContext(opcoes.Options);
-
-        return await consulta.Mensagens.AsNoTracking()
-            .Where(m => m.TenantId == tenantId
-                     && m.AutorTipo == AutorTipo.Cliente
-                     && m.IdExternoWhatsapp == idExterno)
-            .Select(m => (Guid?)m.ConversaId)
-            .SingleOrDefaultAsync(ct);
-    }
 }

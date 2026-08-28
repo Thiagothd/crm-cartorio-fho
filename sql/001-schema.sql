@@ -415,6 +415,9 @@ CREATE INDEX IX_Conversas_Atendente ON dbo.Conversas (TenantId, AtendenteId, Sta
 CREATE INDEX IX_Conversas_Etapa     ON dbo.Conversas (TenantId, EtapaId, Status);
 CREATE INDEX IX_Conversas_Setor     ON dbo.Conversas (TenantId, SetorId, Status);
 CREATE INDEX IX_Conversas_Cliente   ON dbo.Conversas (TenantId, ClienteId);
+CREATE UNIQUE INDEX UQ_Conversas_Tenant_Cliente_Canal_Ativa
+    ON dbo.Conversas (TenantId, ClienteId, Canal)
+    WHERE Status = 1;
 CREATE INDEX IX_Conversas_Prazo     ON dbo.Conversas (TenantId, Status, PrazoLimite);
 
 -- Varredura de prazo. Filtrados porque, em regime, quase toda conversa antiga ja
@@ -477,6 +480,15 @@ CREATE TABLE dbo.Mensagens
     -- ID da mensagem na Meta. Preenchido apenas na Fase 2.
     IdExternoWhatsapp VARCHAR(80)      NULL,
 
+    -- Fila duravel da entrada: 1 Pendente, 2 Processando, 3 Processada, 4 Falha.
+    -- Nulo para mensagens que nao vieram do webhook.
+    EstadoProcessamentoEntrada       TINYINT       NULL,
+    ProcessamentoEntradaIniciadoEm   DATETIME2(3)  NULL,
+    ProcessamentoEntradaConcluidoEm  DATETIME2(3)  NULL,
+    ProcessamentoEntradaDisponivelEm DATETIME2(3)  NULL,
+    TentativasProcessamentoEntrada   INT           NOT NULL CONSTRAINT DF_Mensagens_TentativasProcessamentoEntrada DEFAULT (0),
+    ErroProcessamentoEntrada         NVARCHAR(1000) NULL,
+
     -- Mensagem original citada numa resposta. Sempre da mesma conversa,
     -- validado pelo servico antes de gravar.
     MensagemRespondidaId UNIQUEIDENTIFIER NULL,
@@ -510,6 +522,11 @@ CREATE TABLE dbo.Mensagens
     CONSTRAINT CK_Mensagens_AutorTipo     CHECK (AutorTipo     IN (1, 2, 3)),
     CONSTRAINT CK_Mensagens_Tipo          CHECK (Tipo          IN (1, 2, 3, 4, 5)),
     CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5, 6)),
+    CONSTRAINT CK_Mensagens_ProcessamentoEntrada CHECK
+    (
+        EstadoProcessamentoEntrada IS NULL OR
+        (AutorTipo = 1 AND IdExternoWhatsapp IS NOT NULL AND EstadoProcessamentoEntrada IN (1, 2, 3, 4))
+    ),
 
     -- Rede de seguranca do RF-007 no banco: mensagem de atendente sem AtendenteId
     -- nao entra, venha de onde vier (API, importacao, webhook da Fase 2).
@@ -535,6 +552,11 @@ CREATE INDEX IX_Mensagens_Fixada ON dbo.Mensagens (ConversaId) WHERE FixadaEm IS
 CREATE UNIQUE INDEX UQ_Mensagens_Tenant_IdExterno_Cliente
     ON dbo.Mensagens (TenantId, IdExternoWhatsapp)
     WHERE IdExternoWhatsapp IS NOT NULL AND AutorTipo = 1;
+CREATE INDEX IX_Mensagens_ProcessamentoEntrada
+    ON dbo.Mensagens
+       (EstadoProcessamentoEntrada, ProcessamentoEntradaDisponivelEm,
+        ProcessamentoEntradaIniciadoEm, ConversaId, EnviadaEm)
+    WHERE EstadoProcessamentoEntrada IN (1, 2, 4);
 GO
 
 /* -----------------------------------------------------------------------------
