@@ -186,11 +186,21 @@ public class AtendenteService(
 
         // SEC-01: mesma logica atomica de AutenticacaoService.AlterarSenhaAsync
         // — grava o hash e sobe TokenVersion numa unica instrucao SQL.
+        //
+        // SEC-02: a mesma instrucao tambem DESBLOQUEIA. Redefinir a senha e a
+        // saida administrativa para uma conta travada — sem ela, um atendente
+        // bloqueado por engano (ou por ataque de terceiro contra o e-mail dele)
+        // ficaria esperando ate 30 minutos mesmo com o administrador presente e
+        // disposto a resolver. Zera incondicionalmente: quem pode redefinir a
+        // senha de alguem ja tem autoridade suficiente para destravar a conta.
         var afetadas = await db.Atendentes
             .Where(a => a.Id == id && a.TenantId == ctx.TenantId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.SenhaHash, novoHash)
-                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
+                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1)
+                .SetProperty(a => a.FalhasDeLoginConsecutivas, 0)
+                .SetProperty(a => a.NivelDeBloqueio, (byte)0)
+                .SetProperty(a => a.BloqueadoAte, (DateTime?)null), ct);
 
         if (afetadas == 0)
         {

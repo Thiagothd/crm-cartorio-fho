@@ -45,6 +45,30 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// </summary>
     public int TokenVersion { get; set; } = 1;
 
+    /// <summary>
+    /// SEC-02: falhas de login seguidas desde o ultimo sucesso ou desbloqueio.
+    /// Ao chegar em <c>5</c>, volta a zero e abre um novo bloqueio — o ciclo se
+    /// conta de novo do zero a cada bloqueio, nao acumula para sempre.
+    /// </summary>
+    public int FalhasDeLoginConsecutivas { get; set; }
+
+    /// <summary>
+    /// SEC-02: quantos bloqueios seguidos ja aconteceram SEM login bem-sucedido
+    /// no meio. Escolhe o tempo do proximo bloqueio na progressao 1, 2, 4, 8, 16
+    /// e 30 minutos; para no 6 (teto de 30 min). Um login bem-sucedido zera isto —
+    /// e por isso a progressao recomeca em 1 minuto para quem de fato voltou a
+    /// entrar.
+    /// </summary>
+    public byte NivelDeBloqueio { get; set; }
+
+    /// <summary>
+    /// SEC-02: enquanto estiver preenchido e no futuro, o login e recusado —
+    /// <b>mesmo com a senha correta</b>. So a passagem do tempo ou uma
+    /// redefinicao de senha pelo administrador liberam a conta; acertar a senha
+    /// nao fura bloqueio vigente. Ver <c>AutenticacaoService.AutenticarAsync</c>.
+    /// </summary>
+    public DateTime? BloqueadoAte { get; set; }
+
     public DateTime? UltimoAcessoEm { get; set; }
 
     public bool PodeGerirCadastros =>
