@@ -54,9 +54,28 @@
        Ao contrario de 028 (EmAtendimentoHumano), aqui nao ha estado anterior a
        reconstruir: antes desta migracao ninguem estava bloqueado, porque
        bloqueio nao existia. Os defaults ja descrevem a verdade de toda linha
-       existente. Nao ha, portanto, dependencia de ordem entre esta migracao e a
-       publicacao do binario novo — o codigo antigo ignora as colunas, e o codigo
-       novo encontra todo mundo destravado.
+       existente.
+
+   COMPATIBILIDADE DE DEPLOY — A ORDEM IMPORTA
+       A migration 033 pode ser aplicada enquanto o binario ANTIGO esta rodando,
+       pois ele ignora as novas colunas.
+
+       Porem o binario SEC-02 NAO deve ser iniciado antes da aplicacao da
+       migration 033.
+
+       O motivo e direto: o binario novo MAPEIA e CONSULTA
+       FalhasDeLoginConsecutivas, NivelDeBloqueio e BloqueadoAte em toda
+       autenticacao. Subir o binario contra um banco sem essas colunas quebra o
+       login inteiro — nao um caso de borda, mas a porta de entrada do sistema.
+
+       Nao confundir com "nao precisa de backfill": a ausencia de backfill diz
+       que nenhum DADO precisa ser corrigido antes, nao que a ordem seja
+       indiferente. O ESQUEMA continua sendo pre-requisito do binario.
+
+       Os dois workflows (deploy-teste.yml / deploy-producao.yml) ja garantem
+       essa ordem: aplicam as migrations pendentes, abortam se alguma falhar, e
+       so entao param o App Pool, copiam os arquivos e religam. Em deploy MANUAL,
+       a mesma ordem tem de ser seguida a mao — ver docs/DEPLOY.md, secao 2.
 
    IDEMPOTENCIA
        Cada coluna so entra quando ainda nao existe; cada CHECK so e criado
