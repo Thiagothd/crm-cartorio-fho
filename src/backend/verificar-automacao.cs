@@ -2008,6 +2008,76 @@ Checar("nenhuma automacao depois de reabrir manualmente",
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 26B — Assumir idempotente repara a invariante defensivamente.
+//
+// Nenhum fluxo suportado de UI/API encontrado cria uma conversa ativa com
+// AtendenteId preenchido e EmAtendimentoHumano=false. A origem observada em
+// TESTE, portanto, nao e atribuida aqui sem evidencia. O estado e montado
+// diretamente apenas para provar que uma linha inconsistente preexistente e
+// reparada sem duplicar a mensagem de sistema da assuncao normal.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 26B — Assumir idempotente repara modo humano sem duplicar mensagem");
+
+Guid conversa26B;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Assumir idempotente"), setores[0].Id, null, "Oi"));
+
+    conversa26B = criada.Id;
+
+    var antes = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa26B);
+    Checar("cenario normal comeca sem responsavel", antes.AtendenteId is null);
+    Checar("cenario normal comeca fora do modo humano", !antes.EmAtendimentoHumano);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var assumida = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa26B);
+    var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa26B);
+
+    Checar("assuncao normal continua preenchendo AtendenteId", assumida.AtendenteId == atendenteId);
+    Checar("assuncao normal continua ligando EmAtendimentoHumano", depois.EmAtendimentoHumano);
+}
+
+int mensagensDeAssuncaoAntesDoReparo;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    mensagensDeAssuncaoAntesDoReparo = await db.Mensagens.AsNoTracking()
+        .CountAsync(m => m.ConversaId == conversa26B
+                      && m.AutorTipo == AutorTipo.Sistema
+                      && m.Conteudo.StartsWith("Conversa assumida por "));
+
+    var inconsistente = await db.Conversas.FirstAsync(c => c.Id == conversa26B);
+    inconsistente.EmAtendimentoHumano = false;
+    await db.SaveChangesAsync();
+
+    Checar("fixture preserva AtendenteId do usuario atual", inconsistente.AtendenteId == atendenteId);
+    Checar("fixture monta explicitamente a inconsistencia", !inconsistente.EmAtendimentoHumano);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var reparada = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa26B);
+    var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa26B);
+    var mensagensDeAssuncaoDepoisDoReparo = await db.Mensagens.AsNoTracking()
+        .CountAsync(m => m.ConversaId == conversa26B
+                      && m.AutorTipo == AutorTipo.Sistema
+                      && m.Conteudo.StartsWith("Conversa assumida por "));
+
+    Checar("ramo idempotente preserva o responsavel", reparada.AtendenteId == atendenteId);
+    Checar("ramo idempotente repara EmAtendimentoHumano", depois.EmAtendimentoHumano);
+    Checar("ramo idempotente nao duplica mensagem de assuncao",
+        mensagensDeAssuncaoDepoisDoReparo == mensagensDeAssuncaoAntesDoReparo,
+        $"antes={mensagensDeAssuncaoAntesDoReparo}; depois={mensagensDeAssuncaoDepoisDoReparo}");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // TESTE 27 — Human Takeover: zero chamada ao orquestrador de IA em modo
 // humano, com a IA REALMENTE armada (nao so desligada) — e a mesma regra
 // vale nos dois caminhos de entrada (WhatsApp real x simulacao).

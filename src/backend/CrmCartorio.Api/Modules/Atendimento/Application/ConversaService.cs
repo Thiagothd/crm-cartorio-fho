@@ -905,6 +905,30 @@ public class ConversaService(
         // Ja e minha: dois cliques no mesmo botao nao viram erro na cara do usuario.
         if (atual.AtendenteId == ctx.AtendenteId)
         {
+            // O estado suportado e: conversa ativa atribuida a um atendente esta
+            // em atendimento humano. Nao foi encontrado fluxo de UI/API que crie
+            // a combinacao oposta, mas uma linha inconsistente nao pode fazer o
+            // caminho idempotente confirmar a atribuicao e deixar a automacao
+            // conversacional ligada. Repara somente essa invariante, sem gerar
+            // outra mensagem de sistema de "Conversa assumida".
+            var reparadas = await db.Conversas
+                .Where(c => c.Id == id
+                         && c.TenantId == ctx.TenantId
+                         && c.Status == StatusConversa.Ativa
+                         && c.AtendenteId == ctx.AtendenteId
+                         && !c.EmAtendimentoHumano)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(c => c.EmAtendimentoHumano, true)
+                    .SetProperty(c => c.AtualizadoEm, DateTime.UtcNow), ct);
+
+            if (reparadas == 1)
+            {
+                log.LogWarning(
+                    "Inconsistencia reparada na conversa {ConversaId}: atribuida a {AtendenteId}, ativa e fora do atendimento humano.",
+                    id,
+                    ctx.AtendenteId);
+            }
+
             return await ObterResumoAsync(id, ct);
         }
 
