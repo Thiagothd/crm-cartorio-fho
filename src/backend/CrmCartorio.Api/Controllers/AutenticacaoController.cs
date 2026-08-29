@@ -1,6 +1,8 @@
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Usuarios.Application;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CrmCartorio.Api.Controllers;
 
@@ -8,8 +10,15 @@ namespace CrmCartorio.Api.Controllers;
 [Route("api/autenticacao")]
 public class AutenticacaoController(IAutenticacaoService servico) : ControllerBase
 {
+    /// <remarks>
+    /// SEC-02: o limite por IP fica SO aqui — a rota anonima vizinha
+    /// (<see cref="Serventia"/>) e o resto da API continuam sem limite. Ele e o
+    /// amortecedor raso; a protecao que de fato importa e o backoff por conta,
+    /// dentro de <c>AutenticacaoService.AutenticarAsync</c>.
+    /// </remarks>
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.Nome)]
     public async Task<ActionResult<LoginResponse>> Login(
         [FromBody] LoginRequest request,
         CancellationToken ct) =>

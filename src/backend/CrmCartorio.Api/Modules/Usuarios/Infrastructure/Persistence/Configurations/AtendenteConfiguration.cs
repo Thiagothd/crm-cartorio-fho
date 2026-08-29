@@ -20,6 +20,14 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.Perfil).HasConversion<byte>();
         builder.Property(a => a.Cargo).HasConversion<byte>();
         builder.Property(a => a.TokenVersion).HasDefaultValue(1);
+
+        // SEC-02 — defaults no BANCO, nao so no objeto: uma linha inserida por
+        // script SQL (seed, correcao manual) precisa nascer destravada do mesmo
+        // jeito que uma criada pelo AtendenteService.
+        builder.Property(a => a.FalhasDeLoginConsecutivas).HasDefaultValue(0);
+        builder.Property(a => a.NivelDeBloqueio).HasDefaultValue((byte)0);
+        builder.Property(a => a.BloqueadoAte).HasColumnType("datetime2(3)");
+
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.AtualizadoEm).HasColumnType("datetime2(3)");

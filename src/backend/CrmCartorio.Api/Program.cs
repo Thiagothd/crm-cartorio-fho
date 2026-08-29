@@ -259,6 +259,11 @@ builder.Services
         };
     });
 
+// SEC-02: amortecedor de forca bruta no login, por IP, em memoria. A politica
+// mora em PoliticaDeLimiteDeLogin para que o verificador exercite exatamente
+// esta configuracao, e nao uma copia dela.
+builder.Services.AdicionarLimiteDeLogin();
+
 // SEC-01: a policy padrao (usada por todo [Authorize] sem policy nomeada —
 // controllers e o Hub do SignalR, nenhum deste projeto nomeia policy hoje)
 // passa a exigir tambem SessaoAtivaRequirement: sessao ativa no banco, nao so
@@ -343,6 +348,13 @@ app.UseCors(PoliticaCors);
 // e o WebSocket do SignalR nao e' cross-origin.
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// SEC-02: antes da autenticacao de proposito — a recusa por excesso de
+// tentativas nao precisa (nem deve) custar validacao de token, consulta ao banco
+// ou PBKDF2. Nao afeta rota alguma por si so: sem [EnableRateLimiting] a
+// requisicao passa direto, entao /api/autenticacao/serventia, os webhooks e o
+// resto da API seguem sem limite nenhum.
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

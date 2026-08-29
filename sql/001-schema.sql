@@ -169,6 +169,21 @@ CREATE TABLE dbo.Atendentes
     -- volta para tras, nem quando o atendente e reativado.
     TokenVersion   INT              NOT NULL CONSTRAINT DF_Atendentes_TokenVersion DEFAULT (1),
 
+    -- SEC-02 — backoff progressivo contra forca bruta no login.
+    --
+    -- FalhasDeLoginConsecutivas conta as falhas do ciclo atual; na 5a, zera e
+    -- abre um bloqueio. NivelDeBloqueio conta quantos bloqueios ja houve SEM
+    -- login bem-sucedido no meio e escolhe a duracao do proximo na progressao
+    -- 1, 2, 4, 8, 16 e 30 minutos (teto 6 = 30 min). BloqueadoAte diz ate quando
+    -- a conta esta travada. Um login bem-sucedido zera os tres.
+    --
+    -- Senha correta NAO fura bloqueio vigente, tentativa durante bloqueio nao o
+    -- estende, e conta inativa nao acumula lockout. Ver
+    -- Modules/Usuarios/Application/AutenticacaoService.cs.
+    FalhasDeLoginConsecutivas INT     NOT NULL CONSTRAINT DF_Atendentes_FalhasDeLoginConsecutivas DEFAULT (0),
+    NivelDeBloqueio           TINYINT NOT NULL CONSTRAINT DF_Atendentes_NivelDeBloqueio DEFAULT (0),
+    BloqueadoAte              DATETIME2(3) NULL,
+
     UltimoAcessoEm DATETIME2(3)     NULL,
     CriadoEm       DATETIME2(3)     NOT NULL,
     AtualizadoEm   DATETIME2(3)     NOT NULL,
@@ -177,7 +192,9 @@ CREATE TABLE dbo.Atendentes
     CONSTRAINT FK_Atendentes_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_Atendentes_Setores FOREIGN KEY (SetorPadraoId) REFERENCES dbo.Setores (Id),
     CONSTRAINT CK_Atendentes_Perfil CHECK (Perfil IN (1, 2, 3)),
-    CONSTRAINT CK_Atendentes_Cargo  CHECK (Cargo  IN (0, 1, 2, 3, 4, 5))
+    CONSTRAINT CK_Atendentes_Cargo  CHECK (Cargo  IN (0, 1, 2, 3, 4, 5)),
+    CONSTRAINT CK_Atendentes_FalhasDeLogin   CHECK (FalhasDeLoginConsecutivas >= 0),
+    CONSTRAINT CK_Atendentes_NivelDeBloqueio CHECK (NivelDeBloqueio BETWEEN 0 AND 6)
 );
 GO
 
