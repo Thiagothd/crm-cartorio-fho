@@ -506,11 +506,21 @@ public class MfaService(
         var segredoCifrado = cifra.Cifrar(segredoBase32, atendente.TenantId, atendente.Id);
         var expiraEm = agora.Add(TtlDoSegredoPendente);
 
+        // CORRECAO (revisao independente do PR #46, bloqueador 8) — grava
+        // TokenVersion junto do segredo pendente, na MESMA instrucao atomica,
+        // auto-referenciada (`a.TokenVersion`, nunca `atendente.TokenVersion`
+        // capturado antes): e o carimbo que a confirmacao final vai exigir
+        // continuar batendo, para que troca de senha, mudanca de Perfil/Cargo,
+        // reset ou politica obrigatoria ENTRE iniciar e confirmar invalidem a
+        // cerimonia — mesma garantia que o fluxo de ticket ja tem via
+        // DesafiosDeMfa.TokenVersionNoDesafio, agora tambem para a primeira
+        // ativacao voluntaria e a troca de autenticador.
         await db.Atendentes
             .Where(a => a.Id == atendente.Id)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.MfaSegredoPendenteCifrado, segredoCifrado)
-                .SetProperty(a => a.MfaPendenteExpiraEm, expiraEm), ct);
+                .SetProperty(a => a.MfaPendenteExpiraEm, expiraEm)
+                .SetProperty(a => a.MfaPendenteTokenVersion, a => a.TokenVersion), ct);
 
         var uri = ValidadorDeTotp.MontarOtpauthUri(segredoBase32, "CRM Cartório", atendente.Email);
 
@@ -588,11 +598,22 @@ public class MfaService(
         // desafio de matricula (hashDoDesafioParaConsumir != null), a
         // exigencia de ticket ja foi provada por IniciarMatriculaPrivilegiadaAsync
         // — nada extra a checar aqui.
+        //
+        // CORRECAO (revisao independente do PR #46, bloqueador 8):
+        // `a.TokenVersion == a.MfaPendenteTokenVersion` compara as DUAS
+        // colunas da linha ATUAL entre si (nunca um valor lido em memoria) —
+        // se qualquer evento subiu a TokenVersion depois que este segredo
+        // pendente foi gerado (troca de senha, Perfil/Cargo, reset, politica
+        // obrigatoria), a igualdade quebra e a confirmacao falha fechada,
+        // mesmo com o codigo TOTP correto. Vale para toda cerimonia sem
+        // ticket — voluntaria E troca de autenticador; o fluxo de ticket
+        // continua com sua propria protecao (tokenVersionEsperada, acima).
         var confirmou = await db.Atendentes
             .Where(a => a.Id == atendente.Id
                      && a.TenantId == identidade.TenantId
                      && a.Ativo
                      && a.MfaSegredoPendenteCifrado == atendente.MfaSegredoPendenteCifrado
+                     && a.TokenVersion == a.MfaPendenteTokenVersion
                      && (tokenVersionEsperada == null || a.TokenVersion == tokenVersionEsperada)
                      && (hashDoDesafioParaConsumir != null
                          || a.MfaAtivo
@@ -602,6 +623,7 @@ public class MfaService(
                 .SetProperty(a => a.MfaSegredoCifrado, atendente.MfaSegredoPendenteCifrado)
                 .SetProperty(a => a.MfaSegredoPendenteCifrado, (byte[]?)null)
                 .SetProperty(a => a.MfaPendenteExpiraEm, (DateTime?)null)
+                .SetProperty(a => a.MfaPendenteTokenVersion, (int?)null)
                 .SetProperty(a => a.MfaConfirmadoEm, agora)
                 .SetProperty(a => a.MfaUltimoPassoUsado, passo)
                 .SetProperty(a => a.MfaFalhasConsecutivas, 0)
@@ -770,6 +792,7 @@ public class MfaService(
                 .SetProperty(a => a.MfaSegredoCifrado, (byte[]?)null)
                 .SetProperty(a => a.MfaSegredoPendenteCifrado, (byte[]?)null)
                 .SetProperty(a => a.MfaPendenteExpiraEm, (DateTime?)null)
+                .SetProperty(a => a.MfaPendenteTokenVersion, (int?)null)
                 .SetProperty(a => a.MfaConfirmadoEm, (DateTime?)null)
                 .SetProperty(a => a.MfaUltimoPassoUsado, (long?)null)
                 .SetProperty(a => a.MfaFalhasConsecutivas, 0)

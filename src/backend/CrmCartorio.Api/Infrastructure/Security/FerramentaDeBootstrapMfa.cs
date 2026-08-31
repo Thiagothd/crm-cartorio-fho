@@ -107,9 +107,16 @@ public static class FerramentaDeBootstrapMfa
     }
 
     /// <summary>
-    /// Grava o ticket e o evento de auditoria — SO depois de reconfirmar a
-    /// elegibilidade no instante exato da escrita, nunca a partir de uma
-    /// verificacao feita antes.
+    /// Nucleo atomico do bootstrap — reconfere a elegibilidade no instante
+    /// exato da gravacao e SO ENTAO grava o desafio de ticket e o evento de
+    /// auditoria. NUNCA ve nem devolve texto claro: quem chama ja gerou o
+    /// proprio token em outro lugar e entrega so o <paramref name="hashDoTicket"/>
+    /// — exatamente como todo <c>DesafioDeMfa.HashDoDesafio</c> e guardado em
+    /// qualquer outro ponto do sistema. E o que torna este metodo seguro para
+    /// ser <c>public</c> e testavel sem violar a regra arquitetural do
+    /// bootstrap (ver <see cref="EmitirTicketAsync"/> logo abaixo: esse, sim,
+    /// e o unico lugar do assembly que gera/devolve texto claro, e e
+    /// <c>private</c> de proposito).
     /// </summary>
     /// <remarks>
     /// CORRECAO (revisao independente do PR #46, bloqueador 6) — TOCTOU: o
@@ -130,8 +137,9 @@ public static class FerramentaDeBootstrapMfa
     /// transacoes espera a outra terminar, nunca as duas enxergam a mesma
     /// foto congelada e desatualizada.
     /// </remarks>
-    public static async Task<string> EmitirTicketAsync(
-        CrmDbContext db, string email, string motivo, string atorExterno, CancellationToken ct = default)
+    public static async Task<ElegibilidadeDeBootstrap> TentarRegistrarTicketAsync(
+        CrmDbContext db, string email, string hashDoTicket, TimeSpan ttl,
+        string motivo, string atorExterno, CancellationToken ct = default)
     {
         var agora = DateTime.UtcNow;
 
@@ -141,21 +149,19 @@ public static class FerramentaDeBootstrapMfa
         if (elegibilidadeNoInstante != ElegibilidadeDeBootstrap.Elegivel)
         {
             await tx.RollbackAsync(ct);
-            throw new BootstrapNaoElegivelException(elegibilidadeNoInstante);
+            return elegibilidadeNoInstante;
         }
 
         var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email, ct);
-
-        var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
 
         db.DesafiosDeMfa.Add(new DesafioDeMfa
         {
             TenantId = atendente.TenantId,
             AtendenteId = atendente.Id,
-            HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+            HashDoDesafio = hashDoTicket,
             Tipo = TipoDeDesafioMfa.Ticket,
             TokenVersionNoDesafio = atendente.TokenVersion,
-            ExpiraEm = agora.Add(TtlDoTicket)
+            ExpiraEm = agora.Add(ttl)
         });
 
         db.EventosDeSeguranca.Add(new EventoDeSeguranca
@@ -171,6 +177,39 @@ public static class FerramentaDeBootstrapMfa
 
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+
+        return ElegibilidadeDeBootstrap.Elegivel;
+    }
+
+    /// <summary>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 7) — o UNICO
+    /// lugar de todo o assembly onde o texto claro de um ticket de bootstrap
+    /// e gerado ou devolvido. Deliberadamente <c>private</c>: antes deste
+    /// PR, este metodo era <c>public static</c> e podia ser chamado por
+    /// qualquer codigo do processo — inclusive um teste, como o proprio
+    /// <c>verificar-autenticacao.cs</c> demonstrava — sem passar pelos
+    /// guards de <see cref="ExecutarAsync"/> (stdin nao redirecionado, sem
+    /// CI/GITHUB_ACTIONS, confirmacao humana digitada "SIM"). Isso violava a
+    /// regra arquitetural "bootstrap exclusivamente manual/interativo,
+    /// ticket so em stdout, nunca API programatica". Agora so
+    /// <see cref="ExecutarAsync"/>, no mesmo arquivo, alcanca este metodo — e
+    /// so depois de passar por todos os guards. O nucleo de decisao
+    /// atomica/testavel continua exposto em
+    /// <see cref="TentarRegistrarTicketAsync"/>, que nunca ve nem devolve
+    /// texto claro.
+    /// </summary>
+    private static async Task<string> EmitirTicketAsync(
+        CrmDbContext db, string email, string motivo, string atorExterno, CancellationToken ct = default)
+    {
+        var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+        var hashDoTicket = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro);
+
+        var resultado = await TentarRegistrarTicketAsync(db, email, hashDoTicket, TtlDoTicket, motivo, atorExterno, ct);
+
+        if (resultado != ElegibilidadeDeBootstrap.Elegivel)
+        {
+            throw new BootstrapNaoElegivelException(resultado);
+        }
 
         return tokenEmClaro;
     }

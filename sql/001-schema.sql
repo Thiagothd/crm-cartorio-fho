@@ -199,10 +199,15 @@ CREATE TABLE dbo.Atendentes
     -- MfaFalhasConsecutivas/MfaNivelDeBloqueio/MfaBloqueadoAte sao um
     -- contador PROPRIO, mesma progressao de NivelDeBloqueio (senha) mas nunca
     -- somado a ele — bloqueio de MFA e por CONTA, nao por desafio.
+    -- MfaPendenteTokenVersion (migration 035) e a TokenVersion gravada no
+    -- MESMO instante do segredo pendente — a confirmacao so conclui se ainda
+    -- bater com a TokenVersion atual, fechando promocao/revogacao no meio da
+    -- cerimonia de ativacao voluntaria ou troca de autenticador.
     MfaAtivo                  BIT              NOT NULL CONSTRAINT DF_Atendentes_MfaAtivo DEFAULT (0),
     MfaSegredoCifrado         VARBINARY(256)   NULL,
     MfaSegredoPendenteCifrado VARBINARY(256)   NULL,
     MfaPendenteExpiraEm       DATETIME2(3)     NULL,
+    MfaPendenteTokenVersion   INT              NULL,
     MfaConfirmadoEm           DATETIME2(3)     NULL,
     MfaUltimoPassoUsado       BIGINT           NULL,
     MfaFalhasConsecutivas     INT              NOT NULL CONSTRAINT DF_Atendentes_MfaFalhasConsecutivas DEFAULT (0),

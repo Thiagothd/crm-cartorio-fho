@@ -92,6 +92,17 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// <summary>TTL do segredo pendente (10 min). Expirado, precisa gerar outro.</summary>
     public DateTime? MfaPendenteExpiraEm { get; set; }
 
+    /// <summary>
+    /// SEC-03 (bloqueador 8) — TokenVersion no INSTANTE em que o segredo
+    /// pendente foi gravado, gravada na MESMA instrucao atomica. A confirmacao
+    /// so pode concluir se a TokenVersion ATUAL ainda bater com esta — qualquer
+    /// evento que suba a TokenVersion entre iniciar e confirmar (troca de
+    /// senha, mudanca de Perfil/Cargo, reset, politica obrigatoria) invalida a
+    /// cerimonia pendente, mesmo com codigo TOTP correto. Complementa (nao
+    /// substitui) o `TokenVersionNoDesafio` do fluxo de ticket.
+    /// </summary>
+    public int? MfaPendenteTokenVersion { get; set; }
+
     public DateTime? MfaConfirmadoEm { get; set; }
 
     /// <summary>
