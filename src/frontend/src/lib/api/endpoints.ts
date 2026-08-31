@@ -12,6 +12,8 @@ import type {
   ConversaDetalhada,
   DadosDeCliente,
   DescartesDoCanal,
+  ConfirmarMfaResposta,
+  DesafioMfa,
   DestinoDeEncaminhamento,
   EmpresaConsultada,
   EncerramentoAutomatico,
@@ -21,9 +23,12 @@ import type {
   FiltroDeConversas,
   FonteDeImportacao,
   GatilhoDeMensagem,
+  IniciarMfaResposta,
   LinhaParaGravar,
+  LoginEtapa1Resposta,
   Mensagem,
   MensagemAutomatica,
+  MfaSituacao,
   ModoDeRecebimento,
   NumeroDoCanal,
   OpcoesDeClientes,
@@ -31,6 +36,7 @@ import type {
   PaginadoDeClientes,
   Painel,
   PerfilDeAtendente,
+  RegenerarCodigosResposta,
   RegrasDoCanal,
   Relatorio,
   RelatorioDeAtendentes,
@@ -43,6 +49,7 @@ import type {
   SituacaoDaIa,
   SituacaoDoCanal,
   TesteDeEnvioDoCanal,
+  TicketDeMfa,
   TipoDeNumeroDoCanal,
   TipoServico,
   VisaoGeral,
@@ -51,8 +58,13 @@ import type {
 // Autenticacao --------------------------------------------------------------
 
 export const autenticacaoApi = {
+  /** SEC-03 — etapa 1. `requerMfa` decide se a resposta trouxe sessão ou desafio. */
   login: (email: string, senha: string) =>
-    api.post<Sessao>('/api/autenticacao/login', { email, senha }),
+    api.post<LoginEtapa1Resposta>('/api/autenticacao/login', { email, senha }),
+
+  /** SEC-03 — etapa 2. `desafio` é a credencial aqui, nunca um JWT. */
+  loginMfa: (desafio: string, codigo: string) =>
+    api.post<Sessao>('/api/autenticacao/login/mfa', { desafio, codigo }),
 
   sessao: () => api.get<Sessao>('/api/autenticacao/sessao'),
 
@@ -61,6 +73,45 @@ export const autenticacaoApi = {
 
   alterarSenha: (senhaAtual: string, novaSenha: string) =>
     api.post<void>('/api/autenticacao/senha', { senhaAtual, novaSenha }),
+}
+
+// MFA (SEC-03) ----------------------------------------------------------------
+
+export const mfaApi = {
+  situacao: () => api.get<MfaSituacao>('/api/mfa/situacao'),
+
+  /** 1ª ativação: só `senhaAtual`. Trocar autenticador com MFA já ativo: `codigoAtual` também é exigido. */
+  iniciar: (senhaAtual: string, codigoAtual?: string | null) =>
+    api.post<IniciarMfaResposta>('/api/mfa/iniciar', { senhaAtual, codigoAtual }),
+
+  confirmar: (codigo: string) =>
+    api.post<ConfirmarMfaResposta>('/api/mfa/confirmar', { codigo }),
+
+  desativar: (senhaAtual: string, codigo: string) =>
+    api.post<void>('/api/mfa/desativar', { senhaAtual, codigo }),
+
+  regenerarCodigos: (senhaAtual: string, codigo: string) =>
+    api.post<RegenerarCodigosResposta>('/api/mfa/codigos', { senhaAtual, codigo }),
+
+  // ------------------------------------------- matrícula privilegiada (ticket)
+
+  iniciarMatriculaPrivilegiada: (email: string, senha: string, ticket: string) =>
+    api.post<DesafioMfa>('/api/mfa/matricula-privilegiada/sessao', { email, senha, ticket }),
+
+  iniciarAutenticadorViaDesafio: (desafio: string) =>
+    api.post<IniciarMfaResposta>('/api/mfa/matricula-privilegiada/iniciar-autenticador', { desafio }),
+
+  confirmarViaDesafio: (desafio: string, codigo: string) =>
+    api.post<ConfirmarMfaResposta>('/api/mfa/matricula-privilegiada/confirmar', { desafio, codigo }),
+
+  // ------------------------------------------------------------- política
+
+  ativarObrigatoriedade: (senhaDoAtor: string, codigoDoAtor: string, motivo: string) =>
+    api.post<Sessao>('/api/mfa/politica/obrigatorio-para-administradores', {
+      senhaDoAtor,
+      codigoDoAtor,
+      motivo,
+    }),
 }
 
 // Conversas -----------------------------------------------------------------
@@ -432,4 +483,12 @@ export const atendentesApi = {
 
   redefinirSenha: (id: string, novaSenha: string) =>
     api.post<void>(`/api/atendentes/${id}/senha`, { novaSenha }),
+
+  /** SEC-03 — emite ticket de matrícula privilegiada fora de banda. Step-up do próprio ator. */
+  emitirTicketDeMfa: (id: string, senhaDoAtor: string, codigoDoAtor: string) =>
+    api.post<TicketDeMfa>(`/api/atendentes/${id}/mfa/ticket`, { senhaDoAtor, codigoDoAtor }),
+
+  /** SEC-03 — reset administrativo: remove o MFA do alvo, sobe TokenVersion. Alvo Titular exige ator Titular. */
+  resetarMfa: (id: string, senhaDoAtor: string, codigoDoAtor: string, motivo: string) =>
+    api.post<void>(`/api/atendentes/${id}/mfa/reset`, { senhaDoAtor, codigoDoAtor, motivo }),
 }

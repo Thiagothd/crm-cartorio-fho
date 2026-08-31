@@ -69,6 +69,15 @@ public class Tenant : EntidadeBase
     public AparenciaDaConversa AparenciaDaConversa { get; set; } = AparenciaDaConversa.PapelLiso;
 
     /// <summary>
+    /// SEC-03: liga a exigencia de MFA para <c>Administrador</c> e para quem tem
+    /// <c>CargoNaServentia.Titular</c>. So pode ser ligado por uma operacao
+    /// transacional que confirma que todos os alvos ja tem MFA ativo e sobe o
+    /// TokenVersion deles — nunca por um UPDATE direto nesta coluna. Ver
+    /// <c>MfaService.AtivarObrigatoriedadeAsync</c>.
+    /// </summary>
+    public bool MfaObrigatorioParaAdministradores { get; set; }
+
+    /// <summary>
     /// Minutos de silencio antes de perguntar ao cliente se pode encerrar.
     /// <b>Nulo desliga o encerramento automatico inteiro.</b>
     /// </summary>

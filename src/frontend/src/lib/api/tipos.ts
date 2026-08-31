@@ -130,6 +130,60 @@ export interface Sessao {
   tenant: Tenant
 }
 
+// MFA (SEC-03) ----------------------------------------------------------------
+
+/** Tipo do desafio de MFA — decide qual tela a etapa 2 mostra. */
+export type TipoDeDesafioMfa = 'SegundoFator' | 'MatriculaPrivilegiada' | 'Ticket'
+
+export interface DesafioMfa {
+  /** O DESAFIO em si — a credencial da etapa 2. Nunca um JWT. */
+  desafio: string
+  tipo: TipoDeDesafioMfa
+  expiraEm: string
+}
+
+/**
+ * Resposta única da etapa 1 do login. `requerMfa` decide qual dos dois campos
+ * está preenchido — nunca os dois, nunca nenhum.
+ */
+export interface LoginEtapa1Resposta {
+  requerMfa: boolean
+  sessao: Sessao | null
+  desafio: DesafioMfa | null
+}
+
+export interface IniciarMfaResposta {
+  /** URI `otpauth://` — vira o QR Code, renderizado no navegador (o segredo nunca sai daqui). */
+  otpauthUri: string
+  /** Para quem prefere digitar manualmente em vez de escanear. */
+  segredoBase32: string
+  expiraEm: string
+}
+
+export interface ConfirmarMfaResposta {
+  sessao: Sessao
+  /** Os 10 códigos em texto — mostrados UMA única vez nesta resposta. */
+  codigosDeRecuperacao: string[]
+}
+
+export interface RegenerarCodigosResposta {
+  codigosDeRecuperacao: string[]
+}
+
+export interface MfaSituacao {
+  ativo: boolean
+  /** A política da serventia exige MFA para este perfil/cargo — quando true, `/mfa/desativar` é recusado. */
+  obrigatorio: boolean
+  /** `null` quando o MFA não está ativo. */
+  codigosDeRecuperacaoRestantes: number | null
+  confirmadoEm: string | null
+}
+
+export interface TicketDeMfa {
+  ticket: string
+  expiraEm: string
+}
+
 // Atendimento ---------------------------------------------------------------
 
 export interface Conversa {

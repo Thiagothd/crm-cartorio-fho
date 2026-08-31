@@ -141,6 +141,124 @@ hash (o `UPDATE` de reset ou o de incremento), que não existe para um e-mail
 inexistente. É uma assimetria real, pequena, e **não** neutralizada aqui. Reduz o
 sinal de enumeração, não o elimina.
 
+## SEC-03 — MFA/TOTP para contas privilegiadas
+
+Login em duas etapas (RFC 6238) para `Administrador` e para quem tem
+`CargoNaServentia.Titular`. Login normal (etapa 1) continua idêntico para
+quem não tem MFA — a mudança é aditiva.
+
+**Divisão de responsabilidade:** `AutenticacaoService` é o LOGIN (etapas 1 e
+2, sempre lendo estado, nunca gerindo o segredo); `MfaService` é a GESTÃO da
+conta já autenticada (ativar, confirmar, desativar, regenerar códigos,
+matrícula por ticket, reset administrativo, política). Os dois compartilham
+`VerificadorDeFatorMfa` (interpreta um código sem nunca escrever no banco —
+cada porteiro único faz sua própria escrita atômica) e `BloqueioDeMfa`
+(contador de falhas por conta).
+
+### O porteiro único — por que tudo aqui é uma única instrução condicional
+
+A mesma disciplina de SEC-01/SEC-02: nenhuma decisão de segurança sai de um
+valor lido em memória. A conclusão da etapa 2
+(`AutenticacaoService.ConcluirLoginMfaAsync`) e a confirmação de ativação
+(`MfaService.ConfirmarNucleoAsync`) reconfirmam **no `WHERE` da própria
+escrita** — `Ativo`, `TenantId`, `TokenVersion`, `MfaAtivo`, ausência de
+bloqueio — e só emitem JWT se essa reconfirmação afetar exatamente 1 linha.
+
+- **Reserva antes de validar.** A etapa 2 incrementa
+  `DesafiosDeMfa.TentativasDeCodigo` ANTES de checar o código — o teto de 5
+  tentativas por desafio vale mesmo se a validação for interrompida no meio.
+  Não existe um passo separado de "inutilizar": ao chegar em 5, o próprio
+  `WHERE` (`TentativasDeCodigo < 5`) para de deixar reservar.
+- **Consumo só no sucesso.** `DesafiosDeMfa.ConsumidoEm` só é gravado depois
+  que TUDO o resto (estado da conta, e — no caminho de recuperação — o
+  consumo do código) já commitou na mesma transação.
+- **`TokenVersionNoDesafio`** é o snapshot que invalida um desafio pendente
+  quando algo relevante muda entre a etapa 1 e a etapa 2 — troca de senha,
+  desativação, mudança de `Perfil`, reset de MFA. Todos esses eventos já
+  sobem `TokenVersion` (SEC-01); o desafio só herda essa garantia.
+
+### Dois contadores de bloqueio, nunca um só
+
+`FalhasDeLoginConsecutivas` (SEC-02, senha) e `MfaFalhasConsecutivas`
+(SEC-03, segundo fator) são colunas e progressões **separadas** — mesma
+forma (5 falhas fecham um ciclo, bloqueio de 1/2/4/8/16/30 min, teto no 6º
+nível), zero acoplamento. O motivo: quem já tem a senha pode abrir quantos
+desafios de segundo fator quiser, então o teto de 5 tentativas *por desafio*
+não protege nada sozinho — é `MfaBloqueadoAte`, por CONTA, que impede força
+bruta persistente do TOTP. Tentativa durante bloqueio (de qualquer um dos
+dois) nunca conta e nunca estende o próprio bloqueio.
+
+### Segredo TOTP — nunca em texto claro
+
+AES-256-GCM (`Infrastructure/Security/CifraDeSegredoMfa.cs`), formato
+versionado (`[formatoVersao][tamanhoDaVersaoDaChave][versaoDaChave][nonce:12][tag:16][ciphertext]`).
+AAD = `TenantId ‖ AtendenteId` — mover o ciphertext de uma conta para outra,
+mesmo com a chave certa, falha ao decifrar. Chave em
+`appsettings.<Ambiente>.json` (`Mfa:Chaves:<versão>`), custódia e teste de
+restauração obrigatórios em `docs/BACKUP.md` antes de exigir MFA em produção.
+TOTP em si via `Otp.NET` — SHA1/6 dígitos/passo 30s, janela ±1 (90s de
+tolerância a deriva de relógio), nunca implementação própria da RFC.
+Anti-replay: `Atendentes.MfaUltimoPassoUsado`, compare-and-set (`WHERE
+MfaUltimoPassoUsado IS NULL OR MfaUltimoPassoUsado < @passo`) na MESMA
+transação do consumo do desafio.
+
+### Matrícula privilegiada — nunca só JWT + senha
+
+Para `Administrador`/`Titular`, a primeira matrícula (e só ela) exige também
+um **ticket fora de banda** — token aleatório, hash no banco, TTL 24h, uso
+único, emitido por quem já tem MFA (com step-up) ou pela ferramenta de
+bootstrap (`--emitir-ticket-de-bootstrap` no binário publicado). Contas não
+privilegiadas matriculam com `JWT + senha` normalmente, sem ticket.
+
+**Bootstrap fecha sozinho:** o comando se recusa a rodar se já existir
+qualquer conta privilegiada com `MfaAtivo = true` no tenant — depois do
+primeiro Titular/Administrador, todo ticket novo sai do fluxo normal, com
+step-up. Fecha a corrida "quem sabe a senha primeiro registra o MFA": um
+atacante remoto com a senha nunca tem acesso SSH ao servidor, então nunca
+alcança o bootstrap.
+
+### Step-up — JWT sozinho nunca mexe em MFA
+
+Iniciar (troca de autenticador com MFA já ativo), desativar e regenerar
+códigos exigem senha atual **+** código do fator vigente. Um JWT roubado não
+substitui segredo, não desativa MFA e não regenera códigos de recuperação.
+1ª ativação (MFA ainda não ativo) exige só a senha — não há fator anterior
+para provar.
+
+### Política obrigatória — o flip é transacional
+
+`Tenants.MfaObrigatorioParaAdministradores` só liga por
+`MfaService.AtivarObrigatoriedadeAsync`: transação `SERIALIZABLE` que (1)
+aborta se houver `Administrador`/`Titular` sem MFA (lista os pendentes), (2)
+liga a política, (3) sobe `TokenVersion` de TODOS os afetados — **incluindo
+o próprio ator**, que recebe sessão nova na resposta para não ser derrubado
+pela própria ação. Administrador criado ou promovido depois do flip nasce
+sem MFA e cai em `MfaObrigatorioNaoMatriculado` no próximo login — só entra
+pelo ticket.
+
+### Reset administrativo — Titular protegido
+
+Reset remove MFA do alvo, apaga códigos de recuperação, invalida desafios
+pendentes, sobe `TokenVersion` — a conta fica sem login até nova matrícula
+(se a política exigir MFA para ela). Exige step-up do próprio ator
+(`Administrador`). **Alvo com `Cargo.Titular` só pode ser resetado por ator
+que também seja Titular** — nunca por Administrador comum. Todo reset e todo
+flip de política grava `EventosDeSeguranca` (ator, alvo, IP, motivo) — nunca
+o segredo, código, ticket ou desafio em si.
+
+### O que ainda não existe
+
+- **Break-glass documentado, sem runbook automatizado.** O único-Titular que
+  perde autenticador E códigos de recuperação depende de um procedimento
+  manual (duas pessoas, script `.sql` revisado, `EventosDeSeguranca` com
+  `ResetDeEmergencia`) — não implementado neste PR, fica para quando o
+  cenário for real.
+- **Roubo de JWT continua fora do alcance do MFA.** Token em `localStorage`,
+  8h de validade — MFA protege o *login*, não a sessão já emitida.
+- **Redefinir senha de terceiro (SEC-02) continua sem step-up.** Um JWT de
+  Administrador roubado ainda troca a senha de um atendente não privilegiado
+  e age como ele — MFA não fecha isso; fechar exigiria step-up também ali.
+
 ## Pendência da Fase 3
 
 `AutenticacaoService.AutenticarAsync` busca o atendente só pelo e-mail, porque no

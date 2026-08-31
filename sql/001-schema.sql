@@ -63,6 +63,11 @@ CREATE TABLE dbo.Tenants
     EncerramentoHoraInicial          INT        NULL,
     EncerramentoHoraFinal            INT        NULL,
 
+    -- SEC-03: liga a exigencia de MFA para Administrador/Titular. So muda por
+    -- uma operacao transacional que confirma matricula de todos os alvos e
+    -- sobe o TokenVersion deles — nunca por UPDATE direto nesta coluna.
+    MfaObrigatorioParaAdministradores BIT NOT NULL CONSTRAINT DF_Tenants_MfaObrigatorioParaAdministradores DEFAULT (0),
+
     Ativo                     BIT              NOT NULL CONSTRAINT DF_Tenants_Ativo DEFAULT (1),
     CriadoEm                  DATETIME2(3)     NOT NULL,
     AtualizadoEm              DATETIME2(3)     NOT NULL,
@@ -184,6 +189,26 @@ CREATE TABLE dbo.Atendentes
     NivelDeBloqueio           TINYINT NOT NULL CONSTRAINT DF_Atendentes_NivelDeBloqueio DEFAULT (0),
     BloqueadoAte              DATETIME2(3) NULL,
 
+    -- SEC-03 — MFA (TOTP, RFC 6238) para contas privilegiadas.
+    --
+    -- MfaAtivo so vira 1 na CONFIRMACAO do 1o codigo — nunca ao gerar o
+    -- segredo pendente. MfaSegredoCifrado/MfaSegredoPendenteCifrado sao
+    -- AES-256-GCM (nonce+tag+ciphertext, formato versionado — ver
+    -- Infrastructure/Security/CifraDeSegredoMfa.cs). MfaUltimoPassoUsado e o
+    -- anti-replay (compare-and-set do ultimo passo TOTP de 30s aceito).
+    -- MfaFalhasConsecutivas/MfaNivelDeBloqueio/MfaBloqueadoAte sao um
+    -- contador PROPRIO, mesma progressao de NivelDeBloqueio (senha) mas nunca
+    -- somado a ele — bloqueio de MFA e por CONTA, nao por desafio.
+    MfaAtivo                  BIT              NOT NULL CONSTRAINT DF_Atendentes_MfaAtivo DEFAULT (0),
+    MfaSegredoCifrado         VARBINARY(256)   NULL,
+    MfaSegredoPendenteCifrado VARBINARY(256)   NULL,
+    MfaPendenteExpiraEm       DATETIME2(3)     NULL,
+    MfaConfirmadoEm           DATETIME2(3)     NULL,
+    MfaUltimoPassoUsado       BIGINT           NULL,
+    MfaFalhasConsecutivas     INT              NOT NULL CONSTRAINT DF_Atendentes_MfaFalhasConsecutivas DEFAULT (0),
+    MfaNivelDeBloqueio        TINYINT          NOT NULL CONSTRAINT DF_Atendentes_MfaNivelDeBloqueio DEFAULT (0),
+    MfaBloqueadoAte           DATETIME2(3)     NULL,
+
     UltimoAcessoEm DATETIME2(3)     NULL,
     CriadoEm       DATETIME2(3)     NOT NULL,
     AtualizadoEm   DATETIME2(3)     NOT NULL,
@@ -194,7 +219,11 @@ CREATE TABLE dbo.Atendentes
     CONSTRAINT CK_Atendentes_Perfil CHECK (Perfil IN (1, 2, 3)),
     CONSTRAINT CK_Atendentes_Cargo  CHECK (Cargo  IN (0, 1, 2, 3, 4, 5)),
     CONSTRAINT CK_Atendentes_FalhasDeLogin   CHECK (FalhasDeLoginConsecutivas >= 0),
-    CONSTRAINT CK_Atendentes_NivelDeBloqueio CHECK (NivelDeBloqueio BETWEEN 0 AND 6)
+    CONSTRAINT CK_Atendentes_NivelDeBloqueio CHECK (NivelDeBloqueio BETWEEN 0 AND 6),
+    CONSTRAINT CK_Atendentes_MfaFalhas CHECK (MfaFalhasConsecutivas >= 0),
+    CONSTRAINT CK_Atendentes_MfaNivel  CHECK (MfaNivelDeBloqueio BETWEEN 0 AND 6),
+    -- Invariante central: nunca existe conta com MfaAtivo=1 sem segredo.
+    CONSTRAINT CK_Atendentes_MfaAtivoTemSegredo CHECK (MfaAtivo = 0 OR MfaSegredoCifrado IS NOT NULL)
 );
 GO
 
@@ -699,6 +728,132 @@ GO
 -- duas linhas identicas e nao tem como escolher a certa.
 CREATE UNIQUE INDEX UQ_RespostasRapidas_Tenant_Atalho
     ON dbo.RespostasRapidas (TenantId, Atalho);
+GO
+
+/* -----------------------------------------------------------------------------
+   13. DesafiosDeMfa — SEC-03: segunda etapa de login, matricula privilegiada,
+   e o proprio ticket fora de banda (Tipo = 3)
+   -----------------------------------------------------------------------------
+   Estado persistido, nao um JWT de escopo reduzido: uso unico de verdade exige
+   uma linha que possa ser consumida atomicamente, e um desafio precisa poder
+   ser invalidado por um evento de seguranca ocorrido DEPOIS da emissao —
+   TokenVersionNoDesafio e a comparacao repetida na conclusao. O token em claro
+   NUNCA e gravado, so o SHA-256 dele.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.DesafiosDeMfa
+(
+    Id                    UNIQUEIDENTIFIER NOT NULL,
+    TenantId              UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId           UNIQUEIDENTIFIER NOT NULL,
+    HashDoDesafio         CHAR(64)         NOT NULL,
+
+    -- 1 SegundoFator, 2 MatriculaPrivilegiada, 3 Ticket
+    Tipo                  TINYINT          NOT NULL,
+
+    TokenVersionNoDesafio INT              NOT NULL,
+    ExpiraEm              DATETIME2(3)     NOT NULL,
+
+    -- Incrementado ANTES de validar o codigo (reserva de tentativa) — e o
+    -- proprio esgotamento em 5, sem passo separado de "inutilizar".
+    TentativasDeCodigo    INT              NOT NULL CONSTRAINT DF_DesafiosDeMfa_Tentativas DEFAULT (0),
+
+    -- Nulo enquanto em aberto. So marcado no caminho de SUCESSO.
+    ConsumidoEm           DATETIME2(3)     NULL,
+    IpDeOrigem            VARCHAR(45)      NULL,
+    CriadoEm              DATETIME2(3)     NOT NULL,
+    AtualizadoEm          DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_DesafiosDeMfa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_DesafiosDeMfa_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_DesafiosDeMfa_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_DesafiosDeMfa_Tipo CHECK (Tipo IN (1, 2, 3)),
+    CONSTRAINT CK_DesafiosDeMfa_Tentativas CHECK (TentativasDeCodigo >= 0)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_DesafiosDeMfa_Hash ON dbo.DesafiosDeMfa (HashDoDesafio);
+
+-- Varredura de expirados: so os ainda em aberto interessam.
+CREATE INDEX IX_DesafiosDeMfa_ExpiraEm_Abertos ON dbo.DesafiosDeMfa (ExpiraEm)
+    WHERE ConsumidoEm IS NULL;
+GO
+
+/* -----------------------------------------------------------------------------
+   14. CodigosDeRecuperacaoMfa — 10 por conta, 80 bits, uso unico
+   -----------------------------------------------------------------------------
+   16 caracteres Crockford Base32 (sem I/L/O/U). So o hash SHA-256 do codigo
+   normalizado e gravado; o texto claro so existe na resposta da ativacao ou
+   da regeneracao, uma unica vez.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.CodigosDeRecuperacaoMfa
+(
+    Id           UNIQUEIDENTIFIER NOT NULL,
+    TenantId     UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId  UNIQUEIDENTIFIER NOT NULL,
+    HashDoCodigo CHAR(64)         NOT NULL,
+
+    -- Nulo enquanto disponivel. Consumo e atomico e definitivo.
+    UsadoEm      DATETIME2(3)     NULL,
+    CriadoEm     DATETIME2(3)     NOT NULL,
+    AtualizadoEm DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_CodigosDeRecuperacaoMfa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_CodigosDeRecuperacaoMfa_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_CodigosDeRecuperacaoMfa_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_CodigosDeRecuperacaoMfa_Atendente_Hash
+    ON dbo.CodigosDeRecuperacaoMfa (AtendenteId, HashDoCodigo);
+GO
+
+/* -----------------------------------------------------------------------------
+   15. EventosDeSeguranca — trilha append-only de fatos de seguranca de MFA
+   -----------------------------------------------------------------------------
+   Mesmo padrao de CanalWhatsappConexoes: existe para a tela (e uma
+   investigacao) responderem "o que aconteceu e quando" sem depender do log do
+   servidor. NUNCA grava segredo, codigo, ticket, senha ou desafio — so o
+   FATO. Isto vale tambem para Motivo, texto livre digitado por um humano numa
+   acao administrativa, nunca preenchido a partir de dado sensivel.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.EventosDeSeguranca
+(
+    Id               UNIQUEIDENTIFIER NOT NULL,
+    TenantId         UNIQUEIDENTIFIER NOT NULL,
+
+    -- De quem este evento fala — a conta afetada.
+    AtendenteId      UNIQUEIDENTIFIER NOT NULL,
+
+    -- Quem executou, quando foi OUTRO atendente (reset, ativacao de politica).
+    -- Nulo quando o proprio alvo agiu sobre si mesmo.
+    AtorAtendenteId  UNIQUEIDENTIFIER NULL,
+
+    -- Identidade de quem agiu FORA do sistema (acesso SSH que rodou a
+    -- ferramenta de bootstrap, ou break-glass). So identidade, nunca motivo.
+    AtorExterno      NVARCHAR(120)    NULL,
+
+    -- 1 MfaAtivado, 2 MfaDesativado, 3 CodigoDeRecuperacaoUsado,
+    -- 4 CodigosDeRecuperacaoRegenerados, 5 ResetAdministrativo,
+    -- 6 ResetDeEmergencia, 7 BloqueioDeMfaPorFalhas,
+    -- 8 TicketDeMatriculaEmitido, 9 TicketDeBootstrapEmitido,
+    -- 10 PoliticaDeMfaAtivada
+    Tipo             TINYINT          NOT NULL,
+
+    OcorridoEm       DATETIME2(3)     NOT NULL,
+    IpDeOrigem       VARCHAR(45)      NULL,
+    Motivo           NVARCHAR(400)    NULL,
+    CriadoEm         DATETIME2(3)     NOT NULL,
+    AtualizadoEm     DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_EventosDeSeguranca PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_EventosDeSeguranca_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_EventosDeSeguranca_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_EventosDeSeguranca_Tipo CHECK (Tipo BETWEEN 1 AND 10)
+);
+GO
+
+CREATE INDEX IX_EventosDeSeguranca_Tenant_Ocorrido ON dbo.EventosDeSeguranca (TenantId, OcorridoEm);
+CREATE INDEX IX_EventosDeSeguranca_Atendente ON dbo.EventosDeSeguranca (AtendenteId);
 GO
 
 PRINT 'Schema da Fase 1 criado.';

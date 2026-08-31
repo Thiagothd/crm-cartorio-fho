@@ -13,7 +13,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net;
 
-// VERIFICADOR DO LIMITE DE TENTATIVAS DE LOGIN (SEC-02, camada por IP)
+// VERIFICADOR DO LIMITE DE TENTATIVAS DE LOGIN (SEC-02/SEC-03, camada por IP)
 //
 // Rode com: dotnet run verificar-limite-de-login.cs
 //
@@ -51,6 +51,12 @@ app.UseRateLimiter();
 // quem recebe 429 e quem nunca recebe.
 app.MapPost("/api/autenticacao/login", () => Results.Ok())
    .RequireRateLimiting(PoliticaDeLimiteDeLogin.Nome);
+
+app.MapPost("/api/autenticacao/login/mfa", () => Results.Ok())
+   .RequireRateLimiting(PoliticaDeLimiteDeLogin.NomeMfa);
+
+app.MapPost("/api/mfa/desativar", () => Results.Ok())
+   .RequireRateLimiting(PoliticaDeLimiteDeLogin.NomeGestao);
 
 app.MapGet("/api/autenticacao/serventia", () => Results.Ok());
 
@@ -109,6 +115,44 @@ try
 
     Checar("3. /api/autenticacao/serventia nao e afetada pelo limite do login (20 chamadas seguidas)",
         statusDaServentia.All(s => s == HttpStatusCode.OK));
+
+    // ------------------------------------------------------------- cenario 4
+    // SEC-03 — etapa 2 do login (login/mfa): janela propria, mais generosa
+    // (20/min) — quem chega aqui ja provou a senha.
+
+    var statusDoLoginMfa = new List<HttpStatusCode>();
+    for (var i = 0; i < 21; i++)
+    {
+        using var resposta = await http.PostAsync("/api/autenticacao/login/mfa", null);
+        statusDoLoginMfa.Add(resposta.StatusCode);
+    }
+
+    Checar($"4a. as {PoliticaDeLimiteDeLogin.TentativasDeMfaPorMinuto} primeiras tentativas de login/mfa passam",
+        statusDoLoginMfa.Take(PoliticaDeLimiteDeLogin.TentativasDeMfaPorMinuto).All(s => s == HttpStatusCode.OK));
+
+    Checar("4b. a tentativa seguinte no mesmo minuto recebe 429",
+        statusDoLoginMfa[PoliticaDeLimiteDeLogin.TentativasDeMfaPorMinuto] == HttpStatusCode.TooManyRequests);
+
+    // ------------------------------------------------------------- cenario 5
+    // SEC-03 — gestao de MFA (mfa-gestao): 10/min, janela PROPRIA e
+    // independente da do login — esgotar uma nao contamina a outra.
+
+    var statusDaGestao = new List<HttpStatusCode>();
+    for (var i = 0; i < 11; i++)
+    {
+        using var resposta = await http.PostAsync("/api/mfa/desativar", null);
+        statusDaGestao.Add(resposta.StatusCode);
+    }
+
+    Checar($"5a. as {PoliticaDeLimiteDeLogin.TentativasDeGestaoPorMinuto} primeiras chamadas de gestao de MFA passam",
+        statusDaGestao.Take(PoliticaDeLimiteDeLogin.TentativasDeGestaoPorMinuto).All(s => s == HttpStatusCode.OK));
+
+    Checar("5b. a chamada seguinte no mesmo minuto recebe 429",
+        statusDaGestao[PoliticaDeLimiteDeLogin.TentativasDeGestaoPorMinuto] == HttpStatusCode.TooManyRequests);
+
+    Checar("5c. login e login/mfa continuam bloqueados (janelas independentes, nao foram resetadas)",
+        (await http.PostAsync("/api/autenticacao/login", null)).StatusCode == HttpStatusCode.TooManyRequests
+        && (await http.PostAsync("/api/autenticacao/login/mfa", null)).StatusCode == HttpStatusCode.TooManyRequests);
 }
 finally
 {

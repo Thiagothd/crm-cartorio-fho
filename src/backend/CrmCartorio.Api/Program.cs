@@ -27,6 +27,21 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
+// SEC-03 — bootstrap do MFA do primeiro privilegiado. Comando de execucao
+// unica, NAO um modo do servidor: sai antes de montar qualquer servico web,
+// hospedagem ou pipeline HTTP. Ver FerramentaDeBootstrapMfa para as regras
+// (so interativo, nunca ILogger, fecha sozinho apos o primeiro uso).
+if (args.Contains("--emitir-ticket-de-bootstrap"))
+{
+    var configuracaoDoBootstrap = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeBootstrapMfa.ExecutarAsync(configuracaoDoBootstrap);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- configuracao
@@ -39,6 +54,7 @@ builder.Services.Configure<OpcoesDoCanalWhatsApp>(
     builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
 builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
+builder.Services.Configure<OpcoesDeMfa>(builder.Configuration.GetSection(OpcoesDeMfa.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 var opcoesCanalWhatsApp = builder.Configuration
@@ -90,6 +106,8 @@ builder.Services.AddScoped<IAuthorizationHandler, SessaoAtivaHandler>();
 
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();
 builder.Services.AddScoped<IAtendenteService, AtendenteService>();
+builder.Services.AddSingleton<ICifraDeSegredoMfa, CifraDeSegredoMfa>();
+builder.Services.AddScoped<IMfaService, MfaService>();
 builder.Services.AddScoped<IClienteService, ClienteService>();
 builder.Services.AddScoped<IImportacaoDeContatosService, ImportacaoDeContatosService>();
 builder.Services.AddScoped<ISetorService, SetorService>();
@@ -411,3 +429,5 @@ if (app.Configuration.GetValue<bool>("Seed:Habilitado"))
 }
 
 app.Run();
+
+return 0;

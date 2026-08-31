@@ -16,13 +16,32 @@ public class AutenticacaoController(IAutenticacaoService servico) : ControllerBa
     /// amortecedor raso; a protecao que de fato importa e o backoff por conta,
     /// dentro de <c>AutenticacaoService.AutenticarAsync</c>.
     /// </remarks>
+    /// <summary>
+    /// SEC-03 — etapa 1. Devolve sessao completa quando a conta nao tem MFA no
+    /// caminho, ou um desafio (<see cref="LoginEtapa1Response.Desafio"/>) quando
+    /// tem — nunca os dois. Ver <see cref="LoginMfa"/> para a etapa 2.
+    /// </summary>
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting(PoliticaDeLimiteDeLogin.Nome)]
-    public async Task<ActionResult<LoginResponse>> Login(
+    public async Task<ActionResult<LoginEtapa1Response>> Login(
         [FromBody] LoginRequest request,
         CancellationToken ct) =>
         Ok(await servico.AutenticarAsync(request, ct));
+
+    /// <summary>
+    /// SEC-03 — etapa 2. O desafio (nao um JWT) e a unica credencial aqui; a
+    /// mesma politica de limite do login se aplica, com janela propria e maior
+    /// (a defesa real contra forca bruta de codigo e o bloqueio por CONTA, nao
+    /// o limite por IP).
+    /// </summary>
+    [HttpPost("login/mfa")]
+    [AllowAnonymous]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.NomeMfa)]
+    public async Task<ActionResult<LoginResponse>> LoginMfa(
+        [FromBody] ConcluirLoginMfaRequest request,
+        CancellationToken ct) =>
+        Ok(await servico.ConcluirLoginMfaAsync(request, ct));
 
     /// <summary>
     /// Nome da serventia para a tela de login. Anonimo por necessidade — e

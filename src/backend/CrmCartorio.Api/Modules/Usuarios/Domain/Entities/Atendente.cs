@@ -71,6 +71,51 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
 
     public DateTime? UltimoAcessoEm { get; set; }
 
+    // ---------------------------------------------------------- SEC-03 (MFA)
+
+    /// <summary>
+    /// So vira true na CONFIRMACAO do primeiro codigo TOTP — nunca no envio do
+    /// segredo pendente. Ver <c>MfaService.ConfirmarAsync</c>.
+    /// </summary>
+    public bool MfaAtivo { get; set; }
+
+    /// <summary>
+    /// Segredo TOTP cifrado (AES-256-GCM, formato versionado — ver
+    /// <see cref="Infrastructure.Security.ICifraDeSegredoMfa"/>). Nulo enquanto
+    /// MFA nunca foi ativado.
+    /// </summary>
+    public byte[]? MfaSegredoCifrado { get; set; }
+
+    /// <summary>Segredo aguardando confirmacao do primeiro codigo. Nunca autentica sozinho.</summary>
+    public byte[]? MfaSegredoPendenteCifrado { get; set; }
+
+    /// <summary>TTL do segredo pendente (10 min). Expirado, precisa gerar outro.</summary>
+    public DateTime? MfaPendenteExpiraEm { get; set; }
+
+    public DateTime? MfaConfirmadoEm { get; set; }
+
+    /// <summary>
+    /// Anti-replay: o passo TOTP (janela de 30s) mais recente ja aceito. Um
+    /// codigo do mesmo passo, ou de um passo anterior, nunca e aceito de novo —
+    /// comparacao e escrita atomicas (compare-and-set) na mesma transacao do
+    /// consumo do desafio.
+    /// </summary>
+    public long? MfaUltimoPassoUsado { get; set; }
+
+    /// <summary>
+    /// Falhas de SEGUNDO FATOR desde o ultimo sucesso — contador separado de
+    /// <see cref="FalhasDeLoginConsecutivas"/> (que e da SENHA). Existe porque
+    /// quem ja tem a senha pode criar quantos desafios quiser; sem isto, o teto
+    /// de 5 tentativas por desafio nao protege nada.
+    /// </summary>
+    public int MfaFalhasConsecutivas { get; set; }
+
+    /// <summary>Mesma progressao de <see cref="NivelDeBloqueio"/> (1, 2, 4, 8, 16, 30 min), contador proprio.</summary>
+    public byte MfaNivelDeBloqueio { get; set; }
+
+    /// <summary>Enquanto no futuro, nenhum JWT sai da etapa de MFA — nem com codigo correto.</summary>
+    public DateTime? MfaBloqueadoAte { get; set; }
+
     public bool PodeGerirCadastros =>
         Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
 
