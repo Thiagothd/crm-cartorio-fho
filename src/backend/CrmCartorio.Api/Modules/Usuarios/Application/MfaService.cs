@@ -538,6 +538,24 @@ public class MfaService(
             throw UsuariosServiceException.CodigoMfaInvalido();
         }
 
+        // CORRECAO (revisao independente do PR #46, bloqueador 5) — mensagem
+        // mais util no caso comum, sem corrida: se isto e uma confirmacao SEM
+        // desafio de matricula (hashDoDesafioParaConsumir nulo — ou seja, nao
+        // veio do fluxo de ticket) E a conta ainda nao tem MFA ativo E ja e
+        // privilegiada, a PRIMEIRA matricula so pode nascer de ticket. Isto
+        // fecha a promocao-no-meio-do-caminho: comum inicia (recebe segredo
+        // pendente), e promovido a Administrador/Titular ANTES de confirmar, e
+        // tenta terminar a matricula sem nunca ter passado por um ticket. Quem
+        // decide de verdade e o WHERE atomico logo abaixo, que reconfere a
+        // mesma condicao no instante exato do commit — esta e so a mensagem.
+        var privilegiadoAgora = atendente.Perfil == PerfilDeAtendente.Administrador
+            || atendente.Cargo == CargoNaServentia.Titular;
+
+        if (hashDoDesafioParaConsumir is null && !atendente.MfaAtivo && privilegiadoAgora)
+        {
+            throw UsuariosServiceException.MatriculaPrivilegiadaExigeTicket();
+        }
+
         string segredoPendente;
         try
         {
@@ -561,12 +579,24 @@ public class MfaService(
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
+        // O PORTEIRO FINAL (bloqueador 5): a MESMA condicao da pre-checagem
+        // acima, mas reconferida contra o estado ATUAL da linha no instante do
+        // UPDATE, nunca a partir do `atendente` lido no inicio do metodo.
+        // Sem desafio de matricula, so pode concluir se: ja tinha MFA ativo
+        // (troca de autenticador legitima, ja gated por step-up em
+        // IniciarAsync) OU a conta ainda NAO e privilegiada agora. Com
+        // desafio de matricula (hashDoDesafioParaConsumir != null), a
+        // exigencia de ticket ja foi provada por IniciarMatriculaPrivilegiadaAsync
+        // — nada extra a checar aqui.
         var confirmou = await db.Atendentes
             .Where(a => a.Id == atendente.Id
                      && a.TenantId == identidade.TenantId
                      && a.Ativo
                      && a.MfaSegredoPendenteCifrado == atendente.MfaSegredoPendenteCifrado
-                     && (tokenVersionEsperada == null || a.TokenVersion == tokenVersionEsperada))
+                     && (tokenVersionEsperada == null || a.TokenVersion == tokenVersionEsperada)
+                     && (hashDoDesafioParaConsumir != null
+                         || a.MfaAtivo
+                         || !(a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.MfaAtivo, true)
                 .SetProperty(a => a.MfaSegredoCifrado, atendente.MfaSegredoPendenteCifrado)

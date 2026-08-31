@@ -146,12 +146,32 @@ public class AtendenteService(
             throw UsuariosServiceException.NaoPodeDesativarASiMesmo();
         }
 
-        // SEC-01: TokenVersion sobe dentro da MESMA instrucao atomica que grava
-        // Perfil/Ativo, comparando com o valor que esta no banco no instante do
-        // UPDATE — nunca com o `atendente` lido acima, que pode estar
-        // desatualizado sob concorrencia. So sobe quando o Perfil muda ou
-        // quando Ativo vira false; reativar (false -> true) nao mexe na
-        // versao, so nao deixa reduzi-la nem zera-la.
+        // SEC-01/SEC-03: TokenVersion sobe dentro da MESMA instrucao atomica que
+        // grava Perfil/Cargo/Ativo, comparando com o valor que esta no banco no
+        // instante do UPDATE — nunca com o `atendente` lido acima, que pode
+        // estar desatualizado sob concorrencia. Sobe quando:
+        //   1. o Perfil muda (SEC-01, qualquer mudanca — nao so a fronteira de
+        //      privilegio de MFA: uma promocao Atendente -> Supervisor tambem
+        //      precisa revogar sessoes antigas);
+        //   2. Ativo vira false (reativar, false -> true, nao mexe na versao,
+        //      so nao deixa reduzi-la nem zera-la);
+        //   3. a FRONTEIRA de privilegio do SEC-03 muda — comparando
+        //      `Perfil == Administrador || Cargo == Titular` ANTES e DEPOIS.
+        //      Precisa disto separado do item 1 porque o Cargo sozinho tambem
+        //      cruza essa fronteira (Titular concede privilegio por Cargo, nao
+        //      so por Perfil) e o Perfil pode nao ter mudado nada.
+        //
+        // Deliberadamente NAO sobe em toda mudanca de Cargo — so quando a
+        // fronteira booleana acima muda de lado. Alternativa descartada: subir
+        // em qualquer Cargo diferente, mesmo entre dois cargos igualmente
+        // NAO privilegiados (ex.: Substituto -> Escrevente). Isso revogaria
+        // sessao e forcaria novo login sem nenhum ganho de seguranca real — o
+        // oposto do principio de menor privilegio aplicado a esta trava: a
+        // intervencao (revogar) deve ser exatamente do tamanho do evento de
+        // seguranca que a motiva, nem mais nem menos. Comparar so a fronteira
+        // fecha a mesma vulnerabilidade (ticket ressuscitado, sessao antiga
+        // sobrevivendo a uma promocao) sem o custo colateral de deslogar
+        // quem trocou de cargo sem nunca ter cruzado a linha de privilegio.
         await db.Atendentes
             .Where(a => a.Id == id && a.TenantId == ctx.TenantId)
             .ExecuteUpdateAsync(s => s
@@ -162,7 +182,10 @@ public class AtendenteService(
                 .SetProperty(a => a.SetorPadraoId, request.SetorPadraoId)
                 .SetProperty(a => a.Ativo, request.Ativo)
                 .SetProperty(a => a.TokenVersion, a =>
-                    a.Perfil != request.Perfil || (a.Ativo && !request.Ativo)
+                    a.Perfil != request.Perfil
+                    || (a.Ativo && !request.Ativo)
+                    || (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)
+                       != (request.Perfil == PerfilDeAtendente.Administrador || request.Cargo == CargoNaServentia.Titular)
                         ? a.TokenVersion + 1
                         : a.TokenVersion),
                 ct);

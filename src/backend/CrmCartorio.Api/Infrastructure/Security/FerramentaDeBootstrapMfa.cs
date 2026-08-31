@@ -1,3 +1,4 @@
+using System.Data;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
@@ -5,6 +6,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace CrmCartorio.Api.Infrastructure.Security;
+
+/// <summary>
+/// Bootstrap deixou de ser elegivel entre a verificacao inicial (mostrada ao
+/// operador) e o instante real da emissao do ticket — outro
+/// Administrador/Titular pode ter concluido a propria matricula de MFA
+/// enquanto o operador ainda digitava o motivo ou confirmava. Ver
+/// <see cref="FerramentaDeBootstrapMfa.EmitirTicketAsync"/>.
+/// </summary>
+public sealed class BootstrapNaoElegivelException(ElegibilidadeDeBootstrap motivoAtual)
+    : InvalidOperationException($"Bootstrap deixou de ser elegivel no instante da emissao: {motivoAtual}.")
+{
+    public ElegibilidadeDeBootstrap MotivoAtual { get; } = motivoAtual;
+}
 
 /// <summary>
 /// SEC-03: por que o comando pode recusar emitir o ticket de bootstrap.
@@ -93,19 +107,46 @@ public static class FerramentaDeBootstrapMfa
     }
 
     /// <summary>
-    /// Grava o ticket e o evento de auditoria. Assume que o chamador ja
-    /// confirmou <see cref="ElegibilidadeDeBootstrap.Elegivel"/> — nao
-    /// reconfere sozinho (o comando interativo e o unico caminho de producao
-    /// ate aqui, e ele ja confere na sequencia; um verificador que chama isto
-    /// direto o faz deliberadamente, para testar so a gravacao).
+    /// Grava o ticket e o evento de auditoria — SO depois de reconfirmar a
+    /// elegibilidade no instante exato da escrita, nunca a partir de uma
+    /// verificacao feita antes.
     /// </summary>
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 6) — TOCTOU: o
+    /// fluxo interativo mostra <see cref="VerificarElegibilidadeAsync"/> ao
+    /// operador, depois espera motivo e confirmacao digitada (segundos a
+    /// minutos de interacao humana) antes de chegar aqui. Nesse intervalo,
+    /// outro Administrador/Titular do mesmo tenant pode concluir a propria
+    /// matricula de MFA e o bootstrap deveria ter se auto-fechado — mas a
+    /// versao antiga confiava cegamente na checagem antiga e emitia mesmo
+    /// assim. Aqui, dentro de uma transacao <c>SERIALIZABLE</c> (mesma
+    /// tecnica ja usada em <c>MfaService.AtivarObrigatoriedadeAsync</c> para o
+    /// mesmo tipo de checagem "ninguem privilegiado sem MFA" que atravessa
+    /// varias linhas de <c>Atendentes</c>), reconfere TUDO —
+    /// <see cref="VerificarElegibilidadeAsync"/> de novo, do zero, contra o
+    /// estado atual — e SO ENTAO grava. <c>SERIALIZABLE</c> serializa esta
+    /// leitura contra qualquer UPDATE concorrente que mude o resultado (ex.:
+    /// outra matricula de MFA completando na mesma janela): uma das duas
+    /// transacoes espera a outra terminar, nunca as duas enxergam a mesma
+    /// foto congelada e desatualizada.
+    /// </remarks>
     public static async Task<string> EmitirTicketAsync(
         CrmDbContext db, string email, string motivo, string atorExterno, CancellationToken ct = default)
     {
+        var agora = DateTime.UtcNow;
+
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+        var elegibilidadeNoInstante = await VerificarElegibilidadeAsync(db, email, ct);
+        if (elegibilidadeNoInstante != ElegibilidadeDeBootstrap.Elegivel)
+        {
+            await tx.RollbackAsync(ct);
+            throw new BootstrapNaoElegivelException(elegibilidadeNoInstante);
+        }
+
         var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email, ct);
 
         var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
-        var agora = DateTime.UtcNow;
 
         db.DesafiosDeMfa.Add(new DesafioDeMfa
         {
@@ -129,6 +170,7 @@ public static class FerramentaDeBootstrapMfa
         });
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return tokenEmClaro;
     }
@@ -218,7 +260,20 @@ public static class FerramentaDeBootstrapMfa
         }
 
         var atorExterno = $"{Environment.UserName}@{Environment.MachineName}";
-        var tokenEmClaro = await EmitirTicketAsync(db, email, motivo, atorExterno);
+        string tokenEmClaro;
+        try
+        {
+            tokenEmClaro = await EmitirTicketAsync(db, email, motivo, atorExterno);
+        }
+        catch (BootstrapNaoElegivelException ex)
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                $"RECUSADO no instante da emissao: a elegibilidade mudou entre a verificacao " +
+                $"inicial e agora ({ex.MotivoAtual}). Provavel causa: outro Administrador/Titular " +
+                "concluiu a propria matricula de MFA enquanto este comando esperava confirmacao.");
+            return 1;
+        }
 
         Console.WriteLine();
         Console.WriteLine("=== TICKET (mostrado uma UNICA vez — copie agora) ===");

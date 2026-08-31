@@ -14,8 +14,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using OtpNet;
+using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 // VERIFICADOR DE AUTENTICACAO
 //   SEC-01 — revogacao de sessao (cenarios 1..12)
@@ -103,6 +108,12 @@ IAutenticacaoService NovoAutenticacao(CrmDbContext db, Guid atorId) =>
 
 IAtendenteService NovoAtendenteService(CrmDbContext db, Guid atorId) =>
     new AtendenteService(db, new ContextoFixo(tenantId, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
+
+// Mesma coisa, mas para um tenant ISOLADO — AtualizarAsync filtra por
+// `TenantId == ctx.TenantId`, entao o AtendenteService acima (fechado no
+// `tenantId` COMPARTILHADO) nunca enxerga conta de tenant isolado.
+IAtendenteService NovoAtendenteServiceParaTenant(CrmDbContext db, Guid atorId, Guid tenantAlvo) =>
+    new AtendenteService(db, new ContextoFixo(tenantAlvo, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
 
 IMfaService NovoMfaService(CrmDbContext db) =>
     new MfaService(db, hash, cifra, tokens, NullLogger<MfaService>.Instance);
@@ -2030,11 +2041,18 @@ try
         Checar("56e. conta foi DESATIVADA depois da emissao -> ticket recusado",
             await TentarMatricularComTicket(emailInativo, ticketDeContaQueSeraDesativada) == "credenciais_invalidas");
 
-        // 56f — conta deixa de ser privilegiada por mudanca de CARGO SOZINHA,
-        // que NAO sobe TokenVersion (AtendenteService.AtualizarAsync so sobe
-        // TokenVersion por Perfil ou desativacao) — e o caso que a checagem
-        // atomica de "ainda privilegiado" no proprio consumo existe pra fechar,
-        // pois o TokenVersion sozinho NAO pegaria isto.
+        // 56f — conta deixa de ser privilegiada por mudanca de CARGO SOZINHA.
+        // CORRECAO (revisao independente do PR #46, bloqueador 4): ate aqui,
+        // Titular -> Substituto NAO subia TokenVersion (AtendenteService.
+        // AtualizarAsync so olhava Perfil/Ativo) — agora sobe, porque a
+        // fronteira de privilegio do SEC-03 (Perfil==Administrador ||
+        // Cargo==Titular) mudou de lado. Ver cenario 61 para a bateria
+        // completa dessa correcao. Aqui o ponto continua sendo o mesmo de
+        // antes: mesmo se a checagem de TokenVersion nao pegasse (hipotese
+        // que a correcao do bloqueador 4 tornou irreal, mas a re-checagem de
+        // "ainda privilegiado" no consumo do ticket existe independente
+        // disso, como defesa em profundidade), a conta ja nao privilegiada
+        // seria recusada de qualquer forma.
         var (idCargo, emailCargo) = await NovaContaPrivilegiada(
             "bloqueador2 - deixou de ser privilegiado", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Titular);
         var tokenVersionCargoAntes = (await Ler(idCargo)).TokenVersion;
@@ -2047,16 +2065,13 @@ try
         }
 
         var estadoCargo = await Ler(idCargo);
-        Checar("56f-preparo. mudar SO o Cargo (Titular -> Substituto) NAO sobe TokenVersion",
-            estadoCargo.TokenVersion == tokenVersionCargoAntes && estadoCargo.Cargo == CargoNaServentia.Substituto);
+        Checar("56f-preparo. mudar Titular -> Substituto CRUZA a fronteira de privilegio e sobe TokenVersion",
+            estadoCargo.TokenVersion > tokenVersionCargoAntes && estadoCargo.Cargo == CargoNaServentia.Substituto);
 
-        // Mesma logica de 56e: a pre-checagem de "privilegiado" le o Cargo
-        // ATUAL (Substituto) e rejeita com conta_nao_privilegiada antes de
-        // chegar na transacao. E exatamente o ponto de 56f-preparo acima: como
-        // o TokenVersion NAO mudou, so a pre-checagem (ou a subconsulta
-        // correlacionada dentro do WHERE atomico, para a corrida de verdade)
-        // pega este caso — nunca o TokenVersion sozinho.
-        Checar("56f. conta deixou de ser privilegiada (so por Cargo, TokenVersion intacto) -> ticket recusado",
+        // A pre-checagem de "privilegiado" le o Cargo ATUAL (Substituto) e
+        // rejeita com conta_nao_privilegiada antes de chegar na transacao —
+        // dispara antes mesmo de a re-checagem de TokenVersion ser avaliada.
+        Checar("56f. conta deixou de ser privilegiada (por Cargo) -> ticket recusado",
             await TentarMatricularComTicket(emailCargo, ticketDeQuemDeixouDeSerTitular) == "conta_nao_privilegiada");
 
         // 56g — MFA ja foi ativado por outro caminho entre a emissao e o
@@ -2525,6 +2540,820 @@ try
             Checar("60g. conta que JA tem MFA ativo -> MfaJaAtivo",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailPrimeiroIsolado)
                     == ElegibilidadeDeBootstrap.MfaJaAtivo);
+        }
+    }
+
+    // =====================================================================
+    // Segunda revisao independente do PR #46 — bloqueadores 4, 5 e 6, mais
+    // evidencia HTTP real do bloqueador 1
+    // =====================================================================
+
+    // ------------------------------------------------------------ cenario 61
+    // BLOQUEADOR 4 — TokenVersion sobe quando a FRONTEIRA de privilegio do
+    // SEC-03 (Perfil==Administrador || Cargo==Titular) muda de lado, mesmo
+    // quando so o Cargo muda. Ver AtendenteService.AtualizarAsync.
+
+    {
+        Guid tenantIsolado61;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — fronteira de Cargo (bloqueador 4)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado61 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado61);
+
+        async Task<(Guid Id, string Email)> ContaNoIsolado61(string rotulo, CargoNaServentia cargo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado61,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-61-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Atendente,
+                Cargo = cargo,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            return (conta.Id, conta.Email);
+        }
+
+        // 61a — Substituto -> Titular sobe TokenVersion (fronteira false->true).
+        var (idA, emailA) = await ContaNoIsolado61("61a", CargoNaServentia.Substituto);
+        var v0A = (await Ler(idA)).TokenVersion;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idA,
+                new AtualizarAtendenteRequest("Nome", emailA, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+        Checar("61a. Atendente/Substituto -> Atendente/Titular sobe TokenVersion",
+            (await Ler(idA)).TokenVersion > v0A);
+
+        // 61b — Titular -> Substituto sobe TokenVersion (fronteira true->false).
+        var (idB, emailB) = await ContaNoIsolado61("61b", CargoNaServentia.Titular);
+        var v0B = (await Ler(idB)).TokenVersion;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idB,
+                new AtualizarAtendenteRequest("Nome", emailB, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
+        }
+        Checar("61b. Titular -> Substituto sobe TokenVersion",
+            (await Ler(idB)).TokenVersion > v0B);
+
+        // 61c — Titular -> Substituto -> Titular NAO ressuscita ticket antigo:
+        // duas travessias da fronteira sobem TokenVersion duas vezes — o
+        // ticket gravado com a TokenVersion original nunca mais bate.
+        var (idC, emailC) = await ContaNoIsolado61("61c", CargoNaServentia.Titular);
+        var v0C = (await Ler(idC)).TokenVersion;
+        var tokenEmClaro61c = SegredosAleatoriosMfa.NovoToken();
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado61,
+                AtendenteId = idC,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro61c),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = v0C,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idC,
+                new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
+        }
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idC,
+                new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+
+        UsuariosServiceException? falha61c = null;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            try
+            {
+                await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
+                    new MatricularPrivilegiadoRequest(emailC, SenhaBoa, tokenEmClaro61c), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha61c = ex; }
+        }
+        Checar("61c. Titular -> Substituto -> Titular NAO ressuscita o ticket antigo",
+            falha61c?.Codigo == "ticket_invalido");
+
+        // 61d — JWT emitido antes da promocao por Cargo deixa de ser valido.
+        var (idD, emailD) = await ContaNoIsolado61("61d", CargoNaServentia.Substituto);
+        var estadoAntesD = await Ler(idD);
+        var (tokenD, _) = tokens.Gerar(estadoAntesD);
+        var versaoAntesD = LerVersaoDaClaim(tokenD);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idD,
+                new AtualizarAtendenteRequest("Nome", emailD, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("61d. JWT emitido antes da promocao por Cargo deixa de ser valido",
+                !await NovoValidador(db).SessaoValidaAsync(idD, tenantIsolado61, versaoAntesD));
+        }
+
+        // 61e — com politica obrigatoria ligada, promover por Cargo para
+        // Titular nao deixa a sessao antiga valer nem loga sem matricula.
+        // Precisa de tenant PROPRIO: ligar a politica exige TODOS os
+        // Administrador/Titular ja matriculados.
+        Guid tenantIsolado61e;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — promocao por Cargo sob politica (61e)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado61e = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado61e);
+
+        async Task<(Guid Id, string Email, string Segredo)> AtorMatriculadoNoIsolado61e(string rotulo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado61e,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-61e-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado61e,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+
+            return (conta.Id, conta.Email, iniciado.SegredoBase32);
+        }
+
+        var ator61e = await AtorMatriculadoNoIsolado61e("ator do flip (61e)");
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoMfaService(db).AtivarObrigatoriedadeAsync(
+                new IdentidadeParaMfa(tenantIsolado61e, ator61e.Id),
+                new AtivarObrigatoriedadeRequest(SenhaBoa, CodigoTotp(ator61e.Segredo), "teste do cenario 61e"),
+                null, default);
+        }
+
+        Guid idE; string emailE;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado61e,
+                Nome = "[TESTE SEC-03] 61e - promovido por Cargo",
+                Email = $"teste-sec-03-61e-alvo-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Atendente,
+                Cargo = CargoNaServentia.Substituto,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            idE = conta.Id;
+            emailE = conta.Email;
+        }
+
+        // Login normal enquanto ainda NAO privilegiado — a politica so exige
+        // MFA de quem e privilegiado, entao entra numa etapa so, com JWT.
+        LoginEtapa1Response etapa1AntesDaPromocao;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            etapa1AntesDaPromocao = await NovoAutenticacao(db, Guid.NewGuid())
+                .AutenticarAsync(new LoginRequest(emailE, SenhaBoa));
+        }
+        Checar("61e-preparo. login normal antes da promocao (nao privilegiado) devolve sessao completa",
+            !etapa1AntesDaPromocao.RequerMfa && etapa1AntesDaPromocao.Sessao is not null);
+
+        var versaoAntesDaPromocaoE = LerVersaoDaClaim(etapa1AntesDaPromocao.Sessao!.Token);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61e).AtualizarAsync(idE,
+                new AtualizarAtendenteRequest("Nome", emailE, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("61e. sessao antiga (de antes da promocao por Cargo) nao vale mais",
+                !await NovoValidador(db).SessaoValidaAsync(idE, tenantIsolado61e, versaoAntesDaPromocaoE));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(emailE, SenhaBoa));
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("61e. novo login apos promocao por Cargo, sob politica obrigatoria, exige matricula de MFA",
+                falha?.Codigo == "mfa_obrigatorio_nao_matriculado");
+        }
+
+        // 61f — desafio de MFA (2o fator) aberto ANTES da promocao por Cargo
+        // fica invalido: codigo certo no desafio velho nao emite JWT.
+        var (idF, emailF, segredoF, _) = await NovaContaComMfaAtivo(
+            "61f - promovido depois do desafio aberto", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Substituto);
+
+        LoginEtapa1Response etapa1F;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            etapa1F = await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(emailF, SenhaBoa));
+        }
+        Checar("61f-preparo. desafio de 2o fator aberto (conta ja tinha MFA, Cargo=Substituto)",
+            etapa1F.RequerMfa && etapa1F.Desafio is not null);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idF,
+                new AtualizarAtendenteRequest("Nome", emailF, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+
+        Checar("61f. desafio de MFA aberto ANTES da mudanca de fronteira de Cargo fica invalido",
+            await EtapaDois(etapa1F.Desafio!.Desafio, CodigoTotp(segredoF)) is null);
+
+        // 61g — regressao: Cargo muda mas NENHUM dos dois lados e Titular ->
+        // a fronteira nao muda de lado -> TokenVersion NAO sobe.
+        var (idG, emailG) = await ContaNoIsolado61("61g", CargoNaServentia.Substituto);
+        var v0G = (await Ler(idG)).TokenVersion;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idG,
+                new AtualizarAtendenteRequest("Nome", emailG, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.EscreventeAutorizado));
+        }
+        Checar("61g. mudanca de Cargo que NAO cruza a fronteira de privilegio nao sobe TokenVersion",
+            (await Ler(idG)).TokenVersion == v0G);
+    }
+
+    // ------------------------------------------------------------ cenario 62
+    // BLOQUEADOR 5 — confirmacao de MFA sem ticket so pode concluir a
+    // PRIMEIRA matricula se a conta AINDA NAO for privilegiada no instante do
+    // commit (porteiro final em MfaService.ConfirmarNucleoAsync, nao so a
+    // pre-checagem em memoria).
+
+    {
+        // 62a — comum inicia -> promovido a Administrador (via Perfil) ->
+        // confirmar sem ticket e recusado.
+        var (idA, emailA) = await NovaContaPrivilegiada("bloqueador5 - promovido por Perfil", perfil: PerfilDeAtendente.Atendente);
+
+        IniciarMfaResponse iniciadoA;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciadoA = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idA), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idA,
+                new AtualizarAtendenteRequest("Nome", emailA, PerfilDeAtendente.Administrador, null, true));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idA), new ConfirmarMfaRequest(CodigoTotp(iniciadoA.SegredoBase32)), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("62a. comum inicia MFA -> promovido a Administrador (Perfil) -> confirmar sem ticket e recusado",
+                falha?.Codigo == "matricula_privilegiada_exige_ticket");
+        }
+
+        Checar("62a-pos. MfaAtivo continua false apos a confirmacao recusada",
+            !(await Ler(idA)).MfaAtivo);
+
+        // 62b — mesma coisa, mas a promocao e por CARGO (Titular).
+        var (idB, emailB) = await NovaContaPrivilegiada("bloqueador5 - promovido por Cargo", perfil: PerfilDeAtendente.Atendente);
+
+        IniciarMfaResponse iniciadoB;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciadoB = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idB), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idB,
+                new AtualizarAtendenteRequest("Nome", emailB, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idB), new ConfirmarMfaRequest(CodigoTotp(iniciadoB.SegredoBase32)), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("62b. comum inicia MFA -> promovido a Titular (Cargo) -> confirmar sem ticket e recusado",
+                falha?.Codigo == "matricula_privilegiada_exige_ticket");
+        }
+
+        // 62c — corrida REAL: ConfirmarAsync concorrente com a promocao a
+        // Administrador. As duas operacoes fazem UPDATE na MESMA linha de
+        // Atendentes — o SQL Server serializa por lock de linha, entao uma
+        // sempre efetivamente acontece antes da outra (nunca as duas ao mesmo
+        // tempo). Em varias tentativas independentes, o resultado reportado
+        // pela chamada de confirmar sempre bate com o MfaAtivo gravado.
+        var trials62c = 5;
+        var inconsistencias62c = 0;
+
+        for (var i = 0; i < trials62c; i++)
+        {
+            var (idC, emailC) = await NovaContaPrivilegiada($"bloqueador5 - corrida {i}", perfil: PerfilDeAtendente.Atendente);
+
+            IniciarMfaResponse iniciadoC;
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                iniciadoC = await NovoMfaService(db).IniciarAsync(
+                    new IdentidadeParaMfa(tenantId, idC), new IniciarMfaRequest(SenhaBoa, null), null, default);
+            }
+
+            var codigoC = CodigoTotp(iniciadoC.SegredoBase32);
+
+            async Task<bool> TentarConfirmar()
+            {
+                await using var db = new CrmDbContext(opcoes);
+                try
+                {
+                    await NovoMfaService(db).ConfirmarAsync(
+                        new IdentidadeParaMfa(tenantId, idC), new ConfirmarMfaRequest(codigoC), null, default);
+                    return true;
+                }
+                catch (UsuariosServiceException)
+                {
+                    return false;
+                }
+            }
+
+            async Task PromoverAsync()
+            {
+                await using var db = new CrmDbContext(opcoes);
+                await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idC,
+                    new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Administrador, null, true));
+            }
+
+            var tarefaConfirmar = TentarConfirmar();
+            var tarefaPromover = PromoverAsync();
+            await Task.WhenAll(tarefaConfirmar, tarefaPromover);
+
+            var confirmouOk = await tarefaConfirmar;
+            var estadoFinal = await Ler(idC);
+
+            if (confirmouOk != estadoFinal.MfaAtivo)
+            {
+                inconsistencias62c++;
+            }
+        }
+
+        Checar($"62c. corrida confirmacao x promocao (Perfil): resultado da confirmacao sempre bate com MfaAtivo final ({trials62c} tentativas)",
+            inconsistencias62c == 0);
+
+        // 62d — regressao: Administrador que JA tem MFA ativo continua
+        // trocando de autenticador com step-up (a.MfaAtivo == true no WHERE
+        // atomico da confirmacao — o ramo que este bloqueador precisa manter
+        // intacto).
+        var (idD, emailD, segredoD, _) = await NovaContaComMfaAtivo("bloqueador5 - troca de autenticador");
+
+        IniciarMfaResponse iniciadoTrocaD;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciadoTrocaD = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idD), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoD)), null, default);
+        }
+
+        ConfirmarMfaResponse confirmadoTrocaD;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            confirmadoTrocaD = await NovoMfaService(db).ConfirmarAsync(
+                new IdentidadeParaMfa(tenantId, idD), new ConfirmarMfaRequest(CodigoTotp(iniciadoTrocaD.SegredoBase32, -1)), null, default);
+        }
+
+        Checar("62d. Administrador com MFA ja ativo continua trocando de autenticador (step-up)",
+            !string.IsNullOrEmpty(confirmadoTrocaD.Sessao.Token) && (await Ler(idD)).MfaAtivo);
+    }
+
+    // ------------------------------------------------------------ cenario 63
+    // BLOQUEADOR 6 — FerramentaDeBootstrapMfa.EmitirTicketAsync reconfere a
+    // elegibilidade no INSTANTE da escrita, dentro de uma transacao
+    // SERIALIZABLE — nunca confia na verificacao feita antes da interacao
+    // humana.
+
+    {
+        Guid tenantIsolado63a;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — TOCTOU do bootstrap (63a)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado63a = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado63a);
+
+        // Alvo do bootstrap: privilegiado, sem MFA, elegivel no comeco.
+        Guid idAlvo63a; string emailAlvo63a;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado63a,
+                Nome = "[TESTE SEC-03] 63a - alvo do bootstrap",
+                Email = $"teste-sec-03-63a-alvo-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            idAlvo63a = conta.Id;
+            emailAlvo63a = conta.Email;
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("63a-preparo. verificacao inicial: alvo Elegivel para bootstrap",
+                await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailAlvo63a)
+                    == ElegibilidadeDeBootstrap.Elegivel);
+        }
+
+        // ANTES da emissao (simulando o intervalo de interacao humana entre a
+        // verificacao inicial e a confirmacao no CLI), OUTRO privilegiado do
+        // MESMO tenant conclui a propria matricula de MFA — o bootstrap
+        // deveria ter se auto-fechado.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado63a,
+                Nome = "[TESTE SEC-03] 63a - outro privilegiado (fecha o bootstrap)",
+                Email = $"teste-sec-03-63a-outro-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenOutro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado63a,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenOutro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenOutro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+        }
+
+        // Emissao: deve ser recusada — a elegibilidade mudou.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            BootstrapNaoElegivelException? falha = null;
+            try
+            {
+                await FerramentaDeBootstrapMfa.EmitirTicketAsync(db, emailAlvo63a, "teste do cenario 63a", "teste@verificador");
+            }
+            catch (BootstrapNaoElegivelException ex) { falha = ex; }
+
+            Checar("63a. emissao recusada: elegibilidade mudou entre a verificacao e a emissao",
+                falha?.MotivoAtual == ElegibilidadeDeBootstrap.JaExistePrivilegiadoMatriculado);
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("63a-pos. nenhum ticket de bootstrap foi gravado para o alvo",
+                !await db.DesafiosDeMfa.AnyAsync(d => d.AtendenteId == idAlvo63a && d.Tipo == TipoDeDesafioMfa.Ticket));
+        }
+    }
+
+    // ----------------------------------------------------------- cenario 63b
+    // Concorrencia: depois que a condicao de auto-fechamento se torna
+    // verdadeira, NENHUMA tentativa concorrente de emitir ticket de bootstrap
+    // produz ticket — nunca uma leitura obsoleta escapa pela concorrencia.
+
+    {
+        Guid tenantIsolado63b;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — bootstrap concorrente (63b)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado63b = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado63b);
+
+        Guid idAlvo63b; string emailAlvo63b;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado63b,
+                Nome = "[TESTE SEC-03] 63b - alvo",
+                Email = $"teste-sec-03-63b-alvo-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            idAlvo63b = conta.Id;
+            emailAlvo63b = conta.Email;
+        }
+
+        // Auto-fechamento JA verdadeiro ANTES de disparar as tentativas
+        // concorrentes: outro privilegiado do mesmo tenant ja matriculado.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado63b,
+                Nome = "[TESTE SEC-03] 63b - ja matriculado",
+                Email = $"teste-sec-03-63b-matriculado-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenJaMatriculado = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado63b,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenJaMatriculado),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenJaMatriculado), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+        }
+
+        async Task<bool> TentarEmitirTicketBootstrap()
+        {
+            await using var db = new CrmDbContext(opcoes);
+            try
+            {
+                await FerramentaDeBootstrapMfa.EmitirTicketAsync(db, emailAlvo63b, "teste concorrente 63b", "teste@verificador");
+                return true;
+            }
+            catch (BootstrapNaoElegivelException)
+            {
+                return false;
+            }
+        }
+
+        var resultados63b = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => TentarEmitirTicketBootstrap()));
+
+        Checar("63b. 5 tentativas concorrentes DEPOIS do auto-fechamento: nenhuma produz ticket",
+            resultados63b.All(r => !r));
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("63b-pos. nenhum ticket de bootstrap foi gravado para o alvo",
+                !await db.DesafiosDeMfa.AnyAsync(d => d.AtendenteId == idAlvo63b && d.Tipo == TipoDeDesafioMfa.Ticket));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 64
+    // EVIDENCIA (revisao independente do PR #46) — teste HTTP REAL contra a
+    // API publicada, nao chamada direta de servico. Sobe o MESMO assembly que
+    // Program.cs gera (dotnet CrmCartorio.Api.dll), com Kestrel escutando em
+    // loopback, e bate nele com HttpClient de verdade — prova a trava do
+    // bloqueador 1 na borda HTTP real (auth JWT, roteamento, middleware,
+    // ProblemDetails), que o cenario 55 (chamada direta ao MfaService) nao
+    // alcanca.
+
+    {
+        var caminhoDoAssembly = Path.GetFullPath(Path.Combine("CrmCartorio.Api", "bin", "Debug", "net10.0", "CrmCartorio.Api.dll"));
+        if (!File.Exists(caminhoDoAssembly))
+        {
+            throw new InvalidOperationException(
+                $"'{caminhoDoAssembly}' nao encontrado — rode 'dotnet build CrmCartorio.Api' antes deste verificador.");
+        }
+
+        int porta;
+        using (var sonda = new TcpListener(IPAddress.Loopback, 0))
+        {
+            sonda.Start();
+            porta = ((IPEndPoint)sonda.LocalEndpoint).Port;
+        }
+
+        var baseUrl = $"http://127.0.0.1:{porta}";
+
+        var processo = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"\"{caminhoDoAssembly}\"",
+                WorkingDirectory = Path.GetDirectoryName(caminhoDoAssembly),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+        processo.StartInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Development";
+        processo.StartInfo.EnvironmentVariables["ASPNETCORE_URLS"] = baseUrl;
+        processo.StartInfo.EnvironmentVariables["CanalWhatsApp__Habilitado"] = "false";
+        processo.StartInfo.EnvironmentVariables["RespostaInteligente__Habilitada"] = "false";
+
+        var saidaErro = new System.Text.StringBuilder();
+        processo.OutputDataReceived += (_, e) => { };
+        processo.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null && saidaErro.Length < 20000) saidaErro.AppendLine(e.Data);
+        };
+
+        processo.Start();
+        processo.BeginOutputReadLine();
+        processo.BeginErrorReadLine();
+
+        try
+        {
+            var jsonOpcoes = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            };
+            // Mesmo conversor que Program.cs registra para a API real — sem
+            // isto, enum (ex.: Perfil) chega como string e a desserializacao
+            // do lado do teste falha.
+            jsonOpcoes.Converters.Add(new JsonStringEnumConverter());
+
+            using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(10) };
+
+            var pronto = false;
+            for (var tentativa = 0; tentativa < 60 && !pronto; tentativa++)
+            {
+                try
+                {
+                    using var resposta = await http.GetAsync("/health/pronto");
+                    pronto = resposta.IsSuccessStatusCode;
+                }
+                catch (HttpRequestException) { }
+                catch (TaskCanceledException) { }
+
+                if (!pronto) await Task.Delay(500);
+            }
+
+            Checar("64-preparo. API real (dotnet CrmCartorio.Api.dll) subiu e /health/pronto respondeu OK", pronto);
+
+            if (!pronto)
+            {
+                var erro = saidaErro.ToString();
+                Console.WriteLine($"  Diagnostico (stderr, ate 2000 chars): {erro[..Math.Min(2000, erro.Length)]}");
+            }
+            else
+            {
+                // Fixtures descartaveis: privilegiado sem MFA e comum sem
+                // MFA, no tenant compartilhado — o login HTTP real busca por
+                // e-mail, sem filtrar por tenant (Fase 1/2 sao single-tenant;
+                // ver o mesmo padrao ja usado nos cenarios 58/59 com contas
+                // de tenant isolado).
+                var (idPriv, emailPriv) = await NovaContaPrivilegiada("64 - privilegiado via HTTP real");
+                var (idComum, emailComum) = await NovaContaPrivilegiada("64 - comum via HTTP real", perfil: PerfilDeAtendente.Atendente);
+
+                async Task<string?> LoginHttpAsync(string email)
+                {
+                    using var resposta = await http.PostAsJsonAsync("/api/autenticacao/login",
+                        new { email, senha = SenhaBoa }, jsonOpcoes);
+                    if (!resposta.IsSuccessStatusCode) return null;
+                    var corpo = await resposta.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes);
+                    return corpo?.Sessao?.Token;
+                }
+
+                var jwtPriv = await LoginHttpAsync(emailPriv);
+                var jwtComum = await LoginHttpAsync(emailComum);
+
+                Checar("64a. login HTTP real (privilegiado sem MFA, senha correta) devolve JWT", !string.IsNullOrEmpty(jwtPriv));
+                Checar("64b. login HTTP real (comum sem MFA, senha correta) devolve JWT", !string.IsNullOrEmpty(jwtComum));
+
+                async Task<(HttpStatusCode Status, string Corpo)> IniciarMfaHttpAsync(string jwt)
+                {
+                    using var requisicao = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/iniciar")
+                    {
+                        Content = JsonContent.Create(new { senhaAtual = SenhaBoa, codigoAtual = (string?)null }, options: jsonOpcoes)
+                    };
+                    requisicao.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwt);
+
+                    using var resposta = await http.SendAsync(requisicao);
+                    var corpo = await resposta.Content.ReadAsStringAsync();
+                    return (resposta.StatusCode, corpo);
+                }
+
+                var (statusPriv, corpoPriv) = await IniciarMfaHttpAsync(jwtPriv ?? string.Empty);
+                Checar("64c. POST /api/mfa/iniciar real (privilegiado sem MFA, JWT+senha corretos) -> 409 Conflict",
+                    statusPriv == HttpStatusCode.Conflict);
+                Checar("64d. corpo real da recusa traz o codigo estavel matricula_privilegiada_exige_ticket",
+                    corpoPriv.Contains("matricula_privilegiada_exige_ticket"));
+
+                var (statusComum, corpoComum) = await IniciarMfaHttpAsync(jwtComum ?? string.Empty);
+                Checar("64e. POST /api/mfa/iniciar real (conta comum sem MFA) -> 200, continua funcionando",
+                    statusComum == HttpStatusCode.OK);
+                Checar("64f. corpo real da conta comum traz um segredoBase32",
+                    corpoComum.Contains("segredoBase32"));
+
+                // Nenhum outro caminho HTTP autenticado alcanca a primeira
+                // matricula privilegiada sem ticket: como /iniciar recusou, a
+                // conta nunca teve segredo pendente — /confirmar tambem falha.
+                using var requisicaoConfirmar = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/confirmar")
+                {
+                    Content = JsonContent.Create(new { codigo = "000000" }, options: jsonOpcoes)
+                };
+                requisicaoConfirmar.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtPriv ?? string.Empty);
+                using var respostaConfirmar = await http.SendAsync(requisicaoConfirmar);
+
+                Checar("64g. POST /api/mfa/confirmar real (privilegiado sem MFA) tambem falha — nenhum atalho HTTP",
+                    !respostaConfirmar.IsSuccessStatusCode);
+            }
+        }
+        finally
+        {
+            if (!processo.HasExited)
+            {
+                try { processo.Kill(entireProcessTree: true); } catch { }
+                try { processo.WaitForExit(5000); } catch { }
+            }
+            processo.Dispose();
         }
     }
 }
