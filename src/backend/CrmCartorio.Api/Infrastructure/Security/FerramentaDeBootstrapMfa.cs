@@ -7,6 +7,26 @@ using Microsoft.Extensions.Configuration;
 namespace CrmCartorio.Api.Infrastructure.Security;
 
 /// <summary>
+/// SEC-03: por que o comando pode recusar emitir o ticket de bootstrap.
+/// </summary>
+/// <remarks>
+/// Separado de <see cref="FerramentaDeBootstrapMfa.ExecutarAsync"/> (o loop
+/// interativo) de proposito: <see cref="FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync"/>
+/// e a mesma logica, testavel diretamente contra SQL Server real, sem simular
+/// stdin — e o que prova o auto-fechamento (revisao independente do PR #46)
+/// sem depender de rodar o processo interativo inteiro.
+/// </remarks>
+public enum ElegibilidadeDeBootstrap
+{
+    Elegivel,
+    ContaInexistente,
+    ContaInativa,
+    NaoPrivilegiada,
+    MfaJaAtivo,
+    JaExistePrivilegiadoMatriculado
+}
+
+/// <summary>
 /// SEC-03 — bootstrap do PRIMEIRO privilegiado (Titular ou Administrador) de um
 /// tenant. Emite o ticket fora de banda que a matricula privilegiada exige,
 /// para o unico momento em que ainda nao existe ninguem matriculado capaz de
@@ -41,6 +61,77 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 public static class FerramentaDeBootstrapMfa
 {
     private static readonly TimeSpan TtlDoTicket = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Toda a regra de elegibilidade, inclusive o auto-fechamento — sem
+    /// nenhuma interacao de console. E o metodo que tanto
+    /// <see cref="ExecutarAsync"/> quanto o verificador chamam; nunca ha uma
+    /// segunda copia desta logica.
+    /// </summary>
+    public static async Task<ElegibilidadeDeBootstrap> VerificarElegibilidadeAsync(
+        CrmDbContext db, string email, CancellationToken ct = default)
+    {
+        var atendente = await db.Atendentes.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Email == email, ct);
+
+        if (atendente is null) return ElegibilidadeDeBootstrap.ContaInexistente;
+        if (!atendente.Ativo) return ElegibilidadeDeBootstrap.ContaInativa;
+
+        var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador || atendente.Cargo == CargoNaServentia.Titular;
+        if (!privilegiado) return ElegibilidadeDeBootstrap.NaoPrivilegiada;
+        if (atendente.MfaAtivo) return ElegibilidadeDeBootstrap.MfaJaAtivo;
+
+        // O AUTO-FECHAMENTO: se QUALQUER privilegiado do tenant ja tem MFA
+        // ativo, o bootstrap deixou de ser necessario — e nao pode mais rodar.
+        var jaExisteMatriculado = await db.Atendentes.AsNoTracking()
+            .AnyAsync(a => a.TenantId == atendente.TenantId && a.Ativo && a.MfaAtivo
+                        && (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular), ct);
+
+        return jaExisteMatriculado
+            ? ElegibilidadeDeBootstrap.JaExistePrivilegiadoMatriculado
+            : ElegibilidadeDeBootstrap.Elegivel;
+    }
+
+    /// <summary>
+    /// Grava o ticket e o evento de auditoria. Assume que o chamador ja
+    /// confirmou <see cref="ElegibilidadeDeBootstrap.Elegivel"/> — nao
+    /// reconfere sozinho (o comando interativo e o unico caminho de producao
+    /// ate aqui, e ele ja confere na sequencia; um verificador que chama isto
+    /// direto o faz deliberadamente, para testar so a gravacao).
+    /// </summary>
+    public static async Task<string> EmitirTicketAsync(
+        CrmDbContext db, string email, string motivo, string atorExterno, CancellationToken ct = default)
+    {
+        var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email, ct);
+
+        var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+        var agora = DateTime.UtcNow;
+
+        db.DesafiosDeMfa.Add(new DesafioDeMfa
+        {
+            TenantId = atendente.TenantId,
+            AtendenteId = atendente.Id,
+            HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+            Tipo = TipoDeDesafioMfa.Ticket,
+            TokenVersionNoDesafio = atendente.TokenVersion,
+            ExpiraEm = agora.Add(TtlDoTicket)
+        });
+
+        db.EventosDeSeguranca.Add(new EventoDeSeguranca
+        {
+            TenantId = atendente.TenantId,
+            AtendenteId = atendente.Id,
+            AtorAtendenteId = null,
+            AtorExterno = atorExterno,
+            Tipo = TipoDeEventoDeSeguranca.TicketDeBootstrapEmitido,
+            OcorridoEm = agora,
+            Motivo = motivo
+        });
+
+        await db.SaveChangesAsync(ct);
+
+        return tokenEmClaro;
+    }
 
     public static async Task<int> ExecutarAsync(IConfiguration configuracao)
     {
@@ -77,48 +168,33 @@ public static class FerramentaDeBootstrapMfa
         Console.Write("E-mail do atendente a matricular: ");
         var email = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
 
-        var atendente = await db.Atendentes.AsNoTracking().FirstOrDefaultAsync(a => a.Email == email);
+        var elegibilidade = await VerificarElegibilidadeAsync(db, email);
 
-        if (atendente is null)
+        switch (elegibilidade)
         {
-            Console.WriteLine($"RECUSADO: nenhum atendente com o e-mail '{email}'.");
-            return 1;
+            case ElegibilidadeDeBootstrap.ContaInexistente:
+                Console.WriteLine($"RECUSADO: nenhum atendente com o e-mail '{email}'.");
+                return 1;
+            case ElegibilidadeDeBootstrap.ContaInativa:
+                Console.WriteLine("RECUSADO: a conta esta inativa.");
+                return 1;
+            case ElegibilidadeDeBootstrap.NaoPrivilegiada:
+                Console.WriteLine("RECUSADO: este fluxo e exclusivo para Titular ou Administrador.");
+                return 1;
+            case ElegibilidadeDeBootstrap.MfaJaAtivo:
+                Console.WriteLine(
+                    "RECUSADO: esta conta ja tem MFA ativo — use o ticket normal " +
+                    "(IMfaService.EmitirTicketAsync), com step-up de uma conta ja matriculada.");
+                return 1;
+            case ElegibilidadeDeBootstrap.JaExistePrivilegiadoMatriculado:
+                Console.WriteLine(
+                    "RECUSADO: ja existe conta privilegiada matriculada neste tenant. " +
+                    "O bootstrap so serve para o PRIMEIRO Titular/Administrador — " +
+                    "a partir daqui, novos tickets saem do fluxo normal, com step-up de quem ja tem MFA.");
+                return 1;
         }
 
-        if (!atendente.Ativo)
-        {
-            Console.WriteLine("RECUSADO: a conta esta inativa.");
-            return 1;
-        }
-
-        var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador || atendente.Cargo == CargoNaServentia.Titular;
-        if (!privilegiado)
-        {
-            Console.WriteLine("RECUSADO: este fluxo e exclusivo para Titular ou Administrador.");
-            return 1;
-        }
-
-        if (atendente.MfaAtivo)
-        {
-            Console.WriteLine("RECUSADO: esta conta ja tem MFA ativo — use o ticket normal (IMfaService.EmitirTicketAsync), com step-up de uma conta ja matriculada.");
-            return 1;
-        }
-
-        // O AUTO-FECHAMENTO: se QUALQUER privilegiado do tenant ja tem MFA
-        // ativo, o bootstrap deixou de ser necessario — e nao pode mais rodar.
-        var jaExisteMatriculado = await db.Atendentes.AsNoTracking()
-            .AnyAsync(a => a.TenantId == atendente.TenantId && a.Ativo && a.MfaAtivo
-                        && (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular));
-
-        if (jaExisteMatriculado)
-        {
-            Console.WriteLine(
-                "RECUSADO: ja existe conta privilegiada matriculada neste tenant. " +
-                "O bootstrap so serve para o PRIMEIRO Titular/Administrador — " +
-                "a partir daqui, novos tickets saem do fluxo normal, com step-up de quem ja tem MFA.");
-            return 1;
-        }
-
+        var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email);
         Console.WriteLine($"Conta encontrada: {atendente.Nome} <{atendente.Email}>.");
         Console.Write("Motivo (obrigatorio, registrado em EventosDeSeguranca): ");
         var motivo = (Console.ReadLine() ?? string.Empty).Trim();
@@ -141,40 +217,14 @@ public static class FerramentaDeBootstrapMfa
             return 1;
         }
 
-        var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
-        var agora = DateTime.UtcNow;
-        var expiraEm = agora.Add(TtlDoTicket);
         var atorExterno = $"{Environment.UserName}@{Environment.MachineName}";
-
-        db.DesafiosDeMfa.Add(new DesafioDeMfa
-        {
-            TenantId = atendente.TenantId,
-            AtendenteId = atendente.Id,
-            HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
-            Tipo = TipoDeDesafioMfa.Ticket,
-            TokenVersionNoDesafio = atendente.TokenVersion,
-            ExpiraEm = expiraEm
-        });
-
-        db.EventosDeSeguranca.Add(new EventoDeSeguranca
-        {
-            TenantId = atendente.TenantId,
-            AtendenteId = atendente.Id,
-            AtorAtendenteId = null,
-            AtorExterno = atorExterno,
-            Tipo = TipoDeEventoDeSeguranca.TicketDeBootstrapEmitido,
-            OcorridoEm = agora,
-            Motivo = motivo
-        });
-
-        await db.SaveChangesAsync();
+        var tokenEmClaro = await EmitirTicketAsync(db, email, motivo, atorExterno);
 
         Console.WriteLine();
         Console.WriteLine("=== TICKET (mostrado uma UNICA vez — copie agora) ===");
         Console.WriteLine(tokenEmClaro);
         Console.WriteLine("=== FIM DO TICKET ===");
         Console.WriteLine();
-        Console.WriteLine($"Expira em: {expiraEm:yyyy-MM-dd HH:mm} UTC.");
         Console.WriteLine("Entregue ao portador por canal fora de banda (voz, presencial) — nunca por e-mail, chat ou SMS.");
         Console.WriteLine($"Registrado em EventosDeSeguranca como TicketDeBootstrapEmitido, ator externo '{atorExterno}'.");
 

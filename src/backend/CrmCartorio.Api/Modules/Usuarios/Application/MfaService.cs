@@ -39,6 +39,23 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
+        // CORRECAO (revisao independente do PR #46, bloqueador 1): a PRIMEIRA
+        // matricula de conta PRIVILEGIADA (Titular ou Administrador) nunca pode
+        // acontecer pelo fluxo autenticado comum — JWT + senha nao bastam, por
+        // desenho. So chega ao segredo pendente de um privilegiado sem MFA
+        // quem passou por ConfirmarViaDesafioAsync com um DesafioDeMfa de
+        // matricula valido, que por sua vez so nasce de senha + TICKET fora de
+        // banda (IniciarMatriculaPrivilegiadaAsync). Sem esta trava, o proprio
+        // endpoint autenticado normal era um atalho que contornava o ticket
+        // inteiro — exatamente o que a correcao fecha.
+        var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador
+            || atendente.Cargo == CargoNaServentia.Titular;
+
+        if (!atendente.MfaAtivo && privilegiado)
+        {
+            throw UsuariosServiceException.MatriculaPrivilegiadaExigeTicket();
+        }
+
         // Trocar autenticador com MFA ja ativo exige TAMBEM o fator atual — um
         // JWT roubado, mesmo com a senha (que tambem pode ter sido roubada
         // junto), nunca substitui sozinho o segredo de quem ja tem MFA.
@@ -149,6 +166,30 @@ public class MfaService(
     /// MFA, entao nao ha sessao completa a emitir. O consumo do ticket e
     /// atomico e so no sucesso — a mesma disciplina do desafio de login.
     /// </remarks>
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueadores 2 e 3) — duas
+    /// falhas na versao anterior:
+    /// <list type="number">
+    /// <item>O consumo do ticket conferia so identidade/expiracao/uso, nunca
+    /// <see cref="DesafioDeMfa.TokenVersionNoDesafio"/> contra o
+    /// <see cref="Atendente.TokenVersion"/> ATUAL — um ticket emitido antes de
+    /// uma troca de senha, desativacao, mudanca de Perfil/Cargo ou reset de
+    /// MFA continuava valendo depois. Corrigido com uma subconsulta
+    /// correlacionada dentro do proprio <c>WHERE</c> do <c>ExecuteUpdateAsync</c>
+    /// — o SQL Server le o estado ATUAL do Atendente no instante da escrita,
+    /// nunca um valor lido antes em memoria neste metodo.</item>
+    /// <item>O consumo do ticket e a criacao do desafio de matricula eram DUAS
+    /// operacoes separadas, sem transacao — se a segunda falhasse, o ticket
+    /// ficava queimado sem produzir desafio nenhum. Agora as duas vivem na
+    /// MESMA transacao.</item>
+    /// </list>
+    /// O consumo em si (o <c>ExecuteUpdateAsync</c> abaixo) e o unico ponto de
+    /// serializacao: sob duas requisicoes simultaneas com o MESMO ticket, o SQL
+    /// Server serializa as duas escritas na mesma linha e so a primeira encontra
+    /// <c>ConsumidoEm IS NULL</c> — a segunda nao afeta linha nenhuma e recebe
+    /// <see cref="UsuariosServiceException.TicketInvalido"/>, nunca um segundo
+    /// desafio.
+    /// </remarks>
     public async Task<DesafioMfaResponse> IniciarMatriculaPrivilegiadaAsync(
         MatricularPrivilegiadoRequest request, string? ip, CancellationToken ct = default)
     {
@@ -162,40 +203,75 @@ public class MfaService(
         var hashParaConferir = atendente?.SenhaHash ?? HashDescartavel;
         var senhaConfere = hash.Verificar(request.Senha ?? string.Empty, hashParaConferir);
 
-        if (atendente is null || !senhaConfere || !atendente.Ativo)
+        if (atendente is null || !senhaConfere)
         {
             throw UsuariosServiceException.CredenciaisInvalidas();
         }
 
+        // Pre-checagens SO para uma mensagem mais util no caso comum, sem
+        // corrida — nunca a decisao final. Quem decide de verdade e o WHERE
+        // atomico do consumo do ticket, logo abaixo, que revalida tudo isto
+        // (e mais TokenVersion) no instante da escrita.
         var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador || atendente.Cargo == CargoNaServentia.Titular;
+        if (!atendente.Ativo)
+        {
+            throw UsuariosServiceException.CredenciaisInvalidas();
+        }
         if (!privilegiado)
         {
             throw UsuariosServiceException.ContaNaoPrivilegiada();
         }
-
         if (atendente.MfaAtivo)
         {
             throw UsuariosServiceException.MfaJaAtivo();
         }
 
+        var atendenteId = atendente.Id; // Id e TenantId sao imutaveis — seguros vindos da leitura acima.
+        var tenantId = atendente.TenantId;
         var hashDoTicket = SegredosAleatoriosMfa.Sha256Hex((request.Ticket ?? string.Empty).Trim());
 
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        // O PORTEIRO UNICO: hash, tipo, identidade, nao consumido, nao
+        // expirado — e, via subconsulta correlacionada, o estado ATUAL do
+        // atendente (ativo, ainda privilegiado, ainda sem MFA, TokenVersion
+        // identica a gravada no ticket na emissao). So consome se TUDO isto
+        // for verdade no MESMO instante da escrita.
         var consumiu = await db.DesafiosDeMfa
             .Where(d => d.HashDoDesafio == hashDoTicket
                      && d.Tipo == TipoDeDesafioMfa.Ticket
-                     && d.AtendenteId == atendente.Id
+                     && d.AtendenteId == atendenteId
+                     && d.TenantId == tenantId
                      && d.ConsumidoEm == null
-                     && d.ExpiraEm > agora)
+                     && d.ExpiraEm > agora
+                     && db.Atendentes.Any(a => a.Id == atendenteId
+                                            && a.Ativo
+                                            && !a.MfaAtivo
+                                            && (a.Perfil == PerfilDeAtendente.Administrador
+                                                || a.Cargo == CargoNaServentia.Titular)
+                                            && a.TokenVersion == d.TokenVersionNoDesafio))
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.ConsumidoEm, agora), ct);
 
         if (consumiu != 1)
         {
+            await tx.RollbackAsync(ct);
             throw UsuariosServiceException.TicketInvalido();
         }
 
-        return await AutenticacaoService.CriarDesafioAsync(
-            db, atendente.Id, atendente.TenantId, atendente.TokenVersion,
+        // TokenVersion ATUAL, relida agora — ja provada igual a gravada no
+        // ticket pelo proprio consumo acima; relida em vez de reaproveitar o
+        // valor de `atendente` (lido ANTES da transacao) por precisao, nao por
+        // necessidade de seguranca (o consumo acima ja e a garantia real).
+        var tokenVersionAtual = await db.Atendentes.AsNoTracking()
+            .Where(a => a.Id == atendenteId).Select(a => a.TokenVersion).SingleAsync(ct);
+
+        var desafio = await AutenticacaoService.CriarDesafioAsync(
+            db, atendenteId, tenantId, tokenVersionAtual,
             TipoDeDesafioMfa.MatriculaPrivilegiada, TtlDoDesafioDeMatricula, ip, ct);
+
+        await tx.CommitAsync(ct);
+
+        return desafio;
     }
 
     public async Task<IniciarMfaResponse> IniciarViaDesafioAsync(

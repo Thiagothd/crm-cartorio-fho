@@ -61,6 +61,11 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
             "Este acesso exige verificacao em duas etapas. Procure um administrador para matricular seu autenticador.",
             401);
 
+    public static UsuariosServiceException MatriculaPrivilegiadaExigeTicket() =>
+        new("matricula_privilegiada_exige_ticket",
+            "Contas Titular ou Administrador só ativam o primeiro fator pelo fluxo de matrícula com ticket fora de banda.",
+            409);
+
     public static UsuariosServiceException MfaJaAtivo() =>
         new("mfa_ja_ativo", "A verificacao em duas etapas ja esta ativa.", 409);
 
