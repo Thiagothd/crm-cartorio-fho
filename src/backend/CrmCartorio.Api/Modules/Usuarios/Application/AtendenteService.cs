@@ -150,28 +150,33 @@ public class AtendenteService(
         // grava Perfil/Cargo/Ativo, comparando com o valor que esta no banco no
         // instante do UPDATE — nunca com o `atendente` lido acima, que pode
         // estar desatualizado sob concorrencia. Sobe quando:
-        //   1. o Perfil muda (SEC-01, qualquer mudanca — nao so a fronteira de
-        //      privilegio de MFA: uma promocao Atendente -> Supervisor tambem
-        //      precisa revogar sessoes antigas);
+        //   1. o Perfil muda (SEC-01, qualquer mudanca — inclusive entre dois
+        //      perfis igualmente privilegiados ou nao-privilegiados: uma
+        //      promocao Atendente -> Supervisor tambem precisa revogar
+        //      sessoes antigas);
         //   2. Ativo vira false (reativar, false -> true, nao mexe na versao,
         //      so nao deixa reduzi-la nem zera-la);
-        //   3. a FRONTEIRA de privilegio do SEC-03 muda — comparando
-        //      `Perfil == Administrador || Cargo == Titular` ANTES e DEPOIS.
-        //      Precisa disto separado do item 1 porque o Cargo sozinho tambem
-        //      cruza essa fronteira (Titular concede privilegio por Cargo, nao
-        //      so por Perfil) e o Perfil pode nao ter mudado nada.
+        //   3. `Cargo == Titular` muda de valor (CORRECAO — revisao
+        //      independente do PR #46, bloqueador 12).
         //
-        // Deliberadamente NAO sobe em toda mudanca de Cargo — so quando a
-        // fronteira booleana acima muda de lado. Alternativa descartada: subir
-        // em qualquer Cargo diferente, mesmo entre dois cargos igualmente
-        // NAO privilegiados (ex.: Substituto -> Escrevente). Isso revogaria
-        // sessao e forcaria novo login sem nenhum ganho de seguranca real — o
-        // oposto do principio de menor privilegio aplicado a esta trava: a
-        // intervencao (revogar) deve ser exatamente do tamanho do evento de
-        // seguranca que a motiva, nem mais nem menos. Comparar so a fronteira
-        // fecha a mesma vulnerabilidade (ticket ressuscitado, sessao antiga
-        // sobrevivendo a uma promocao) sem o custo colateral de deslogar
-        // quem trocou de cargo sem nunca ter cruzado a linha de privilegio.
+        // CORRECAO (bloqueador 12): a versao anterior comparava a expressao
+        // COMPOSTA `Perfil == Administrador || Cargo == Titular` antes/depois
+        // — e por isso nao detectava Administrador/Substituto ->
+        // Administrador/Titular (antes=true, depois=true: a composta nao
+        // muda, mesmo o Cargo tendo cruzado a linha). Isso importa porque
+        // SEC-03 da ao Titular uma protecao PROPRIA, distinta de "privilegiado
+        // em geral": um Administrador comum nao pode resetar/emitir ticket
+        // para um Titular (GarantirTitularProtegido), so outro Administrador
+        // que TAMBEM seja Titular pode. Um Administrador que vira Titular muda
+        // de categoria de protecao mesmo sem o Perfil mudar — e por isso
+        // precisa revogar sessoes/tickets/desafios antigos por si so. Agora a
+        // comparacao e so sobre `Cargo == Titular`, isolado do Perfil —
+        // simples e estritamente mais preciso que a composta: continua
+        // cobrindo os casos originais (Substituto <-> Titular, com Perfil
+        // fixo) e passa a cobrir tambem Administrador/Substituto <->
+        // Administrador/Titular. Mudar entre dois cargos igualmente
+        // NAO-Titular (ex.: Substituto -> Escrevente) continua sem subir —
+        // nenhum ganho de seguranca em revogar por isso.
         await db.Atendentes
             .Where(a => a.Id == id && a.TenantId == ctx.TenantId)
             .ExecuteUpdateAsync(s => s
@@ -184,8 +189,7 @@ public class AtendenteService(
                 .SetProperty(a => a.TokenVersion, a =>
                     a.Perfil != request.Perfil
                     || (a.Ativo && !request.Ativo)
-                    || (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)
-                       != (request.Perfil == PerfilDeAtendente.Administrador || request.Cargo == CargoNaServentia.Titular)
+                    || (a.Cargo == CargoNaServentia.Titular) != (request.Cargo == CargoNaServentia.Titular)
                         ? a.TokenVersion + 1
                         : a.TokenVersion),
                 ct);

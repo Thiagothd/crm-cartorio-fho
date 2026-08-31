@@ -10,7 +10,8 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 ///
 /// <list type="bullet">
 ///   <item><b>Cargo</b> responde "o que esta pessoa e no cartorio". E informacao
-///   funcional, existe fora do software e nao concede nada.</item>
+///   funcional, existe fora do software e nao concede PERMISSAO nenhuma (isto e,
+///   nao controla o que a tela deixa clicar — isso e <see cref="PerfilDeAtendente"/>).</item>
 ///   <item><b>Perfil</b> responde "o que esta pessoa pode fazer no sistema". E
 ///   permissao, so existe aqui dentro.</item>
 /// </list>
@@ -19,6 +20,16 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 /// "Supervisor" na tela — cargo que nao existe em cartorio —, e o titular nao podia
 /// ter acesso restrito sem parecer rebaixado. Sao eixos independentes: um escrevente
 /// autorizado pode ser Administrador do painel, e o tabeliao pode ser so Atendente.
+///
+/// <b>Excecao deliberada — SEC-03:</b> <see cref="Titular"/> especificamente
+/// TEM efeito de seguranca proprio, apesar de nao ser "permissao" no sentido
+/// acima. Cruzar a fronteira `Cargo == Titular` (em qualquer direcao, com ou
+/// sem o Perfil mudar) conta como evento de seguranca — revoga TokenVersion
+/// (sessoes, tickets, desafios e cerimonias de MFA pendentes ficam invalidos)
+/// e muda quem pode resetar/emitir ticket para esta conta
+/// (`GarantirTitularProtegido`: so outro Administrador que TAMBEM seja
+/// Titular). Ver <c>AtendenteService.AtualizarAsync</c> e
+/// <c>MfaService.GarantirTitularProtegido</c>.
 ///
 /// Enum, e nao tabela: os cargos vem da lei de delegacao, nao da preferencia do
 /// cartorio. O que e configuravel por tenant e quem ocupa cada um.

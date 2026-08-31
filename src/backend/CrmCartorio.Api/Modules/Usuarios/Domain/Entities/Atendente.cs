@@ -25,8 +25,12 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
 
     /// <summary>
     /// Funcao na serventia. O que a pessoa E no cartorio — informacao funcional, que
-    /// existe fora do software e nao concede permissao nenhuma. Ver
-    /// <see cref="CargoNaServentia"/> para o porque de ser separado do perfil.
+    /// existe fora do software e nao concede permissao de tela nenhuma. Excecao: o
+    /// valor <see cref="CargoNaServentia.Titular"/> especificamente TEM efeito de
+    /// seguranca proprio no SEC-03 (fronteira de TokenVersion, protecao contra
+    /// reset/ticket por Administrador nao-Titular) — ver <see cref="CargoNaServentia"/>
+    /// para o porque de ser separado do perfil, e a secao "Excecao deliberada" ali
+    /// para o detalhe do Titular.
     /// </summary>
     public CargoNaServentia Cargo { get; set; } = CargoNaServentia.NaoInformado;
 

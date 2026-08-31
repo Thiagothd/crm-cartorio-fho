@@ -58,7 +58,11 @@ public class MfaService(
 
         // Trocar autenticador com MFA ja ativo exige TAMBEM o fator atual — um
         // JWT roubado, mesmo com a senha (que tambem pode ter sido roubada
-        // junto), nunca substitui sozinho o segredo de quem ja tem MFA.
+        // junto), nunca substitui sozinho o segredo de quem ja tem MFA. A
+        // FASE 1 do step-up (corretude criptografica) roda fora de qualquer
+        // transacao — se o codigo estiver errado, a falha precisa commitar
+        // sozinha.
+        (bool EhTotp, long PassoValidado)? codigoValidado = null;
         if (atendente.MfaAtivo)
         {
             if (string.IsNullOrWhiteSpace(request.CodigoAtual))
@@ -66,19 +70,61 @@ public class MfaService(
                 throw UsuariosServiceException.CodigoMfaInvalido();
             }
 
-            if (!await ExecutarStepUpAsync(atendente, request.CodigoAtual, agora, ct))
+            codigoValidado = await ValidarCodigoDeStepUpAsync(atendente.Id, request.CodigoAtual, agora, ct);
+        }
+
+        // CORRECAO (revisao independente do PR #46, bloqueador 10): a
+        // TokenVersion sob a qual senha (e, se aplicavel, o fator atual) foram
+        // validados e capturada AQUI — antes de qualquer escrita — e e essa
+        // versao, nunca uma mais nova encontrada depois, que o segredo pendente
+        // fica vinculado. A FASE 2 do step-up (o CAS de verdade) e a geracao
+        // do segredo pendente vivem na MESMA transacao: se um evento
+        // concorrente subir a TokenVersion no meio do caminho, ambos falham
+        // fechado, juntos.
+        var tokenVersionEsperada = atendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        if (codigoValidado is { } cv)
+        {
+            var casOk = await ExecutarCasDeStepUpAsync(
+                atendente.Id, atendente.TenantId, tokenVersionEsperada,
+                cv.EhTotp, request.CodigoAtual!.Trim(), cv.PassoValidado, agora, ct);
+
+            if (!casOk)
             {
+                await tx.RollbackAsync(ct);
+                await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
                 throw UsuariosServiceException.CodigoMfaInvalido();
             }
         }
 
-        return await GerarSegredoPendenteAsync(atendente, agora, ct);
+        var resposta = await GerarSegredoPendenteNaTransacaoAsync(atendente, tokenVersionEsperada, agora, ct);
+
+        if (resposta is null)
+        {
+            await tx.RollbackAsync(ct);
+            throw UsuariosServiceException.OperacaoDesatualizada();
+        }
+
+        await tx.CommitAsync(ct);
+        return resposta;
     }
 
     public Task<ConfirmarMfaResponse> ConfirmarAsync(
         IdentidadeParaMfa identidade, ConfirmarMfaRequest request, string? ip, CancellationToken ct = default) =>
         ConfirmarNucleoAsync(identidade, request.Codigo, ip, hashDoDesafioParaConsumir: null, tokenVersionEsperada: null, ct);
 
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 11) — step-up e a
+    /// desativacao vivem na MESMA transacao. O porteiro final reconfere a
+    /// politica obrigatoria (correlacionada contra <c>Tenants</c>) no instante
+    /// exato do commit — o estado proibido "politica ligada + privilegiado com
+    /// MfaAtivo=false por desativacao voluntaria" nunca acontece: se
+    /// <see cref="AtivarObrigatoriedadeAsync"/> vencer a corrida, esta
+    /// desativacao falha; se esta vencer, a ativacao da politica aborta por
+    /// achar a conta sem MFA.
+    /// </remarks>
     public async Task DesativarAsync(
         IdentidadeParaMfa identidade, DesativarMfaRequest request, string? ip, CancellationToken ct = default)
     {
@@ -95,27 +141,82 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        // REGRA FINAL 1 (revisao de SEC-03): a politica obrigatoria nunca pode
-        // ser burlada pelo proprio usuario desativando o proprio MFA.
+        // Pre-checagem SO para mensagem mais util — o porteiro final abaixo
+        // reconfere a mesma coisa no instante do commit.
         if (await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct))
         {
             throw UsuariosServiceException.MfaObrigatorioNaoPodeSerDesativado();
         }
 
-        if (!await ExecutarStepUpAsync(atendente, request.Codigo, agora, ct))
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atendente.Id, request.Codigo, agora, ct);
+
+        var tokenVersionEsperada = atendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atendente.Id, atendente.TenantId, tokenVersionEsperada,
+            ehTotp, (request.Codigo ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
         {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
             throw UsuariosServiceException.CodigoMfaInvalido();
         }
 
-        await LimparMfaAsync(atendente.Id, identidade.TenantId, ct);
+        // PORTEIRO FINAL: reconfere Ativo, TokenVersion (implicito — o lock do
+        // step-up bem-sucedido acima ja garante que ninguem mais mexeu nesta
+        // linha nesta transacao) e, via subconsulta correlacionada contra
+        // Tenants, que a politica obrigatoria AINDA nao exige MFA para esta
+        // conta no instante exato da escrita.
+        var desativou = await db.Atendentes
+            .Where(a => a.Id == atendente.Id
+                     && a.TenantId == identidade.TenantId
+                     && a.Ativo
+                     && a.MfaAtivo
+                     && !(db.Tenants.Any(t => t.Id == a.TenantId && t.MfaObrigatorioParaAdministradores)
+                          && (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.MfaAtivo, false)
+                .SetProperty(a => a.MfaSegredoCifrado, (byte[]?)null)
+                .SetProperty(a => a.MfaSegredoPendenteCifrado, (byte[]?)null)
+                .SetProperty(a => a.MfaPendenteExpiraEm, (DateTime?)null)
+                .SetProperty(a => a.MfaPendenteTokenVersion, (int?)null)
+                .SetProperty(a => a.MfaConfirmadoEm, (DateTime?)null)
+                .SetProperty(a => a.MfaUltimoPassoUsado, (long?)null)
+                .SetProperty(a => a.MfaFalhasConsecutivas, 0)
+                .SetProperty(a => a.MfaNivelDeBloqueio, (byte)0)
+                .SetProperty(a => a.MfaBloqueadoAte, (DateTime?)null)
+                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
+
+        if (desativou != 1)
+        {
+            await tx.RollbackAsync(ct);
+            throw UsuariosServiceException.MfaObrigatorioNaoPodeSerDesativado();
+        }
+
+        await db.CodigosDeRecuperacaoMfa.Where(c => c.AtendenteId == atendente.Id).ExecuteDeleteAsync(ct);
+        await db.DesafiosDeMfa
+            .Where(d => d.AtendenteId == atendente.Id && d.ConsumidoEm == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.ConsumidoEm, agora), ct);
 
         await AutenticacaoService.RegistrarEventoAsync(
             db, identidade.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
             TipoDeEventoDeSeguranca.MfaDesativado, ip, motivo: null, ct);
 
+        await tx.CommitAsync(ct);
+
         log.LogInformation("MFA desativado por {AtendenteId}", atendente.Id);
     }
 
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 11) — step-up e a
+    /// substituicao dos codigos vivem na MESMA transacao. Como o alvo E o
+    /// proprio ator (auto-servico), o lock de linha que o step-up bem-sucedido
+    /// mantem ate o commit ja e suficiente: nenhuma TokenVersion nova pode
+    /// aparecer nesta linha antes do fim da transacao.
+    /// </remarks>
     public async Task<RegenerarCodigosResponse> RegenerarCodigosAsync(
         IdentidadeParaMfa identidade, RegenerarCodigosRequest request, string? ip, CancellationToken ct = default)
     {
@@ -132,18 +233,45 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        if (!await ExecutarStepUpAsync(atendente, request.Codigo, agora, ct))
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atendente.Id, request.Codigo, agora, ct);
+
+        var tokenVersionEsperada = atendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atendente.Id, atendente.TenantId, tokenVersionEsperada,
+            ehTotp, (request.Codigo ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
         {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
             throw UsuariosServiceException.CodigoMfaInvalido();
         }
 
-        var codigos = await SubstituirCodigosDeRecuperacaoAsync(atendente.Id, identidade.TenantId, ct);
+        var codigosEmClaro = Enumerable.Range(0, QuantidadeDeCodigosDeRecuperacao)
+            .Select(_ => SegredosAleatoriosMfa.NovoCodigoDeRecuperacao())
+            .ToList();
+
+        await db.CodigosDeRecuperacaoMfa.Where(c => c.AtendenteId == atendente.Id).ExecuteDeleteAsync(ct);
+
+        db.CodigosDeRecuperacaoMfa.AddRange(codigosEmClaro.Select(codigoClaro => new CodigoDeRecuperacaoMfa
+        {
+            TenantId = identidade.TenantId,
+            AtendenteId = atendente.Id,
+            HashDoCodigo = VerificadorDeFatorMfa.HashDoCodigoDeRecuperacao(codigoClaro)
+        }));
+
+        await db.SaveChangesAsync(ct);
 
         await AutenticacaoService.RegistrarEventoAsync(
             db, identidade.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
             TipoDeEventoDeSeguranca.CodigosDeRecuperacaoRegenerados, ip, motivo: null, ct);
 
-        return new RegenerarCodigosResponse(codigos);
+        await tx.CommitAsync(ct);
+
+        return new RegenerarCodigosResponse(codigosEmClaro.Select(SegredosAleatoriosMfa.FormatarCodigoDeRecuperacao).ToList());
     }
 
     public async Task<MfaSituacaoResponse> ObterSituacaoAsync(IdentidadeParaMfa identidade, CancellationToken ct = default)
@@ -277,12 +405,30 @@ public class MfaService(
     public async Task<IniciarMfaResponse> IniciarViaDesafioAsync(
         IniciarViaDesafioRequest request, CancellationToken ct = default)
     {
-        var (identidade, _) = await ResolverDesafioDeMatriculaAsync(request.Desafio, ct);
+        var (identidade, tokenVersionNoDesafio) = await ResolverDesafioDeMatriculaAsync(request.Desafio, ct);
         var atendente = await CarregarAsync(identidade, ct);
 
         // Sem step-up extra aqui: a posse deste desafio JA prova senha + ticket
         // fora de banda, exigidos para cria-lo.
-        return await GerarSegredoPendenteAsync(atendente, DateTime.UtcNow, ct);
+        //
+        // CORRECAO (revisao independente do PR #46, bloqueador 10): o segredo
+        // pendente fica vinculado a `tokenVersionNoDesafio` — a TokenVersion
+        // sob a qual o ticket foi consumido (IniciarMatriculaPrivilegiadaAsync)
+        // — NUNCA descartada como antes. Se a TokenVersion do atendente ja
+        // mudou desde a criacao do desafio, a geracao falha fechada: nenhum
+        // segredo/QR novo e entregue para um desafio obsoleto.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var resposta = await GerarSegredoPendenteNaTransacaoAsync(atendente, tokenVersionNoDesafio, DateTime.UtcNow, ct);
+
+        if (resposta is null)
+        {
+            await tx.RollbackAsync(ct);
+            throw UsuariosServiceException.DesafioMfaInvalido();
+        }
+
+        await tx.CommitAsync(ct);
+        return resposta;
     }
 
     public async Task<ConfirmarMfaResponse> ConfirmarViaDesafioAsync(
@@ -296,6 +442,18 @@ public class MfaService(
 
     // ------------------------------------------------------------ administrativo
 
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 11) — step-up e a
+    /// emissao do ticket agora vivem na MESMA transacao, com um porteiro final
+    /// sobre o ALVO (linha diferente da do ator — o lock de linha do step-up
+    /// nao protege o alvo). O lock que o step-up mantem ate o commit protege o
+    /// PROPRIO ator: nenhuma TokenVersion nova, democao de Perfil, ou perda do
+    /// Cargo Titular do ator pode "atravessar" a autorizacao ja concedida. O
+    /// alvo, por sua vez, e reconferido ao vivo no instante da escrita:
+    /// continua privilegiado e, se e Titular, o ator TAMBEM continua Titular
+    /// naquele exato instante — nunca a partir do <c>atorAtendente</c> lido no
+    /// inicio do metodo.
+    /// </remarks>
     public async Task<TicketResponse> EmitirTicketAsync(
         IdentidadeParaMfa ator, Guid atendenteIdAlvo, EmitirTicketRequest request, string? ip, CancellationToken ct = default)
     {
@@ -307,33 +465,64 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        if (!await ExecutarStepUpAsync(atorAtendente, request.CodigoDoAtor, agora, ct))
-        {
-            throw UsuariosServiceException.CodigoMfaInvalido();
-        }
-
-        var alvo = await db.Atendentes.AsNoTracking()
+        // Pre-checagens SO para mensagem mais util — o porteiro final abaixo
+        // e quem decide de verdade, reconferido no instante da escrita.
+        var alvoPreCheck = await db.Atendentes.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == atendenteIdAlvo && a.TenantId == ator.TenantId, ct)
             ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
 
-        var privilegiado = alvo.Perfil == PerfilDeAtendente.Administrador || alvo.Cargo == CargoNaServentia.Titular;
-        if (!privilegiado)
+        var privilegiadoPreCheck = alvoPreCheck.Perfil == PerfilDeAtendente.Administrador || alvoPreCheck.Cargo == CargoNaServentia.Titular;
+        if (!privilegiadoPreCheck)
         {
             throw UsuariosServiceException.ContaNaoPrivilegiada();
         }
 
-        GarantirTitularProtegido(alvo, atorAtendente);
+        GarantirTitularProtegido(alvoPreCheck, atorAtendente);
 
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atorAtendente.Id, request.CodigoDoAtor, agora, ct);
+
+        var tokenVersionEsperadaDoAtor = atorAtendente.TokenVersion;
         var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
         var expiraEm = agora.Add(TtlDoTicket);
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atorAtendente.Id, atorAtendente.TenantId, tokenVersionEsperadaDoAtor,
+            ehTotp, (request.CodigoDoAtor ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
+        {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atorAtendente.Id, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
+        }
+
+        // PORTEIRO FINAL sobre o ALVO: ainda privilegiado, e se Titular, o
+        // ATOR ainda precisa ser Titular AGORA — reconferido ao vivo, nunca a
+        // partir do atorAtendente/alvoPreCheck lidos antes da transacao.
+        var tokenVersionAlvoAtual = await db.Atendentes.AsNoTracking()
+            .Where(a => a.Id == atendenteIdAlvo
+                     && a.TenantId == ator.TenantId
+                     && (a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)
+                     && !(a.Cargo == CargoNaServentia.Titular
+                          && !db.Atendentes.Any(x => x.Id == atorAtendente.Id && x.Cargo == CargoNaServentia.Titular)))
+            .Select(a => (int?)a.TokenVersion)
+            .SingleOrDefaultAsync(ct);
+
+        if (tokenVersionAlvoAtual is null)
+        {
+            await tx.RollbackAsync(ct);
+            throw UsuariosServiceException.OperacaoDesatualizada();
+        }
 
         db.DesafiosDeMfa.Add(new DesafioDeMfa
         {
             TenantId = ator.TenantId,
-            AtendenteId = alvo.Id,
+            AtendenteId = atendenteIdAlvo,
             HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
             Tipo = TipoDeDesafioMfa.Ticket,
-            TokenVersionNoDesafio = alvo.TokenVersion,
+            TokenVersionNoDesafio = tokenVersionAlvoAtual.Value,
             ExpiraEm = expiraEm,
             IpDeOrigem = ip
         });
@@ -341,14 +530,22 @@ public class MfaService(
         await db.SaveChangesAsync(ct);
 
         await AutenticacaoService.RegistrarEventoAsync(
-            db, ator.TenantId, alvo.Id, ator.AtendenteId, atorExterno: null,
+            db, ator.TenantId, atendenteIdAlvo, ator.AtendenteId, atorExterno: null,
             TipoDeEventoDeSeguranca.TicketDeMatriculaEmitido, ip, motivo: null, ct);
 
-        log.LogInformation("Ticket de matricula de MFA emitido por {Ator} para {Alvo}", ator.AtendenteId, alvo.Id);
+        await tx.CommitAsync(ct);
+
+        log.LogInformation("Ticket de matricula de MFA emitido por {Ator} para {Alvo}", ator.AtendenteId, atendenteIdAlvo);
 
         return new TicketResponse(tokenEmClaro, expiraEm);
     }
 
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 11) — mesma
+    /// disciplina de <see cref="EmitirTicketAsync"/>: step-up e a mutacao do
+    /// alvo na MESMA transacao, com porteiro final que reconfere a protecao do
+    /// Titular ao vivo (nao a partir do <c>atorAtendente</c> lido antes).
+    /// </remarks>
     public async Task ResetarAsync(
         IdentidadeParaMfa ator, Guid atendenteIdAlvo, ResetarMfaRequest request, string? ip, CancellationToken ct = default)
     {
@@ -365,27 +562,70 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        if (!await ExecutarStepUpAsync(atorAtendente, request.CodigoDoAtor, agora, ct))
-        {
-            throw UsuariosServiceException.CodigoMfaInvalido();
-        }
-
-        var alvo = await db.Atendentes.AsNoTracking()
+        var alvoPreCheck = await db.Atendentes.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == atendenteIdAlvo && a.TenantId == ator.TenantId, ct)
             ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
 
-        GarantirTitularProtegido(alvo, atorAtendente);
+        GarantirTitularProtegido(alvoPreCheck, atorAtendente);
 
-        // Conta fica SEM LOGIN ate nova matricula: se a politica exige MFA
-        // para ela, o proximo login (AutenticacaoService) recusa com
-        // MfaObrigatorioNaoMatriculado ate o alvo passar pelo ticket de novo.
-        await LimparMfaAsync(alvo.Id, ator.TenantId, ct);
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atorAtendente.Id, request.CodigoDoAtor, agora, ct);
+
+        var tokenVersionEsperadaDoAtor = atorAtendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atorAtendente.Id, atorAtendente.TenantId, tokenVersionEsperadaDoAtor,
+            ehTotp, (request.CodigoDoAtor ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
+        {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atorAtendente.Id, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
+        }
+
+        // PORTEIRO FINAL: se o alvo e Titular, o ator ainda precisa ser
+        // Titular AGORA — reconferido ao vivo. Conta fica SEM LOGIN ate nova
+        // matricula: se a politica exige MFA para ela, o proximo login
+        // (AutenticacaoService) recusa com MfaObrigatorioNaoMatriculado ate o
+        // alvo passar pelo ticket de novo.
+        var resetou = await db.Atendentes
+            .Where(a => a.Id == atendenteIdAlvo
+                     && a.TenantId == ator.TenantId
+                     && !(a.Cargo == CargoNaServentia.Titular
+                          && !db.Atendentes.Any(x => x.Id == atorAtendente.Id && x.Cargo == CargoNaServentia.Titular)))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.MfaAtivo, false)
+                .SetProperty(a => a.MfaSegredoCifrado, (byte[]?)null)
+                .SetProperty(a => a.MfaSegredoPendenteCifrado, (byte[]?)null)
+                .SetProperty(a => a.MfaPendenteExpiraEm, (DateTime?)null)
+                .SetProperty(a => a.MfaPendenteTokenVersion, (int?)null)
+                .SetProperty(a => a.MfaConfirmadoEm, (DateTime?)null)
+                .SetProperty(a => a.MfaUltimoPassoUsado, (long?)null)
+                .SetProperty(a => a.MfaFalhasConsecutivas, 0)
+                .SetProperty(a => a.MfaNivelDeBloqueio, (byte)0)
+                .SetProperty(a => a.MfaBloqueadoAte, (DateTime?)null)
+                .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
+
+        if (resetou != 1)
+        {
+            await tx.RollbackAsync(ct);
+            throw UsuariosServiceException.ApenasTitularReseteiaTitular();
+        }
+
+        await db.CodigosDeRecuperacaoMfa.Where(c => c.AtendenteId == atendenteIdAlvo).ExecuteDeleteAsync(ct);
+        await db.DesafiosDeMfa
+            .Where(d => d.AtendenteId == atendenteIdAlvo && d.ConsumidoEm == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.ConsumidoEm, agora), ct);
 
         await AutenticacaoService.RegistrarEventoAsync(
-            db, ator.TenantId, alvo.Id, ator.AtendenteId, atorExterno: null,
+            db, ator.TenantId, atendenteIdAlvo, ator.AtendenteId, atorExterno: null,
             TipoDeEventoDeSeguranca.ResetAdministrativo, ip, request.Motivo, ct);
 
-        log.LogInformation("MFA de {Alvo} resetado por {Ator}: {Motivo}", alvo.Id, ator.AtendenteId, request.Motivo);
+        await tx.CommitAsync(ct);
+
+        log.LogInformation("MFA de {Alvo} resetado por {Ator}: {Motivo}", atendenteIdAlvo, ator.AtendenteId, request.Motivo);
     }
 
     /// <remarks>
@@ -411,12 +651,26 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        if (!await ExecutarStepUpAsync(atorAtendente, request.CodigoDoAtor, agora, ct))
-        {
-            throw UsuariosServiceException.CodigoMfaInvalido();
-        }
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atorAtendente.Id, request.CodigoDoAtor, agora, ct);
+
+        var tokenVersionEsperadaDoAtor = atorAtendente.TokenVersion;
 
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+        // CORRECAO (revisao independente do PR #46, bloqueador 11) — o CAS do
+        // step-up (fase 2) agora vive DENTRO da mesma transacao SERIALIZABLE
+        // do flip, nao antes dela: uma autorizacao validada sob uma
+        // TokenVersion antiga nunca commita sob uma nova.
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atorAtendente.Id, atorAtendente.TenantId, tokenVersionEsperadaDoAtor,
+            ehTotp, (request.CodigoDoAtor ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
+        {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atorAtendente.Id, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
+        }
 
         var pendentes = await db.Atendentes.AsNoTracking()
             .Where(a => a.TenantId == ator.TenantId && a.Ativo && !a.MfaAtivo
@@ -500,27 +754,45 @@ public class MfaService(
         }
     }
 
-    private async Task<IniciarMfaResponse> GerarSegredoPendenteAsync(Atendente atendente, DateTime agora, CancellationToken ct)
+    /// <summary>
+    /// Grava o segredo pendente SO SE a TokenVersion atual da linha ainda for
+    /// exatamente <paramref name="tokenVersionEsperada"/> — a versao sob a
+    /// qual a autorizacao que originou esta cerimonia (senha, senha+step-up,
+    /// ou ticket/desafio) foi validada.
+    /// </summary>
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 10) — a versao
+    /// anterior gravava <c>MfaPendenteTokenVersion = a.TokenVersion</c>
+    /// auto-referenciada ao valor que estivesse no banco quando o UPDATE
+    /// rodasse — o que "adotava" silenciosamente uma TokenVersion NOVA se algo
+    /// tivesse subido ela entre a validacao da autorizacao e este UPDATE,
+    /// recarimbando uma autorizacao antiga como se fosse da versao nova.
+    /// Agora o WHERE exige <c>a.TokenVersion == tokenVersionEsperada</c> —a
+    /// mesma variavel que e gravada em <c>MfaPendenteTokenVersion</c> — nunca
+    /// um valor lido da linha na hora. Falha fechado (devolve <c>null</c>) se
+    /// a linha nao bater mais: o chamador NUNCA devolve segredo/QR nesse caso.
+    /// </remarks>
+    private async Task<IniciarMfaResponse?> GerarSegredoPendenteNaTransacaoAsync(
+        Atendente atendente, int tokenVersionEsperada, DateTime agora, CancellationToken ct)
     {
         var segredoBase32 = ValidadorDeTotp.GerarSegredoBase32();
         var segredoCifrado = cifra.Cifrar(segredoBase32, atendente.TenantId, atendente.Id);
         var expiraEm = agora.Add(TtlDoSegredoPendente);
 
-        // CORRECAO (revisao independente do PR #46, bloqueador 8) — grava
-        // TokenVersion junto do segredo pendente, na MESMA instrucao atomica,
-        // auto-referenciada (`a.TokenVersion`, nunca `atendente.TokenVersion`
-        // capturado antes): e o carimbo que a confirmacao final vai exigir
-        // continuar batendo, para que troca de senha, mudanca de Perfil/Cargo,
-        // reset ou politica obrigatoria ENTRE iniciar e confirmar invalidem a
-        // cerimonia — mesma garantia que o fluxo de ticket ja tem via
-        // DesafiosDeMfa.TokenVersionNoDesafio, agora tambem para a primeira
-        // ativacao voluntaria e a troca de autenticador.
-        await db.Atendentes
-            .Where(a => a.Id == atendente.Id)
+        var gravou = await db.Atendentes
+            .Where(a => a.Id == atendente.Id
+                     && a.TenantId == atendente.TenantId
+                     && a.Ativo
+                     && a.TokenVersion == tokenVersionEsperada)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.MfaSegredoPendenteCifrado, segredoCifrado)
                 .SetProperty(a => a.MfaPendenteExpiraEm, expiraEm)
-                .SetProperty(a => a.MfaPendenteTokenVersion, a => a.TokenVersion), ct);
+                .SetProperty(a => a.MfaPendenteTokenVersion, tokenVersionEsperada), ct);
+
+        if (gravou != 1)
+        {
+            return null;
+        }
 
         var uri = ValidadorDeTotp.MontarOtpauthUri(segredoBase32, "CRM Cartório", atendente.Email);
 
@@ -684,16 +956,31 @@ public class MfaService(
             sessao, codigosEmClaro.Select(SegredosAleatoriosMfa.FormatarCodigoDeRecuperacao).ToList());
     }
 
+    /// <summary>
+    /// FASE 1 do step-up — so a corretude criptografica do codigo, SEM
+    /// transacao aberta. Se o codigo for invalido, registra a falha (que
+    /// precisa commitar sozinha, sem risco de ser desfeita por um rollback de
+    /// operacao sensivel que ainda nem comecou) e lanca
+    /// <see cref="UsuariosServiceException.CodigoMfaInvalido"/> diretamente.
+    /// </summary>
     /// <remarks>
-    /// SEC-03 — o step-up que TODA operacao sensivel de gestao usa. Mesma
-    /// disciplina de porteiro unico do login: reserva/valida/consome sao
-    /// atomicos, e uma falha de codigo de recuperacao ou de CAS de TOTP conta
-    /// como falha de MFA (<see cref="BloqueioDeMfa"/>) — nunca some sem deixar
-    /// rastro.
+    /// CORRECAO (revisao independente do PR #46, bloqueador 11) — dividido em
+    /// duas fases de proposito. A versao anterior fazia tudo dentro da PROPRIA
+    /// transacao (commitada aqui mesmo, ANTES da operacao sensivel comecar) —
+    /// um "boolean stepupOk" desconectado da mutacao final: nada impedia o
+    /// estado da conta (TokenVersion, Perfil/Cargo do ator ou do alvo) de
+    /// mudar DEPOIS do step-up e ANTES da acao sensivel de fato commitar.
+    /// Agora <see cref="ExecutarCasDeStepUpAsync"/> (fase 2) roda DENTRO da
+    /// MESMA transacao que a acao sensivel do chamador — commitam juntos ou
+    /// revertem juntos, e o CAS exige a TokenVersion continuar sendo a mesma
+    /// sob a qual a senha (e este codigo) foram validados.
     /// </remarks>
-    private async Task<bool> ExecutarStepUpAsync(Atendente atendente, string? codigo, DateTime agora, CancellationToken ct)
+    private async Task<(bool EhTotp, long PassoValidado)> ValidarCodigoDeStepUpAsync(
+        Guid atendenteId, string? codigo, DateTime agora, CancellationToken ct)
     {
-        if (atendente.MfaBloqueadoAte is { } bloqueadoAte && bloqueadoAte > agora)
+        var atual = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == atendenteId, ct);
+
+        if (atual.MfaBloqueadoAte is { } bloqueadoAte && bloqueadoAte > agora)
         {
             throw UsuariosServiceException.MfaBloqueado();
         }
@@ -702,16 +989,34 @@ public class MfaService(
         var ehTotp = VerificadorDeFatorMfa.PareceCodigoTotp(codigoNormalizado);
         var passoValidado = 0L;
 
-        if (ehTotp && !VerificadorDeFatorMfa.TentarValidarTotp(cifra, atendente, codigoNormalizado, out passoValidado))
+        if (ehTotp && !VerificadorDeFatorMfa.TentarValidarTotp(cifra, atual, codigoNormalizado, out passoValidado))
         {
-            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
-            return false;
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendenteId, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        return (ehTotp, passoValidado);
+    }
 
-        var baseCondicional = db.Atendentes.Where(a => a.Id == atendente.Id
+    /// <summary>
+    /// FASE 2 do step-up — o CAS de verdade, DENTRO da transacao que o
+    /// chamador ja abriu (nunca abre/commita/reverte sozinho). So afeta a
+    /// linha se <c>TokenVersion == tokenVersionEsperada</c> — a mesma versao
+    /// capturada pelo chamador no instante em que a senha foi validada, nunca
+    /// uma nova encontrada depois. Devolve <c>false</c> em qualquer falha
+    /// (TokenVersion desatualizada, replay, conta desativada/sem MFA, codigo
+    /// de recuperacao ja usado) — o chamador SEMPRE reverte a transacao e
+    /// registra a falha em <see cref="BloqueioDeMfa"/> antes de propagar o
+    /// erro, nunca some sem deixar rastro.
+    /// </summary>
+    private async Task<bool> ExecutarCasDeStepUpAsync(
+        Guid atendenteId, Guid tenantId, int tokenVersionEsperada,
+        bool ehTotp, string codigoNormalizado, long passoValidado, DateTime agora, CancellationToken ct)
+    {
+        var baseCondicional = db.Atendentes.Where(a => a.Id == atendenteId
+            && a.TenantId == tenantId
             && a.Ativo && a.MfaAtivo
+            && a.TokenVersion == tokenVersionEsperada
             && (a.MfaBloqueadoAte == null || a.MfaBloqueadoAte <= agora));
 
         var ok = ehTotp
@@ -730,8 +1035,6 @@ public class MfaService(
 
         if (ok != 1)
         {
-            await tx.RollbackAsync(ct);
-            if (ehTotp) await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
             return false;
         }
 
@@ -740,23 +1043,20 @@ public class MfaService(
             var hashDoCodigo = VerificadorDeFatorMfa.HashDoCodigoDeRecuperacao(codigoNormalizado);
 
             var usou = await db.CodigosDeRecuperacaoMfa
-                .Where(c => c.AtendenteId == atendente.Id && c.HashDoCodigo == hashDoCodigo && c.UsadoEm == null)
+                .Where(c => c.AtendenteId == atendenteId && c.HashDoCodigo == hashDoCodigo && c.UsadoEm == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(c => c.UsadoEm, agora), ct);
 
             if (usou != 1)
             {
-                await tx.RollbackAsync(ct);
-                await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
                 return false;
             }
-        }
 
-        await tx.CommitAsync(ct);
-
-        if (!ehTotp)
-        {
+            // Fica na MESMA transacao do chamador de proposito: se a acao
+            // sensivel que este step-up autoriza falhar depois e a transacao
+            // reverter, o consumo do codigo de recuperacao reverte junto —
+            // nunca queima um codigo por uma operacao que nao completou.
             await AutenticacaoService.RegistrarEventoAsync(
-                db, atendente.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
+                db, tenantId, atendenteId, atorAtendenteId: null, atorExterno: null,
                 TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado, ip: null, motivo: null, ct);
         }
 
@@ -808,27 +1108,4 @@ public class MfaService(
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.ConsumidoEm, agora), ct);
     }
 
-    private async Task<IReadOnlyList<string>> SubstituirCodigosDeRecuperacaoAsync(
-        Guid atendenteId, Guid tenantId, CancellationToken ct)
-    {
-        var codigos = Enumerable.Range(0, QuantidadeDeCodigosDeRecuperacao)
-            .Select(_ => SegredosAleatoriosMfa.NovoCodigoDeRecuperacao())
-            .ToList();
-
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        await db.CodigosDeRecuperacaoMfa.Where(c => c.AtendenteId == atendenteId).ExecuteDeleteAsync(ct);
-
-        db.CodigosDeRecuperacaoMfa.AddRange(codigos.Select(codigoClaro => new CodigoDeRecuperacaoMfa
-        {
-            TenantId = tenantId,
-            AtendenteId = atendenteId,
-            HashDoCodigo = VerificadorDeFatorMfa.HashDoCodigoDeRecuperacao(codigoClaro)
-        }));
-
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-
-        return codigos.Select(SegredosAleatoriosMfa.FormatarCodigoDeRecuperacao).ToList();
-    }
 }

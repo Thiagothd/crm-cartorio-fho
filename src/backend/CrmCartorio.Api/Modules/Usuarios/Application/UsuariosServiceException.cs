@@ -95,4 +95,15 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
             "Existem contas privilegiadas sem MFA ativo. Matricule todas antes de exigir a politica.",
             409)
         { Detalhes = { ["contasPendentes"] = pendentes } };
+
+    /// <summary>
+    /// SEC-03 (revisao independente do PR #46, bloqueadores 10/11) — o estado
+    /// da conta (TokenVersion, Perfil/Cargo, Ativo) mudou entre a validacao da
+    /// autorizacao (senha/step-up/desafio) e o instante final do commit. Falha
+    /// fechado: nunca devolve segredo, QR, ticket ou efetiva a mutacao — quem
+    /// chamou precisa recomecar do zero (nova senha, novo step-up).
+    /// </summary>
+    public static UsuariosServiceException OperacaoDesatualizada() =>
+        new("operacao_desatualizada",
+            "O estado da conta mudou durante esta operacao. Recarregue e tente novamente.", 409);
 }

@@ -109,37 +109,38 @@ public static class FerramentaDeBootstrapMfa
     /// <summary>
     /// Nucleo atomico do bootstrap — reconfere a elegibilidade no instante
     /// exato da gravacao e SO ENTAO grava o desafio de ticket e o evento de
-    /// auditoria. NUNCA ve nem devolve texto claro: quem chama ja gerou o
-    /// proprio token em outro lugar e entrega so o <paramref name="hashDoTicket"/>
-    /// — exatamente como todo <c>DesafioDeMfa.HashDoDesafio</c> e guardado em
-    /// qualquer outro ponto do sistema. E o que torna este metodo seguro para
-    /// ser <c>public</c> e testavel sem violar a regra arquitetural do
-    /// bootstrap (ver <see cref="EmitirTicketAsync"/> logo abaixo: esse, sim,
-    /// e o unico lugar do assembly que gera/devolve texto claro, e e
-    /// <c>private</c> de proposito).
+    /// auditoria.
     /// </summary>
     /// <remarks>
-    /// CORRECAO (revisao independente do PR #46, bloqueador 6) — TOCTOU: o
-    /// fluxo interativo mostra <see cref="VerificarElegibilidadeAsync"/> ao
-    /// operador, depois espera motivo e confirmacao digitada (segundos a
-    /// minutos de interacao humana) antes de chegar aqui. Nesse intervalo,
-    /// outro Administrador/Titular do mesmo tenant pode concluir a propria
-    /// matricula de MFA e o bootstrap deveria ter se auto-fechado — mas a
-    /// versao antiga confiava cegamente na checagem antiga e emitia mesmo
-    /// assim. Aqui, dentro de uma transacao <c>SERIALIZABLE</c> (mesma
-    /// tecnica ja usada em <c>MfaService.AtivarObrigatoriedadeAsync</c> para o
-    /// mesmo tipo de checagem "ninguem privilegiado sem MFA" que atravessa
-    /// varias linhas de <c>Atendentes</c>), reconfere TUDO —
-    /// <see cref="VerificarElegibilidadeAsync"/> de novo, do zero, contra o
-    /// estado atual — e SO ENTAO grava. <c>SERIALIZABLE</c> serializa esta
-    /// leitura contra qualquer UPDATE concorrente que mude o resultado (ex.:
-    /// outra matricula de MFA completando na mesma janela): uma das duas
-    /// transacoes espera a outra terminar, nunca as duas enxergam a mesma
-    /// foto congelada e desatualizada.
+    /// CORRECAO (revisao independente do PR #46, bloqueador 9) —
+    /// deliberadamente <c>private</c> agora, nao mais <c>public</c>. Receber
+    /// so o HASH (nunca o texto claro) reduzia a superficie, mas nao
+    /// eliminava o problema real: qualquer chamador ainda podia gerar o
+    /// proprio <c>tokenEmClaro</c>, calcular o hash, chamar este metodo
+    /// publicamente para registra-lo, e guardar o token consigo — o cenario
+    /// 63c antigo fazia exatamente isso. A regra e "bootstrap exclusivamente
+    /// manual/interativo", nao "so o texto claro precisa ficar escondido" —
+    /// nenhum metodo publico pode gerar, registrar OU persistir artefato
+    /// nenhum utilizavel como ticket de bootstrap, nem escolher o TTL dele
+    /// (por isso o parametro <c>ttl</c> foi removido: usa sempre
+    /// <see cref="TtlDoTicket"/>, decidido pelo codigo de producao). O UNICO
+    /// caminho publico que continua mutavel e <see cref="ExecutarAsync"/>,
+    /// protegido por todos os guards interativos. Testes de concorrencia
+    /// chamam este metodo via reflexao a partir do verificador — a reflexao
+    /// no teste nao reabre a superficie de producao (ver cenario 65).
+    ///
+    /// CORRECAO (bloqueador 6, preservada) — TOCTOU: o fluxo interativo
+    /// mostra <see cref="VerificarElegibilidadeAsync"/> ao operador, depois
+    /// espera motivo e confirmacao digitada (segundos a minutos de interacao
+    /// humana) antes de chegar aqui. Nesse intervalo, outro
+    /// Administrador/Titular do mesmo tenant pode concluir a propria
+    /// matricula de MFA e o bootstrap deveria ter se auto-fechado. Dentro de
+    /// uma transacao <c>SERIALIZABLE</c> (mesma tecnica de
+    /// <c>MfaService.AtivarObrigatoriedadeAsync</c>), reconfere TUDO — de
+    /// novo, do zero, contra o estado atual — e SO ENTAO grava.
     /// </remarks>
-    public static async Task<ElegibilidadeDeBootstrap> TentarRegistrarTicketAsync(
-        CrmDbContext db, string email, string hashDoTicket, TimeSpan ttl,
-        string motivo, string atorExterno, CancellationToken ct = default)
+    private static async Task<ElegibilidadeDeBootstrap> TentarRegistrarTicketAsync(
+        CrmDbContext db, string email, string hashDoTicket, string motivo, string atorExterno, CancellationToken ct = default)
     {
         var agora = DateTime.UtcNow;
 
@@ -161,7 +162,7 @@ public static class FerramentaDeBootstrapMfa
             HashDoDesafio = hashDoTicket,
             Tipo = TipoDeDesafioMfa.Ticket,
             TokenVersionNoDesafio = atendente.TokenVersion,
-            ExpiraEm = agora.Add(ttl)
+            ExpiraEm = agora.Add(TtlDoTicket)
         });
 
         db.EventosDeSeguranca.Add(new EventoDeSeguranca
@@ -182,21 +183,12 @@ public static class FerramentaDeBootstrapMfa
     }
 
     /// <summary>
-    /// CORRECAO (revisao independente do PR #46, bloqueador 7) — o UNICO
-    /// lugar de todo o assembly onde o texto claro de um ticket de bootstrap
-    /// e gerado ou devolvido. Deliberadamente <c>private</c>: antes deste
-    /// PR, este metodo era <c>public static</c> e podia ser chamado por
-    /// qualquer codigo do processo — inclusive um teste, como o proprio
-    /// <c>verificar-autenticacao.cs</c> demonstrava — sem passar pelos
-    /// guards de <see cref="ExecutarAsync"/> (stdin nao redirecionado, sem
-    /// CI/GITHUB_ACTIONS, confirmacao humana digitada "SIM"). Isso violava a
-    /// regra arquitetural "bootstrap exclusivamente manual/interativo,
-    /// ticket so em stdout, nunca API programatica". Agora so
+    /// O UNICO lugar de todo o assembly onde o texto claro de um ticket de
+    /// bootstrap e gerado ou devolvido. Deliberadamente <c>private</c>: so
     /// <see cref="ExecutarAsync"/>, no mesmo arquivo, alcanca este metodo — e
-    /// so depois de passar por todos os guards. O nucleo de decisao
-    /// atomica/testavel continua exposto em
-    /// <see cref="TentarRegistrarTicketAsync"/>, que nunca ve nem devolve
-    /// texto claro.
+    /// so depois de passar por todos os guards interativos (stdin nao
+    /// redirecionado, sem CI/GITHUB_ACTIONS, confirmacao humana digitada
+    /// "SIM").
     /// </summary>
     private static async Task<string> EmitirTicketAsync(
         CrmDbContext db, string email, string motivo, string atorExterno, CancellationToken ct = default)
@@ -204,7 +196,7 @@ public static class FerramentaDeBootstrapMfa
         var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
         var hashDoTicket = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro);
 
-        var resultado = await TentarRegistrarTicketAsync(db, email, hashDoTicket, TtlDoTicket, motivo, atorExterno, ct);
+        var resultado = await TentarRegistrarTicketAsync(db, email, hashDoTicket, motivo, atorExterno, ct);
 
         if (resultado != ElegibilidadeDeBootstrap.Elegivel)
         {
