@@ -8,7 +8,7 @@ import {
 } from './api-mock'
 
 /**
- * Registra a API fake sem deixar o glob legado `**/api/**` capturar os
+ * Registra a API fake sem deixar o glob legado da camada `/api/` capturar os
  * módulos-fonte do próprio Vite, por exemplo `/src/lib/api/cliente-http.ts`.
  *
  * No Playwright, a rota registrada por último tem precedência. Portanto esta
