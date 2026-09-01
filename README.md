@@ -19,6 +19,7 @@ extrajudiciais). **Repositório privado.**
 | [docs/REQUISITOS.md](docs/REQUISITOS.md) | Requisitos confirmados e o que ainda depende de validação |
 | [docs/MODELO-DADOS.md](docs/MODELO-DADOS.md) | Entidades, índices e as decisões técnicas por trás delas |
 | [docs/DESIGN.md](docs/DESIGN.md) | Identidade visual — fonte de verdade da interface |
+| [docs/QUALITY-GATE.md](docs/QUALITY-GATE.md) | Checks de Pull Request, matriz completa dos verificadores e reprodução local |
 
 Cada módulo do backend tem um `README.md` próprio explicando o que ele faz e por
 quê (`src/backend/CrmCartorio.Api/Modules/*/README.md`).
@@ -63,6 +64,8 @@ demonstração**.
 ## Verificadores
 
 Rodam de `src/backend/`. Chamam os **serviços reais**, não cópias da consulta.
+O inventário completo, incluindo dependências e o que pode rodar em CI, está em
+[`docs/QUALITY-GATE.md`](docs/QUALITY-GATE.md).
 
 ```bash
 dotnet run verificar-traducao.cs      # LINQ → SQL, não toca em banco
