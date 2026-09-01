@@ -5653,6 +5653,47 @@ try
         Checar("76f. chave publica de algoritmo inesperado (RSA) -> RECUSA",
             !(bool)metodoChaveValida!.Invoke(null, [chaveRsa76.ExportSubjectPublicKeyInfoPem()])!);
 
+        // BLOQUEADOR B24 (nona revisao independente) — ECDsa.ImportFromPem
+        // aceita "PUBLIC KEY" (SPKI), mas TAMBEM "PRIVATE KEY" (PKCS8) e
+        // "EC PRIVATE KEY" (SEC1). Um PEM com a chave PRIVADA do MESMO par
+        // usado no teste (chaveDoCustodiante76) colado em
+        // Emergencia:ChavePublicaDoSegundoCustodiante nao pode ser aceito —
+        // isso reabriria B23 (material privado acessivel a partir do
+        // servidor). A correcao usa PemEncoding + ImportSubjectPublicKeyInfo,
+        // exigindo label EXATO "PUBLIC KEY" e um UNICO bloco no texto.
+        var pemPrivadoEc76 = chaveDoCustodiante76.ExportECPrivateKeyPem();
+        var pemPrivadoPkcs876 = chaveDoCustodiante76.ExportPkcs8PrivateKeyPem();
+
+        Checar("76f-1. ExportECPrivateKeyPem (label \"EC PRIVATE KEY\") da MESMA chave -> RECUSA",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPrivadoEc76])!);
+
+        Checar("76f-2. ExportPkcs8PrivateKeyPem (label \"PRIVATE KEY\") da MESMA chave -> RECUSA",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPrivadoPkcs876])!);
+
+        Checar("76f-3. private key valida + ASSINATURA CORRETA -> mesmo assim RECUSA (private key nunca serve de 'chave publica')",
+            !Confere76(pemPrivadoEc76, desafioBase76, assinaturaBase76)
+            && !Confere76(pemPrivadoPkcs876, desafioBase76, assinaturaBase76));
+
+        Checar("76f-4. PEM com PUBLIC KEY + EC PRIVATE KEY colados (nesta ordem) -> RECUSA",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPublico76 + "\n" + pemPrivadoEc76])!
+            && !Confere76(pemPublico76 + "\n" + pemPrivadoEc76, desafioBase76, assinaturaBase76));
+
+        Checar("76f-5. PEM com EC PRIVATE KEY + PUBLIC KEY colados (ordem invertida) -> RECUSA tambem",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPrivadoEc76 + "\n" + pemPublico76])!);
+
+        Checar("76f-6. PEM com PUBLIC KEY + PRIVATE KEY (PKCS8) colados -> RECUSA",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPublico76 + "\n" + pemPrivadoPkcs876])!);
+
+        Checar("76f-7. PEM com a MESMA chave publica duplicada (dois blocos validos) -> RECUSA (sem ambiguidade aceitavel)",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPublico76 + "\n" + pemPublico76])!);
+
+        Checar("76f-8. label com capitalizacao diferente (\"Public Key\", nao \"PUBLIC KEY\") -> RECUSA (comparacao ordinal exata)",
+            !(bool)metodoChaveValida!.Invoke(null, [pemPublico76.Replace("PUBLIC KEY", "Public Key")])!);
+
+        Checar("76f-9. caminho feliz PERMANECE aceitando PEM SPKI normal (ExportSubjectPublicKeyInfoPem) apos a correcao",
+            (bool)metodoChaveValida!.Invoke(null, [pemPublico76])!
+            && Confere76(pemPublico76, desafioBase76, assinaturaBase76));
+
         // (4) assinatura malformada
         Checar("76g. assinatura malformada (nao-Base64) -> RECUSA, nunca lanca",
             !Confere76(pemPublico76, desafioBase76, "isto###nao#e#base64")
@@ -5768,8 +5809,26 @@ try
         // Se a coluna apertar, o que sobrevive e o FINGERPRINT (amarra o
         // evento a chave real); o texto livre do identificador e que e cortado.
         var atorLongo76 = (string)metodoAtor.Invoke(null, [operador76, new string('X', 300), fingerprint76])!;
-        Checar("76w-truncagem. AtorExterno trunca no limite da coluna (120) preservando o fingerprint",
+        Checar("76w-truncagem. AtorExterno trunca no limite da coluna (120) preservando o fingerprint (identificador longo)",
             atorLongo76.Length <= 120 && atorLongo76.Contains(fingerprint76));
+
+        // BLOQUEADOR B25 (nona revisao independente) — a versao anterior
+        // afirmava que o fingerprint nunca era cortado, mas quando o
+        // OPERADOR sozinho ja estourava a coluna (identificador nao tinha
+        // nem como ceder espaco suficiente), o fallback cortava a string
+        // inteira pelo INICIO (texto[..120]) — descartando o sufixo com o
+        // fingerprint junto. Os tres casos abaixo cobrem exatamente isso:
+        // operador longo, identificador longo, e os dois longos ao mesmo tempo.
+        var atorOperadorLongo76 = (string)metodoAtor.Invoke(null, [new string('O', 300), custodiante76, fingerprint76])!;
+        Checar("76w-truncagem-operador. operador de 300 chars -> <=120 e o fingerprint completo sobrevive",
+            atorOperadorLongo76.Length <= 120 && atorOperadorLongo76.Contains(fingerprint76));
+
+        var atorAmbosLongos76 = (string)metodoAtor.Invoke(null, [new string('O', 300), new string('C', 300), fingerprint76])!;
+        Checar("76w-truncagem-ambos. operador E identificador de 300 chars -> <=120 e o fingerprint completo sobrevive",
+            atorAmbosLongos76.Length <= 120 && atorAmbosLongos76.Contains(fingerprint76));
+
+        Checar("76w-truncagem-prioridade. com operador MODERADO e identificador longo, o operador NAO e cortado (identificador cede primeiro)",
+            atorLongo76.Contains(operador76));
 
         // (19)/(21) regressao de codigo-fonte nas DUAS ferramentas
         foreach (var caminhoRelativo76 in new[]
@@ -5800,15 +5859,35 @@ try
         var fonteAutorizacao76 = await File.ReadAllTextAsync(
             Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "AutorizacaoDeSegundaPessoa.cs"));
 
-        // (20) o CRM nunca carrega/importa chave privada, e nunca assina
-        Checar("76aa. o componente NUNCA importa chave privada nem assina (so verifica com chave publica)",
-            !fonteAutorizacao76.Contains("ImportECPrivateKey")
-            && !fonteAutorizacao76.Contains("ImportPkcs8PrivateKey")
-            && !fonteAutorizacao76.Contains("ImportEncryptedPkcs8PrivateKey")
-            && !fonteAutorizacao76.Contains("SignData")
-            && !fonteAutorizacao76.Contains("SignHash")
-            && fonteAutorizacao76.Contains("ImportFromPem")
-            && fonteAutorizacao76.Contains("VerifyData"));
+        // So o CODIGO, sem comentario/doc — os comentarios desta classe
+        // citam "ImportFromPem" de proposito, como historico do bloqueador
+        // B24 (por que ele foi abandonado). A regressao real e sobre CHAMADA
+        // de codigo, nao sobre o texto do arquivo inteiro conter a palavra.
+        var codigoSemComentarios76 = string.Join('\n', fonteAutorizacao76
+            .Split('\n')
+            .Where(linha => !linha.TrimStart().StartsWith("///", StringComparison.Ordinal)
+                          && !linha.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+
+        // (20) o CRM nunca carrega/importa chave privada, e nunca assina.
+        // CORRECAO (bloqueador B24): a versao anterior desta checagem exigia
+        // que o CODIGO chamasse "ImportFromPem" — exatamente o metodo que o
+        // B24 identificou como aceitando PRIVATE KEY/EC PRIVATE KEY sem
+        // distincao. Agora a regressao e o oposto: nenhuma CHAMADA a
+        // ImportFromPem pode existir no componente, e ImportSubjectPublicKeyInfo
+        // (que exige SPKI explicitamente) tem que estar presente.
+        Checar("76aa. o componente NUNCA importa chave privada nem assina, e o CODIGO nao chama mais ImportFromPem (usa ImportSubjectPublicKeyInfo)",
+            !codigoSemComentarios76.Contains("ImportECPrivateKey")
+            && !codigoSemComentarios76.Contains("ImportPkcs8PrivateKey")
+            && !codigoSemComentarios76.Contains("ImportEncryptedPkcs8PrivateKey")
+            && !codigoSemComentarios76.Contains("SignData")
+            && !codigoSemComentarios76.Contains("SignHash")
+            && !codigoSemComentarios76.Contains("ImportFromPem")
+            && codigoSemComentarios76.Contains("ImportSubjectPublicKeyInfo")
+            && codigoSemComentarios76.Contains("VerifyData"));
+
+        Checar("76aa-1. a checagem de rotulo do PEM e exigida em texto (\"PUBLIC KEY\") e o parsing usa PemEncoding",
+            fonteAutorizacao76.Contains("PemEncoding")
+            && fonteAutorizacao76.Contains("\"PUBLIC KEY\""));
 
         var arquivosDeProducaoDeSeguranca76 = Directory.GetFiles(
             Path.Combine("CrmCartorio.Api", "Infrastructure", "Security"), "*.cs");

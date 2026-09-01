@@ -180,12 +180,13 @@ internal static class AutorizacaoDeSegundaPessoa
     /// <summary>
     /// Decisão PURA: a assinatura confere com a chave PÚBLICA configurada,
     /// para EXATAMENTE este desafio? Falha FECHADA em tudo — chave ausente,
-    /// PEM malformado, curva/algoritmo inesperados, assinatura malformada,
-    /// assinatura de outra chave, desafio diferente. Nunca lança.
+    /// PEM malformado, PEM de chave PRIVADA (bloqueador B24), curva/algoritmo
+    /// inesperados, assinatura malformada, assinatura de outra chave, desafio
+    /// diferente. Nunca lança.
     /// </summary>
     internal static bool AssinaturaConfere(string? chavePublicaPem, string desafioCanonico, string? assinaturaBase64)
     {
-        if (string.IsNullOrWhiteSpace(chavePublicaPem) || string.IsNullOrWhiteSpace(assinaturaBase64))
+        if (string.IsNullOrWhiteSpace(assinaturaBase64))
         {
             return false;
         }
@@ -205,52 +206,41 @@ internal static class AutorizacaoDeSegundaPessoa
             return false;
         }
 
-        try
+        if (!TentarImportarChavePublicaP256(chavePublicaPem, out var verificador))
         {
-            using var verificador = ECDsa.Create();
-            verificador.ImportFromPem(chavePublicaPem);
+            return false;
+        }
 
-            if (!EhP256(verificador))
+        using (verificador)
+        {
+            try
             {
+                return verificador!.VerifyData(
+                    Encoding.UTF8.GetBytes(desafioCanonico),
+                    assinatura,
+                    HashAlgorithmName.SHA256,
+                    DSASignatureFormat.Rfc3279DerSequence);
+            }
+            catch (Exception ex) when (ex is ArgumentException or CryptographicException)
+            {
+                // Assinatura sintaticamente Base64 mas nao um DER valido para
+                // este algoritmo — falha FECHADA, nunca cai para outro mecanismo.
                 return false;
             }
-
-            return verificador.VerifyData(
-                Encoding.UTF8.GetBytes(desafioCanonico),
-                assinatura,
-                HashAlgorithmName.SHA256,
-                DSASignatureFormat.Rfc3279DerSequence);
-        }
-        catch (Exception ex) when (ex is ArgumentException or CryptographicException or NotSupportedException)
-        {
-            // PEM malformado, chave que nao e EC, curva nao suportada pelo
-            // runtime — tudo falha FECHADO, nunca cai para outro mecanismo.
-            return false;
         }
     }
 
     /// <summary>
-    /// A chave pública configurada é utilizável (existe, é PEM válido, é
-    /// ECDSA P-256)? Decisão PURA, nunca lança — usada para recusar cedo,
-    /// com mensagem útil, antes de montar desafio nenhum.
+    /// A chave pública configurada é utilizável (existe, é um ÚNICO bloco PEM
+    /// rotulado exatamente "PUBLIC KEY", é ECDSA P-256)? Decisão PURA, nunca
+    /// lança — usada para recusar cedo, com mensagem útil, antes de montar
+    /// desafio nenhum.
     /// </summary>
     internal static bool ChavePublicaConfiguradaValida(string? chavePublicaPem)
     {
-        if (string.IsNullOrWhiteSpace(chavePublicaPem))
-        {
-            return false;
-        }
-
-        try
-        {
-            using var verificador = ECDsa.Create();
-            verificador.ImportFromPem(chavePublicaPem);
-            return EhP256(verificador);
-        }
-        catch (Exception ex) when (ex is ArgumentException or CryptographicException or NotSupportedException)
-        {
-            return false;
-        }
+        var valida = TentarImportarChavePublicaP256(chavePublicaPem, out var chave);
+        chave?.Dispose();
+        return valida;
     }
 
     /// <summary>
@@ -360,11 +350,19 @@ internal static class AutorizacaoDeSegundaPessoa
     /// </remarks>
     internal static string FingerprintDaChavePublica(string chavePublicaPem)
     {
-        using var chave = ECDsa.Create();
-        chave.ImportFromPem(chavePublicaPem);
+        if (!TentarImportarChavePublicaP256(chavePublicaPem, out var chave))
+        {
+            // So alcancavel se o chamador nao checou ChavePublicaConfiguradaValida
+            // antes — nos dois pontos de chamada de producao (AutorizarInterativo)
+            // essa checagem ja aconteceu. Falha explicita em vez de mascarar.
+            throw new ArgumentException("Chave publica invalida para gerar fingerprint.", nameof(chavePublicaPem));
+        }
 
-        return Convert.ToHexStringLower(
-            SHA256.HashData(chave.ExportSubjectPublicKeyInfo()).AsSpan(0, 8));
+        using (chave)
+        {
+            return Convert.ToHexStringLower(
+                SHA256.HashData(chave!.ExportSubjectPublicKeyInfo()).AsSpan(0, 8));
+        }
     }
 
     /// <summary>
@@ -375,27 +373,180 @@ internal static class AutorizacaoDeSegundaPessoa
     /// CONFIGURAÇÃO, não de texto livre digitado pelo operador; o fingerprint
     /// vem da chave que de fato validou a assinatura.
     /// </summary>
+    /// <remarks>
+    /// CORREÇÃO (bloqueador B25, nona revisão independente) — a versão
+    /// anterior reservava espaço para o fingerprint só quando ele e o
+    /// identificador juntos não cabiam; quando o OPERADOR sozinho já
+    /// estourava a coluna (<c>espacoParaIdentificador &lt;= 0</c>), o
+    /// fallback fazia <c>texto[..120]</c> sobre a string inteira — cortando
+    /// pelo INÍCIO, do lado do operador, e descartando o sufixo com o
+    /// fingerprint junto. A garantia documentada ("o fingerprint nunca é
+    /// cortado") não valia nesse caminho. Agora o orçamento é reservado do
+    /// fim para o início: sufixo (fingerprint) primeiro — nunca cede;
+    /// identificador cede em seguida; operador cede por último, só se
+    /// identificador já cedeu por completo e ainda faltar espaço.
+    /// </remarks>
     internal static string FormatarAtorDeDuasPessoas(
         string operadorSsh, string identificadorDoCustodiante, string fingerprintDaChave)
     {
+        const string separador = " + custodiante: ";
         var sufixo = $" (chave {fingerprintDaChave})";
-        var prefixo = $"{operadorSsh} + custodiante: ";
-        var espacoParaIdentificador = TamanhoMaximoDoAtorExterno - prefixo.Length - sufixo.Length;
 
-        // O fingerprint e o que amarra o evento a chave real — se algo tiver
-        // de ser cortado por causa do limite da coluna, corta o texto livre
-        // (identificador), nunca ele.
-        if (espacoParaIdentificador <= 0)
+        static string Cortar(string valor, int maximo) =>
+            maximo <= 0 ? string.Empty : valor.Length <= maximo ? valor : valor[..maximo];
+
+        // O FINGERPRINT nunca cede — reserva o espaco dele primeiro.
+        var orcamentoAposSufixo = TamanhoMaximoDoAtorExterno - sufixo.Length;
+        if (orcamentoAposSufixo <= 0)
         {
-            var texto = $"{prefixo}{identificadorDoCustodiante}{sufixo}";
-            return texto.Length <= TamanhoMaximoDoAtorExterno ? texto : texto[..TamanhoMaximoDoAtorExterno];
+            // So alcancavel se o fingerprint sozinho (tamanho fixo, 16 hex
+            // chars na pratica) ja estourasse a coluna — nao acontece com o
+            // gerador real; falha de forma segura mesmo assim.
+            return Cortar(sufixo, TamanhoMaximoDoAtorExterno);
         }
 
-        var identificadorCabendo = identificadorDoCustodiante.Length <= espacoParaIdentificador
-            ? identificadorDoCustodiante
-            : identificadorDoCustodiante[..espacoParaIdentificador];
+        var espacoParaIdentificador = orcamentoAposSufixo - operadorSsh.Length - separador.Length;
+        if (espacoParaIdentificador >= 0)
+        {
+            // Operador e separador cabem inteiros — so o identificador cede,
+            // se precisar ceder.
+            var identificadorCabendo = Cortar(identificadorDoCustodiante, espacoParaIdentificador);
+            return $"{operadorSsh}{separador}{identificadorCabendo}{sufixo}";
+        }
 
-        return $"{prefixo}{identificadorCabendo}{sufixo}";
+        // Identificador ja cedeu por completo (comprimento 0) e ainda falta
+        // espaco: o OPERADOR cede tambem, por ultimo. O separador so
+        // sobrevive se ainda couber depois do operador truncado.
+        var operadorCabendo = Cortar(operadorSsh, orcamentoAposSufixo);
+        var separadorCabendo = Cortar(separador, orcamentoAposSufixo - operadorCabendo.Length);
+
+        var resultado = $"{operadorCabendo}{separadorCabendo}{sufixo}";
+
+        // Garantia final, independente da aritmetica acima: nunca estoura o
+        // limite da coluna.
+        return resultado.Length <= TamanhoMaximoDoAtorExterno ? resultado : Cortar(resultado, TamanhoMaximoDoAtorExterno);
+    }
+
+    /// <summary>
+    /// ÚNICO ponto de importação de chave pública do sistema — usado por
+    /// <see cref="ChavePublicaConfiguradaValida"/>, <see cref="AssinaturaConfere"/>
+    /// e <see cref="FingerprintDaChavePublica"/>, nunca uma cópia por método.
+    /// </summary>
+    /// <remarks>
+    /// CORREÇÃO (bloqueador B24, nona revisão independente) —
+    /// <see cref="ECDsa.ImportFromPem(ReadOnlySpan{char})"/> aceita, além de
+    /// <c>"PUBLIC KEY"</c> (SPKI), também <c>"PRIVATE KEY"</c> (PKCS8) e
+    /// <c>"EC PRIVATE KEY"</c> (SEC1) — confirmado empiricamente antes desta
+    /// correção. Um PEM com a chave PRIVADA P-256 colada em
+    /// <c>Emergencia:ChavePublicaDoSegundoCustodiante</c> por engano (ou um
+    /// texto com os dois blocos colados) seria aceito e usado normalmente,
+    /// reabrindo B23 na prática: material privado voltaria a ficar acessível
+    /// a partir do servidor.
+    ///
+    /// Esta rotina aceita EXCLUSIVAMENTE um texto com UM ÚNICO bloco PEM cujo
+    /// rótulo seja, byte a byte (<see cref="StringComparison.Ordinal"/>),
+    /// <c>"PUBLIC KEY"</c> — nunca <c>"PRIVATE KEY"</c>, nunca
+    /// <c>"EC PRIVATE KEY"</c>, nunca qualquer outro rótulo. Um texto com
+    /// mais de um bloco (pública + privada coladas, ou dois blocos
+    /// quaisquer) é recusado pela mesma checagem de contagem, mesmo que o
+    /// primeiro bloco sozinho fosse uma chave pública válida — não há
+    /// ambiguidade aceitável sobre qual conteúdo usar. Só depois disso importa
+    /// o SubjectPublicKeyInfo (<see cref="ECDsa.ImportSubjectPublicKeyInfo(ReadOnlySpan{byte}, out int)"/>,
+    /// nunca <c>ImportFromPem</c>) e exige que o DER seja consumido por
+    /// inteiro — sobra de bytes depois do SPKI é tratada como malformado.
+    /// </remarks>
+    private static bool TentarImportarChavePublicaP256(string? pem, out ECDsa? chave)
+    {
+        chave = null;
+
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            return false;
+        }
+
+        List<(string Label, string Base64)> blocos;
+        try
+        {
+            blocos = EncontrarTodosOsBlocosPem(pem);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException)
+        {
+            return false;
+        }
+
+        if (blocos.Count != 1 || !string.Equals(blocos[0].Label, "PUBLIC KEY", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        byte[] der;
+        try
+        {
+            der = Convert.FromBase64String(blocos[0].Base64);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        ECDsa? candidata = null;
+        try
+        {
+            candidata = ECDsa.Create();
+            candidata.ImportSubjectPublicKeyInfo(der, out var bytesLidos);
+
+            if (bytesLidos != der.Length || !EhP256(candidata))
+            {
+                candidata.Dispose();
+                return false;
+            }
+
+            chave = candidata;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or CryptographicException or NotSupportedException)
+        {
+            candidata?.Dispose();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Enumera TODOS os blocos PEM (rótulo + payload Base64) presentes no
+    /// texto — não só o primeiro. É essa enumeração completa que detecta
+    /// chave pública e privada coladas no mesmo valor de configuração; olhar
+    /// só o primeiro bloco (o que <c>PemEncoding.Find</c> sozinho devolveria)
+    /// deixaria passar exatamente essa mistura.
+    /// </summary>
+    private static List<(string Label, string Base64)> EncontrarTodosOsBlocosPem(string texto)
+    {
+        var blocos = new List<(string, string)>();
+        ReadOnlySpan<char> restante = texto;
+
+        while (true)
+        {
+            PemFields campos;
+            try
+            {
+                campos = PemEncoding.Find(restante);
+            }
+            catch (ArgumentException)
+            {
+                break; // nenhum bloco PEM valido no restante — para de procurar.
+            }
+
+            blocos.Add((new string(restante[campos.Label]), new string(restante[campos.Base64Data])));
+
+            var fim = campos.Location.End.GetOffset(restante.Length);
+            if (fim <= 0 || fim > restante.Length)
+            {
+                break; // defensivo: nao deveria acontecer com um Location valido.
+            }
+
+            restante = restante[fim..];
+        }
+
+        return blocos;
     }
 
     private static bool EhP256(ECDsa chave)
