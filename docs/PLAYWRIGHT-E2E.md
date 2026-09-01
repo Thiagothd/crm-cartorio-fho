@@ -12,7 +12,8 @@ A suíte usa:
 
 - Chromium via Playwright;
 - Vite local para servir exatamente o frontend do repositório;
-- `page.route()` para interceptar `/api/**`;
+- `page.route()` para interceptar a API do CRM;
+- exceção explícita para os módulos-fonte do Vite em `/src/lib/api/**`, evitando que o roteamento fake capture o próprio cliente HTTP do frontend;
 - estado em memória novo por teste;
 - respostas com os mesmos formatos consumidos por `src/lib/api/endpoints.ts`;
 - `ProblemDetails` com códigos estáveis nos cenários de erro;
@@ -50,26 +51,28 @@ A configuração sobe o Vite automaticamente em `127.0.0.1:5173` usando `--confi
 
 ## Cobertura inicial
 
-A suíte possui 25 testes em 5 specs:
+A suíte possui **25 testes em 6 specs**:
 
-- `autenticacao.spec.ts` — formulário, validação obrigatória, credenciais inválidas, login válido, proteção de rota e revalidação de token;
-- `navegacao.spec.ts` — visibilidade por perfil, proteção de rota administrativa e redirecionamento legado;
-- `inbox.spec.ts` — listagem, abertura de conversa, assumir, conflito de atribuição, busca e respostas rápidas sem envio automático;
-- `clientes.spec.ts` — listagem/busca, filtro de documento ausente, cadastro fictício e proteção contra exclusão de cliente com atendimento;
-- `administracao.spec.ts` — equipe e criação de setor;
-- `mobile.spec.ts` — fluxo lista ↔ conversa e cadastro de clientes em viewport 390×844.
-
-> A contagem acima considera `mobile.spec.ts` como a sexta spec; são 6 arquivos e 25 testes no total.
+- `autenticacao.e2e.ts` — formulário, validação obrigatória, credenciais inválidas, login válido, proteção de rota e revalidação de token;
+- `navegacao.e2e.ts` — visibilidade por perfil, proteção de rota administrativa e redirecionamento legado;
+- `inbox.e2e.ts` — listagem, abertura de conversa, assumir, conflito de atribuição, busca e respostas rápidas sem envio automático;
+- `clientes.e2e.ts` — listagem/busca, filtro de documento ausente, cadastro fictício e proteção contra exclusão de cliente com atendimento;
+- `administracao.e2e.ts` — equipe e criação de setor;
+- `mobile.e2e.ts` — fluxo lista ↔ conversa e cadastro de clientes em viewport 390×844.
 
 ## Responsividade
 
-O projeto principal do Playwright usa Chromium desktop em 1366×768. `mobile.spec.ts` reduz o mesmo Chromium para 390×844 e habilita touch. Não usamos o preset WebKit/iPhone: a finalidade desta primeira camada é validar comportamento responsivo, não multiplicar a suíte por engines.
+O projeto principal do Playwright usa Chromium desktop em 1366×768. `mobile.e2e.ts` reduz o mesmo Chromium para 390×844 e habilita touch. Não usamos o preset WebKit/iPhone: a finalidade desta primeira camada é validar comportamento responsivo, não multiplicar a suíte por engines.
 
 Os testes mobile verificam ações funcionais e navegação. Não são testes pixel-perfect nem snapshots visuais.
+
+Nos fluxos desktop autenticados, o fixture grava a preferência real `crm-cartorio.menu-fixado=true` antes da aplicação iniciar. Isso mantém o rail em sua própria coluna durante os cenários de produto e evita que a animação de hover criada pela posição sintética do ponteiro do Chromium intercepte cliques no conteúdo. O comportamento de hover/recolhimento do rail permanece coberto pelos testes unitários próprios do componente; em viewport mobile a própria aplicação ignora essa preferência.
 
 ## Isolamento dos dados
 
 `fixtures/api-mock.ts` cria estado novo para cada teste. Nenhum cenário depende do anterior. Clientes, usuários, tenant, conversas, mensagens, setores, etapas e serviços são todos fictícios.
+
+`fixtures/api-mock-seguro.ts` envolve o mock base para preservar o carregamento dos módulos do Vite e estabelecer preferências determinísticas de interface sem `force click`, sleeps arbitrários ou chamadas a ambiente real.
 
 Mutações relevantes alteram o estado em memória para que uma invalidação do React Query leia o novo resultado em seguida; isso evita mocks estáticos que ficariam verdes sem provar a transição da interface.
 
@@ -77,7 +80,7 @@ Mutações relevantes alteram o estado em memória para que uma invalidação do
 
 A suíte não contém connection string, API key, token de ambiente, número de WhatsApp real ou credencial real. O login utilizado é fictício (`*.local`) e só existe no mock do navegador.
 
-Não executar os E2E apontando `VITE_API_URL` para um ambiente real. O desenho desta suíte pressupõe que `/api/**` seja interceptado pelo fixture.
+Não executar os E2E apontando `VITE_API_URL` para um ambiente real. O desenho desta suíte pressupõe que as chamadas da API do CRM sejam interceptadas pelo fixture.
 
 ## MFA / SEC-03
 
@@ -98,6 +101,15 @@ Os diretórios `e2e/test-results`, `e2e/playwright-report` e `e2e/blob-report` s
 ## CI e PR #47
 
 Esta branch não modifica o workflow `quality-gate.yml` do PR #47. Para certificar esta própria frente existe um check independente `e2e-playwright`, somente em Pull Requests destinados a `teste`.
+
+A execução real do GitHub Actions no head `98fa507ba56e0e07700ca10b33145816141f9356` validou, no mesmo job:
+
+- `typecheck` do frontend: PASS;
+- Vitest existente: **8 arquivos / 37 testes / 37 PASS**;
+- build Vite: PASS;
+- Playwright: **25/25 PASS**, sem falhas, em Chromium headless.
+
+Os avisos já conhecidos do build sobre anotações do pacote SignalR e chunk principal acima de 500 kB continuam não bloqueantes e não foram mascarados pela suíte.
 
 Quando PR #47 e esta suíte já estiverem convergidos em `teste`, o check pode continuar independente ou ser incorporado ao quality gate em uma mudança posterior. Não é necessário reabrir o PR #47 para isso.
 
