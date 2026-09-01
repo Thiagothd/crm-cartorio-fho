@@ -21,6 +21,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -5561,71 +5562,216 @@ try
     }
 
     // ------------------------------------------------------------ cenario 76
-    // BLOQUEADOR B21 (setima revisao independente) — controle de duas
-    // pessoas do break-glass deixou de ser um PIN estatico com hash SHA-256
-    // (ecoado no terminal, reutilizavel indefinidamente pelo mesmo operador)
-    // e passou a ser um segredo TOTP (RFC 6238), sem eco, com piso de 128
-    // bits de entropia, rotacionando por construcao a cada 30s.
-    // ControleDeDuasPessoas.SegredoConfiguradoValido/CodigoConfere sao as
-    // decisoes PURAS (mesmo padrao de AmbienteNaoInterativo no cenario 72),
-    // testadas por reflexao sem reabrir superficie publica nenhuma.
+    // BLOQUEADORES B22/B23 (oitava revisao independente) — o controle de
+    // duas pessoas deixou de ser um segredo TOTP COMPARTILHADO (cujo seed
+    // vivia no proprio servidor, entao quem tinha SSH gerava os codigos da
+    // "segunda pessoa" — B23; e cujo codigo valia mais de uma vez dentro da
+    // janela de +-1 passo — B22) e passou a ser ASSINATURA ASSIMETRICA
+    // ECDSA P-256/SHA-256 sobre um desafio com nonce fresco de 256 bits.
+    //
+    // O servidor guarda SO a chave publica. Os testes abaixo geram o par EM
+    // MEMORIA (nunca uma chave fixa no repositorio) e exercitam as decisoes
+    // PURAS por reflexao — mesmo padrao de AmbienteNaoInterativo (cenario 72),
+    // sem reabrir superficie publica nenhuma.
 
     {
-        var tipoControle = typeof(FerramentaDeResetDeEmergencia).Assembly
-            .GetType("CrmCartorio.Api.Infrastructure.Security.ControleDeDuasPessoas")
-            ?? throw new InvalidOperationException("ControleDeDuasPessoas nao encontrado.");
+        var assemblyDaApi = typeof(FerramentaDeResetDeEmergencia).Assembly;
+        var tipoAutorizacao = assemblyDaApi
+            .GetType("CrmCartorio.Api.Infrastructure.Security.AutorizacaoDeSegundaPessoa")
+            ?? throw new InvalidOperationException("AutorizacaoDeSegundaPessoa nao encontrada.");
+        var tipoOperacao = assemblyDaApi
+            .GetType("CrmCartorio.Api.Infrastructure.Security.OperacaoDeEmergencia")
+            ?? throw new InvalidOperationException("OperacaoDeEmergencia nao encontrada.");
 
-        var metodoValido = tipoControle.GetMethod("SegredoConfiguradoValido", BindingFlags.NonPublic | BindingFlags.Static);
-        var metodoConfere = tipoControle.GetMethod("CodigoConfere", BindingFlags.NonPublic | BindingFlags.Static);
-        var metodoFormatarAtor = tipoControle.GetMethod("FormatarAtorDeDuasPessoas", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoMontar = tipoAutorizacao.GetMethod("MontarDesafioCanonico", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoConfere = tipoAutorizacao.GetMethod("AssinaturaConfere", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoChaveValida = tipoAutorizacao.GetMethod("ChavePublicaConfiguradaValida", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoNonce = tipoAutorizacao.GetMethod("GerarNonce", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoAtor = tipoAutorizacao.GetMethod("FormatarAtorDeDuasPessoas", BindingFlags.NonPublic | BindingFlags.Static);
 
-        Checar("76a. SegredoConfiguradoValido e CodigoConfere existem, privados/internos, estaticos, devolvem bool",
-            metodoValido is not null && metodoValido.ReturnType == typeof(bool) && !metodoValido.IsPublic
-            && metodoConfere is not null && metodoConfere.ReturnType == typeof(bool) && !metodoConfere.IsPublic);
+        Checar("76a. AutorizacaoDeSegundaPessoa expoe as decisoes puras (montar/verificar/nonce), todas nao-publicas",
+            metodoMontar is not null && metodoConfere is not null && metodoChaveValida is not null
+            && metodoNonce is not null && metodoAtor is not null
+            && !metodoConfere.IsPublic && !metodoMontar.IsPublic && !metodoNonce.IsPublic
+            && metodoConfere.ReturnType == typeof(bool));
 
-        var segredoValido76 = ValidadorDeTotp.GerarSegredoBase32();
-        Checar("76b. segredo TOTP recem-gerado (20 bytes / 160 bits, o padrao do projeto) e considerado valido",
-            (bool)metodoValido!.Invoke(null, [segredoValido76])!);
+        var operacaoReset76 = Enum.Parse(tipoOperacao, "ResetDeEmergencia");
+        var operacaoReemissao76 = Enum.Parse(tipoOperacao, "ReemitirTicketDeEmergencia");
 
-        Checar("76c. segredo ausente/vazio -> INVALIDO (falha fechada, comando nao roda sem configurar)",
-            !(bool)metodoValido.Invoke(null, [(string?)null])!
-            && !(bool)metodoValido.Invoke(null, [""])!);
+        string Nonce76() => (string)metodoNonce!.Invoke(null, null)!;
 
-        Checar("76d. segredo curto demais (menos de 128 bits) -> INVALIDO mesmo sendo Base32 bem formado",
-            !(bool)metodoValido.Invoke(null, [Base32Encoding.ToString(new byte[10])])!); // 80 bits, abaixo do piso
+        string Desafio76(object operacao, string alvo, string operador, string custodiante, string motivo, string nonce) =>
+            (string)metodoMontar!.Invoke(null, [operacao, alvo, operador, custodiante, motivo, nonce])!;
 
-        Checar("76e. segredo mal formado (nao-Base32) -> INVALIDO, falha fechada, nunca lanca",
-            !(bool)metodoValido.Invoke(null, ["isto nao e base32 valido !!!"])!);
+        bool Confere76(string? chavePublicaPem, string desafio, string? assinaturaBase64) =>
+            (bool)metodoConfere!.Invoke(null, [chavePublicaPem, desafio, assinaturaBase64])!;
 
-        var codigoCorreto76 = new Totp(Base32Encoding.ToBytes(segredoValido76)).ComputeTotp();
-        Checar("76f. codigo TOTP correto contra o segredo configurado -> confere",
-            (bool)metodoConfere!.Invoke(null, [segredoValido76, codigoCorreto76])!);
+        // Par de chaves GERADO EM MEMORIA so para o teste — a chave privada
+        // existe apenas dentro deste processo e nunca e escrita em lugar
+        // nenhum, exatamente como a do custodiante real nunca entra no
+        // servidor.
+        using var chaveDoCustodiante76 = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var pemPublico76 = chaveDoCustodiante76.ExportSubjectPublicKeyInfoPem();
 
-        var codigoErrado76 = ((int.Parse(codigoCorreto76) + 500_000) % 1_000_000).ToString("D6");
-        Checar("76g. codigo TOTP errado (maxima distancia do correto, fora da janela de +-1 passo) -> NAO confere",
-            !(bool)metodoConfere.Invoke(null, [segredoValido76, codigoErrado76])!);
+        using var chaveDeOutroCustodiante76 = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var pemPublicoDeOutro76 = chaveDeOutroCustodiante76.ExportSubjectPublicKeyInfoPem();
 
-        Checar("76h. mesmo com codigo certo, segredo configurado fraco (curto) -> NAO confere (piso de entropia vale tambem aqui)",
-            !(bool)metodoConfere.Invoke(null, [Base32Encoding.ToString(new byte[10]), codigoCorreto76])!);
+        string Assinar76(ECDsa chave, string desafio) =>
+            Convert.ToBase64String(chave.SignData(
+                Encoding.UTF8.GetBytes(desafio), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence));
 
-        // Identidade das duas pessoas, nunca segredo — e trunca no limite de
-        // EventosDeSeguranca.AtorExterno (NVARCHAR(120)).
-        var atorFormatado76 = (string)metodoFormatarAtor!.Invoke(null, ["operador@maquina", "Segundo Custodiante Teste"])!;
-        Checar("76i. FormatarAtorDeDuasPessoas junta as DUAS identidades, nunca um segredo",
-            atorFormatado76.Contains("operador@maquina") && atorFormatado76.Contains("Segundo Custodiante Teste")
-            && !atorFormatado76.Contains(segredoValido76) && !atorFormatado76.Contains(codigoCorreto76));
+        const string alvo76 = "titular.preso@cartorio.example";
+        const string operador76 = "thiago@SERVIDOR";
+        const string custodiante76 = "substituto-chave-2026-09";
+        const string motivo76 = "perdeu autenticador e codigos de recuperacao";
 
-        var atorLongo76 = (string)metodoFormatarAtor.Invoke(null, ["operador@maquina", new string('X', 300)])!;
-        Checar("76j. FormatarAtorDeDuasPessoas trunca no limite de AtorExterno (120 caracteres)",
-            atorLongo76.Length <= 120);
+        var nonce76 = Nonce76();
+        var desafioBase76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, motivo76, nonce76);
+        var assinaturaBase76 = Assinar76(chaveDoCustodiante76, desafioBase76);
 
-        // Regressao de codigo-fonte: as DUAS ferramentas (break-glass e
-        // reemissao) precisam de fato CHAMAR o controle novo — nao so
-        // imprimir mensagem — e a checagem precisa vir ANTES de conectar ao
-        // banco (precondicao do procedimento inteiro, nao so da gravacao
-        // final). PinDeDuasPessoasConfere/HashDoPinDeDuasPessoas nao podem
-        // mais existir em lugar nenhum (regressao contra reintroduzir o
-        // mecanismo antigo).
+        // (1) caminho feliz
+        Checar("76b. chave publica valida + assinatura correta do custodiante -> ACEITA",
+            Confere76(pemPublico76, desafioBase76, assinaturaBase76));
+
+        // (2) chave publica ausente
+        Checar("76c. chave publica ausente/vazia -> RECUSA (falha fechada, sem fallback)",
+            !Confere76(null, desafioBase76, assinaturaBase76)
+            && !Confere76("", desafioBase76, assinaturaBase76)
+            && !(bool)metodoChaveValida!.Invoke(null, [(string?)null])!);
+
+        // (3) chave publica malformada
+        Checar("76d. chave publica malformada (PEM invalido) -> RECUSA, nunca lanca",
+            !Confere76("-----BEGIN PUBLIC KEY-----\nnaoEhBase64Valido!!!\n-----END PUBLIC KEY-----", desafioBase76, assinaturaBase76)
+            && !(bool)metodoChaveValida!.Invoke(null, ["isto nao e pem"])!);
+
+        // (3b) algoritmo/curva inesperados
+        using var chaveP384no76 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        Checar("76e. chave publica de curva inesperada (P-384) -> RECUSA (so P-256 e aceita)",
+            !(bool)metodoChaveValida!.Invoke(null, [chaveP384no76.ExportSubjectPublicKeyInfoPem()])!);
+
+        using var chaveRsa76 = RSA.Create(2048);
+        Checar("76f. chave publica de algoritmo inesperado (RSA) -> RECUSA",
+            !(bool)metodoChaveValida!.Invoke(null, [chaveRsa76.ExportSubjectPublicKeyInfoPem()])!);
+
+        // (4) assinatura malformada
+        Checar("76g. assinatura malformada (nao-Base64) -> RECUSA, nunca lanca",
+            !Confere76(pemPublico76, desafioBase76, "isto###nao#e#base64")
+            && !Confere76(pemPublico76, desafioBase76, "")
+            && !Confere76(pemPublico76, desafioBase76, null));
+
+        // (5) assinatura sintaticamente Base64, mas nao e uma assinatura DER
+        Checar("76h. assinatura Base64 valida mas DER invalido -> RECUSA",
+            !Confere76(pemPublico76, desafioBase76, Convert.ToBase64String([1, 2, 3, 4, 5, 6, 7, 8])));
+
+        // (6) chave privada diferente
+        Checar("76i. assinatura de OUTRA chave privada -> RECUSA",
+            !Confere76(pemPublico76, desafioBase76, Assinar76(chaveDeOutroCustodiante76, desafioBase76)));
+
+        Checar("76j. assinatura correta conferida contra a chave publica ERRADA -> RECUSA",
+            !Confere76(pemPublicoDeOutro76, desafioBase76, assinaturaBase76));
+
+        // (7) desafio A nao valida desafio B
+        var desafioOutroNonce76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, motivo76, Nonce76());
+        Checar("76k. assinatura do desafio A NAO valida o desafio B (nonce diferente)",
+            !Confere76(pemPublico76, desafioOutroNonce76, assinaturaBase76));
+
+        // (8) ASSINATURA CAPTURADA — o teste que substitui diretamente B22:
+        // uma execucao inteira acontece, a assinatura dela e capturada, e a
+        // execucao SEGUINTE (mesma operacao, mesmo alvo, mesmo motivo, mesmo
+        // operador) precisa recusa-la, porque o nonce e novo.
+        var nonceExecucao1_76 = Nonce76();
+        var desafioExecucao1_76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, motivo76, nonceExecucao1_76);
+        var assinaturaExecucao1_76 = Assinar76(chaveDoCustodiante76, desafioExecucao1_76);
+        var execucao1Autorizou76 = Confere76(pemPublico76, desafioExecucao1_76, assinaturaExecucao1_76);
+
+        var nonceExecucao2_76 = Nonce76();
+        var desafioExecucao2_76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, motivo76, nonceExecucao2_76);
+        var execucao2AceitouAssinaturaVelha76 = Confere76(pemPublico76, desafioExecucao2_76, assinaturaExecucao1_76);
+
+        Checar("76l. ASSINATURA CAPTURADA: autoriza a execucao 1 e NAO autoriza a execucao 2 (replay fechado — B22)",
+            execucao1Autorizou76 && !execucao2AceitouAssinaturaVelha76 && nonceExecucao1_76 != nonceExecucao2_76);
+
+        // (9)/(10) cross-operation
+        var desafioReemissao76 = Desafio76(operacaoReemissao76, alvo76, operador76, custodiante76, motivo76, nonce76);
+        var assinaturaReemissao76 = Assinar76(chaveDoCustodiante76, desafioReemissao76);
+
+        Checar("76m. assinatura de RESET_DE_EMERGENCIA NAO autoriza REEMITIR_TICKET_DE_EMERGENCIA",
+            !Confere76(pemPublico76, desafioReemissao76, assinaturaBase76));
+        Checar("76n. assinatura de REEMITIR_TICKET_DE_EMERGENCIA NAO autoriza RESET_DE_EMERGENCIA",
+            !Confere76(pemPublico76, desafioBase76, assinaturaReemissao76));
+
+        // (11) cross-target
+        var desafioOutroAlvo76 = Desafio76(operacaoReset76, "outra.conta@cartorio.example", operador76, custodiante76, motivo76, nonce76);
+        Checar("76o. assinatura para a conta A NAO autoriza a conta B",
+            !Confere76(pemPublico76, desafioOutroAlvo76, assinaturaBase76));
+
+        // (12) motivo trocado depois de assinado
+        var desafioOutroMotivo76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, "motivo diferente do assinado", nonce76);
+        Checar("76p. trocar o MOTIVO depois da assinatura invalida a autorizacao",
+            !Confere76(pemPublico76, desafioOutroMotivo76, assinaturaBase76));
+
+        // (13) operador trocado depois de assinado
+        var desafioOutroOperador76 = Desafio76(operacaoReset76, alvo76, "outro.operador@SERVIDOR", custodiante76, motivo76, nonce76);
+        Checar("76q. trocar o OPERADOR depois da assinatura invalida a autorizacao",
+            !Confere76(pemPublico76, desafioOutroOperador76, assinaturaBase76));
+
+        // (14) nonce: entropia e frescor
+        var nonces76 = Enumerable.Range(0, 200).Select(_ => Nonce76()).ToArray();
+        var bytesDoNonce76 = Convert.FromBase64String(
+            nonces76[0].Replace('-', '+').Replace('_', '/').PadRight((nonces76[0].Length + 3) / 4 * 4, '='));
+        Checar("76r. nonce tem 256 bits (32 bytes) e 200 chamadas produzem 200 valores distintos",
+            bytesDoNonce76.Length == 32 && nonces76.Distinct(StringComparer.Ordinal).Count() == 200);
+
+        // (15) determinismo do payload canonico
+        var determinista1_76 = Desafio76(operacaoReset76, alvo76, operador76, custodiante76, motivo76, nonce76);
+        var determinista2_76 = Desafio76(operacaoReset76, "  " + alvo76.ToUpperInvariant() + " ", operador76, custodiante76, motivo76, nonce76);
+        Checar("76s. payload canonico e deterministico para os mesmos campos (e normaliza o alvo)",
+            string.Equals(determinista1_76, desafioBase76, StringComparison.Ordinal)
+            && string.Equals(determinista2_76, desafioBase76, StringComparison.Ordinal));
+
+        // estrutura do payload: amarra versao, operacao, alvo, operador,
+        // custodiante, hash do motivo e nonce — 7 linhas, ordem fixa, LF.
+        var linhas76 = desafioBase76.Split('\n');
+        Checar("76t. payload amarra versao + operacao + alvo + operador + custodiante + hash do motivo + nonce (7 linhas, LF)",
+            linhas76.Length == 7
+            && linhas76[0] == "CRM-SEC03-AUTORIZACAO-V1"
+            && linhas76[1] == "OPERACAO=RESET_DE_EMERGENCIA"
+            && linhas76[2] == $"ALVO={alvo76}"
+            && linhas76[3] == $"OPERADOR={operador76}"
+            && linhas76[4] == $"CUSTODIANTE={custodiante76}"
+            && linhas76[5] == "MOTIVO_SHA256=" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(motivo76)))
+            && linhas76[6] == $"NONCE={nonce76}"
+            && !desafioBase76.Contains('\r'));
+
+        // O motivo em CLARO nunca entra no payload assinado (so o hash) —
+        // evita ambiguidade estrutural com motivo multilinha.
+        Checar("76u. o motivo entra por SHA-256, nunca em claro (sem ambiguidade estrutural no payload)",
+            !desafioBase76.Contains(motivo76, StringComparison.Ordinal));
+
+        // (16)/(17) identidade para auditoria: as duas pessoas, nenhum segredo
+        var metodoFingerprint76 = tipoAutorizacao.GetMethod("FingerprintDaChavePublica", BindingFlags.NonPublic | BindingFlags.Static);
+        var fingerprint76 = (string)metodoFingerprint76!.Invoke(null, [pemPublico76])!;
+        var fingerprintDeOutro76 = (string)metodoFingerprint76.Invoke(null, [pemPublicoDeOutro76])!;
+
+        Checar("76v. fingerprint da chave publica e deterministico, curto e diferente por chave",
+            fingerprint76.Length == 16
+            && fingerprint76 == (string)metodoFingerprint76.Invoke(null, [pemPublico76])!
+            && fingerprint76 != fingerprintDeOutro76);
+
+        var atorFormatado76 = (string)metodoAtor!.Invoke(null, [operador76, custodiante76, fingerprint76])!;
+        Checar("76w. AtorExterno junta operador SSH + custodiante + fingerprint da chave, sem assinatura/chave/segredo",
+            atorFormatado76.Contains(operador76) && atorFormatado76.Contains(custodiante76)
+            && atorFormatado76.Contains(fingerprint76)
+            && !atorFormatado76.Contains(assinaturaBase76) && !atorFormatado76.Contains(pemPublico76)
+            && !atorFormatado76.Contains("BEGIN"));
+
+        // Se a coluna apertar, o que sobrevive e o FINGERPRINT (amarra o
+        // evento a chave real); o texto livre do identificador e que e cortado.
+        var atorLongo76 = (string)metodoAtor.Invoke(null, [operador76, new string('X', 300), fingerprint76])!;
+        Checar("76w-truncagem. AtorExterno trunca no limite da coluna (120) preservando o fingerprint",
+            atorLongo76.Length <= 120 && atorLongo76.Contains(fingerprint76));
+
+        // (19)/(21) regressao de codigo-fonte nas DUAS ferramentas
         foreach (var caminhoRelativo76 in new[]
         {
             Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeResetDeEmergencia.cs"),
@@ -5635,24 +5781,74 @@ try
             var rotulo76 = Path.GetFileNameWithoutExtension(caminhoRelativo76);
             var codigoFonte76 = await File.ReadAllTextAsync(caminhoRelativo76);
 
-            Checar($"76k-{rotulo76}. chama ControleDeDuasPessoas.ConferirInterativo (nao so imprime mensagem)",
-                codigoFonte76.Contains("ControleDeDuasPessoas.ConferirInterativo("));
+            Checar($"76x-{rotulo76}. usa o MESMO componente assimetrico (AutorizacaoDeSegundaPessoa.AutorizarInterativo)",
+                codigoFonte76.Contains("AutorizacaoDeSegundaPessoa.AutorizarInterativo("));
 
-            var posicaoDoControle76 = codigoFonte76.IndexOf("ControleDeDuasPessoas.ConferirInterativo(", StringComparison.Ordinal);
-            var posicaoDoConnect76 = codigoFonte76.IndexOf("CanConnectAsync", StringComparison.Ordinal);
-            Checar($"76l-{rotulo76}. o controle de duas pessoas acontece ANTES de conectar ao banco",
-                posicaoDoControle76 >= 0 && posicaoDoConnect76 >= 0 && posicaoDoControle76 < posicaoDoConnect76);
+            var posicaoAutorizacao76 = codigoFonte76.IndexOf("AutorizacaoDeSegundaPessoa.AutorizarInterativo(", StringComparison.Ordinal);
+            var posicaoConnect76 = codigoFonte76.IndexOf("CanConnectAsync", StringComparison.Ordinal);
+            Checar($"76y-{rotulo76}. a autorizacao criptografica acontece ANTES de CanConnectAsync",
+                posicaoAutorizacao76 >= 0 && posicaoConnect76 >= 0 && posicaoAutorizacao76 < posicaoConnect76);
 
-            Checar($"76m-{rotulo76}. o mecanismo antigo (PIN/hash SHA-256 fixo) nao existe mais neste arquivo",
-                !codigoFonte76.Contains("PinDeDuasPessoasConfere") && !codigoFonte76.Contains("HashDoPinDeDuasPessoas"));
+            Checar($"76z-{rotulo76}. os mecanismos antigos (TOTP compartilhado, PIN, hash fixo) nao existem mais",
+                !codigoFonte76.Contains("SegredoTotpDeDuasPessoas")
+                && !codigoFonte76.Contains("CodigoConfere")
+                && !codigoFonte76.Contains("ControleDeDuasPessoas")
+                && !codigoFonte76.Contains("PinDeDuasPessoas")
+                && !codigoFonte76.Contains("HashDoPinDeDuasPessoas"));
         }
 
-        var codigoFonteControle76 = await File.ReadAllTextAsync(
-            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "ControleDeDuasPessoas.cs"));
-        Checar("76n. o codigo-fonte le Console.ReadKey para o codigo do segundo custodiante (SEM eco — nunca ReadLine para o segredo)",
-            codigoFonteControle76.Contains("Console.ReadKey"));
-        Checar("76o. o codigo-fonte le a configuracao Emergencia:SegredoTotpDeDuasPessoas",
-            codigoFonteControle76.Contains("Emergencia:SegredoTotpDeDuasPessoas"));
+        var fonteAutorizacao76 = await File.ReadAllTextAsync(
+            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "AutorizacaoDeSegundaPessoa.cs"));
+
+        // (20) o CRM nunca carrega/importa chave privada, e nunca assina
+        Checar("76aa. o componente NUNCA importa chave privada nem assina (so verifica com chave publica)",
+            !fonteAutorizacao76.Contains("ImportECPrivateKey")
+            && !fonteAutorizacao76.Contains("ImportPkcs8PrivateKey")
+            && !fonteAutorizacao76.Contains("ImportEncryptedPkcs8PrivateKey")
+            && !fonteAutorizacao76.Contains("SignData")
+            && !fonteAutorizacao76.Contains("SignHash")
+            && fonteAutorizacao76.Contains("ImportFromPem")
+            && fonteAutorizacao76.Contains("VerifyData"));
+
+        var arquivosDeProducaoDeSeguranca76 = Directory.GetFiles(
+            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security"), "*.cs");
+        var producaoImportaChavePrivada76 = new List<string>();
+        foreach (var arquivo76 in arquivosDeProducaoDeSeguranca76)
+        {
+            var conteudo76 = await File.ReadAllTextAsync(arquivo76);
+            if (conteudo76.Contains("ImportECPrivateKey") || conteudo76.Contains("ImportPkcs8PrivateKey")
+                || conteudo76.Contains("ImportFromEncryptedPem") || conteudo76.Contains("ECDsa.Create(ECCurve"))
+            {
+                producaoImportaChavePrivada76.Add(Path.GetFileName(arquivo76));
+            }
+        }
+        Checar("76bb. NENHUM arquivo de producao em Infrastructure/Security cria ou importa chave privada de custodiante",
+            producaoImportaChavePrivada76.Count == 0);
+
+        // (18) configuracao: SOMENTE material publico
+        foreach (var exemplo76 in new[]
+        {
+            "appsettings.Development.example.json",
+            "appsettings.Producao.example.json",
+            "appsettings.Production.example.json",
+            "appsettings.Teste.example.json"
+        })
+        {
+            var caminhoExemplo76 = Path.Combine("CrmCartorio.Api", exemplo76);
+            if (!File.Exists(caminhoExemplo76))
+            {
+                continue;
+            }
+
+            var conteudoExemplo76 = await File.ReadAllTextAsync(caminhoExemplo76);
+            Checar($"76cc-{exemplo76}. configuracao traz SO chave publica/identificador — nunca segredo TOTP nem chave privada",
+                !conteudoExemplo76.Contains("SegredoTotpDeDuasPessoas")
+                && !conteudoExemplo76.Contains("HashDoPinDeDuasPessoas")
+                && !conteudoExemplo76.Contains("BEGIN EC PRIVATE KEY")
+                && !conteudoExemplo76.Contains("BEGIN PRIVATE KEY")
+                && conteudoExemplo76.Contains("ChavePublicaDoSegundoCustodiante")
+                && conteudoExemplo76.Contains("IdentificadorDoSegundoCustodiante"));
+        }
     }
 
     // ------------------------------------------------------------ cenario 77

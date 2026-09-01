@@ -299,43 +299,53 @@ agora exige, além de conta ativa e privilegiada:
   MFA ativo no tenant e, se o alvo for `Cargo.Titular`, também `Cargo.Titular`.
   Se existir, o caminho normal resolve sozinho. Sem isto: `ExisteAtorAptoParaResetNormal`.
 
-**Controle de duas pessoas tecnicamente aplicado (bloqueador B18; mecanismo
-refeito no bloqueador B21, sétima revisão).** Antes de B18, "duas pessoas
-devem estar presentes" era só uma mensagem impressa no console — sem
-nenhuma verificação técnica. A primeira correção (B18) trocou isso por um
-PIN com hash SHA-256 — mas um PIN estático, digitado com
-`Console.ReadLine()` (ecoado no terminal: o operador SSH via o PIN na
-tela), continuava reutilizável indefinidamente pela mesma pessoa depois de
-uma única emergência legítima, e um hash direto de PIN humano de baixa
-entropia é atacável por força bruta offline se vazar. `ControleDeDuasPessoas`
-(`Infrastructure/Security/ControleDeDuasPessoas.cs`, compartilhado entre
+**Autorização assimétrica da segunda pessoa (bloqueadores B18 → B21 → B22/B23).**
+A exigência de duas pessoas passou por três versões, e vale registrar por que
+as duas primeiras não bastavam:
+
+| Versão | O que era | Por que caiu |
+| --- | --- | --- |
+| B18 (6ª revisão) | PIN com hash SHA-256 em configuração | Digitado com `Console.ReadLine()` (ecoado na tela) e estático: depois de uma emergência o operador conhecia o PIN e repetia sozinho. Hash de PIN humano é força-bruta offline |
+| B21 (7ª revisão) | Segredo TOTP compartilhado, sem eco | **B22:** a verificação descartava o passo TOTP, então o mesmo código de 6 dígitos autorizava mais de uma operação dentro da janela de ±1 passo. **B23:** o seed vivia no `appsettings` do próprio servidor — quem tinha SSH gerava os códigos da "segunda pessoa". Nunca houve separação real |
+| B22/B23 (8ª revisão) | **Assinatura ECDSA P-256 + SHA-256** sobre desafio com nonce de 256 bits | Atual |
+
+`AutorizacaoDeSegundaPessoa`
+(`Infrastructure/Security/AutorizacaoDeSegundaPessoa.cs`, compartilhado entre
 `FerramentaDeResetDeEmergencia` e `FerramentaDeReemissaoDeTicketDeEmergencia` —
-nunca uma cópia por ferramenta) substitui o PIN por um **segredo TOTP**
-(RFC 6238, o MESMO mecanismo já usado para o segundo fator de login):
+uma implementação criptográfica só, nunca uma cópia por ferramenta):
 
-- **Sem eco** — o código é lido tecla a tecla (`Console.ReadKey`, nunca
-  `Console.ReadLine`), nunca aparece no terminal.
-- **≥128 bits de entropia** — o segredo configurado em
-  `Emergencia:SegredoTotpDeDuasPessoas` precisa decodificar (Base32) para
-  pelo menos 16 bytes; `ValidadorDeTotp.GerarSegredoBase32()` já produz 20
-  bytes (160 bits) por padrão. Ausente, mal formado ou curto demais falha
-  **fechado**.
-- **Rotação por construção, não por reescrita de configuração** — o código
-  muda a cada 30s (janela de ±1 passo, 90s de tolerância). Um operador que
-  observou o código USADO numa emergência não consegue reproduzi-lo semanas
-  depois sem o segredo em si — substitui "rotacionar o segredo após cada
-  uso" por um mecanismo equivalente que já é código maduro do projeto.
-- **Identidade das duas pessoas, nunca o segredo** — a identidade do
-  segundo custodiante (texto livre) é combinada com a identidade de quem
-  tem acesso SSH em `EventosDeSeguranca.AtorExterno`
-  (`ControleDeDuasPessoas.FormatarAtorDeDuasPessoas`) — nenhum segredo entra
-  nesse campo, só identidade.
+- **O servidor só tem a chave pública.** `Emergencia:ChavePublicaDoSegundoCustodiante`
+  (PEM SPKI) verifica autorização; não cria autorização. A chave **privada**
+  fica com o custodiante, fora do servidor — é isso que fecha B23. O processo
+  do CRM nunca importa chave privada e nunca chama `SignData`.
+- **Nonce fresco de 256 bits por execução** (`RandomNumberGenerator`), coberto
+  pela assinatura — uma assinatura capturada de uma execução anterior não
+  verifica contra o desafio novo. É isso que fecha B22, sem persistir nada.
+- **O desafio amarra o contexto inteiro:** versão do protocolo, operação
+  (`RESET_DE_EMERGENCIA` / `REEMITIR_TICKET_DE_EMERGENCIA`), alvo, operador
+  SSH, identificador do custodiante, SHA-256 do motivo e nonce. Assinatura de
+  reset não vale para reemissão, de uma conta não vale para outra, e trocar
+  motivo ou operador depois de assinar invalida tudo.
+- **Motivo entra por hash, não em claro** — motivo é texto livre e pode ter
+  quebra de linha; em claro criaria ambiguidade estrutural no payload. O
+  motivo em claro é exibido ao lado do desafio, para o custodiante conferir.
+- **Falha fechada, sem fallback**: chave ausente, PEM malformado, curva que
+  não é P-256, algoritmo inesperado, Base64 inválido, DER inválido, assinatura
+  errada — tudo recusa, e não existe caminho alternativo por PIN/TOTP.
+- **Identidade das duas pessoas, nunca segredo nem assinatura** — operador SSH
+  mais o **identificador da chave** (`Emergencia:IdentificadorDoSegundoCustodiante`,
+  vindo da configuração amarrada à chave que de fato verificou, não de texto
+  livre digitado) em `EventosDeSeguranca.AtorExterno`.
 
-O segredo TOTP em si fica em configuração (mesmo nível de confiança que a
-chave AES do MFA e a chave do JWT — arquivo fora do controle de versão,
-custódia de servidor) — a garantia de B21 não é sobre onde o segredo mora,
-é sobre o código nunca ser reutilizável, nunca aparecer na tela, e nunca ser
-gerado/aceito com entropia insuficiente.
+A assinatura é lida com eco normal **de propósito**: ela não é segredo. Só
+vale para aquele desafio e pode ser pública depois de usada — a segurança vem
+de estar amarrada a um desafio irrepetível.
+
+Formato: ECDSA P-256, SHA-256, assinatura DER em Base64 — exatamente o que
+`openssl dgst -sha256 -sign` produz, para o custodiante usar ferramenta
+padrão. Só primitivas de `System.Security.Cryptography`; nenhuma biblioteca
+nova, nenhum esquema caseiro. Procedimento de geração, custódia, rotação,
+revogação e teste da chave: `docs/BACKUP.md`.
 
 **Rematrícula obrigatória, independente da política do tenant (bloqueador
 B19).** `Atendentes.RematriculaObrigatoriaAposEmergencia` (migration 036) é
@@ -382,12 +392,14 @@ E RematriculaObrigatoriaAposEmergencia = true
 E nenhum ator normal apto (mesmo critério do break-glass —
   FerramentaDeResetDeEmergencia.ExisteAtorAptoParaResetNormalAsync,
   extraído e compartilhado entre as duas ferramentas)
-E controle técnico de duas pessoas válido
+E autorização assinada da segunda pessoa (ECDSA P-256), válida
 => pode invalidar ticket/desafio de rematrícula anterior e emitir um novo
 ```
 
 Mesma disciplina das outras duas ferramentas: só CLI/manual (sem endpoint
-HTTP), só interativo, mesmo `ControleDeDuasPessoas`, motivo obrigatório,
+HTTP), só interativo, mesma `AutorizacaoDeSegundaPessoa` (só o tipo da
+operação muda, e é ele que impede uma assinatura de reset de autorizar uma
+reemissão), motivo obrigatório,
 atômica (`SERIALIZABLE`, reconfere elegibilidade no instante da gravação).
 Auditada com o **próprio** tipo de evento
 (`EventosDeSeguranca.TicketDeRematriculaReemitido` — migration `037`,

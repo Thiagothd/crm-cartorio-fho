@@ -72,9 +72,12 @@ public enum ElegibilidadeDeReemissaoDeTicket
 /// <item>SÓ CLI/manual, execução única, sem endpoint HTTP.</item>
 /// <item>SÓ interativo — recusa se entrada OU saída estiver redirecionada,
 /// ou em CI/GITHUB_ACTIONS.</item>
-/// <item>MESMO controle técnico de duas pessoas de
-/// <see cref="ControleDeDuasPessoas"/> — não um mecanismo mais fraco só
-/// porque "já é uma emergência aberta".</item>
+/// <item>MESMA autorização assimétrica da segunda pessoa
+/// (<see cref="AutorizacaoDeSegundaPessoa"/>, bloqueadores B22/B23) — não um
+/// mecanismo mais fraco só porque "já é uma emergência aberta", e nunca uma
+/// segunda implementação criptográfica: só o tipo da operação muda
+/// (<see cref="OperacaoDeEmergencia.ReemitirTicketDeEmergencia"/>), o que
+/// impede uma assinatura de reset de autorizar uma reemissão.</item>
 /// <item>Motivo obrigatório.</item>
 /// <item>Auditada com o PRÓPRIO tipo de evento
 /// (<see cref="TipoDeEventoDeSeguranca.TicketDeRematriculaReemitido"/>, não
@@ -242,8 +245,44 @@ public static class FerramentaDeReemissaoDeTicketDeEmergencia
             return 1;
         }
 
-        var (duasPessoasOk, identidadeDoCustodiante) = ControleDeDuasPessoas.ConferirInterativo(configuracao);
-        if (!duasPessoasOk)
+        // CORRECAO (bloqueadores B22/B23, oitava revisao independente) —
+        // alvo e motivo coletados ANTES da autorizacao: os dois entram no
+        // desafio assinado. Depois da assinatura nada disso e perguntado de
+        // novo — a autorizacao vale para ESTA operacao, ESTE alvo, ESTE
+        // motivo, e para mais nada.
+        Console.WriteLine();
+        Console.WriteLine("Use isto SOMENTE quando uma conta JA ESTA numa recuperacao de emergencia");
+        Console.WriteLine("aberta (passou pelo --reset-de-emergencia) e o ticket de rematricula foi");
+        Console.WriteLine("perdido, expirou, ou ficou inutilizavel antes da rematricula. Isto NAO");
+        Console.WriteLine("reativa o MFA nem libera login — so troca o ticket.");
+        Console.WriteLine();
+        Console.Write("E-mail do atendente (reemissao de ticket de emergencia): ");
+        var email = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            Console.WriteLine("RECUSADO: e-mail em branco.");
+            return 1;
+        }
+
+        Console.Write("Motivo da reemissao (obrigatorio, registrado em EventosDeSeguranca): ");
+        var motivo = (Console.ReadLine() ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(motivo))
+        {
+            Console.WriteLine("RECUSADO: motivo em branco.");
+            return 1;
+        }
+
+        var operadorSsh = $"{Environment.UserName}@{Environment.MachineName}";
+
+        // MESMO componente do break-glass — nunca uma segunda implementacao
+        // criptografica. So o tipo da operacao muda, e e ele que impede uma
+        // assinatura de RESET de autorizar uma REEMISSAO.
+        var (autorizado, atorExterno) = AutorizacaoDeSegundaPessoa.AutorizarInterativo(
+            configuracao, OperacaoDeEmergencia.ReemitirTicketDeEmergencia, email, operadorSsh, motivo);
+
+        if (!autorizado)
         {
             return 1;
         }
@@ -265,15 +304,9 @@ public static class FerramentaDeReemissaoDeTicketDeEmergencia
             return 1;
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Use isto SOMENTE quando uma conta JA ESTA numa recuperacao de emergencia");
-        Console.WriteLine("aberta (passou pelo --reset-de-emergencia) e o ticket de rematricula foi");
-        Console.WriteLine("perdido, expirou, ou ficou inutilizavel antes da rematricula. Isto NAO");
-        Console.WriteLine("reativa o MFA nem libera login — so troca o ticket.");
-        Console.WriteLine();
-        Console.Write("E-mail do atendente (reemissao de ticket de emergencia): ");
-        var email = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-
+        // Elegibilidade so agora — a autorizacao da segunda pessoa ja foi
+        // conferida, e o alvo/motivo daqui para frente sao EXATAMENTE os que
+        // ela assinou.
         var elegibilidade = await VerificarElegibilidadeAsync(db, email);
 
         switch (elegibilidade)
@@ -300,14 +333,6 @@ public static class FerramentaDeReemissaoDeTicketDeEmergencia
 
         var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email);
         Console.WriteLine($"Conta encontrada: {atendente.Nome} <{atendente.Email}> — em recuperacao de emergencia aberta.");
-        Console.Write("Motivo da reemissao (obrigatorio, registrado em EventosDeSeguranca): ");
-        var motivo = (Console.ReadLine() ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(motivo))
-        {
-            Console.WriteLine("RECUSADO: motivo em branco.");
-            return 1;
-        }
 
         Console.WriteLine();
         Console.WriteLine("ATENCAO: isto invalida o ticket de rematricula anterior (perdido, expirado");
@@ -321,13 +346,12 @@ public static class FerramentaDeReemissaoDeTicketDeEmergencia
             return 1;
         }
 
-        var atorExterno = ControleDeDuasPessoas.FormatarAtorDeDuasPessoas(
-            $"{Environment.UserName}@{Environment.MachineName}", identidadeDoCustodiante!);
-
+        // AtorExterno ja veio composto pela propria autorizacao (operador SSH
+        // + custodiante + fingerprint da chave que verificou).
         string tokenEmClaro;
         try
         {
-            tokenEmClaro = await ExecutarReemissaoAsync(db, email, motivo, atorExterno);
+            tokenEmClaro = await ExecutarReemissaoAsync(db, email, motivo, atorExterno!);
         }
         catch (ReemissaoNaoElegivelException ex)
         {

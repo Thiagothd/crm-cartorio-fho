@@ -100,14 +100,15 @@ public enum ElegibilidadeDeEmergencia
 /// bootstrap ou o ticket normal) e recusa se existir outro ator apto a
 /// executar <c>MfaService.ResetarAsync</c> normalmente (outro Administrador
 /// com MFA — Titular também, se o alvo for Titular).</item>
-/// <item><b>Controle de duas pessoas tecnicamente aplicado</b>, não só uma
-/// mensagem de console — exige o código TOTP (sem eco, ≥128 bits de
-/// entropia no segredo configurado) de um segundo custodiante, verificado
-/// por <see cref="ControleDeDuasPessoas"/> (bloqueador B21, sétima revisão
-/// independente — substituiu o PIN estático da revisão anterior, que
-/// aparecia ecoado no terminal e ficava reutilizável indefinidamente pelo
-/// próprio operador SSH). Sem essa configuração, o comando se recusa a
-/// rodar.</item>
+/// <item><b>Autorização assimétrica da segunda pessoa</b>, verificada por
+/// <see cref="AutorizacaoDeSegundaPessoa"/> (bloqueadores B22/B23, oitava
+/// revisão independente): o servidor guarda SÓ a chave pública, a chave
+/// privada do custodiante nunca entra aqui, e a assinatura cobre um desafio
+/// novo (nonce de 256 bits) amarrado a operação, alvo, operador e hash do
+/// motivo. Substituiu o TOTP compartilhado da revisão anterior, cujo segredo
+/// vivia no próprio servidor (quem tinha SSH gerava os códigos da "segunda
+/// pessoa") e cujo código valia mais de uma vez dentro da janela. Sem chave
+/// pública configurada, o comando se recusa a rodar — sem fallback.</item>
 /// </list>
 /// </remarks>
 public static class FerramentaDeResetDeEmergencia
@@ -307,14 +308,46 @@ public static class FerramentaDeResetDeEmergencia
             return 1;
         }
 
-        // CORRECAO (bloqueador B18, preservada; mecanismo trocado no
-        // bloqueador B21, setima revisao independente) — controle de DUAS
-        // PESSOAS tecnicamente aplicado, nao so uma mensagem no console.
-        // Checado ANTES de qualquer conexao a banco ou consulta de
-        // elegibilidade — sem as duas pessoas presentes, o procedimento nem
-        // comeca.
-        var (duasPessoasOk, identidadeDoCustodiante) = ControleDeDuasPessoas.ConferirInterativo(configuracao);
-        if (!duasPessoasOk)
+        // CORRECAO (bloqueadores B22/B23, oitava revisao independente) — o
+        // alvo e o motivo sao coletados ANTES da autorizacao porque os DOIS
+        // entram no desafio assinado: o que o custodiante autoriza e
+        // exatamente esta operacao, para este alvo, com este motivo. Depois
+        // da assinatura nada disso e perguntado de novo — trocar qualquer um
+        // deles exigiria uma assinatura nova.
+        Console.WriteLine();
+        Console.WriteLine("Use isto SOMENTE quando a conta perdeu autenticador E codigos de");
+        Console.WriteLine("recuperacao, e por isso nao consegue mais logar nem se auto-resetar.");
+        Console.WriteLine("Isto remove o MFA atual da conta e emite um ticket novo para rematricula.");
+        Console.WriteLine();
+        Console.Write("E-mail do atendente a resetar (break-glass): ");
+        var email = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            Console.WriteLine("RECUSADO: e-mail em branco.");
+            return 1;
+        }
+
+        Console.Write("Motivo da emergencia (obrigatorio, registrado em EventosDeSeguranca): ");
+        var motivo = (Console.ReadLine() ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(motivo))
+        {
+            Console.WriteLine("RECUSADO: motivo em branco.");
+            return 1;
+        }
+
+        var operadorSsh = $"{Environment.UserName}@{Environment.MachineName}";
+
+        // A autorizacao da SEGUNDA PESSOA acontece ANTES de qualquer conexao
+        // a banco — e assimetrica: o servidor so tem a chave publica, entao
+        // quem tem SSH nao consegue produzi-la sozinho (B23), e a assinatura
+        // cobre um nonce fresco de 256 bits, entao uma assinatura de execucao
+        // anterior nao vale aqui (B22).
+        var (autorizado, atorExterno) = AutorizacaoDeSegundaPessoa.AutorizarInterativo(
+            configuracao, OperacaoDeEmergencia.ResetDeEmergencia, email, operadorSsh, motivo);
+
+        if (!autorizado)
         {
             return 1;
         }
@@ -336,14 +369,9 @@ public static class FerramentaDeResetDeEmergencia
             return 1;
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Use isto SOMENTE quando a conta perdeu autenticador E codigos de");
-        Console.WriteLine("recuperacao, e por isso nao consegue mais logar nem se auto-resetar.");
-        Console.WriteLine("Isto remove o MFA atual da conta e emite um ticket novo para rematricula.");
-        Console.WriteLine();
-        Console.Write("E-mail do atendente a resetar (break-glass): ");
-        var email = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-
+        // Elegibilidade so agora — a autorizacao da segunda pessoa ja foi
+        // conferida, e o alvo/motivo usados daqui para frente sao EXATAMENTE
+        // os que ela assinou.
         var elegibilidade = await VerificarElegibilidadeAsync(db, email);
 
         switch (elegibilidade)
@@ -374,14 +402,6 @@ public static class FerramentaDeResetDeEmergencia
 
         var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email);
         Console.WriteLine($"Conta encontrada: {atendente.Nome} <{atendente.Email}>.");
-        Console.Write("Motivo da emergencia (obrigatorio, registrado em EventosDeSeguranca): ");
-        var motivo = (Console.ReadLine() ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(motivo))
-        {
-            Console.WriteLine("RECUSADO: motivo em branco.");
-            return 1;
-        }
 
         Console.WriteLine();
         Console.WriteLine("ATENCAO: isto REMOVE o MFA atual desta conta — autenticador, codigos de");
@@ -396,15 +416,13 @@ public static class FerramentaDeResetDeEmergencia
             return 1;
         }
 
-        // Identidade das DUAS pessoas em AtorExterno — nunca o segredo de
-        // nenhuma delas.
-        var atorExterno = ControleDeDuasPessoas.FormatarAtorDeDuasPessoas(
-            $"{Environment.UserName}@{Environment.MachineName}", identidadeDoCustodiante!);
-
+        // AtorExterno ja veio composto pela propria autorizacao (operador SSH
+        // + custodiante + fingerprint da chave que verificou) — nunca a
+        // assinatura, nunca chave privada, nunca segredo.
         string tokenEmClaro;
         try
         {
-            tokenEmClaro = await ExecutarResetDeEmergenciaAsync(db, email, motivo, atorExterno);
+            tokenEmClaro = await ExecutarResetDeEmergenciaAsync(db, email, motivo, atorExterno!);
         }
         catch (EmergenciaNaoElegivelException ex)
         {
