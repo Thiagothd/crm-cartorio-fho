@@ -146,7 +146,10 @@ dependência para ordenar os `INSERT` e não violar as FKs do schema; navegar de
 
 ## Verificadores
 
-Quatro scripts, todos rodando de `src/backend/`.
+Os scripts rodam de `src/backend/`. O catálogo completo, incluindo os
+verificadores de autenticação, concorrência da entrada/saída WhatsApp, resposta
+inteligente, dependências e classificação para CI, está em
+[`docs/QUALITY-GATE.md`](../../docs/QUALITY-GATE.md).
 
 ### `verificar-traducao.cs` — não precisa de banco
 

@@ -58,6 +58,15 @@ var opcoes = construtor.Options;
 
 await using (var checagem = new CrmDbContext(opcoes))
 {
+    if (!string.Equals(
+            checagem.Database.GetDbConnection().Database,
+            "CRM_Cartorio_Dev",
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "Recusado: o verificador so escreve em CRM_Cartorio_Dev.");
+    }
+
     if (!await checagem.Database.CanConnectAsync())
     {
         Console.WriteLine("Nao foi possivel conectar. Verifique a connection string.");
