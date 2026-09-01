@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtures/api-mock-seguro'
 
 const sessaoAdministrador = {
@@ -26,8 +26,8 @@ const sessaoAdministrador = {
   },
 }
 
-async function responderLoginSemMfa(page: Parameters<typeof test>[0] extends never ? never : any) {
-  await page.route('**/api/autenticacao/login', async (route: any) => {
+async function responderLoginSemMfa(page: Page) {
+  await page.route('**/api/autenticacao/login', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
