@@ -124,6 +124,10 @@ jobs:
 
       - name: Verifica autenticacao
         working-directory: src/backend
+        env:
+          # Somente para o processo publicado que o verificador sobe dentro do runner.
+          # Não é segredo de ambiente: a API é efêmera, local ao job e o valor morre com ele.
+          Jwt__Chave: "crm-cartorio-ci-jwt-descartavel-2026-nao-usar-fora-do-runner"
         run: dotnet run verificar-autenticacao.cs -- "$CI_SQL_CONNECTION_STRING"
 
       - name: Verifica concorrencia de conversas
