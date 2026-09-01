@@ -5,14 +5,15 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace CrmCartorio.Api.Infrastructure.Security;
 
 /// <summary>
-/// SEC-02: limite de tentativas de login por IP — o amortecedor raso da protecao
-/// contra forca bruta.
+/// SEC-02/SEC-03: limites de tentativas por IP nas rotas de autenticacao — o
+/// amortecedor raso da protecao contra forca bruta.
 /// </summary>
 /// <remarks>
-/// <b>Nao e a protecao que importa.</b> A que de fato para um ataque e o backoff
-/// por CONTA, persistido no banco (<c>AutenticacaoService.AutenticarAsync</c>).
-/// Este limite existe so para que um script obvio martelando o endpoint pare cedo,
-/// antes de gastar PBKDF2 e uma ida ao banco por tentativa.
+/// <b>Nao e a protecao que importa.</b> A que de fato para um ataque e o
+/// backoff por CONTA, persistido no banco (<c>AutenticacaoService</c> para
+/// senha e MFA; <c>MfaService</c> para step-up). Este limite existe so para que
+/// um script obvio martelando um endpoint pare cedo, antes de gastar PBKDF2,
+/// TOTP ou uma ida ao banco por tentativa.
 ///
 /// Vale por PROCESSO, nao pelo cluster. Hoje isso nao e uma lacuna real: os dois
 /// App Pools rodam com <c>Maximum Worker Processes = 1</c> (docs/INFRAESTRUTURA.md,
@@ -21,41 +22,29 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// e a exata, continua exata.
 ///
 /// A configuracao mora aqui, e nao solta no <c>Program.cs</c>, para que o
-/// verificador exercite a POLITICA REAL contra um servidor de verdade em vez de
-/// uma copia dela — copiar a configuracao testaria a copia.
+/// verificador exercite exatamente esta configuracao, e nao uma copia dela.
 /// </remarks>
 public static class PoliticaDeLimiteDeLogin
 {
-    /// <summary>
-    /// Nome da politica, compartilhado entre quem a registra e quem a aplica
-    /// (<c>AutenticacaoController.Login</c>).
-    /// </summary>
-    /// <remarks>
-    /// Uma constante, e nao a string repetida nos dois lugares, porque um erro de
-    /// digitacao em qualquer um dos lados nao daria erro de compilacao nem falha
-    /// visivel — a rota simplesmente ficaria SEM limite nenhum, em silencio.
-    /// </remarks>
+    /// <summary>Etapa 1 do login (senha).</summary>
     public const string Nome = "login";
 
+    /// <summary>Etapa 2 do login (codigo de segundo fator) — janela propria, mais generosa: quem chega aqui ja provou a senha.</summary>
+    public const string NomeMfa = "login-mfa";
+
+    /// <summary>Gestao de MFA (iniciar, confirmar, desativar, codigos, reset, ticket, politica) — todas exigem step-up, entao o limite aqui e so o mesmo amortecedor de sempre.</summary>
+    public const string NomeGestao = "mfa-gestao";
+
     public const int TentativasPorMinuto = 10;
+    public const int TentativasDeMfaPorMinuto = 20;
+    public const int TentativasDeGestaoPorMinuto = 10;
 
     public static IServiceCollection AdicionarLimiteDeLogin(this IServiceCollection servicos) =>
         servicos.AddRateLimiter(opcoes =>
         {
-            opcoes.AddPolicy(Nome, http => RateLimitPartition.GetFixedWindowLimiter(
-                // Nunca o texto cru de um cabecalho: ver ResolvedorDeIpDoCliente.
-                partitionKey: ResolvedorDeIpDoCliente.Resolver(http),
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = TentativasPorMinuto,
-                    Window = TimeSpan.FromMinutes(1),
-
-                    // Login nao entra em fila: quem passou do limite recebe 429 na
-                    // hora. Enfileirar deixaria a resposta lenta sem informar nada a
-                    // quem esperou, e ainda prenderia conexao do servidor durante um
-                    // ataque — exatamente o que um atacante quer.
-                    QueueLimit = 0
-                }));
+            AdicionarJanelaFixaPorIp(opcoes, Nome, TentativasPorMinuto);
+            AdicionarJanelaFixaPorIp(opcoes, NomeMfa, TentativasDeMfaPorMinuto);
+            AdicionarJanelaFixaPorIp(opcoes, NomeGestao, TentativasDeGestaoPorMinuto);
 
             opcoes.OnRejected = async (contexto, ct) =>
             {
@@ -72,7 +61,7 @@ public static class PoliticaDeLimiteDeLogin
                 var problema = new ProblemDetails
                 {
                     Status = StatusCodes.Status429TooManyRequests,
-                    Title = "Muitas tentativas de login. Aguarde um instante e tente de novo.",
+                    Title = "Muitas tentativas. Aguarde um instante e tente de novo.",
                     Type = "https://crm-cartorio/erros/muitas_tentativas",
                     Instance = contexto.HttpContext.Request.Path,
                     Extensions = { ["codigo"] = "muitas_tentativas" }
@@ -87,4 +76,23 @@ public static class PoliticaDeLimiteDeLogin
                     problema, options: null, contentType: "application/problem+json", ct);
             };
         });
+
+    private static void AdicionarJanelaFixaPorIp(RateLimiterOptions opcoes, string nome, int limite) =>
+        opcoes.AddPolicy(nome, http => RateLimitPartition.GetFixedWindowLimiter(
+            // Nunca o texto cru de um cabecalho: ver ResolvedorDeIpDoCliente.
+            // Cada politica nomeada ja tem seu proprio limiter interno no
+            // ASP.NET Core; o prefixo do nome aqui e so defensivo/de leitura —
+            // deixa a chave auto-explicativa em qualquer log ou metrica futura.
+            partitionKey: $"{nome}:{ResolvedorDeIpDoCliente.Resolver(http)}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = limite,
+                Window = TimeSpan.FromMinutes(1),
+
+                // Nenhuma destas rotas entra em fila: quem passou do limite
+                // recebe 429 na hora. Enfileirar deixaria a resposta lenta sem
+                // informar nada a quem esperou, e prenderia conexao do servidor
+                // durante um ataque.
+                QueueLimit = 0
+            }));
 }

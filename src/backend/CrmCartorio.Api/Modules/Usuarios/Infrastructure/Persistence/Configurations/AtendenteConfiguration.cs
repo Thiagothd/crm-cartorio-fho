@@ -28,6 +28,17 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.NivelDeBloqueio).HasDefaultValue((byte)0);
         builder.Property(a => a.BloqueadoAte).HasColumnType("datetime2(3)");
 
+        // SEC-03 — mesma disciplina de defaults no banco.
+        builder.Property(a => a.MfaAtivo).HasDefaultValue(false);
+        builder.Property(a => a.MfaSegredoCifrado).HasMaxLength(256);
+        builder.Property(a => a.MfaSegredoPendenteCifrado).HasMaxLength(256);
+        builder.Property(a => a.MfaPendenteExpiraEm).HasColumnType("datetime2(3)");
+        builder.Property(a => a.MfaConfirmadoEm).HasColumnType("datetime2(3)");
+        builder.Property(a => a.MfaFalhasConsecutivas).HasDefaultValue(0);
+        builder.Property(a => a.MfaNivelDeBloqueio).HasDefaultValue((byte)0);
+        builder.Property(a => a.MfaBloqueadoAte).HasColumnType("datetime2(3)");
+        builder.Property(a => a.RematriculaObrigatoriaAposEmergencia).HasDefaultValue(false);
+
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.AtualizadoEm).HasColumnType("datetime2(3)");

@@ -141,6 +141,287 @@ hash (o `UPDATE` de reset ou o de incremento), que não existe para um e-mail
 inexistente. É uma assimetria real, pequena, e **não** neutralizada aqui. Reduz o
 sinal de enumeração, não o elimina.
 
+## SEC-03 — MFA/TOTP para contas privilegiadas
+
+Login em duas etapas (RFC 6238) para `Administrador` e para quem tem
+`CargoNaServentia.Titular`. Login normal (etapa 1) continua idêntico para
+quem não tem MFA — a mudança é aditiva.
+
+**Divisão de responsabilidade:** `AutenticacaoService` é o LOGIN (etapas 1 e
+2, sempre lendo estado, nunca gerindo o segredo); `MfaService` é a GESTÃO da
+conta já autenticada (ativar, confirmar, desativar, regenerar códigos,
+matrícula por ticket, reset administrativo, política). Os dois compartilham
+`VerificadorDeFatorMfa` (interpreta um código sem nunca escrever no banco —
+cada porteiro único faz sua própria escrita atômica) e `BloqueioDeMfa`
+(contador de falhas por conta).
+
+### O porteiro único — por que tudo aqui é uma única instrução condicional
+
+A mesma disciplina de SEC-01/SEC-02: nenhuma decisão de segurança sai de um
+valor lido em memória. A conclusão da etapa 2
+(`AutenticacaoService.ConcluirLoginMfaAsync`) e a confirmação de ativação
+(`MfaService.ConfirmarNucleoAsync`) reconfirmam **no `WHERE` da própria
+escrita** — `Ativo`, `TenantId`, `TokenVersion`, `MfaAtivo`, ausência de
+bloqueio — e só emitem JWT se essa reconfirmação afetar exatamente 1 linha.
+
+- **Reserva antes de validar.** A etapa 2 incrementa
+  `DesafiosDeMfa.TentativasDeCodigo` ANTES de checar o código — o teto de 5
+  tentativas por desafio vale mesmo se a validação for interrompida no meio.
+  Não existe um passo separado de "inutilizar": ao chegar em 5, o próprio
+  `WHERE` (`TentativasDeCodigo < 5`) para de deixar reservar.
+- **Consumo só no sucesso.** `DesafiosDeMfa.ConsumidoEm` só é gravado depois
+  que TUDO o resto (estado da conta, e — no caminho de recuperação — o
+  consumo do código) já commitou na mesma transação.
+- **`TokenVersionNoDesafio`** é o snapshot que invalida um desafio pendente
+  quando algo relevante muda entre a etapa 1 e a etapa 2 — troca de senha,
+  desativação, mudança de `Perfil`, reset de MFA. Todos esses eventos já
+  sobem `TokenVersion` (SEC-01); o desafio só herda essa garantia.
+
+### Dois contadores de bloqueio, nunca um só
+
+`FalhasDeLoginConsecutivas` (SEC-02, senha) e `MfaFalhasConsecutivas`
+(SEC-03, segundo fator) são colunas e progressões **separadas** — mesma
+forma (5 falhas fecham um ciclo, bloqueio de 1/2/4/8/16/30 min, teto no 6º
+nível), zero acoplamento. O motivo: quem já tem a senha pode abrir quantos
+desafios de segundo fator quiser, então o teto de 5 tentativas *por desafio*
+não protege nada sozinho — é `MfaBloqueadoAte`, por CONTA, que impede força
+bruta persistente do TOTP. Tentativa durante bloqueio (de qualquer um dos
+dois) nunca conta e nunca estende o próprio bloqueio.
+
+### Segredo TOTP — nunca em texto claro
+
+AES-256-GCM (`Infrastructure/Security/CifraDeSegredoMfa.cs`), formato
+versionado (`[formatoVersao][tamanhoDaVersaoDaChave][versaoDaChave][nonce:12][tag:16][ciphertext]`).
+AAD = `TenantId ‖ AtendenteId` — mover o ciphertext de uma conta para outra,
+mesmo com a chave certa, falha ao decifrar. Chave em
+`appsettings.<Ambiente>.json` (`Mfa:Chaves:<versão>`), custódia e teste de
+restauração obrigatórios em `docs/BACKUP.md` antes de exigir MFA em produção.
+TOTP em si via `Otp.NET` — SHA1/6 dígitos/passo 30s, janela ±1 (90s de
+tolerância a deriva de relógio), nunca implementação própria da RFC.
+Anti-replay: `Atendentes.MfaUltimoPassoUsado`, compare-and-set (`WHERE
+MfaUltimoPassoUsado IS NULL OR MfaUltimoPassoUsado < @passo`) na MESMA
+transação do consumo do desafio.
+
+### Matrícula privilegiada — nunca só JWT + senha
+
+Para `Administrador`/`Titular`, a primeira matrícula (e só ela) exige também
+um **ticket fora de banda** — token aleatório, hash no banco, TTL 24h, uso
+único, emitido por quem já tem MFA (com step-up) ou pela ferramenta de
+bootstrap (`--emitir-ticket-de-bootstrap` no binário publicado). Contas não
+privilegiadas matriculam com `JWT + senha` normalmente, sem ticket.
+
+**Bootstrap fecha sozinho:** o comando se recusa a rodar se já existir
+qualquer conta privilegiada com `MfaAtivo = true` no tenant — depois do
+primeiro Titular/Administrador, todo ticket novo sai do fluxo normal, com
+step-up. Fecha a corrida "quem sabe a senha primeiro registra o MFA": um
+atacante remoto com a senha nunca tem acesso SSH ao servidor, então nunca
+alcança o bootstrap.
+
+### Step-up — JWT sozinho nunca mexe em MFA
+
+Iniciar (troca de autenticador com MFA já ativo), desativar e regenerar
+códigos exigem senha atual **+** código do fator vigente. Um JWT roubado não
+substitui segredo, não desativa MFA e não regenera códigos de recuperação.
+1ª ativação (MFA ainda não ativo) exige só a senha — não há fator anterior
+para provar.
+
+### Política obrigatória — o flip é transacional
+
+`Tenants.MfaObrigatorioParaAdministradores` só liga por
+`MfaService.AtivarObrigatoriedadeAsync`: transação `SERIALIZABLE` que (1)
+aborta se houver `Administrador`/`Titular` sem MFA (lista os pendentes), (2)
+liga a política, (3) sobe `TokenVersion` de TODOS os afetados — **incluindo
+o próprio ator**, que recebe sessão nova na resposta para não ser derrubado
+pela própria ação. Administrador criado ou promovido depois do flip nasce
+sem MFA e cai em `MfaObrigatorioNaoMatriculado` no próximo login — só entra
+pelo ticket.
+
+### Reset administrativo — Titular protegido
+
+Reset remove MFA do alvo, apaga códigos de recuperação, invalida desafios
+pendentes, sobe `TokenVersion` — a conta fica sem login até nova matrícula
+(se a política exigir MFA para ela). Exige step-up do próprio ator
+(`Administrador`). **Alvo com `Cargo.Titular` só pode ser resetado por ator
+que também seja Titular** — nunca por Administrador comum. Todo reset e todo
+flip de política grava `EventosDeSeguranca` (ator, alvo, IP, motivo) — nunca
+o segredo, código, ticket ou desafio em si.
+
+### Break-glass — reset de emergência
+
+**Implementado** (revisão independente do PR #46, gap 17; restrito à sexta
+revisão, bloqueadores B18/B19) — `FerramentaDeResetDeEmergencia`
+(`Infrastructure/Security/FerramentaDeResetDeEmergencia.cs`), comando de
+execução única:
+
+```bash
+dotnet CrmCartorio.Api.dll --reset-de-emergencia
+```
+
+Existe porque `MfaService.ResetarAsync` e `FerramentaDeBootstrapMfa` sozinhos
+criam um **deadlock operacional real**: `ResetarAsync` exige step-up do
+próprio ator (inútil quando é exatamente o fator que se perdeu) e, para alvo
+`Cargo.Titular`, só um ator que também seja Titular pode resetá-lo — um
+Administrador comum não pode, mesmo com MFA ativo. O bootstrap, por sua vez,
+só serve para o *primeiro* privilegiado do tenant: se já existe qualquer
+Administrador/Titular matriculado (o caso comum — existe um Administrador
+não-Titular, só o Titular específico perdeu os fatores), ele se recusa a
+rodar. O break-glass é o único caminho de dentro do processo que resolve
+esse deadlock, com a MESMA disciplina do bootstrap:
+
+- Só interativo — recusa se stdin OU stdout estiver redirecionado, ou em
+  CI/GITHUB_ACTIONS.
+- Texto do ticket novo só em `Console.WriteLine`, nunca `ILogger`/disco/banco
+  em claro.
+- Motivo obrigatório; identidade do operador em `EventosDeSeguranca.AtorExterno`
+  (nunca em `Motivo`).
+- **Não** toca `Tenants.MfaObrigatorioParaAdministradores` — a política do
+  tenant nunca é desligada por isto.
+- Remove MFA do alvo (fatores, recovery codes, desafios/tickets pendentes),
+  sobe `TokenVersion`, e emite um **ticket novo** de rematrícula já vinculado
+  à versão pós-reset — sem isto o alvo ficaria resetado sem nenhum caminho de
+  volta. Mutação + ticket + `EventoDeSeguranca(ResetDeEmergencia)` na MESMA
+  transação `SERIALIZABLE`.
+- Superfície pública da classe: exatamente `{ExecutarAsync, VerificarElegibilidadeAsync}`
+  — o núcleo que gera/persiste o ticket é `private`, testado por reflexão.
+
+**Elegibilidade exclusivamente como saída de deadlock (bloqueador B18, sexta
+revisão independente).** A versão anterior aceitava qualquer conta ativa e
+privilegiada, mesmo sem MFA ativo e mesmo quando já existia um caminho
+normal disponível — o break-glass virava, na prática, um segundo emissor de
+ticket que contornava step-up/Titular/bootstrap. `VerificarElegibilidadeAsync`
+agora exige, além de conta ativa e privilegiada:
+
+- **`MfaAtivo = true` no alvo** — quem ainda não se matriculou tem o
+  bootstrap (se for o primeiro do tenant) ou o ticket normal (step-up de
+  outro privilegiado). Sem isto: `ContaSemMfaAtivo`.
+- **Nenhum outro ator apto a executar o reset NORMAL** — mesmo critério que
+  `MfaService.ResetarAsync` realmente exige: outro Administrador ativo com
+  MFA ativo no tenant e, se o alvo for `Cargo.Titular`, também `Cargo.Titular`.
+  Se existir, o caminho normal resolve sozinho. Sem isto: `ExisteAtorAptoParaResetNormal`.
+
+**Autorização assimétrica da segunda pessoa (bloqueadores B18 → B21 → B22/B23).**
+A exigência de duas pessoas passou por três versões, e vale registrar por que
+as duas primeiras não bastavam:
+
+| Versão | O que era | Por que caiu |
+| --- | --- | --- |
+| B18 (6ª revisão) | PIN com hash SHA-256 em configuração | Digitado com `Console.ReadLine()` (ecoado na tela) e estático: depois de uma emergência o operador conhecia o PIN e repetia sozinho. Hash de PIN humano é força-bruta offline |
+| B21 (7ª revisão) | Segredo TOTP compartilhado, sem eco | **B22:** a verificação descartava o passo TOTP, então o mesmo código de 6 dígitos autorizava mais de uma operação dentro da janela de ±1 passo. **B23:** o seed vivia no `appsettings` do próprio servidor — quem tinha SSH gerava os códigos da "segunda pessoa". Nunca houve separação real |
+| B22/B23 (8ª revisão) | **Assinatura ECDSA P-256 + SHA-256** sobre desafio com nonce de 256 bits | Atual |
+
+`AutorizacaoDeSegundaPessoa`
+(`Infrastructure/Security/AutorizacaoDeSegundaPessoa.cs`, compartilhado entre
+`FerramentaDeResetDeEmergencia` e `FerramentaDeReemissaoDeTicketDeEmergencia` —
+uma implementação criptográfica só, nunca uma cópia por ferramenta):
+
+- **O servidor só tem a chave pública.** `Emergencia:ChavePublicaDoSegundoCustodiante`
+  (PEM SPKI) verifica autorização; não cria autorização. A chave **privada**
+  fica com o custodiante, fora do servidor — é isso que fecha B23. O processo
+  do CRM nunca importa chave privada e nunca chama `SignData`.
+- **Nonce fresco de 256 bits por execução** (`RandomNumberGenerator`), coberto
+  pela assinatura — uma assinatura capturada de uma execução anterior não
+  verifica contra o desafio novo. É isso que fecha B22, sem persistir nada.
+- **O desafio amarra o contexto inteiro:** versão do protocolo, operação
+  (`RESET_DE_EMERGENCIA` / `REEMITIR_TICKET_DE_EMERGENCIA`), alvo, operador
+  SSH, identificador do custodiante, SHA-256 do motivo e nonce. Assinatura de
+  reset não vale para reemissão, de uma conta não vale para outra, e trocar
+  motivo ou operador depois de assinar invalida tudo.
+- **Motivo entra por hash, não em claro** — motivo é texto livre e pode ter
+  quebra de linha; em claro criaria ambiguidade estrutural no payload. O
+  motivo em claro é exibido ao lado do desafio, para o custodiante conferir.
+- **Falha fechada, sem fallback**: chave ausente, PEM malformado, curva que
+  não é P-256, algoritmo inesperado, Base64 inválido, DER inválido, assinatura
+  errada — tudo recusa, e não existe caminho alternativo por PIN/TOTP.
+- **Identidade das duas pessoas, nunca segredo nem assinatura** — operador SSH
+  mais o **identificador da chave** (`Emergencia:IdentificadorDoSegundoCustodiante`,
+  vindo da configuração amarrada à chave que de fato verificou, não de texto
+  livre digitado) em `EventosDeSeguranca.AtorExterno`.
+
+A assinatura é lida com eco normal **de propósito**: ela não é segredo. Só
+vale para aquele desafio e pode ser pública depois de usada — a segurança vem
+de estar amarrada a um desafio irrepetível.
+
+Formato: ECDSA P-256, SHA-256, assinatura DER em Base64 — exatamente o que
+`openssl dgst -sha256 -sign` produz, para o custodiante usar ferramenta
+padrão. Só primitivas de `System.Security.Cryptography`; nenhuma biblioteca
+nova, nenhum esquema caseiro. Procedimento de geração, custódia, rotação,
+revogação e teste da chave: `docs/BACKUP.md`.
+
+**Rematrícula obrigatória, independente da política do tenant (bloqueador
+B19).** `Atendentes.RematriculaObrigatoriaAposEmergencia` (migration 036) é
+gravado `true` na MESMA instrução atômica que zera `MfaAtivo`. Antes disto,
+num tenant com `MfaObrigatorioParaAdministradores` desligado, a conta
+resetada voltava a logar só com senha, nunca passando pelo ticket de
+rematrícula que o próprio break-glass emitiu — o reset de emergência virava
+"tirar o MFA de alguém", não "forçar rematrícula segura". Agora
+`AutenticacaoService.AutenticarAsync` recusa login só-senha enquanto esse
+campo for `true`, **em paralelo** à checagem de política do tenant (as duas
+condições, tanto na pré-checagem quanto no `WHERE` atômico final — nunca só
+uma). Só volta a `false` na confirmação bem-sucedida de uma matrícula nova
+(`MfaService.ConfirmarNucleoAsync`, mesmo `UPDATE` que reativa o MFA).
+
+Certificado em `CRM_Cartorio_Dev`, incluindo: o cenário de deadlock (outro
+Administrador com MFA ativo, mas não-Titular, já existente no tenant); a
+elegibilidade recusando conta sem MFA ativo e conta com ator apto disponível
+(alvo Titular e alvo não-Titular); e o fluxo completo com a política do
+tenant DESLIGADA, provando que a rematrícula continua obrigatória mesmo
+assim.
+
+**Reemissão de ticket durante uma emergência já aberta (bloqueador B20,
+sétima revisão independente).** O ticket que o break-glass emite tem TTL de
+24h. Se for perdido, expirar, ou ficar inutilizável antes da rematrícula, o
+alvo fica preso de NOVO — o break-glass original agora recusa por
+`ContaSemMfaAtivo` (já é `false`), o bootstrap continua fechado, o
+Administrador não-Titular continua proibido de resetar/emitir para o
+Titular, e o login continua bloqueado por
+`RematriculaObrigatoriaAposEmergencia`. Mesmo deadlock de novo.
+`FerramentaDeReemissaoDeTicketDeEmergencia`
+(`Infrastructure/Security/FerramentaDeReemissaoDeTicketDeEmergencia.cs`):
+
+```bash
+dotnet CrmCartorio.Api.dll --reemitir-ticket-de-emergencia
+```
+
+Invariante que autoriza a reemissão — nunca reativa MFA, nunca desliga
+`RematriculaObrigatoriaAposEmergencia`, nunca libera login, só troca o
+ticket:
+
+```text
+MfaAtivo = false
+E RematriculaObrigatoriaAposEmergencia = true
+E nenhum ator normal apto (mesmo critério do break-glass —
+  FerramentaDeResetDeEmergencia.ExisteAtorAptoParaResetNormalAsync,
+  extraído e compartilhado entre as duas ferramentas)
+E autorização assinada da segunda pessoa (ECDSA P-256), válida
+=> pode invalidar ticket/desafio de rematrícula anterior e emitir um novo
+```
+
+Mesma disciplina das outras duas ferramentas: só CLI/manual (sem endpoint
+HTTP), só interativo, mesma `AutorizacaoDeSegundaPessoa` (só o tipo da
+operação muda, e é ele que impede uma assinatura de reset de autorizar uma
+reemissão), motivo obrigatório,
+atômica (`SERIALIZABLE`, reconfere elegibilidade no instante da gravação).
+Auditada com o **próprio** tipo de evento
+(`EventosDeSeguranca.TicketDeRematriculaReemitido` — migration `037`,
+alarga `CK_EventosDeSeguranca_Tipo` para `1..11`; **não** reusa
+`ResetDeEmergencia`, para um auditor conseguir distinguir "uma emergência
+foi aberta" de "um ticket foi reemitido dentro de uma emergência já
+aberta"). Recusa (`NaoEstaEmRecuperacaoDeEmergencia`) para qualquer conta
+que não esteja numa recuperação de emergência aberta — nunca um segundo
+caminho de matrícula para quem nunca passou por break-glass.
+
+Certificado em `CRM_Cartorio_Dev`: break-glass → ticket antigo perdido/
+expirado → login continua bloqueado → reemissão → ticket antigo inválido →
+novo ticket matricula → sinalizador limpa → login volta.
+
+### O que ainda não existe
+
+- **Roubo de JWT continua fora do alcance do MFA.** Token em `localStorage`,
+  8h de validade — MFA protege o *login*, não a sessão já emitida.
+- **Redefinir senha de terceiro (SEC-02) continua sem step-up.** Um JWT de
+  Administrador roubado ainda troca a senha de um atendente não privilegiado
+  e age como ele — MFA não fecha isso; fechar exigiria step-up também ali.
+
 ## Pendência da Fase 3
 
 `AutenticacaoService.AutenticarAsync` busca o atendente só pelo e-mail, porque no

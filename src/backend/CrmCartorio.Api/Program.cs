@@ -27,6 +27,55 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
+// SEC-03 — bootstrap do MFA do primeiro privilegiado. Comando de execucao
+// unica, NAO um modo do servidor: sai antes de montar qualquer servico web,
+// hospedagem ou pipeline HTTP. Ver FerramentaDeBootstrapMfa para as regras
+// (so interativo, nunca ILogger, fecha sozinho apos o primeiro uso).
+if (args.Contains("--emitir-ticket-de-bootstrap"))
+{
+    var configuracaoDoBootstrap = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeBootstrapMfa.ExecutarAsync(configuracaoDoBootstrap);
+}
+
+// SEC-03 — break-glass: reset de emergencia para privilegiado que perdeu
+// autenticador E codigos de recuperacao. Mesma disciplina do bootstrap
+// acima (comando de execucao unica, so interativo, nunca ILogger) — ver
+// FerramentaDeResetDeEmergencia para o porque de existir separado do reset
+// administrativo normal e do bootstrap (os dois ficam bloqueados justamente
+// no cenario que o break-glass existe para resolver).
+if (args.Contains("--reset-de-emergencia"))
+{
+    var configuracaoDeEmergencia = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeResetDeEmergencia.ExecutarAsync(configuracaoDeEmergencia);
+}
+
+// SEC-03 — reemissao de ticket DURANTE uma recuperacao de emergencia ja
+// aberta (bloqueador B20, setima revisao independente): o ticket que o
+// break-glass emitiu foi perdido, expirou, ou ficou inutilizavel antes da
+// rematricula. Mesma disciplina dos dois comandos acima; ver
+// FerramentaDeReemissaoDeTicketDeEmergencia — nunca reativa o MFA, nunca
+// libera login, so troca o ticket.
+if (args.Contains("--reemitir-ticket-de-emergencia"))
+{
+    var configuracaoDeReemissao = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeReemissaoDeTicketDeEmergencia.ExecutarAsync(configuracaoDeReemissao);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- configuracao
@@ -39,6 +88,7 @@ builder.Services.Configure<OpcoesDoCanalWhatsApp>(
     builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
 builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
+builder.Services.Configure<OpcoesDeMfa>(builder.Configuration.GetSection(OpcoesDeMfa.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 var opcoesCanalWhatsApp = builder.Configuration
@@ -90,6 +140,8 @@ builder.Services.AddScoped<IAuthorizationHandler, SessaoAtivaHandler>();
 
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();
 builder.Services.AddScoped<IAtendenteService, AtendenteService>();
+builder.Services.AddSingleton<ICifraDeSegredoMfa, CifraDeSegredoMfa>();
+builder.Services.AddScoped<IMfaService, MfaService>();
 builder.Services.AddScoped<IClienteService, ClienteService>();
 builder.Services.AddScoped<IImportacaoDeContatosService, ImportacaoDeContatosService>();
 builder.Services.AddScoped<ISetorService, SetorService>();
@@ -411,3 +463,5 @@ if (app.Configuration.GetValue<bool>("Seed:Habilitado"))
 }
 
 app.Run();
+
+return 0;

@@ -1,8 +1,18 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { AtSign, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
+import {
+  ArrowLeft,
+  AtSign,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import type { DesafioMfa } from '@/lib/api/tipos'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,7 +33,7 @@ import { Label } from '@/components/ui/label'
  * cheio.
  */
 export function PaginaLogin() {
-  const { atendente, carregando, entrar } = usarAutenticacao()
+  const { atendente, carregando, entrar, concluirLoginComMfa } = usarAutenticacao()
   const navegar = useNavigate()
 
   const [email, setEmail] = useState('')
@@ -33,17 +43,29 @@ export function PaginaLogin() {
   const [senhaVisivel, setSenhaVisivel] = useState(false)
   const [capsLockAtivo, setCapsLockAtivo] = useState(false)
 
+  // SEC-03 — etapa 2. `desafio` preenchido é o único sinal de que a conta
+  // exige segundo fator; nenhuma sessão existe enquanto ele não for resolvido.
+  const [desafio, setDesafio] = useState<DesafioMfa | null>(null)
+  const [codigoMfa, setCodigoMfa] = useState('')
+
   if (!carregando && atendente) {
     return <Navigate to="/" replace />
   }
 
-  async function aoEnviar(evento: FormEvent) {
+  async function aoEnviarSenha(evento: FormEvent) {
     evento.preventDefault()
     setErro(null)
     setEnviando(true)
 
     try {
-      await entrar(email, senha)
+      const resultado = await entrar(email, senha)
+
+      if (resultado.tipo === 'mfa') {
+        setDesafio(resultado.desafio)
+        setSenha('')
+        return
+      }
+
       navegar('/', { replace: true })
     } catch (falha) {
       setErro(
@@ -54,6 +76,34 @@ export function PaginaLogin() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  async function aoEnviarCodigo(evento: FormEvent) {
+    evento.preventDefault()
+    if (!desafio) return
+
+    setErro(null)
+    setEnviando(true)
+
+    try {
+      await concluirLoginComMfa(desafio.desafio, codigoMfa)
+      navegar('/', { replace: true })
+    } catch (falha) {
+      setErro(
+        falha instanceof ErroDaApi
+          ? falha.message
+          : 'Não foi possível conectar ao servidor. Verifique se a API está no ar.',
+      )
+      setCodigoMfa('')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  function voltarParaSenha() {
+    setDesafio(null)
+    setCodigoMfa('')
+    setErro(null)
   }
 
   const descricaoDoEmail = erro ? 'erro-login' : undefined
@@ -106,13 +156,73 @@ export function PaginaLogin() {
               e um `aria-label` diferente do texto na tela criaria duas verdades
               para a mesma coisa. */}
           <h1 id="titulo-login" className="mt-7 text-2xl font-bold tracking-[-0.02em] text-tinta 2xl:mt-8 2xl:text-[28px]">
-            Entrar no CRM
+            {desafio ? 'Verificação em duas etapas' : 'Entrar no CRM'}
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-tinta-media 2xl:text-[15px]">
-            Use seu e-mail e senha para continuar os atendimentos da serventia.
+            {desafio
+              ? 'Digite o código do seu aplicativo autenticador, ou um código de recuperação.'
+              : 'Use seu e-mail e senha para continuar os atendimentos da serventia.'}
           </p>
 
-          <form onSubmit={aoEnviar} className="mt-7 flex flex-col gap-4">
+          {desafio ? (
+            <form onSubmit={aoEnviarCodigo} className="mt-7 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="codigo-mfa" className="text-[13px] font-semibold text-tinta">
+                  Código
+                </Label>
+                <CampoComIcone icone={ShieldCheck}>
+                  <Input
+                    id="codigo-mfa"
+                    type="text"
+                    inputMode="text"
+                    autoComplete="one-time-code"
+                    autoCapitalize="none"
+                    autoFocus
+                    spellCheck={false}
+                    required
+                    aria-invalid={erro ? true : undefined}
+                    aria-describedby={erro ? 'erro-login' : undefined}
+                    value={codigoMfa}
+                    onChange={(evento) => {
+                      setCodigoMfa(evento.target.value)
+                      setErro(null)
+                    }}
+                    placeholder="000000 ou XXXX-XXXX-XXXX-XXXX"
+                    className="h-12 rounded-lg border-linha bg-superficie pl-11 text-center tracking-[0.15em] md:h-12 md:text-sm"
+                  />
+                </CampoComIcone>
+              </div>
+
+              {erro ? (
+                <div className="flex items-start gap-2.5 rounded-lg border border-selo/30 bg-selo/[0.07] px-3 py-2.5">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-selo" aria-hidden />
+                  <p id="erro-login" role="alert" className="text-[13px] leading-relaxed text-selo">
+                    {erro}
+                  </p>
+                </div>
+              ) : null}
+
+              <Button
+                type="submit"
+                disabled={enviando}
+                className="mt-2 h-12 w-full rounded-lg bg-gradient-to-b from-selo to-selo/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
+              >
+                {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+                {enviando ? 'Verificando…' : 'Confirmar'}
+              </Button>
+
+              <button
+                type="button"
+                onClick={voltarParaSenha}
+                disabled={enviando}
+                className="inline-flex items-center justify-center gap-1.5 self-center text-[13px] font-medium text-tinta-media transition-colors hover:text-tinta disabled:opacity-50"
+              >
+                <ArrowLeft className="size-3.5" aria-hidden />
+                Voltar
+              </button>
+            </form>
+          ) : (
+          <form onSubmit={aoEnviarSenha} className="mt-7 flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="email" className="text-[13px] font-semibold text-tinta">
                 E-mail
@@ -208,6 +318,7 @@ export function PaginaLogin() {
               {enviando ? 'Entrando…' : 'Entrar'}
             </Button>
           </form>
+          )}
         </div>
 
         {/* Rodapé em faixa própria, encostado na borda do cartão: separa o aviso

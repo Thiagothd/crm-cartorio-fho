@@ -10,6 +10,10 @@ const PaginaLogin = lazy(() =>
   import('@/pages/pagina-login').then((modulo) => ({ default: modulo.PaginaLogin })),
 )
 
+const PaginaMatriculaMfa = lazy(() =>
+  import('@/pages/pagina-matricula-mfa').then((modulo) => ({ default: modulo.PaginaMatriculaMfa })),
+)
+
 /**
  * Um `lazy()` por rota, derivado da MESMA lista que o rail, o cabeçalho e a
  * navegação do celular usam (`app/navegacao.ts`) — nenhuma rota existe em dois
@@ -134,6 +138,17 @@ export function Rotas() {
           element={
             <PaginaSobDemanda>
               <PaginaLogin />
+            </PaginaSobDemanda>
+          }
+        />
+
+        {/* SEC-03 — pública de propósito: a conta ainda não tem sessão. E-mail
+            + senha + ticket fora de banda substituem o JWT. */}
+        <Route
+          path="/mfa/matricular"
+          element={
+            <PaginaSobDemanda>
+              <PaginaMatriculaMfa />
             </PaginaSobDemanda>
           }
         />

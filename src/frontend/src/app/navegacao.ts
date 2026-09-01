@@ -11,6 +11,7 @@ import {
   Palette,
   Plug,
   Scale,
+  ShieldCheck,
   TimerOff,
   UserRound,
   Users,
@@ -238,6 +239,20 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
             carregar: pagina(() => import('@/pages/pagina-whatsapp'), 'PaginaWhatsApp'),
           }),
         ],
+      }),
+    ],
+  },
+  {
+    titulo: 'Conta',
+    entradas: [
+      item({
+        rotulo: 'Segurança',
+        rota: '/seguranca',
+        icone: ShieldCheck,
+        // Qualquer autenticado gerencia o PRÓPRIO MFA — não é ação de gestão.
+        permissao: 'autenticado',
+        descricao: 'Verificação em duas etapas da sua conta',
+        carregar: pagina(() => import('@/pages/pagina-seguranca'), 'PaginaSeguranca'),
       }),
     ],
   },

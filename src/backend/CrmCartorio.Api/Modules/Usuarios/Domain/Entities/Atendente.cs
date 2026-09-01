@@ -25,8 +25,12 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
 
     /// <summary>
     /// Funcao na serventia. O que a pessoa E no cartorio — informacao funcional, que
-    /// existe fora do software e nao concede permissao nenhuma. Ver
-    /// <see cref="CargoNaServentia"/> para o porque de ser separado do perfil.
+    /// existe fora do software e nao concede permissao de tela nenhuma. Excecao: o
+    /// valor <see cref="CargoNaServentia.Titular"/> especificamente TEM efeito de
+    /// seguranca proprio no SEC-03 (fronteira de TokenVersion, protecao contra
+    /// reset/ticket por Administrador nao-Titular) — ver <see cref="CargoNaServentia"/>
+    /// para o porque de ser separado do perfil, e a secao "Excecao deliberada" ali
+    /// para o detalhe do Titular.
     /// </summary>
     public CargoNaServentia Cargo { get; set; } = CargoNaServentia.NaoInformado;
 
@@ -70,6 +74,75 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     public DateTime? BloqueadoAte { get; set; }
 
     public DateTime? UltimoAcessoEm { get; set; }
+
+    // ---------------------------------------------------------- SEC-03 (MFA)
+
+    /// <summary>
+    /// So vira true na CONFIRMACAO do primeiro codigo TOTP — nunca no envio do
+    /// segredo pendente. Ver <c>MfaService.ConfirmarAsync</c>.
+    /// </summary>
+    public bool MfaAtivo { get; set; }
+
+    /// <summary>
+    /// Segredo TOTP cifrado (AES-256-GCM, formato versionado — ver
+    /// <see cref="Infrastructure.Security.ICifraDeSegredoMfa"/>). Nulo enquanto
+    /// MFA nunca foi ativado.
+    /// </summary>
+    public byte[]? MfaSegredoCifrado { get; set; }
+
+    /// <summary>Segredo aguardando confirmacao do primeiro codigo. Nunca autentica sozinho.</summary>
+    public byte[]? MfaSegredoPendenteCifrado { get; set; }
+
+    /// <summary>TTL do segredo pendente (10 min). Expirado, precisa gerar outro.</summary>
+    public DateTime? MfaPendenteExpiraEm { get; set; }
+
+    /// <summary>
+    /// SEC-03 (bloqueador 8) — TokenVersion no INSTANTE em que o segredo
+    /// pendente foi gravado, gravada na MESMA instrucao atomica. A confirmacao
+    /// so pode concluir se a TokenVersion ATUAL ainda bater com esta — qualquer
+    /// evento que suba a TokenVersion entre iniciar e confirmar (troca de
+    /// senha, mudanca de Perfil/Cargo, reset, politica obrigatoria) invalida a
+    /// cerimonia pendente, mesmo com codigo TOTP correto. Complementa (nao
+    /// substitui) o `TokenVersionNoDesafio` do fluxo de ticket.
+    /// </summary>
+    public int? MfaPendenteTokenVersion { get; set; }
+
+    public DateTime? MfaConfirmadoEm { get; set; }
+
+    /// <summary>
+    /// Anti-replay: o passo TOTP (janela de 30s) mais recente ja aceito. Um
+    /// codigo do mesmo passo, ou de um passo anterior, nunca e aceito de novo —
+    /// comparacao e escrita atomicas (compare-and-set) na mesma transacao do
+    /// consumo do desafio.
+    /// </summary>
+    public long? MfaUltimoPassoUsado { get; set; }
+
+    /// <summary>
+    /// Falhas de SEGUNDO FATOR desde o ultimo sucesso — contador separado de
+    /// <see cref="FalhasDeLoginConsecutivas"/> (que e da SENHA). Existe porque
+    /// quem ja tem a senha pode criar quantos desafios quiser; sem isto, o teto
+    /// de 5 tentativas por desafio nao protege nada.
+    /// </summary>
+    public int MfaFalhasConsecutivas { get; set; }
+
+    /// <summary>Mesma progressao de <see cref="NivelDeBloqueio"/> (1, 2, 4, 8, 16, 30 min), contador proprio.</summary>
+    public byte MfaNivelDeBloqueio { get; set; }
+
+    /// <summary>Enquanto no futuro, nenhum JWT sai da etapa de MFA — nem com codigo correto.</summary>
+    public DateTime? MfaBloqueadoAte { get; set; }
+
+    /// <summary>
+    /// SEC-03 (bloqueador B19, sexta revisao independente) — true quando o
+    /// reset de emergencia (break-glass) removeu o MFA desta conta. Enquanto
+    /// true, <c>AutenticacaoService.AutenticarAsync</c> recusa login so-senha
+    /// INDEPENDENTE de <c>Tenant.MfaObrigatorioParaAdministradores</c> — sem
+    /// isto, uma conta resetada por break-glass num tenant com a politica
+    /// desligada voltaria a logar so com a senha, nunca passando pelo ticket
+    /// de rematricula que o proprio break-glass emitiu. So a confirmacao
+    /// bem-sucedida de uma matricula nova (<c>MfaService.ConfirmarNucleoAsync</c>)
+    /// volta a false, na MESMA instrucao atomica que reativa o MFA.
+    /// </summary>
+    public bool RematriculaObrigatoriaAposEmergencia { get; set; }
 
     public bool PodeGerirCadastros =>
         Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;

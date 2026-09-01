@@ -2,13 +2,23 @@ import { createContext, useCallback, useEffect, useMemo, useState, type ReactNod
 import { autenticacaoApi } from '@/lib/api/endpoints'
 import { gravarToken, lerToken, limparToken } from '@/lib/api/cliente-http'
 import { limparCacheDeAnexos } from '@/features/atendimento/cache-de-anexos'
-import type { Atendente, Tenant } from '@/lib/api/tipos'
+import type { Atendente, DesafioMfa, Sessao, Tenant } from '@/lib/api/tipos'
+
+/**
+ * SEC-03 — a etapa 1 pode terminar de dois jeitos: sessão completa (conta sem
+ * MFA), ou um desafio que a tela de login precisa resolver antes de existir
+ * sessão. `entrar` nunca lança para o caso de MFA — é um resultado esperado,
+ * não um erro.
+ */
+export type ResultadoDoLogin = { tipo: 'sucesso' } | { tipo: 'mfa'; desafio: DesafioMfa }
 
 export interface EstadoDeAutenticacao {
   carregando: boolean
   atendente: Atendente | null
   tenant: Tenant | null
-  entrar: (email: string, senha: string) => Promise<void>
+  entrar: (email: string, senha: string) => Promise<ResultadoDoLogin>
+  /** Etapa 2 — conclui um login que abriu desafio de segundo fator. */
+  concluirLoginComMfa: (desafio: string, codigo: string) => Promise<void>
   sair: () => void
   podeGerirCadastros: boolean
   podeGerirAtendentes: boolean
@@ -51,12 +61,34 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const entrar = useCallback(async (email: string, senha: string) => {
-    const sessao = await autenticacaoApi.login(email, senha)
+  const aplicarSessao = useCallback((sessao: Sessao) => {
     gravarToken(sessao.token)
     setAtendente(sessao.atendente)
     setTenant(sessao.tenant)
   }, [])
+
+  const entrar = useCallback(
+    async (email: string, senha: string): Promise<ResultadoDoLogin> => {
+      const resposta = await autenticacaoApi.login(email, senha)
+
+      if (resposta.requerMfa) {
+        // desafio, nao sessao — a etapa 2 (concluirLoginComMfa) e que decide.
+        return { tipo: 'mfa', desafio: resposta.desafio! }
+      }
+
+      aplicarSessao(resposta.sessao!)
+      return { tipo: 'sucesso' }
+    },
+    [aplicarSessao],
+  )
+
+  const concluirLoginComMfa = useCallback(
+    async (desafio: string, codigo: string) => {
+      const sessao = await autenticacaoApi.loginMfa(desafio, codigo)
+      aplicarSessao(sessao)
+    },
+    [aplicarSessao],
+  )
 
   // SEC-01: logout local nao e revogacao individual de token. Isto so apaga o
   // token deste navegador — o JWT em si continua criptograficamente valido
@@ -86,12 +118,13 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
       atendente,
       tenant,
       entrar,
+      concluirLoginComMfa,
       sair,
       podeGerirCadastros: perfil === 'Supervisor' || perfil === 'Administrador',
       podeGerirAtendentes: perfil === 'Administrador',
       podeOperarConversaDeTerceiro: perfil === 'Supervisor' || perfil === 'Administrador',
     }
-  }, [atendente, tenant, carregando, entrar, sair])
+  }, [atendente, tenant, carregando, entrar, concluirLoginComMfa, sair])
 
   return <ContextoDeAutenticacao.Provider value={valor}>{children}</ContextoDeAutenticacao.Provider>
 }

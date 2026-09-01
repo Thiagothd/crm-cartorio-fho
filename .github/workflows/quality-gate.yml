@@ -124,7 +124,24 @@ jobs:
 
       - name: Verifica autenticacao
         working-directory: src/backend
-        run: dotnet run verificar-autenticacao.cs -- "$CI_SQL_CONNECTION_STRING"
+        env:
+          # Somente para o processo publicado que o verificador sobe dentro do runner.
+          # Não é segredo de ambiente: a API é efêmera, local ao job e o valor morre com ele.
+          Jwt__Chave: "crm-cartorio-ci-jwt-descartavel-2026-nao-usar-fora-do-runner"
+        shell: bash
+        run: |
+          # O cenário HTTP do verificador sobe a API como processo-filho. Ele deve
+          # apontar para o MESMO SQL Server descartável deste job, nunca para DEV/TESTE/prod.
+          export ConnectionStrings__SqlServer="$CI_SQL_CONNECTION_STRING"
+
+          # SEC-03 cifra o segredo TOTP com AES-256. A API efêmera precisa da sua
+          # própria chave descartável para provar também a ativação voluntária de MFA.
+          mfa_key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$mfa_key"
+          export Mfa__VersaoCorrente="1"
+          export Mfa__Chaves__1="$mfa_key"
+
+          dotnet run verificar-autenticacao.cs -- "$CI_SQL_CONNECTION_STRING"
 
       - name: Verifica concorrencia de conversas
         working-directory: src/backend
