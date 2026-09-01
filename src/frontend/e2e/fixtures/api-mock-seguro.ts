@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import {
-  autenticarLocalmente,
+  autenticarLocalmente as autenticarLocalmenteBase,
   criarEstadoE2E,
   entrarPelaTela,
   instalarApiMock as instalarApiMockBase,
@@ -26,8 +26,20 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
   return estado
 }
 
+/**
+ * Os fluxos E2E de produto não estão testando a animação de hover do rail
+ * (ela já possui cobertura unitária própria). Fixamos o menu no desktop para
+ * iniciar cada cenário em um estado visual conhecido e impedir que a posição
+ * sintética do ponteiro do Chromium transforme a animação em interferência
+ * sobre botões do conteúdo. Em viewport estreito o próprio CRM ignora essa
+ * preferência, preservando os cenários mobile.
+ */
+export async function autenticarLocalmente(page: Page, perfil: Parameters<typeof autenticarLocalmenteBase>[1] = 'Administrador') {
+  await page.addInitScript(() => localStorage.setItem('crm-cartorio.menu-fixado', 'true'))
+  await autenticarLocalmenteBase(page, perfil)
+}
+
 export {
-  autenticarLocalmente,
   criarEstadoE2E,
   entrarPelaTela,
   type EstadoE2E,
