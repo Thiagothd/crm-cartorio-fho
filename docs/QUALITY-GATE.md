@@ -12,7 +12,59 @@ Nenhum secret do repositorio e consumido. O job com SQL Server gera uma senha
 aleatoria durante a propria execucao, mascara o valor no log e a usa somente no
 container daquele job.
 
-## Checks obrigatorios
+## Estado de enforcement e configuracao recomendada
+
+O workflow esta **ativo e executa** nos Pull Requests destinados a `teste`, mas
+os seus checks **nao devem ser chamados de obrigatorios enquanto a protecao de
+branch estiver inativa**. Sem uma Ruleset/Branch Protection ativa, um
+colaborador com permissao de escrita ainda pode fazer push direto ou concluir um
+merge sem que o GitHub exija os checks. Esta documentacao passa a usar
+"checks executados" ate que a configuracao abaixo seja ativada.
+
+No levantamento de 2026-08-31, `teste` estava com `protected=false`.
+
+> **Configuracao remota:** esta recomendacao nao e aplicada por este
+> repositorio nem pelo workflow. Um administrador deve ativa-la explicitamente
+> nas configuracoes do GitHub. So depois disso os seis checks passam a ser
+> "checks obrigatorios".
+
+### Ruleset recomendada (preferencial)
+
+Em **Settings > Rules > Rulesets**, criar uma ruleset de **branch** com os
+seguintes valores exatos:
+
+| Campo | Valor |
+| --- | --- |
+| Nome | `Proteger teste - quality gate` |
+| Enforcement status | `Active` |
+| Target branches | incluir somente `teste` |
+| Bypass list | vazia; nao adicionar administrador, usuario, equipe, GitHub App ou bot |
+| Require a pull request before merging | habilitado; 1 aprovacao obrigatoria; `Dismiss stale pull request approvals when new commits are pushed` e `Require approval of the most recent reviewable push` habilitados; `Require review from Code Owners` desabilitado enquanto nao houver `CODEOWNERS` |
+| Require conversation resolution before merging | habilitado |
+| Require status checks to pass before merging | habilitado, com `Require branches to be up to date before merging` habilitado |
+| Required status checks | exatamente os seis contexts da tabela seguinte, selecionando `GitHub Actions` como fonte esperada quando a interface oferecer essa opcao |
+| Block force pushes | habilitado |
+
+Nao incluir regras de deploy, migrations, merge queue, assinatura de commits ou
+restricao generica de updates nesta ruleset: elas nao fazem parte deste quality
+gate e podem impedir o fluxo normal de merge pelo GitHub. A exigencia de Pull
+Request, com lista de bypass vazia, bloqueia push direto; `Block force pushes`
+impede reescrita de historico. A aprovacao mais recente e a invalidação de
+aprovacoes evitam que um commit novo aproveite uma revisao anterior.
+
+Se Rulesets nao estiver disponivel no plano do repositorio, criar a regra
+legada em **Settings > Rules > Branch protection rules** para o padrao `teste`,
+com os mesmos seis checks e estas opcoes: `Require a pull request before
+merging` (1 aprovacao, dismiss stale, approval of the most recent reviewable
+push), `Require status checks to pass before merging`, `Require branches to be
+up to date before merging`, `Require conversation resolution before merging`,
+`Do not allow bypassing the above settings`; manter `Allow force pushes` e
+`Allow deletions` desabilitados e nao adicionar atores em `Allow specified
+actors to bypass required pull requests` ou em restricoes de push. Essa ultima
+opcao e essencial na regra legada porque, por padrao, administradores podem
+contornar Branch Protection.
+
+## Checks executados pelo workflow
 
 | Check | O que valida |
 | --- | --- |
@@ -22,6 +74,11 @@ container daquele job.
 | `frontend-typecheck` | `npm ci` e TypeScript em modo estrito |
 | `frontend-tests` | `npm ci` e a suite Vitest |
 | `frontend-build` | `npm ci`, typecheck e bundle de producao do Vite |
+
+Os nomes acima sao os contexts exatos a selecionar na Ruleset/Branch Protection.
+Depois que a configuracao de enforcement estiver `Active`, todos os seis devem
+ser promovidos nesta documentacao e na interface do GitHub a **checks
+obrigatorios**.
 
 Nao existe hoje projeto de testes backend xUnit/NUnit/MSTest na solucao. Os
 programas `verificar-*.cs` sao a suite automatizada existente e devolvem codigo
