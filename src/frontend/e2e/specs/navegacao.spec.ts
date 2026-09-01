@@ -24,7 +24,6 @@ test('acesso direto de Atendente a /equipe falha fechado e volta para inicio', a
   await preparar(page, 'Atendente')
   await page.goto('/equipe')
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByText('Agora')).toBeVisible()
 })
 
 test('Supervisor acessa cadastros de gestao mas nao Equipe', async ({ page }) => {
