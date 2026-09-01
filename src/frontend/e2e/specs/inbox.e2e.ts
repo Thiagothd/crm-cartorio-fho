@@ -4,15 +4,12 @@ import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtur
 async function abrirInbox(page: any, estado: ReturnType<typeof criarEstadoE2E>) {
   await instalarApiMock(page, estado)
   await autenticarLocalmente(page, 'Administrador')
-
-  // O ponteiro do Chromium nasce em (0, 0), exatamente sobre o rail. Em um
-  // navegador real o usuário já tem o ponteiro em alguma posição da tela; no
-  // runner isso podia acionar a expansão por hover antes do primeiro clique.
-  // Neutralizamos a posição e esperamos o rail estar realmente recolhido, sem
-  // force-click nem atraso arbitrário.
-  await page.mouse.move(1000, 100)
   await page.goto('/atendimentos')
-  await expect(page.getByRole('navigation', { name: 'Menu principal' })).toHaveCSS('width', '64px')
+
+  // Os cenários de produto usam a preferência real de menu fixado para que o
+  // rail ocupe a própria coluna no desktop e não sobreponha o conteúdo durante
+  // a animação de hover. A animação em si tem cobertura unitária separada.
+  await expect(page.getByRole('navigation', { name: 'Menu principal' })).toHaveCSS('width', '256px')
   await expect(page.getByRole('button', { name: /Marina Souza/ })).toBeVisible()
 }
 
