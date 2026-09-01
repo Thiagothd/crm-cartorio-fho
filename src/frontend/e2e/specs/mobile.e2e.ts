@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtures/api-mock'
+import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtures/api-mock-seguro'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 
