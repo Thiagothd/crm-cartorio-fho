@@ -42,6 +42,23 @@ if (args.Contains("--emitir-ticket-de-bootstrap"))
     return await FerramentaDeBootstrapMfa.ExecutarAsync(configuracaoDoBootstrap);
 }
 
+// SEC-03 — break-glass: reset de emergencia para privilegiado que perdeu
+// autenticador E codigos de recuperacao. Mesma disciplina do bootstrap
+// acima (comando de execucao unica, so interativo, nunca ILogger) — ver
+// FerramentaDeResetDeEmergencia para o porque de existir separado do reset
+// administrativo normal e do bootstrap (os dois ficam bloqueados justamente
+// no cenario que o break-glass existe para resolver).
+if (args.Contains("--reset-de-emergencia"))
+{
+    var configuracaoDeEmergencia = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeResetDeEmergencia.ExecutarAsync(configuracaoDeEmergencia);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- configuracao

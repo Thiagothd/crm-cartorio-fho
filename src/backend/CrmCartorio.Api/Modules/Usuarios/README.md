@@ -246,13 +246,50 @@ que também seja Titular** — nunca por Administrador comum. Todo reset e todo
 flip de política grava `EventosDeSeguranca` (ator, alvo, IP, motivo) — nunca
 o segredo, código, ticket ou desafio em si.
 
+### Break-glass — reset de emergência
+
+**Implementado** (revisão independente do PR #46, gap 17) — `FerramentaDeResetDeEmergencia`
+(`Infrastructure/Security/FerramentaDeResetDeEmergencia.cs`), comando de
+execução única:
+
+```bash
+dotnet CrmCartorio.Api.dll --reset-de-emergencia
+```
+
+Existe porque `MfaService.ResetarAsync` e `FerramentaDeBootstrapMfa` sozinhos
+criam um **deadlock operacional real**: `ResetarAsync` exige step-up do
+próprio ator (inútil quando é exatamente o fator que se perdeu) e, para alvo
+`Cargo.Titular`, só um ator que também seja Titular pode resetá-lo — um
+Administrador comum não pode, mesmo com MFA ativo. O bootstrap, por sua vez,
+só serve para o *primeiro* privilegiado do tenant: se já existe qualquer
+Administrador/Titular matriculado (o caso comum — existe um Administrador
+não-Titular, só o Titular específico perdeu os fatores), ele se recusa a
+rodar. O break-glass é o único caminho de dentro do processo que resolve
+esse deadlock, com a MESMA disciplina do bootstrap:
+
+- Só interativo — recusa se stdin OU stdout estiver redirecionado, ou em
+  CI/GITHUB_ACTIONS.
+- Texto do ticket novo só em `Console.WriteLine`, nunca `ILogger`/disco/banco
+  em claro.
+- Motivo obrigatório; identidade do operador em `EventosDeSeguranca.AtorExterno`
+  (nunca em `Motivo`).
+- **Não** exige "ninguém matriculado ainda" (diferença deliberada do
+  bootstrap) — funciona mesmo com outros privilegiados já com MFA ativo.
+- **Não** toca `Tenants.MfaObrigatorioParaAdministradores` — a política do
+  tenant nunca é desligada por isto.
+- Remove MFA do alvo (fatores, recovery codes, desafios/tickets pendentes),
+  sobe `TokenVersion`, e emite um **ticket novo** de rematrícula já vinculado
+  à versão pós-reset — sem isto o alvo ficaria resetado sem nenhum caminho de
+  volta. Mutação + ticket + `EventoDeSeguranca(ResetDeEmergencia)` na MESMA
+  transação `SERIALIZABLE`.
+- Superfície pública da classe: exatamente `{ExecutarAsync, VerificarElegibilidadeAsync}`
+  — o núcleo que gera/persiste o ticket é `private`, testado por reflexão.
+
+Certificado em `CRM_Cartorio_Dev`, incluindo o cenário de deadlock (outro
+Administrador com MFA ativo, mas não-Titular, já existente no tenant).
+
 ### O que ainda não existe
 
-- **Break-glass documentado, sem runbook automatizado.** O único-Titular que
-  perde autenticador E códigos de recuperação depende de um procedimento
-  manual (duas pessoas, script `.sql` revisado, `EventosDeSeguranca` com
-  `ResetDeEmergencia`) — não implementado neste PR, fica para quando o
-  cenário for real.
 - **Roubo de JWT continua fora do alcance do MFA.** Token em `localStorage`,
   8h de validade — MFA protege o *login*, não a sessão já emitida.
 - **Redefinir senha de terceiro (SEC-02) continua sem step-up.** Um JWT de

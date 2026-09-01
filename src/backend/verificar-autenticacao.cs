@@ -10,6 +10,7 @@ using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -58,6 +59,17 @@ var conexao = args.Length > 0
 var construtor = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(construtor, conexao);
 var opcoes = construtor.Options;
+
+// SEC-03 (bloqueador 13) — mesma connection string, mas com o interceptor de
+// falha injetada plugado. So existe aqui, neste verificador — nunca na
+// configuracao real de producao.
+DbContextOptions<CrmDbContext> OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca tipoParaFalhar)
+{
+    var builder = new DbContextOptionsBuilder<CrmDbContext>();
+    ConfiguracaoDoBanco.Configurar(builder, conexao);
+    builder.AddInterceptors(new InterceptorDeFalhaDeEvento(tipoParaFalhar));
+    return builder.Options;
+}
 
 await using (var seguranca = new CrmDbContext(opcoes))
 {
@@ -4544,6 +4556,724 @@ try
                 desativouOkD68d ? quantosEventosMfaDesativado == 1 : quantosEventosMfaDesativado == 0);
         }
     }
+
+    // ------------------------------------------------------------ cenario 69
+    // BLOQUEADOR 13 — fault injection: prova a direcao QUE FALTAVA (68d so
+    // provava "acao falhou -> nenhum evento orfao"). Aqui: "evento falhou ->
+    // a acao TAMBEM nao persiste". InterceptorDeFalhaDeEvento (definido no
+    // fim deste arquivo) lanca ao detectar o EventoDeSeguranca alvo sendo
+    // salvo — nunca um schema/trigger novo, so um SaveChangesInterceptor que
+    // existe SOMENTE na configuracao de DbContext deste verificador.
+
+    {
+        // 69a — falha ao persistir MfaAtivado (primeira ativacao voluntaria).
+        var (idA69, emailA69) = await NovaContaPrivilegiada("bloqueador13 - falha MfaAtivado", perfil: PerfilDeAtendente.Atendente);
+
+        IniciarMfaResponse iniciado69a;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciado69a = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idA69), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+        var tokenVersionAntes69a = (await Ler(idA69)).TokenVersion;
+        var codigo69a = CodigoTotp(iniciado69a.SegredoBase32);
+
+        Exception? falha69a = null;
+        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.MfaAtivado)))
+        {
+            try
+            {
+                await NovoMfaService(dbComFalha).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idA69), new ConfirmarMfaRequest(codigo69a), null, default);
+            }
+            catch (Exception ex)
+            {
+                falha69a = ex;
+            }
+        }
+
+        Checar("69a. falha injetada ao persistir MfaAtivado: a chamada de fato lanca excecao",
+            falha69a is not null);
+
+        var estado69a = await Ler(idA69);
+        Checar("69a. MfaAtivo NAO muda quando o evento falha",
+            !estado69a.MfaAtivo);
+        Checar("69a. TokenVersion NAO muda quando o evento falha",
+            estado69a.TokenVersion == tokenVersionAntes69a);
+        Checar("69a. o segredo pendente ORIGINAL continua intacto (rollback desfez a limpeza)",
+            estado69a.MfaSegredoPendenteCifrado is not null);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var temRecoveryCodesNovos = await db.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == idA69);
+            Checar("69a. nenhum recovery code novo ficou gravado",
+                !temRecoveryCodesNovos);
+        }
+
+        // Sem a falha (db normal), a MESMA cerimonia — nunca marcada como
+        // concluida pelo tentativa anterior, que reverteu por completo —
+        // ainda funciona normalmente.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var confirmadoDeVerdade = await NovoMfaService(db).ConfirmarAsync(
+                new IdentidadeParaMfa(tenantId, idA69), new ConfirmarMfaRequest(codigo69a), null, default);
+
+            Checar("69a-pos. sem a falha, a MESMA cerimonia (nunca antes concluida de verdade) ainda funciona",
+                !string.IsNullOrEmpty(confirmadoDeVerdade.Sessao.Token));
+        }
+
+        // 69b — falha ao persistir CodigoDeRecuperacaoUsado durante o login MFA.
+        var (idB69, emailB69, segredoB69, codigosB69) = await NovaContaComMfaAtivo(
+            "bloqueador13 - falha CodigoDeRecuperacaoUsado", perfil: PerfilDeAtendente.Atendente);
+        var codigoDeRecuperacao69b = codigosB69[0];
+
+        LoginEtapa1Response etapa1_69b;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            etapa1_69b = await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(emailB69, SenhaBoa));
+        }
+        Checar("69b-preparo. etapa 1 abriu desafio (conta com MFA ativo)",
+            etapa1_69b.RequerMfa && etapa1_69b.Desafio is not null);
+
+        var estadoAntes69b = await Ler(idB69);
+
+        Exception? falha69b = null;
+        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado)))
+        {
+            try
+            {
+                await NovoAutenticacao(dbComFalha, Guid.NewGuid()).ConcluirLoginMfaAsync(
+                    new ConcluirLoginMfaRequest(etapa1_69b.Desafio!.Desafio, codigoDeRecuperacao69b));
+            }
+            catch (Exception ex)
+            {
+                falha69b = ex;
+            }
+        }
+
+        Checar("69b. falha injetada ao persistir CodigoDeRecuperacaoUsado: a chamada de fato lanca excecao",
+            falha69b is not null);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var quantosUsados = await db.CodigosDeRecuperacaoMfa.CountAsync(c => c.AtendenteId == idB69 && c.UsadoEm != null);
+            Checar("69b. nenhum recovery code fica consumido quando o evento falha",
+                quantosUsados == 0);
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioAindaAberto = await db.DesafiosDeMfa.AnyAsync(d =>
+                d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(etapa1_69b.Desafio!.Desafio) && d.ConsumidoEm == null);
+            Checar("69b. o challenge NAO fica consumido quando o evento falha",
+                desafioAindaAberto);
+        }
+
+        var estadoDepois69b = await Ler(idB69);
+        Checar("69b. UltimoAcessoEm NAO muda quando o evento falha",
+            estadoDepois69b.UltimoAcessoEm == estadoAntes69b.UltimoAcessoEm);
+
+        // Sem a falha, o MESMO desafio + o MESMO codigo de recuperacao (nunca
+        // consumido de verdade pela tentativa anterior) ainda completa o login.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var loginDeVerdade = await NovoAutenticacao(db, Guid.NewGuid()).ConcluirLoginMfaAsync(
+                new ConcluirLoginMfaRequest(etapa1_69b.Desafio!.Desafio, codigoDeRecuperacao69b));
+
+            Checar("69b-pos. sem a falha, o MESMO desafio+codigo (nunca antes consumido de verdade) ainda completa o login",
+                !string.IsNullOrEmpty(loginDeVerdade.Token));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 70
+    // BLOQUEADOR 14 — UltimoAcessoEm agora e gravado no MESMO UPDATE que de
+    // fato confirma o MFA (ConfirmarNucleoAsync), nunca so na entidade em
+    // memoria usada pra montar a resposta.
+
+    {
+        // 70a — matricula privilegiada completa por ticket.
+        var (idPriv70, emailPriv70) = await NovaContaPrivilegiada("bloqueador14 - matricula privilegiada");
+        var estadoAntes70a = await Ler(idPriv70);
+        Checar("70a-preparo. UltimoAcessoEm comeca null antes da matricula",
+            estadoAntes70a.UltimoAcessoEm is null);
+
+        var ticket70a = await EmitirTicketCruAsync(idPriv70, estadoAntes70a.TokenVersion);
+
+        ConfirmarMfaResponse confirmado70a;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var mfa = NovoMfaService(db);
+            var sessao70a = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(emailPriv70, SenhaBoa, ticket70a), null, default);
+            var iniciado70a = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao70a.Desafio), default);
+            confirmado70a = await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao70a.Desafio, CodigoTotp(iniciado70a.SegredoBase32, -1)), null, default);
+        }
+
+        Checar("70a. confirmacao correta devolve JWT",
+            !string.IsNullOrEmpty(confirmado70a.Sessao.Token));
+
+        var estadoDepois70a = await Ler(idPriv70);
+        Checar("70a. banco passa a ter UltimoAcessoEm gravado",
+            estadoDepois70a.UltimoAcessoEm is not null);
+        Checar("70a. resposta e banco sao coerentes (mesmo instante)",
+            Math.Abs((estadoDepois70a.UltimoAcessoEm!.Value - DateTime.UtcNow).TotalSeconds) < 30);
+
+        // 70b — codigo incorreto.
+        var (idB70, emailB70) = await NovaContaPrivilegiada("bloqueador14 - codigo incorreto", perfil: PerfilDeAtendente.Atendente);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idB70), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+        var estadoAntesB70 = await Ler(idB70);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idB70), new ConfirmarMfaRequest("000000"), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("70b-preparo. codigo incorreto e de fato recusado",
+                falha?.Codigo == "codigo_mfa_invalido");
+        }
+
+        var estadoDepoisB70 = await Ler(idB70);
+        Checar("70b. UltimoAcessoEm NAO muda com codigo incorreto",
+            estadoDepoisB70.UltimoAcessoEm == estadoAntesB70.UltimoAcessoEm);
+
+        // 70c — challenge/TokenVersion invalido (senha mudou entre iniciar e confirmar).
+        var (idC70, emailC70) = await NovaContaPrivilegiada("bloqueador14 - tokenversion invalido", perfil: PerfilDeAtendente.Atendente);
+        IniciarMfaResponse iniciadoC70;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciadoC70 = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idC70), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAutenticacao(db, idC70).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaNova70c#1"));
+        }
+        var estadoAntesC70 = await Ler(idC70);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idC70), new ConfirmarMfaRequest(CodigoTotp(iniciadoC70.SegredoBase32)), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("70c-preparo. TokenVersion invalida (revogada) e de fato recusada",
+                falha?.Codigo == "codigo_mfa_invalido");
+        }
+
+        var estadoDepoisC70 = await Ler(idC70);
+        Checar("70c. UltimoAcessoEm NAO muda quando a TokenVersion esta invalida",
+            estadoDepoisC70.UltimoAcessoEm == estadoAntesC70.UltimoAcessoEm);
+
+        // 70d — confirmacao concorrente: so quem de fato conclui grava UltimoAcessoEm.
+        var (idD70, emailD70) = await NovaContaPrivilegiada("bloqueador14 - concorrencia", perfil: PerfilDeAtendente.Atendente);
+        IniciarMfaResponse iniciadoD70;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            iniciadoD70 = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantId, idD70), new IniciarMfaRequest(SenhaBoa, null), null, default);
+        }
+        var codigoD70 = CodigoTotp(iniciadoD70.SegredoBase32);
+
+        async Task<bool> TentarConfirmarD70()
+        {
+            await using var db = new CrmDbContext(opcoes);
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantId, idD70), new ConfirmarMfaRequest(codigoD70), null, default);
+                return true;
+            }
+            catch (UsuariosServiceException)
+            {
+                return false;
+            }
+        }
+
+        var resultadosD70 = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => TentarConfirmarD70()));
+
+        Checar("70d. exatamente 1 das 3 confirmacoes concorrentes (mesmo codigo) conclui",
+            resultadosD70.Count(r => r) == 1);
+
+        var estadoD70 = await Ler(idD70);
+        Checar("70d. UltimoAcessoEm foi gravado pela UNICA que concluiu",
+            estadoD70.UltimoAcessoEm is not null && estadoD70.MfaAtivo);
+    }
+
+    // ------------------------------------------------------------ cenario 71
+    // BLOQUEADOR 15 — o desafio de MatriculaPrivilegiada agora reserva
+    // TentativasDeCodigo ANTES de validar, mesmo teto (5) e mesma disciplina
+    // do segundo fator no login. ResolverDesafioDeMatriculaAsync tambem
+    // recusa um desafio ja esgotado, mesmo para reiniciar a cerimonia.
+
+    {
+        async Task<(Guid Id, string Email, DesafioMfaResponse Sessao, IniciarMfaResponse Iniciado)> PrepararMatriculaPendente71(string rotulo)
+        {
+            var (id, email) = await NovaContaPrivilegiada(rotulo);
+            var tokenVersion = (await Ler(id)).TokenVersion;
+            var ticket = await EmitirTicketCruAsync(id, tokenVersion);
+
+            await using var db = new CrmDbContext(opcoes);
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(email, SenhaBoa, ticket), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+
+            return (id, email, sessao, iniciado);
+        }
+
+        async Task<UsuariosServiceException?> TentarConfirmarViaDesafio71(string desafio, string codigo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            try
+            {
+                await NovoMfaService(db).ConfirmarViaDesafioAsync(new ConfirmarViaDesafioRequest(desafio, codigo), null, default);
+                return null;
+            }
+            catch (UsuariosServiceException ex)
+            {
+                return ex;
+            }
+        }
+
+        // 71-1 — 1 erro: recusado, TentativasDeCodigo==1, ConsumidoEm null, MFA desligado.
+        var t71_1 = await PrepararMatriculaPendente71("bloqueador15 - 1 erro");
+        var falha71_1 = await TentarConfirmarViaDesafio71(t71_1.Sessao.Desafio, "000000");
+        Checar("71-1. codigo errado e recusado", falha71_1?.Codigo == "codigo_mfa_invalido");
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
+                .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_1.Sessao.Desafio));
+            Checar("71-1. TentativasDeCodigo == 1", desafioDb.TentativasDeCodigo == 1);
+            Checar("71-1. ConsumidoEm continua null", desafioDb.ConsumidoEm is null);
+        }
+        Checar("71-1. MFA continua desligado", !(await Ler(t71_1.Id)).MfaAtivo);
+
+        // 71-2 — apos 1 erro, o codigo CORRETO ainda funciona (mesma conta do 71-1).
+        ConfirmarMfaResponse confirmado71_2;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            confirmado71_2 = await NovoMfaService(db).ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(t71_1.Sessao.Desafio, CodigoTotp(t71_1.Iniciado.SegredoBase32, -1)), null, default);
+        }
+        Checar("71-2. apos 1 erro, o codigo CORRETO ainda funciona",
+            !string.IsNullOrEmpty(confirmado71_2.Sessao.Token));
+
+        // 71-3 — 5 codigos errados: todos recusados, challenge esgotado.
+        var t71_3 = await PrepararMatriculaPendente71("bloqueador15 - 5 erros");
+        var todosRecusados71_3 = true;
+        for (var i = 0; i < 5; i++)
+        {
+            var falha = await TentarConfirmarViaDesafio71(t71_3.Sessao.Desafio, "000000");
+            if (falha?.Codigo != "codigo_mfa_invalido") todosRecusados71_3 = false;
+        }
+        Checar("71-3. 5 tentativas com codigo errado sao todas recusadas", todosRecusados71_3);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
+                .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_3.Sessao.Desafio));
+            Checar("71-3. challenge fica esgotado (TentativasDeCodigo == 5)", desafioDb.TentativasDeCodigo == 5);
+        }
+
+        // 71-4 — 6a tentativa com codigo CORRETO: ainda recusada, sem JWT, MFA desligado.
+        var falha71_4 = await TentarConfirmarViaDesafio71(t71_3.Sessao.Desafio, CodigoTotp(t71_3.Iniciado.SegredoBase32, -1));
+        Checar("71-4. 6a tentativa com codigo CORRETO tambem e recusada (challenge esgotado)",
+            falha71_4?.Codigo == "desafio_mfa_invalido");
+        Checar("71-4. MFA continua desligado", !(await Ler(t71_3.Id)).MfaAtivo);
+
+        // 71-5 — 4 erros + 5a correta: exatamente a 5a conclui, challenge consumido.
+        var t71_5 = await PrepararMatriculaPendente71("bloqueador15 - 4 erros + acerto");
+        for (var i = 0; i < 4; i++)
+        {
+            await TentarConfirmarViaDesafio71(t71_5.Sessao.Desafio, "000000");
+        }
+
+        ConfirmarMfaResponse confirmado71_5;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            confirmado71_5 = await NovoMfaService(db).ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(t71_5.Sessao.Desafio, CodigoTotp(t71_5.Iniciado.SegredoBase32, -1)), null, default);
+        }
+        Checar("71-5. a 5a tentativa (correta, apos 4 erros) conclui",
+            !string.IsNullOrEmpty(confirmado71_5.Sessao.Token));
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
+                .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_5.Sessao.Desafio));
+            Checar("71-5. o challenge foi consumido", desafioDb.ConsumidoEm is not null);
+        }
+
+        // 71-6 — concorrencia: N confirmacoes simultaneas (mesmo desafio/codigo)
+        // nunca produzem mais de 1 ativacao/JWT, nem ultrapassam o teto.
+        var t71_6 = await PrepararMatriculaPendente71("bloqueador15 - concorrencia");
+        var codigo71_6 = CodigoTotp(t71_6.Iniciado.SegredoBase32, -1);
+
+        async Task<bool> TentarConfirmarConcorrente71_6()
+        {
+            await using var db = new CrmDbContext(opcoes);
+            try
+            {
+                await NovoMfaService(db).ConfirmarViaDesafioAsync(
+                    new ConfirmarViaDesafioRequest(t71_6.Sessao.Desafio, codigo71_6), null, default);
+                return true;
+            }
+            catch (UsuariosServiceException)
+            {
+                return false;
+            }
+        }
+
+        var resultados71_6 = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => TentarConfirmarConcorrente71_6()));
+        Checar("71-6. 5 confirmacoes concorrentes (mesmo desafio/codigo) — exatamente 1 conclui",
+            resultados71_6.Count(r => r) == 1);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
+                .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_6.Sessao.Desafio));
+            Checar("71-6. TentativasDeCodigo nunca ultrapassa o teto (5)",
+                desafioDb.TentativasDeCodigo <= 5);
+        }
+
+        // 71-7 — challenge esgotado nao pode reiniciar a cerimonia via IniciarViaDesafioAsync.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).IniciarViaDesafioAsync(new IniciarViaDesafioRequest(t71_3.Sessao.Desafio), default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("71-7. challenge esgotado nao pode ser usado para reiniciar a cerimonia (IniciarViaDesafioAsync)",
+                falha?.Codigo == "desafio_mfa_invalido");
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 72
+    // BLOQUEADOR 16 — bootstrap E break-glass agora recusam tambem por
+    // STDOUT redirecionado, nao so stdin. Prova por reflexao (decisao PURA,
+    // privada, extraida de proposito) — nao reabre nenhuma superficie
+    // publica mutavel.
+    //
+    // Limite honesto deste ambiente: tanto stdin quanto stdout do PROPRIO
+    // processo verificador ja chegam redirecionados por quem o executa
+    // (confirmado neste ambiente: os dois sao `true`) — nao ha como isolar
+    // so o lado da saida via subprocesso, porque o filho herdaria a MESMA
+    // condicao do pai. A prova comportamental fica limitada a "recusa
+    // quando ambos estao redirecionados" (que ja acontecia mesmo ANTES desta
+    // correcao, ja que so a entrada ja bastava) — por isso o cenario TAMBEM
+    // confere, por leitura do proprio codigo-fonte, que a checagem de SAIDA
+    // especificamente existe (regressao direta contra alguem remover so essa
+    // linha) e que a de entrada nao foi trocada por ela.
+
+    {
+        foreach (var (tipo, caminhoDoArquivo) in new (Type Tipo, string Caminho)[]
+        {
+            (typeof(FerramentaDeBootstrapMfa), Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeBootstrapMfa.cs")),
+            (typeof(FerramentaDeResetDeEmergencia), Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeResetDeEmergencia.cs"))
+        })
+        {
+            var rotulo = tipo.Name;
+
+            var metodo = tipo.GetMethod("AmbienteNaoInterativo", BindingFlags.NonPublic | BindingFlags.Static);
+            Checar($"72-{rotulo}a. AmbienteNaoInterativo existe, privado, estatico, devolve bool",
+                metodo is not null && metodo.ReturnType == typeof(bool) && !metodo.IsPublic);
+
+            var resultado = (bool)metodo!.Invoke(null, null)!;
+            Checar($"72-{rotulo}b. neste ambiente (stdin e stdout ja redirecionados por quem executa o teste), a guarda recusa",
+                resultado);
+
+            var codigoFonte = await File.ReadAllTextAsync(caminhoDoArquivo);
+            Checar($"72-{rotulo}c. o codigo-fonte confere Console.IsOutputRedirected (regressao contra remover so este lado)",
+                codigoFonte.Contains("Console.IsOutputRedirected"));
+            Checar($"72-{rotulo}d. o codigo-fonte continua conferindo Console.IsInputRedirected tambem (nao trocou um pelo outro)",
+                codigoFonte.Contains("Console.IsInputRedirected"));
+
+            var metodosPublicos = tipo.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            Checar($"72-{rotulo}e. superficie publica continua exatamente {{ExecutarAsync, VerificarElegibilidadeAsync}}",
+                metodosPublicos.SequenceEqual(["ExecutarAsync", "VerificarElegibilidadeAsync"], StringComparer.Ordinal));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 73
+    // GAP 17 — break-glass (FerramentaDeResetDeEmergencia): certificacao em
+    // CRM_Cartorio_Dev, incluindo o cenario de DEADLOCK operacional que o
+    // break-glass existe para resolver (outro Administrador com MFA ativo,
+    // mas nao-Titular, ja existente no tenant — bootstrap ja fechado, reset
+    // normal bloqueado pela protecao do Titular).
+
+    {
+        async Task<ElegibilidadeDeEmergencia> TentarResetarDeEmergenciaViaReflexaoAsync(
+            CrmDbContext db, string email, string hashDoNovoTicket, string motivo, string atorExterno)
+        {
+            var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
+                "TentarResetarDeEmergenciaAsync", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("TentarResetarDeEmergenciaAsync nao encontrado via reflexao.");
+
+            var tarefa = (Task<ElegibilidadeDeEmergencia>)metodo.Invoke(
+                null, [db, email, hashDoNovoTicket, motivo, atorExterno, CancellationToken.None])!;
+
+            return await tarefa;
+        }
+
+        Guid tenantIsolado73;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — break-glass (73)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado73 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado73);
+
+        async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada73(string rotulo, CargoNaServentia cargo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado73,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-73-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = cargo,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado73,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+
+            return (conta.Id, conta.Email, iniciado.SegredoBase32);
+        }
+
+        // 1 — o unico Titular "perde todos os fatores": simulado pelo simples
+        // fato de que o teste nunca mais usa o segredo/recovery codes dele a
+        // partir daqui — exatamente como alguem que perdeu o celular e o
+        // papel dos codigos.
+        var titularPreso73 = await ContaMatriculada73("73 - Titular preso", CargoNaServentia.Titular);
+
+        // Cenario do deadlock (teste 9): outro Administrador com MFA ativo,
+        // mas NAO Titular, ja existe no tenant.
+        var outroAdmin73 = await ContaMatriculada73("73 - outro Admin nao Titular", CargoNaServentia.Substituto);
+
+        // Confirma o DEADLOCK antes do break-glass. Na realidade, quem perdeu
+        // o autenticador e os codigos de recuperacao NAO tem como apagar o
+        // proprio MfaAtivo do banco — o registro continua dizendo que ele
+        // esta matriculado. Por isso o bootstrap normal recusa por
+        // MfaJaAtivo (o alvo em si ja tem MFA ativo), nao por
+        // JaExistePrivilegiadoMatriculado — mas o efeito e o mesmo: bootstrap
+        // fechado, sem caminho para emitir um novo ticket para o Titular.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("73-deadlock-a. bootstrap normal ja fechado para o Titular (MfaAtivo=true no banco, apesar dele ter perdido o autenticador)",
+                await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, titularPreso73.Email)
+                    == ElegibilidadeDeBootstrap.MfaJaAtivo);
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).ResetarAsync(
+                    new IdentidadeParaMfa(tenantIsolado73, outroAdmin73.Id), titularPreso73.Id,
+                    new ResetarMfaRequest(SenhaBoa, CodigoTotp(outroAdmin73.Segredo), "tentativa normal, precisa falhar"), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("73-deadlock-b. Administrador NAO-Titular nao pode resetar o Titular pelo caminho normal (deadlock confirmado)",
+                falha?.Codigo == "apenas_titular_reseta_titular");
+        }
+
+        // Liga a politica obrigatoria AGORA — enquanto os dois ainda tem MFA
+        // ativo de verdade (AtivarObrigatoriedadeAsync recusa se existir
+        // qualquer privilegiado sem MFA, e o break-glass, la na frente, vai
+        // desligar o do Titular). E o cenario real: a serventia ja exige MFA
+        // de privilegiados antes de alguem perder o proprio autenticador.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoMfaService(db).AtivarObrigatoriedadeAsync(
+                new IdentidadeParaMfa(tenantIsolado73, outroAdmin73.Id),
+                new AtivarObrigatoriedadeRequest(SenhaBoa, CodigoTotp(outroAdmin73.Segredo, 1), "politica obrigatoria — cenario 73"),
+                null, default);
+        }
+
+        // "Artefato antigo" real: um desafio de SEGUNDO FATOR aberto (login
+        // etapa 1) usando o segredo antigo do Titular, ANTES do break-glass —
+        // para o teste 4 provar de verdade que fica invalido.
+        LoginEtapa1Response etapa1AntesDoBreakGlass73;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            etapa1AntesDoBreakGlass73 = await NovoAutenticacao(db, Guid.NewGuid())
+                .AutenticarAsync(new LoginRequest(titularPreso73.Email, SenhaBoa));
+        }
+        Checar("73-preparo. desafio de 2o fator aberto ANTES do break-glass (com o segredo antigo)",
+            etapa1AntesDoBreakGlass73.RequerMfa && etapa1AntesDoBreakGlass73.Desafio is not null);
+
+        // Sessao/JWT antigo (capturado ANTES do break-glass) — teste 3.
+        var (tokenAntigoTitular73, _) = tokens.Gerar(await Ler(titularPreso73.Id));
+        var versaoAntigaTitular73 = LerVersaoDaClaim(tokenAntigoTitular73);
+        var tokenVersionAntesDoBreakGlass73 = (await Ler(titularPreso73.Id)).TokenVersion;
+
+        // 2 — break-glass remove os fatores de forma auditada.
+        var tokenNovoDeRematricula73 = SegredosAleatoriosMfa.NovoToken();
+        ElegibilidadeDeEmergencia resultadoBreakGlass73;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            resultadoBreakGlass73 = await TentarResetarDeEmergenciaViaReflexaoAsync(
+                db, titularPreso73.Email, SegredosAleatoriosMfa.Sha256Hex(tokenNovoDeRematricula73),
+                "teste automatizado do cenario 73 — break-glass", "teste@verificador");
+        }
+
+        Checar("73-2. break-glass reconhece elegibilidade e reseta",
+            resultadoBreakGlass73 == ElegibilidadeDeEmergencia.Elegivel);
+
+        var estadoPosBreakGlass73 = await Ler(titularPreso73.Id);
+        Checar("73-2b. MFA removido (MfaAtivo=false, segredo apagado)",
+            !estadoPosBreakGlass73.MfaAtivo && estadoPosBreakGlass73.MfaSegredoCifrado is null);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("73-2c. recovery codes apagados",
+                !await db.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == titularPreso73.Id));
+        }
+
+        Checar("73-2d. TokenVersion subiu",
+            estadoPosBreakGlass73.TokenVersion > tokenVersionAntesDoBreakGlass73);
+
+        // 3 — sessao/token ANTIGO fica invalido.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("73-3. JWT/sessao emitido ANTES do break-glass fica invalido",
+                !await NovoValidador(db).SessaoValidaAsync(titularPreso73.Id, tenantIsolado73, versaoAntigaTitular73));
+        }
+
+        // 4 — artefatos antigos (o desafio de 2o fator aberto antes) nao
+        // funcionam mais: nem com o codigo do segredo ANTIGO (MfaAtivo=false
+        // agora), nem de nenhum outro jeito — o desafio foi consumido.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var desafioAntigoAindaAberto = await db.DesafiosDeMfa.AnyAsync(d =>
+                d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(etapa1AntesDoBreakGlass73.Desafio!.Desafio)
+                && d.ConsumidoEm == null);
+            Checar("73-4. o desafio de 2o fator aberto ANTES do break-glass foi invalidado (consumido)",
+                !desafioAntigoAindaAberto);
+        }
+
+        // 5/6 — nova matricula segura E POSSIVEL, e SO DEPOIS dela a conta
+        // volta a logar. A politica obrigatoria ja foi ligada antes do
+        // break-glass (usando o OUTRO Administrador, que nunca foi tocado) —
+        // agora prova que, ate a rematricula, a conta fica mesmo sem login.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(titularPreso73.Email, SenhaBoa));
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("73-6a. ANTES da rematricula, login com senha correta e RECUSADO (politica obrigatoria)",
+                falha?.Codigo == "mfa_obrigatorio_nao_matriculado");
+        }
+
+        IniciarMfaResponse iniciadoRematricula73;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var mfa = NovoMfaService(db);
+            var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(titularPreso73.Email, SenhaBoa, tokenNovoDeRematricula73), null, default);
+            iniciadoRematricula73 = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessaoRematricula.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessaoRematricula.Desafio, CodigoTotp(iniciadoRematricula73.SegredoBase32, -1)), null, default);
+        }
+
+        Checar("73-5. nova matricula segura E POSSIVEL, usando o ticket que o proprio break-glass emitiu",
+            (await Ler(titularPreso73.Id)).MfaAtivo);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var loginDepoisDaRematricula = await NovoAutenticacao(db, Guid.NewGuid())
+                .AutenticarAsync(new LoginRequest(titularPreso73.Email, SenhaBoa));
+
+            Checar("73-6b. SO DEPOIS da rematricula a conta volta a logar (agora exigindo MFA de novo, como esperado)",
+                loginDepoisDaRematricula.RequerMfa);
+        }
+
+        // 7 — ResetDeEmergencia existe EXATAMENTE uma vez.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var eventos = await db.EventosDeSeguranca
+                .Where(e => e.AtendenteId == titularPreso73.Id && e.Tipo == TipoDeEventoDeSeguranca.ResetDeEmergencia)
+                .ToListAsync();
+
+            Checar("73-7. ResetDeEmergencia existe EXATAMENTE uma vez", eventos.Count == 1);
+            Checar("73-7b. AtorExterno preenchido com a identidade do operador (nao no Motivo)",
+                eventos.Count == 1 && eventos[0].AtorExterno == "teste@verificador");
+            Checar("73-7c. AtorAtendenteId nulo (executor foi operador SSH, nao Administrador do app)",
+                eventos.Count == 1 && eventos[0].AtorAtendenteId is null);
+
+            // 8 — nenhuma credencial aparece nos campos auditaveis.
+            var camposAuditaveis = eventos.Count == 1 ? $"{eventos[0].Motivo} {eventos[0].AtorExterno}" : string.Empty;
+            Checar("73-8. nenhuma credencial (senha/TOTP/ticket/segredo) aparece nos campos auditaveis do evento",
+                !camposAuditaveis.Contains(SenhaBoa)
+                && !camposAuditaveis.Contains(tokenNovoDeRematricula73)
+                && !camposAuditaveis.Contains(iniciadoRematricula73.SegredoBase32));
+        }
+
+        // 9 — o deadlock teve saida segura: o break-glass funcionou SEM
+        // nunca tocar o outro Administrador nem burlar a protecao do Titular
+        // dele.
+        Checar("73-9. o outro Administrador (nao-Titular) continua com MFA intacto — nunca foi tocado pelo break-glass",
+            (await Ler(outroAdmin73.Id)).MfaAtivo);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("73-pos. a politica obrigatoria do tenant continua ligada (break-glass nunca a desliga silenciosamente)",
+                await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado73)
+                    .Select(t => t.MfaObrigatorioParaAdministradores).SingleAsync());
+        }
+    }
 }
 finally
 {
@@ -4595,6 +5325,38 @@ file sealed class HashEspiao(IHashDeSenha real) : IHashDeSenha
         Verificacoes++;
         return real.Verificar(senha, hashArmazenado);
     }
+}
+
+/// <summary>
+/// SEC-03 (revisao independente do PR #46, bloqueador 13) — fault injection
+/// de teste: lanca ao detectar um EventoDeSeguranca do Tipo indicado sendo
+/// salvo. Prova que "evento falhou" implica "a mutacao tambem nao persiste"
+/// — nao um schema/trigger novo, so um SaveChangesInterceptor que so existe
+/// na configuracao de DbContext deste verificador, nunca em producao.
+/// </summary>
+file sealed class InterceptorDeFalhaDeEvento(TipoDeEventoDeSeguranca tipoParaFalhar) : SaveChangesInterceptor
+{
+    public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+    {
+        var contexto = eventData.Context;
+        if (contexto is not null)
+        {
+            var temEventoAlvo = contexto.ChangeTracker.Entries<EventoDeSeguranca>()
+                .Any(e => e.State == EntityState.Added && e.Entity.Tipo == tipoParaFalhar);
+
+            if (temEventoAlvo)
+            {
+                throw new InvalidOperationException(
+                    $"[FALHA INJETADA PELO TESTE] EventoDeSeguranca.Tipo={tipoParaFalhar}");
+            }
+        }
+
+        return result;
+    }
+
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default) =>
+        new(SavingChanges(eventData, result));
 }
 
 /// <summary>Identidade fixa, no lugar das claims do token — mesmo padrao de verificar-concorrencia.cs.</summary>

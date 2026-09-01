@@ -22,6 +22,16 @@ public class MfaService(
     private static readonly TimeSpan TtlDoDesafioDeMatricula = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan TtlDoTicket = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// SEC-03 (revisao independente do PR #46, bloqueador 15) — mesmo teto do
+    /// segundo fator no login (<c>AutenticacaoService.LimiteDeTentativasPorDesafio</c>),
+    /// duplicado aqui de proposito (cada classe ja tem seus proprios TTLs
+    /// privados — nao ha um lugar compartilhado para constantes de SEC-03) —
+    /// aplicado ao desafio de MatriculaPrivilegiada, que ate aqui nao tinha
+    /// nenhum teto de tentativas.
+    /// </summary>
+    private const int LimiteDeTentativasPorDesafio = 5;
+
     /// <summary>Mesma disciplina anti-timing de <see cref="AutenticacaoService"/> — usado so na matricula privilegiada, onde tambem ha busca por e-mail.</summary>
     private const string HashDescartavel =
         "pbkdf2.sha256$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -811,6 +821,35 @@ public class MfaService(
         string? hashDoDesafioParaConsumir, int? tokenVersionEsperada, CancellationToken ct)
     {
         var agora = DateTime.UtcNow;
+
+        // CORRECAO (revisao independente do PR #46, bloqueador 15) — reserva
+        // a tentativa no PROPRIO desafio de matricula ANTES de qualquer outra
+        // validacao, mesmo padrao (e mesmo porteiro PERSISTENTE — rate limit
+        // HTTP por IP nao substitui isto) do segundo fator no login
+        // (AutenticacaoService.ConcluirLoginMfaAsync, "Passo A"). Erro
+        // (codigo errado depois) NAO marca ConsumidoEm — so incrementa
+        // TentativasDeCodigo, que persiste mesmo que o resto da chamada
+        // falhe, porque roda FORA da transacao da ativacao. So se afetar
+        // EXATAMENTE 1 linha (hash certo, tipo certo, ainda nao consumido,
+        // nao expirado, e AINDA com tentativas sobrando) a validacao segue —
+        // um desafio ja esgotado (5 tentativas) fica permanentemente inutil,
+        // mesmo que nunca tenha sido formalmente "consumido".
+        if (hashDoDesafioParaConsumir is not null)
+        {
+            var reservou = await db.DesafiosDeMfa
+                .Where(d => d.HashDoDesafio == hashDoDesafioParaConsumir
+                         && d.Tipo == TipoDeDesafioMfa.MatriculaPrivilegiada
+                         && d.ConsumidoEm == null
+                         && d.ExpiraEm > agora
+                         && d.TentativasDeCodigo < LimiteDeTentativasPorDesafio)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.TentativasDeCodigo, d => d.TentativasDeCodigo + 1), ct);
+
+            if (reservou != 1)
+            {
+                throw UsuariosServiceException.DesafioMfaInvalido();
+            }
+        }
+
         var atendente = await CarregarAsync(identidade, ct);
 
         if (atendente.MfaSegredoPendenteCifrado is null
@@ -901,6 +940,15 @@ public class MfaService(
                 .SetProperty(a => a.MfaFalhasConsecutivas, 0)
                 .SetProperty(a => a.MfaNivelDeBloqueio, (byte)0)
                 .SetProperty(a => a.MfaBloqueadoAte, (DateTime?)null)
+                // CORRECAO (bloqueador 14): grava UltimoAcessoEm no MESMO
+                // UPDATE que de fato confirma o MFA — antes disto so existia
+                // na entidade em memoria usada pra montar a resposta,
+                // divergindo do banco se algo (evento, recovery codes)
+                // falhasse depois. So aqui: nunca em IniciarAsync/
+                // IniciarViaDesafioAsync, nunca quando este WHERE nao afeta
+                // nenhuma linha (codigo errado, TokenVersion perdida,
+                // challenge invalido/esgotado).
+                .SetProperty(a => a.UltimoAcessoEm, agora)
                 .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
 
         if (confirmou != 1)
@@ -932,11 +980,17 @@ public class MfaService(
         }));
 
         await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
 
+        // CORRECAO (revisao independente do PR #46, bloqueador 13A): o
+        // evento agora e gravado ANTES do commit, na MESMA transacao que
+        // ativa o MFA — nunca depois. Antes, se este registro falhasse apos
+        // o commit, MFA/recovery codes ja tinham mudado mas a request podia
+        // terminar em erro sem entregar JWT/recovery codes ao chamador.
         await AutenticacaoService.RegistrarEventoAsync(
             db, identidade.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
             TipoDeEventoDeSeguranca.MfaAtivado, ip, motivo: null, ct);
+
+        await tx.CommitAsync(ct);
 
         atendente.MfaAtivo = true;
         atendente.TenantId = identidade.TenantId;
@@ -1063,6 +1117,17 @@ public class MfaService(
         return true;
     }
 
+    /// <remarks>
+    /// CORRECAO (revisao independente do PR #46, bloqueador 15) —
+    /// `TentativasDeCodigo &lt; LimiteDeTentativasPorDesafio` entrou na
+    /// condicao: sem isto, um desafio que ja esgotou as 5 tentativas em
+    /// ConfirmarViaDesafioAsync (nunca chegou a ser formalmente
+    /// <c>ConsumidoEm</c>, porque so erros aconteceram) continuava servindo
+    /// para <see cref="IniciarViaDesafioAsync"/> gerar um segredo/QR novo
+    /// indefinidamente — reiniciando a cerimonia sem nunca precisar de um
+    /// ticket novo. Agora um desafio esgotado fica permanentemente inutil,
+    /// os dois metodos que passam por aqui.
+    /// </remarks>
     private async Task<(IdentidadeParaMfa Identidade, int TokenVersionNoDesafio)> ResolverDesafioDeMatriculaAsync(
         string? desafioTexto, CancellationToken ct)
     {
@@ -1073,7 +1138,8 @@ public class MfaService(
             .FirstOrDefaultAsync(d => d.HashDoDesafio == hashDoDesafio
                                     && d.Tipo == TipoDeDesafioMfa.MatriculaPrivilegiada
                                     && d.ConsumidoEm == null
-                                    && d.ExpiraEm > agora, ct);
+                                    && d.ExpiraEm > agora
+                                    && d.TentativasDeCodigo < LimiteDeTentativasPorDesafio, ct);
 
         if (desafio is null)
         {

@@ -290,14 +290,20 @@ public class AutenticacaoService(
             throw UsuariosServiceException.DesafioMfaInvalido();
         }
 
-        await tx.CommitAsync(ct);
-
+        // CORRECAO (revisao independente do PR #46, bloqueador 13B): o evento
+        // agora e gravado ANTES do commit, na MESMA transacao que consome o
+        // codigo de recuperacao e o desafio — nunca depois. Antes, se este
+        // registro falhasse apos o commit, o login MFA por recovery code ja
+        // tinha sido efetivado (codigo/desafio consumidos, UltimoAcessoEm
+        // gravado) sem deixar rastro de auditoria correspondente.
         if (!ehTotp)
         {
             await RegistrarEventoAsync(
                 desafio.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
                 TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado, desafio.IpDeOrigem, motivo: null, ct);
         }
+
+        await tx.CommitAsync(ct);
 
         atendente.TenantId = desafio.TenantId;
         atendente.TokenVersion = desafio.TokenVersionNoDesafio;

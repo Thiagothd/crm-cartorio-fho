@@ -206,18 +206,44 @@ public static class FerramentaDeBootstrapMfa
         return tokenEmClaro;
     }
 
+    /// <summary>
+    /// SEC-03 (revisao independente do PR #46, bloqueador 16) — decisao PURA
+    /// (sem efeito colateral algum) de quando o bootstrap deve recusar por
+    /// ambiente nao-interativo. Extraida para ser testavel por reflexao SEM
+    /// reabrir nenhuma superficie publica mutavel — continua `private`; a
+    /// superficie publica da classe permanece exatamente
+    /// {ExecutarAsync, VerificarElegibilidadeAsync}, sem novo membro.
+    /// </summary>
+    /// <remarks>
+    /// CORRECAO: a versao anterior so recusava `Console.IsInputRedirected`
+    /// (entrada), CI e GITHUB_ACTIONS — mas nunca conferia
+    /// `Console.IsOutputRedirected` (saida). Isso deixava passar
+    /// <c>dotnet CrmCartorio.Api.dll --emitir-ticket-de-bootstrap &gt; ticket.txt</c>:
+    /// entrada continuava interativa (o operador digitava tudo normalmente),
+    /// mas o TEXTO CLARO do ticket ia direto para um ARQUIVO — violando "so
+    /// no terminal, nunca em arquivo". Agora qualquer um dos dois lados
+    /// redirecionado recusa. stderr deliberadamente NAO e checado: nenhum
+    /// segredo e escrito la.
+    /// </remarks>
+    private static bool AmbienteNaoInterativo() =>
+        Console.IsInputRedirected
+        || Console.IsOutputRedirected
+        || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null
+        || Environment.GetEnvironmentVariable("CI") is not null;
+
     public static async Task<int> ExecutarAsync(IConfiguration configuracao)
     {
         Console.WriteLine("=== CRM-Cartorio — bootstrap do primeiro privilegiado de MFA (SEC-03) ===");
         Console.WriteLine();
 
-        if (Console.IsInputRedirected || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null
-            || Environment.GetEnvironmentVariable("CI") is not null)
+        if (AmbienteNaoInterativo())
         {
             Console.WriteLine(
                 "RECUSADO: este comando so roda de forma interativa, no teclado, via SSH. " +
-                "Entrada redirecionada (pipe, arquivo ou ambiente de CI) nunca e aceita — " +
-                "e o que garante que uma pessoa, e nao um pipeline, decidiu emitir este ticket.");
+                "Entrada OU SAIDA redirecionada (pipe, arquivo ou ambiente de CI) nunca e " +
+                "aceita — e o que garante que uma pessoa, e nao um pipeline, decidiu emitir " +
+                "este ticket, e que o texto claro so pode aparecer no terminal, nunca ser " +
+                "redirecionado para um arquivo.");
             return 1;
         }
 
