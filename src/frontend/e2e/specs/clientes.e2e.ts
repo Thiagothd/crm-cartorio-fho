@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtures/api-mock'
+import { autenticarLocalmente, criarEstadoE2E, instalarApiMock } from '../fixtures/api-mock-seguro'
 
 async function abrirClientes(page: any, estado = criarEstadoE2E()) {
   await instalarApiMock(page, estado)
