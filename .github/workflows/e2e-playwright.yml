@@ -1,0 +1,66 @@
+name: E2E Playwright — Pull Request
+
+on:
+  pull_request:
+    branches:
+      - teste
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            src/frontend/package-lock.json
+            src/frontend/e2e/package-lock.json
+
+      - name: Instala frontend
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Instala Playwright E2E
+        working-directory: src/frontend/e2e
+        run: npm ci
+
+      - name: Instala Chromium e dependencias do runner
+        working-directory: src/frontend/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck frontend
+        working-directory: src/frontend
+        run: npm run typecheck
+
+      - name: Testes frontend existentes
+        working-directory: src/frontend
+        run: npm test
+
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Playwright E2E
+        working-directory: src/frontend/e2e
+        run: npm test
+
+      - name: Evidencias do Playwright em falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-failure-${{ github.run_id }}
+          path: |
+            src/frontend/e2e/test-results/
+            src/frontend/e2e/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

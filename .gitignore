@@ -14,6 +14,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Playwright E2E — evidencias regeneraveis de execucao local/CI.
+src/frontend/e2e/test-results/
+src/frontend/e2e/playwright-report/
+src/frontend/e2e/blob-report/
+
 # Painel React compilado dentro da API.
 #
 # Em produção o deploy copia `src/frontend/dist/` para cá e a API serve o painel
