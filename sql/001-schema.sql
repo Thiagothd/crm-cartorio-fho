@@ -849,7 +849,7 @@ CREATE TABLE dbo.EventosDeSeguranca
     -- 4 CodigosDeRecuperacaoRegenerados, 5 ResetAdministrativo,
     -- 6 ResetDeEmergencia, 7 BloqueioDeMfaPorFalhas,
     -- 8 TicketDeMatriculaEmitido, 9 TicketDeBootstrapEmitido,
-    -- 10 PoliticaDeMfaAtivada
+    -- 10 PoliticaDeMfaAtivada, 11 TicketDeRematriculaReemitido (migration 037)
     Tipo             TINYINT          NOT NULL,
 
     OcorridoEm       DATETIME2(3)     NOT NULL,
@@ -861,7 +861,7 @@ CREATE TABLE dbo.EventosDeSeguranca
     CONSTRAINT PK_EventosDeSeguranca PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_EventosDeSeguranca_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_EventosDeSeguranca_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
-    CONSTRAINT CK_EventosDeSeguranca_Tipo CHECK (Tipo BETWEEN 1 AND 10)
+    CONSTRAINT CK_EventosDeSeguranca_Tipo CHECK (Tipo BETWEEN 1 AND 11)
 );
 GO
 

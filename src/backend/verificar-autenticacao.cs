@@ -5561,50 +5561,382 @@ try
     }
 
     // ------------------------------------------------------------ cenario 76
-    // BLOQUEADOR B18 (sexta revisao independente) — controle de DUAS PESSOAS
-    // do break-glass tecnicamente aplicado, nao so uma mensagem de console.
-    // PinDeDuasPessoasConfere e a decisao PURA (extraida de proposito, mesmo
-    // padrao de AmbienteNaoInterativo no cenario 72) — testada por reflexao
-    // sem reabrir nenhuma superficie publica.
+    // BLOQUEADOR B21 (setima revisao independente) — controle de duas
+    // pessoas do break-glass deixou de ser um PIN estatico com hash SHA-256
+    // (ecoado no terminal, reutilizavel indefinidamente pelo mesmo operador)
+    // e passou a ser um segredo TOTP (RFC 6238), sem eco, com piso de 128
+    // bits de entropia, rotacionando por construcao a cada 30s.
+    // ControleDeDuasPessoas.SegredoConfiguradoValido/CodigoConfere sao as
+    // decisoes PURAS (mesmo padrao de AmbienteNaoInterativo no cenario 72),
+    // testadas por reflexao sem reabrir superficie publica nenhuma.
 
     {
-        var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
-            "PinDeDuasPessoasConfere", BindingFlags.NonPublic | BindingFlags.Static);
-        Checar("76a. PinDeDuasPessoasConfere existe, privado, estatico, devolve bool",
-            metodo is not null && metodo.ReturnType == typeof(bool) && !metodo.IsPublic);
+        var tipoControle = typeof(FerramentaDeResetDeEmergencia).Assembly
+            .GetType("CrmCartorio.Api.Infrastructure.Security.ControleDeDuasPessoas")
+            ?? throw new InvalidOperationException("ControleDeDuasPessoas nao encontrado.");
 
-        var pinCorreto76 = "pin-de-teste-76-" + Guid.NewGuid().ToString("N");
-        var hashDoPin76 = SegredosAleatoriosMfa.Sha256Hex(pinCorreto76);
+        var metodoValido = tipoControle.GetMethod("SegredoConfiguradoValido", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoConfere = tipoControle.GetMethod("CodigoConfere", BindingFlags.NonPublic | BindingFlags.Static);
+        var metodoFormatarAtor = tipoControle.GetMethod("FormatarAtorDeDuasPessoas", BindingFlags.NonPublic | BindingFlags.Static);
 
-        Checar("76b. PIN correto contra o hash configurado -> confere",
-            (bool)metodo!.Invoke(null, [pinCorreto76, hashDoPin76])!);
+        Checar("76a. SegredoConfiguradoValido e CodigoConfere existem, privados/internos, estaticos, devolvem bool",
+            metodoValido is not null && metodoValido.ReturnType == typeof(bool) && !metodoValido.IsPublic
+            && metodoConfere is not null && metodoConfere.ReturnType == typeof(bool) && !metodoConfere.IsPublic);
 
-        Checar("76c. PIN errado contra o mesmo hash -> NAO confere",
-            !(bool)metodo.Invoke(null, ["pin-errado-de-proposito", hashDoPin76])!);
+        var segredoValido76 = ValidadorDeTotp.GerarSegredoBase32();
+        Checar("76b. segredo TOTP recem-gerado (20 bytes / 160 bits, o padrao do projeto) e considerado valido",
+            (bool)metodoValido!.Invoke(null, [segredoValido76])!);
 
-        Checar("76d. sem hash configurado (nulo/vazio) -> NAO confere (falha fechada, comando nao roda sem configurar)",
-            !(bool)metodo.Invoke(null, [pinCorreto76, null])!
-            && !(bool)metodo.Invoke(null, [pinCorreto76, ""])!);
+        Checar("76c. segredo ausente/vazio -> INVALIDO (falha fechada, comando nao roda sem configurar)",
+            !(bool)metodoValido.Invoke(null, [(string?)null])!
+            && !(bool)metodoValido.Invoke(null, [""])!);
 
-        Checar("76e. hash configurado invalido (nao-hex) -> NAO confere (falha fechada, nunca lanca)",
-            !(bool)metodo.Invoke(null, [pinCorreto76, "isto-nao-e-hex-valido"])!);
+        Checar("76d. segredo curto demais (menos de 128 bits) -> INVALIDO mesmo sendo Base32 bem formado",
+            !(bool)metodoValido.Invoke(null, [Base32Encoding.ToString(new byte[10])])!); // 80 bits, abaixo do piso
 
-        var caminhoDoArquivo76 = Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeResetDeEmergencia.cs");
-        var codigoFonte76 = await File.ReadAllTextAsync(caminhoDoArquivo76);
+        Checar("76e. segredo mal formado (nao-Base32) -> INVALIDO, falha fechada, nunca lanca",
+            !(bool)metodoValido.Invoke(null, ["isto nao e base32 valido !!!"])!);
 
-        Checar("76f. o codigo-fonte le a configuracao Emergencia:HashDoPinDeDuasPessoas",
-            codigoFonte76.Contains("Emergencia:HashDoPinDeDuasPessoas"));
-        Checar("76g. o codigo-fonte de fato CHAMA PinDeDuasPessoasConfere dentro do fluxo interativo (nao so imprime mensagem)",
-            codigoFonte76.Contains("PinDeDuasPessoasConfere("));
+        var codigoCorreto76 = new Totp(Base32Encoding.ToBytes(segredoValido76)).ComputeTotp();
+        Checar("76f. codigo TOTP correto contra o segredo configurado -> confere",
+            (bool)metodoConfere!.Invoke(null, [segredoValido76, codigoCorreto76])!);
 
-        // Regressao posicional: a checagem do PIN precisa vir ANTES de
-        // qualquer conexao ao banco (CanConnectAsync) — duas pessoas
-        // presentes e precondicao do procedimento inteiro, nao so da
-        // gravacao final.
-        var posicaoDoPin76 = codigoFonte76.IndexOf("PinDeDuasPessoasConfere(", StringComparison.Ordinal);
-        var posicaoDoConnect76 = codigoFonte76.IndexOf("CanConnectAsync", StringComparison.Ordinal);
-        Checar("76h. a verificacao do PIN acontece ANTES de conectar ao banco (precondicao do procedimento inteiro)",
-            posicaoDoPin76 >= 0 && posicaoDoConnect76 >= 0 && posicaoDoPin76 < posicaoDoConnect76);
+        var codigoErrado76 = ((int.Parse(codigoCorreto76) + 500_000) % 1_000_000).ToString("D6");
+        Checar("76g. codigo TOTP errado (maxima distancia do correto, fora da janela de +-1 passo) -> NAO confere",
+            !(bool)metodoConfere.Invoke(null, [segredoValido76, codigoErrado76])!);
+
+        Checar("76h. mesmo com codigo certo, segredo configurado fraco (curto) -> NAO confere (piso de entropia vale tambem aqui)",
+            !(bool)metodoConfere.Invoke(null, [Base32Encoding.ToString(new byte[10]), codigoCorreto76])!);
+
+        // Identidade das duas pessoas, nunca segredo — e trunca no limite de
+        // EventosDeSeguranca.AtorExterno (NVARCHAR(120)).
+        var atorFormatado76 = (string)metodoFormatarAtor!.Invoke(null, ["operador@maquina", "Segundo Custodiante Teste"])!;
+        Checar("76i. FormatarAtorDeDuasPessoas junta as DUAS identidades, nunca um segredo",
+            atorFormatado76.Contains("operador@maquina") && atorFormatado76.Contains("Segundo Custodiante Teste")
+            && !atorFormatado76.Contains(segredoValido76) && !atorFormatado76.Contains(codigoCorreto76));
+
+        var atorLongo76 = (string)metodoFormatarAtor.Invoke(null, ["operador@maquina", new string('X', 300)])!;
+        Checar("76j. FormatarAtorDeDuasPessoas trunca no limite de AtorExterno (120 caracteres)",
+            atorLongo76.Length <= 120);
+
+        // Regressao de codigo-fonte: as DUAS ferramentas (break-glass e
+        // reemissao) precisam de fato CHAMAR o controle novo — nao so
+        // imprimir mensagem — e a checagem precisa vir ANTES de conectar ao
+        // banco (precondicao do procedimento inteiro, nao so da gravacao
+        // final). PinDeDuasPessoasConfere/HashDoPinDeDuasPessoas nao podem
+        // mais existir em lugar nenhum (regressao contra reintroduzir o
+        // mecanismo antigo).
+        foreach (var caminhoRelativo76 in new[]
+        {
+            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeResetDeEmergencia.cs"),
+            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeReemissaoDeTicketDeEmergencia.cs")
+        })
+        {
+            var rotulo76 = Path.GetFileNameWithoutExtension(caminhoRelativo76);
+            var codigoFonte76 = await File.ReadAllTextAsync(caminhoRelativo76);
+
+            Checar($"76k-{rotulo76}. chama ControleDeDuasPessoas.ConferirInterativo (nao so imprime mensagem)",
+                codigoFonte76.Contains("ControleDeDuasPessoas.ConferirInterativo("));
+
+            var posicaoDoControle76 = codigoFonte76.IndexOf("ControleDeDuasPessoas.ConferirInterativo(", StringComparison.Ordinal);
+            var posicaoDoConnect76 = codigoFonte76.IndexOf("CanConnectAsync", StringComparison.Ordinal);
+            Checar($"76l-{rotulo76}. o controle de duas pessoas acontece ANTES de conectar ao banco",
+                posicaoDoControle76 >= 0 && posicaoDoConnect76 >= 0 && posicaoDoControle76 < posicaoDoConnect76);
+
+            Checar($"76m-{rotulo76}. o mecanismo antigo (PIN/hash SHA-256 fixo) nao existe mais neste arquivo",
+                !codigoFonte76.Contains("PinDeDuasPessoasConfere") && !codigoFonte76.Contains("HashDoPinDeDuasPessoas"));
+        }
+
+        var codigoFonteControle76 = await File.ReadAllTextAsync(
+            Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "ControleDeDuasPessoas.cs"));
+        Checar("76n. o codigo-fonte le Console.ReadKey para o codigo do segundo custodiante (SEM eco — nunca ReadLine para o segredo)",
+            codigoFonteControle76.Contains("Console.ReadKey"));
+        Checar("76o. o codigo-fonte le a configuracao Emergencia:SegredoTotpDeDuasPessoas",
+            codigoFonteControle76.Contains("Emergencia:SegredoTotpDeDuasPessoas"));
+    }
+
+    // ------------------------------------------------------------ cenario 77
+    // BLOQUEADOR B20 (setima revisao independente) — reemissao de ticket
+    // DURANTE uma recuperacao de emergencia ja aberta: break-glass -> ticket
+    // antigo perdido/inutilizavel -> login continua bloqueado -> reemissao
+    // -> ticket antigo invalido -> novo ticket matricula -> flag limpa ->
+    // login volta. NUNCA reativa MFA nem libera login por si so.
+
+    {
+        async Task<ElegibilidadeDeEmergencia> TentarResetarDeEmergenciaViaReflexaoAsync77(
+            CrmDbContext db, string email, string hashDoNovoTicket, string motivo, string atorExterno)
+        {
+            var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
+                "TentarResetarDeEmergenciaAsync", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("TentarResetarDeEmergenciaAsync nao encontrado via reflexao.");
+            return await (Task<ElegibilidadeDeEmergencia>)metodo.Invoke(
+                null, [db, email, hashDoNovoTicket, motivo, atorExterno, CancellationToken.None])!;
+        }
+
+        async Task<ElegibilidadeDeReemissaoDeTicket> TentarReemitirTicketViaReflexaoAsync77(
+            CrmDbContext db, string email, string hashDoNovoTicket, string motivo, string atorExterno)
+        {
+            var metodo = typeof(FerramentaDeReemissaoDeTicketDeEmergencia).GetMethod(
+                "TentarReemitirTicketAsync", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("TentarReemitirTicketAsync nao encontrado via reflexao.");
+            return await (Task<ElegibilidadeDeReemissaoDeTicket>)metodo.Invoke(
+                null, [db, email, hashDoNovoTicket, motivo, atorExterno, CancellationToken.None])!;
+        }
+
+        async Task<Guid> NovoTenante77(string rotulo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var tenant = new Tenant
+            {
+                RazaoSocial = $"[TESTE SEC-03] Tenant isolado — reemissao ({rotulo})",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIdsDeTeste.Add(tenant.Id);
+            return tenant.Id;
+        }
+
+        async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada77(Guid tenantId, string rotulo, CargoNaServentia cargo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantId,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-77-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = cargo,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantId,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+
+            return (conta.Id, conta.Email, iniciado.SegredoBase32);
+        }
+
+        // Titular SOLITARIO — nenhum outro privilegiado, entao nem a
+        // elegibilidade do break-glass nem a da reemissao esbarram em
+        // ExisteAtorAptoParaResetNormal.
+        var tenant77 = await NovoTenante77("fluxo principal");
+        var titular77 = await ContaMatriculada77(tenant77, "77 - Titular preso", CargoNaServentia.Titular);
+
+        // 1 — abre a emergencia (break-glass).
+        var tokenTicketAntigo77 = SegredosAleatoriosMfa.NovoToken();
+        var hashTicketAntigo77 = SegredosAleatoriosMfa.Sha256Hex(tokenTicketAntigo77);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var resultado = await TentarResetarDeEmergenciaViaReflexaoAsync77(
+                db, titular77.Email, hashTicketAntigo77, "cenario 77 — abre a emergencia", "teste@verificador");
+            Checar("77-1. break-glass abre a emergencia normalmente", resultado == ElegibilidadeDeEmergencia.Elegivel);
+        }
+
+        var estadoAposBreakGlass77 = await Ler(titular77.Id);
+        Checar("77-1b. MfaAtivo=false e RematriculaObrigatoriaAposEmergencia=true logo apos o break-glass",
+            !estadoAposBreakGlass77.MfaAtivo && estadoAposBreakGlass77.RematriculaObrigatoriaAposEmergencia);
+
+        // 2 — "ticket antigo perdido/expirado": login continua bloqueado.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try { await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa)); }
+            catch (UsuariosServiceException ex) { falha = ex; }
+            Checar("77-2. login continua bloqueado enquanto o ticket antigo esta perdido/inutilizavel",
+                falha?.Codigo == "mfa_obrigatorio_nao_matriculado");
+        }
+
+        // Elegibilidade da REEMISSAO, exposta publicamente (sem reflexao).
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("77-3. FerramentaDeReemissaoDeTicketDeEmergencia reconhece a emergencia aberta como Elegivel",
+                await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, titular77.Email)
+                    == ElegibilidadeDeReemissaoDeTicket.Elegivel);
+        }
+
+        // 3 — reemissao.
+        var tokenTicketNovo77 = SegredosAleatoriosMfa.NovoToken();
+        ElegibilidadeDeReemissaoDeTicket resultadoReemissao77;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            resultadoReemissao77 = await TentarReemitirTicketViaReflexaoAsync77(
+                db, titular77.Email, SegredosAleatoriosMfa.Sha256Hex(tokenTicketNovo77),
+                "cenario 77 — ticket antigo perdido, reemitindo", "teste@verificador (segundo custodiante: Teste 77)");
+        }
+        Checar("77-4. reemissao reconhece elegibilidade e emite o ticket novo",
+            resultadoReemissao77 == ElegibilidadeDeReemissaoDeTicket.Elegivel);
+
+        // 4 — invariante: NUNCA reativa MFA, NUNCA desliga o sinalizador.
+        var estadoAposReemissao77 = await Ler(titular77.Id);
+        Checar("77-5. apos a reemissao, MfaAtivo CONTINUA false (reemissao nunca reativa MFA)",
+            !estadoAposReemissao77.MfaAtivo);
+        Checar("77-6. apos a reemissao, RematriculaObrigatoriaAposEmergencia CONTINUA true (reemissao nunca desliga o flag)",
+            estadoAposReemissao77.RematriculaObrigatoriaAposEmergencia);
+
+        // 5 — login CONTINUA bloqueado (reemissao nunca libera login por si so).
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try { await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa)); }
+            catch (UsuariosServiceException ex) { falha = ex; }
+            Checar("77-7. login CONTINUA bloqueado logo apos a reemissao (so a rematricula libera)",
+                falha?.Codigo == "mfa_obrigatorio_nao_matriculado");
+        }
+
+        // 6 — ticket ANTIGO invalidado pela reemissao.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
+                    new MatricularPrivilegiadoRequest(titular77.Email, SenhaBoa, tokenTicketAntigo77), null, default);
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+            Checar("77-8. o ticket ANTIGO (perdido) foi invalidado pela reemissao — nao matricula mais",
+                falha?.Codigo == "ticket_invalido");
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("77-8b. o desafio do ticket antigo esta marcado ConsumidoEm (nao so silenciosamente ignorado)",
+                await db.DesafiosDeMfa.AnyAsync(d => d.HashDoDesafio == hashTicketAntigo77 && d.ConsumidoEm != null));
+        }
+
+        // 7 — ticket NOVO matricula normalmente.
+        IniciarMfaResponse iniciadoRematricula77;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var mfa = NovoMfaService(db);
+            var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(titular77.Email, SenhaBoa, tokenTicketNovo77), null, default);
+            iniciadoRematricula77 = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessaoRematricula.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessaoRematricula.Desafio, CodigoTotp(iniciadoRematricula77.SegredoBase32, -1)), null, default);
+        }
+
+        var estadoPosRematricula77 = await Ler(titular77.Id);
+        Checar("77-9. rematricula com o ticket NOVO (reemitido) E POSSIVEL — MfaAtivo volta a true",
+            estadoPosRematricula77.MfaAtivo);
+        Checar("77-10. RematriculaObrigatoriaAposEmergencia volta a false so na confirmacao da matricula",
+            !estadoPosRematricula77.RematriculaObrigatoriaAposEmergencia);
+
+        // 8 — login volta.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var loginPosRematricula77 = await NovoAutenticacao(db, Guid.NewGuid())
+                .AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa));
+            Checar("77-11. SO DEPOIS da rematricula o login volta a funcionar (exigindo MFA de novo)",
+                loginPosRematricula77.RequerMfa);
+        }
+
+        // 9 — auditoria: evento proprio, exatamente uma vez, identidade das
+        // duas pessoas sem nenhum segredo/ticket/codigo nos campos.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var eventosDeReemissao = await db.EventosDeSeguranca
+                .Where(e => e.AtendenteId == titular77.Id && e.Tipo == TipoDeEventoDeSeguranca.TicketDeRematriculaReemitido)
+                .ToListAsync();
+
+            Checar("77-12. TicketDeRematriculaReemitido existe EXATAMENTE uma vez (evento proprio, nao ResetDeEmergencia de novo)",
+                eventosDeReemissao.Count == 1);
+
+            var camposAuditaveis77 = eventosDeReemissao.Count == 1
+                ? $"{eventosDeReemissao[0].Motivo} {eventosDeReemissao[0].AtorExterno}"
+                : string.Empty;
+            Checar("77-13. nenhuma credencial (senha/ticket antigo/ticket novo/TOTP) aparece nos campos auditaveis",
+                !camposAuditaveis77.Contains(SenhaBoa)
+                && !camposAuditaveis77.Contains(tokenTicketAntigo77)
+                && !camposAuditaveis77.Contains(tokenTicketNovo77)
+                && !camposAuditaveis77.Contains(iniciadoRematricula77.SegredoBase32));
+
+            var eventosDeResetOriginal77 = await db.EventosDeSeguranca
+                .Where(e => e.AtendenteId == titular77.Id && e.Tipo == TipoDeEventoDeSeguranca.ResetDeEmergencia)
+                .ToListAsync();
+            Checar("77-14. o ResetDeEmergencia original continua existindo EXATAMENTE uma vez (nao foi duplicado pela reemissao)",
+                eventosDeResetOriginal77.Count == 1);
+        }
+
+        // 10 — elegibilidade da reemissao RECUSA existeAtorApto (mesmo
+        // criterio do break-glass — cenario 74b/74c espelhado aqui).
+        var tenant77b = await NovoTenante77("ator apto — alvo Titular");
+        var titular77b = await ContaMatriculada77(tenant77b, "77b - Titular preso", CargoNaServentia.Titular);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await TentarResetarDeEmergenciaViaReflexaoAsync77(
+                db, titular77b.Email, SegredosAleatoriosMfa.Sha256Hex(SegredosAleatoriosMfa.NovoToken()),
+                "cenario 77b — abre emergencia", "teste@verificador");
+        }
+        // Outro Administrador+Titular com MFA aparece DEPOIS do break-glass —
+        // prova que a reemissao reconfere o estado ATUAL, nao um instantaneo antigo.
+        await ContaMatriculada77(tenant77b, "77b - outro Titular apto (surge depois)", CargoNaServentia.Titular);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("77-15. reemissao RECUSA quando surge um ator apto ao reset normal (mesmo com emergencia aberta)",
+                await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, titular77b.Email)
+                    == ElegibilidadeDeReemissaoDeTicket.ExisteAtorAptoParaResetNormal);
+        }
+
+        // 11 — reemissao RECUSA para conta comum que nunca passou por
+        // break-glass (nem matriculada, nem com o sinalizador ligado).
+        var tenant77c = await NovoTenante77("nunca passou por break-glass");
+        Guid contaComum77c;
+        string emailComum77c;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenant77c,
+                Nome = "[TESTE SEC-03] 77c - privilegiada nunca em emergencia",
+                Email = $"teste-sec-03-77-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = CargoNaServentia.Titular,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            contaComum77c = conta.Id;
+            emailComum77c = conta.Email;
+        }
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("77-16. reemissao RECUSA para conta que NUNCA passou por break-glass (MfaAtivo=false, flag=false)",
+                await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, emailComum77c)
+                    == ElegibilidadeDeReemissaoDeTicket.NaoEstaEmRecuperacaoDeEmergencia);
+        }
+        _ = contaComum77c;
+
+        // Conta normal, matriculada, MfaAtivo=true (nunca teve emergencia) —
+        // reemissao tambem recusa (nao ha o que reemitir).
+        var contaNormalMatriculada77d = await ContaMatriculada77(
+            await NovoTenante77("matriculada normal"), "77d - matriculada sem emergencia", CargoNaServentia.Titular);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("77-17. reemissao RECUSA para conta matriculada normalmente (MfaAtivo=true, nunca teve emergencia)",
+                await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, contaNormalMatriculada77d.Email)
+                    == ElegibilidadeDeReemissaoDeTicket.NaoEstaEmRecuperacaoDeEmergencia);
+        }
     }
 }
 finally

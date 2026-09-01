@@ -299,16 +299,43 @@ agora exige, além de conta ativa e privilegiada:
   MFA ativo no tenant e, se o alvo for `Cargo.Titular`, também `Cargo.Titular`.
   Se existir, o caminho normal resolve sozinho. Sem isto: `ExisteAtorAptoParaResetNormal`.
 
-**Controle de duas pessoas tecnicamente aplicado (bloqueador B18).** Antes,
-"duas pessoas devem estar presentes" era só uma mensagem impressa no
-console — sem nenhuma verificação técnica, uma pessoa sozinha com acesso SSH
-completava o procedimento inteiro. Agora o comando exige, **antes de
-conectar ao banco**, o PIN de um segundo custodiante — configurado como hash
-SHA-256 em `Emergencia:HashDoPinDeDuasPessoas`, custódia separada de quem
-tem acesso SSH ao servidor (mesmo modelo de `docs/BACKUP.md`). Sem essa
-configuração, o comando se recusa a rodar. Comparação em tempo constante
-(`CryptographicOperations.FixedTimeEquals`) — é, na prática, uma segunda
-credencial.
+**Controle de duas pessoas tecnicamente aplicado (bloqueador B18; mecanismo
+refeito no bloqueador B21, sétima revisão).** Antes de B18, "duas pessoas
+devem estar presentes" era só uma mensagem impressa no console — sem
+nenhuma verificação técnica. A primeira correção (B18) trocou isso por um
+PIN com hash SHA-256 — mas um PIN estático, digitado com
+`Console.ReadLine()` (ecoado no terminal: o operador SSH via o PIN na
+tela), continuava reutilizável indefinidamente pela mesma pessoa depois de
+uma única emergência legítima, e um hash direto de PIN humano de baixa
+entropia é atacável por força bruta offline se vazar. `ControleDeDuasPessoas`
+(`Infrastructure/Security/ControleDeDuasPessoas.cs`, compartilhado entre
+`FerramentaDeResetDeEmergencia` e `FerramentaDeReemissaoDeTicketDeEmergencia` —
+nunca uma cópia por ferramenta) substitui o PIN por um **segredo TOTP**
+(RFC 6238, o MESMO mecanismo já usado para o segundo fator de login):
+
+- **Sem eco** — o código é lido tecla a tecla (`Console.ReadKey`, nunca
+  `Console.ReadLine`), nunca aparece no terminal.
+- **≥128 bits de entropia** — o segredo configurado em
+  `Emergencia:SegredoTotpDeDuasPessoas` precisa decodificar (Base32) para
+  pelo menos 16 bytes; `ValidadorDeTotp.GerarSegredoBase32()` já produz 20
+  bytes (160 bits) por padrão. Ausente, mal formado ou curto demais falha
+  **fechado**.
+- **Rotação por construção, não por reescrita de configuração** — o código
+  muda a cada 30s (janela de ±1 passo, 90s de tolerância). Um operador que
+  observou o código USADO numa emergência não consegue reproduzi-lo semanas
+  depois sem o segredo em si — substitui "rotacionar o segredo após cada
+  uso" por um mecanismo equivalente que já é código maduro do projeto.
+- **Identidade das duas pessoas, nunca o segredo** — a identidade do
+  segundo custodiante (texto livre) é combinada com a identidade de quem
+  tem acesso SSH em `EventosDeSeguranca.AtorExterno`
+  (`ControleDeDuasPessoas.FormatarAtorDeDuasPessoas`) — nenhum segredo entra
+  nesse campo, só identidade.
+
+O segredo TOTP em si fica em configuração (mesmo nível de confiança que a
+chave AES do MFA e a chave do JWT — arquivo fora do controle de versão,
+custódia de servidor) — a garantia de B21 não é sobre onde o segredo mora,
+é sobre o código nunca ser reutilizável, nunca aparecer na tela, e nunca ser
+gerado/aceito com entropia insuficiente.
 
 **Rematrícula obrigatória, independente da política do tenant (bloqueador
 B19).** `Atendentes.RematriculaObrigatoriaAposEmergencia` (migration 036) é
@@ -329,6 +356,51 @@ elegibilidade recusando conta sem MFA ativo e conta com ator apto disponível
 (alvo Titular e alvo não-Titular); e o fluxo completo com a política do
 tenant DESLIGADA, provando que a rematrícula continua obrigatória mesmo
 assim.
+
+**Reemissão de ticket durante uma emergência já aberta (bloqueador B20,
+sétima revisão independente).** O ticket que o break-glass emite tem TTL de
+24h. Se for perdido, expirar, ou ficar inutilizável antes da rematrícula, o
+alvo fica preso de NOVO — o break-glass original agora recusa por
+`ContaSemMfaAtivo` (já é `false`), o bootstrap continua fechado, o
+Administrador não-Titular continua proibido de resetar/emitir para o
+Titular, e o login continua bloqueado por
+`RematriculaObrigatoriaAposEmergencia`. Mesmo deadlock de novo.
+`FerramentaDeReemissaoDeTicketDeEmergencia`
+(`Infrastructure/Security/FerramentaDeReemissaoDeTicketDeEmergencia.cs`):
+
+```bash
+dotnet CrmCartorio.Api.dll --reemitir-ticket-de-emergencia
+```
+
+Invariante que autoriza a reemissão — nunca reativa MFA, nunca desliga
+`RematriculaObrigatoriaAposEmergencia`, nunca libera login, só troca o
+ticket:
+
+```text
+MfaAtivo = false
+E RematriculaObrigatoriaAposEmergencia = true
+E nenhum ator normal apto (mesmo critério do break-glass —
+  FerramentaDeResetDeEmergencia.ExisteAtorAptoParaResetNormalAsync,
+  extraído e compartilhado entre as duas ferramentas)
+E controle técnico de duas pessoas válido
+=> pode invalidar ticket/desafio de rematrícula anterior e emitir um novo
+```
+
+Mesma disciplina das outras duas ferramentas: só CLI/manual (sem endpoint
+HTTP), só interativo, mesmo `ControleDeDuasPessoas`, motivo obrigatório,
+atômica (`SERIALIZABLE`, reconfere elegibilidade no instante da gravação).
+Auditada com o **próprio** tipo de evento
+(`EventosDeSeguranca.TicketDeRematriculaReemitido` — migration `037`,
+alarga `CK_EventosDeSeguranca_Tipo` para `1..11`; **não** reusa
+`ResetDeEmergencia`, para um auditor conseguir distinguir "uma emergência
+foi aberta" de "um ticket foi reemitido dentro de uma emergência já
+aberta"). Recusa (`NaoEstaEmRecuperacaoDeEmergencia`) para qualquer conta
+que não esteja numa recuperação de emergência aberta — nunca um segundo
+caminho de matrícula para quem nunca passou por break-glass.
+
+Certificado em `CRM_Cartorio_Dev`: break-glass → ticket antigo perdido/
+expirado → login continua bloqueado → reemissão → ticket antigo inválido →
+novo ticket matricula → sinalizador limpa → login volta.
 
 ### O que ainda não existe
 

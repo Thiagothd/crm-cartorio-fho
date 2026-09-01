@@ -1,5 +1,4 @@
 using System.Data;
-using System.Security.Cryptography;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
@@ -102,10 +101,13 @@ public enum ElegibilidadeDeEmergencia
 /// executar <c>MfaService.ResetarAsync</c> normalmente (outro Administrador
 /// com MFA — Titular também, se o alvo for Titular).</item>
 /// <item><b>Controle de duas pessoas tecnicamente aplicado</b>, não só uma
-/// mensagem de console — exige o PIN de um segundo custodiante
-/// (<c>Emergencia:HashDoPinDeDuasPessoas</c>, hash SHA-256, custódia
-/// separada de quem tem acesso SSH, mesmo modelo de <c>docs/BACKUP.md</c>).
-/// Sem essa configuração, o comando se recusa a rodar.</item>
+/// mensagem de console — exige o código TOTP (sem eco, ≥128 bits de
+/// entropia no segredo configurado) de um segundo custodiante, verificado
+/// por <see cref="ControleDeDuasPessoas"/> (bloqueador B21, sétima revisão
+/// independente — substituiu o PIN estático da revisão anterior, que
+/// aparecia ecoado no terminal e ficava reutilizável indefinidamente pelo
+/// próprio operador SSH). Sem essa configuração, o comando se recusa a
+/// rodar.</item>
 /// </list>
 /// </remarks>
 public static class FerramentaDeResetDeEmergencia
@@ -140,22 +142,31 @@ public static class FerramentaDeResetDeEmergencia
 
         if (!atendente.MfaAtivo) return ElegibilidadeDeEmergencia.ContaSemMfaAtivo;
 
-        // O MESMO criterio que MfaService.ResetarAsync realmente exige de um
-        // ator: Administrador ativo com MFA ativo — e, se o alvo for
-        // Titular, tambem Cargo == Titular (GarantirTitularProtegido). Se
-        // existir, o reset normal (com step-up desse ator) resolve sozinho.
-        var existeAtorApto = await db.Atendentes.AsNoTracking()
+        return await ExisteAtorAptoParaResetNormalAsync(db, atendente, ct)
+            ? ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal
+            : ElegibilidadeDeEmergencia.Elegivel;
+    }
+
+    /// <summary>
+    /// O MESMO critério que <c>MfaService.ResetarAsync</c> realmente exige de
+    /// um ator: Administrador ativo com MFA ativo — e, se o alvo for
+    /// Titular, também <c>Cargo == Titular</c> (<c>GarantirTitularProtegido</c>).
+    /// Se existir, o caminho normal (com step-up desse ator) resolve sozinho
+    /// — nem o break-glass, nem a reemissão de ticket
+    /// (<see cref="FerramentaDeReemissaoDeTicketDeEmergencia"/>) devem
+    /// prosseguir. <c>internal</c> especificamente para ser compartilhado
+    /// entre as duas ferramentas sem duplicar a consulta — nunca reaberto ao
+    /// público.
+    /// </summary>
+    internal static Task<bool> ExisteAtorAptoParaResetNormalAsync(
+        CrmDbContext db, Atendente atendente, CancellationToken ct) =>
+        db.Atendentes.AsNoTracking()
             .AnyAsync(a => a.TenantId == atendente.TenantId
                         && a.Id != atendente.Id
                         && a.Ativo
                         && a.MfaAtivo
                         && a.Perfil == PerfilDeAtendente.Administrador
                         && (atendente.Cargo != CargoNaServentia.Titular || a.Cargo == CargoNaServentia.Titular), ct);
-
-        return existeAtorApto
-            ? ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal
-            : ElegibilidadeDeEmergencia.Elegivel;
-    }
 
     /// <summary>
     /// Núcleo atômico — reconfere a elegibilidade no instante exato da
@@ -282,42 +293,6 @@ public static class FerramentaDeResetDeEmergencia
         || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null
         || Environment.GetEnvironmentVariable("CI") is not null;
 
-    /// <summary>
-    /// CORRECAO (bloqueador B18, sexta revisão independente) — decisão PURA
-    /// (sem efeito colateral) do controle de duas pessoas: confere o PIN
-    /// digitado por um SEGUNDO custodiante (custódia separada de quem tem
-    /// acesso SSH ao servidor — mesmo modelo de <c>docs/BACKUP.md</c>)
-    /// contra o hash SHA-256 configurado em
-    /// <c>Emergencia:HashDoPinDeDuasPessoas</c>. Antes desta correção, a
-    /// exigência de "duas pessoas presentes" era só uma mensagem impressa no
-    /// console, sem nenhuma verificação técnica — qualquer pessoa sozinha
-    /// com acesso SSH conseguia digitar "RESETAR" e concluir o procedimento
-    /// inteira sozinha. Extraída como método puro, testável por reflexão,
-    /// sem reabrir superfície pública nenhuma — permanece <c>private</c>.
-    /// Comparação em tempo constante (<see cref="CryptographicOperations.FixedTimeEquals"/>)
-    /// porque é, na prática, uma segunda credencial.
-    /// </summary>
-    private static bool PinDeDuasPessoasConfere(string pinDigitado, string? hashConfigurado)
-    {
-        if (string.IsNullOrWhiteSpace(hashConfigurado))
-        {
-            return false;
-        }
-
-        var calculado = SegredosAleatoriosMfa.Sha256Hex((pinDigitado ?? string.Empty).Trim());
-
-        try
-        {
-            return CryptographicOperations.FixedTimeEquals(
-                Convert.FromHexString(calculado), Convert.FromHexString(hashConfigurado.Trim()));
-        }
-        catch (FormatException)
-        {
-            // Hash configurado nao e hex valido — falha fechada, nunca abre.
-            return false;
-        }
-    }
-
     public static async Task<int> ExecutarAsync(IConfiguration configuracao)
     {
         Console.WriteLine("=== CRM-Cartorio — RESET DE EMERGENCIA de MFA (SEC-03, break-glass) ===");
@@ -332,31 +307,15 @@ public static class FerramentaDeResetDeEmergencia
             return 1;
         }
 
-        // CORRECAO (bloqueador B18, sexta revisao independente) — controle
-        // de DUAS PESSOAS tecnicamente aplicado, nao so uma mensagem no
-        // console: exige o PIN de um segundo custodiante, com custodia
-        // separada de quem tem acesso SSH (ver docs/BACKUP.md). Checado
-        // ANTES de qualquer conexao a banco ou consulta de elegibilidade —
-        // sem as duas pessoas presentes, o procedimento nem comeca.
-        var hashDoPinDeDuasPessoas = configuracao["Emergencia:HashDoPinDeDuasPessoas"];
-        if (string.IsNullOrWhiteSpace(hashDoPinDeDuasPessoas))
+        // CORRECAO (bloqueador B18, preservada; mecanismo trocado no
+        // bloqueador B21, setima revisao independente) — controle de DUAS
+        // PESSOAS tecnicamente aplicado, nao so uma mensagem no console.
+        // Checado ANTES de qualquer conexao a banco ou consulta de
+        // elegibilidade — sem as duas pessoas presentes, o procedimento nem
+        // comeca.
+        var (duasPessoasOk, identidadeDoCustodiante) = ControleDeDuasPessoas.ConferirInterativo(configuracao);
+        if (!duasPessoasOk)
         {
-            Console.WriteLine(
-                "RECUSADO: controle de duas pessoas nao configurado " +
-                "(Emergencia:HashDoPinDeDuasPessoas ausente). Este comando nao roda sem ele.");
-            return 1;
-        }
-
-        Console.WriteLine();
-        Console.WriteLine("Este procedimento exige DUAS PESSOAS presentes: quem executa este");
-        Console.WriteLine("comando (acesso SSH) e um segundo custodiante, com o PIN de emergencia");
-        Console.WriteLine("em custodia separada (docs/BACKUP.md) — nunca a mesma pessoa.");
-        Console.Write("PIN do segundo custodiante: ");
-        var pinDigitado = Console.ReadLine() ?? string.Empty;
-
-        if (!PinDeDuasPessoasConfere(pinDigitado, hashDoPinDeDuasPessoas))
-        {
-            Console.WriteLine("RECUSADO: PIN do segundo custodiante incorreto ou ausente.");
             return 1;
         }
 
@@ -437,7 +396,11 @@ public static class FerramentaDeResetDeEmergencia
             return 1;
         }
 
-        var atorExterno = $"{Environment.UserName}@{Environment.MachineName}";
+        // Identidade das DUAS pessoas em AtorExterno — nunca o segredo de
+        // nenhuma delas.
+        var atorExterno = ControleDeDuasPessoas.FormatarAtorDeDuasPessoas(
+            $"{Environment.UserName}@{Environment.MachineName}", identidadeDoCustodiante!);
+
         string tokenEmClaro;
         try
         {

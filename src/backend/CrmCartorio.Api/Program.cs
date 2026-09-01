@@ -59,6 +59,23 @@ if (args.Contains("--reset-de-emergencia"))
     return await FerramentaDeResetDeEmergencia.ExecutarAsync(configuracaoDeEmergencia);
 }
 
+// SEC-03 — reemissao de ticket DURANTE uma recuperacao de emergencia ja
+// aberta (bloqueador B20, setima revisao independente): o ticket que o
+// break-glass emitiu foi perdido, expirou, ou ficou inutilizavel antes da
+// rematricula. Mesma disciplina dos dois comandos acima; ver
+// FerramentaDeReemissaoDeTicketDeEmergencia — nunca reativa o MFA, nunca
+// libera login, so troca o ticket.
+if (args.Contains("--reemitir-ticket-de-emergencia"))
+{
+    var configuracaoDeReemissao = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeReemissaoDeTicketDeEmergencia.ExecutarAsync(configuracaoDeReemissao);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- configuracao

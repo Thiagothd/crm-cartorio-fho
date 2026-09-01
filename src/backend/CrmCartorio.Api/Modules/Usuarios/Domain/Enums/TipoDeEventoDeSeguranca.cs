@@ -15,5 +15,18 @@ public enum TipoDeEventoDeSeguranca : byte
     BloqueioDeMfaPorFalhas = 7,
     TicketDeMatriculaEmitido = 8,
     TicketDeBootstrapEmitido = 9,
-    PoliticaDeMfaAtivada = 10
+    PoliticaDeMfaAtivada = 10,
+
+    /// <summary>
+    /// SEC-03 (bloqueador B20, sétima revisão independente) — reemissão de
+    /// ticket de rematrícula DURANTE uma recuperação de emergência já
+    /// aberta (o ticket original do break-glass foi perdido, expirou ou
+    /// ficou inutilizável antes da rematrícula). Distinto de
+    /// <see cref="ResetDeEmergencia"/> de propósito: nada sobre o estado de
+    /// MFA do alvo muda aqui (continua desativado, a rematrícula continua
+    /// obrigatória) — só um ticket novo é emitido. Conflar os dois no mesmo
+    /// tipo esconderia, de um auditor, quantas vezes uma emergência precisou
+    /// de reemissão (sinal de TTL curto demais ou processo lento).
+    /// </summary>
+    TicketDeRematriculaReemitido = 11
 }
