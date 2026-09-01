@@ -94,7 +94,11 @@ public class AutenticacaoService(
             // Momento 2 — hipotese, sem autoridade.
             var estado = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == atendente.Id)
-                .Select(a => new { a.TenantId, a.TokenVersion, a.MfaAtivo, a.Perfil, a.Cargo, a.Ativo })
+                .Select(a => new
+                {
+                    a.TenantId, a.TokenVersion, a.MfaAtivo, a.Perfil, a.Cargo, a.Ativo,
+                    a.RematriculaObrigatoriaAposEmergencia
+                })
                 .FirstOrDefaultAsync(ct);
 
             if (estado is null || !estado.Ativo)
@@ -105,7 +109,14 @@ public class AutenticacaoService(
 
             var politicaExige = await PoliticaDeMfa.ExigeAsync(db, estado.TenantId, estado.Perfil, estado.Cargo, ct);
 
-            if (!estado.MfaAtivo && politicaExige)
+            // CORRECAO (bloqueador B19, sexta revisao independente): a
+            // exigencia de rematricula depois de um reset de emergencia
+            // (break-glass) e POR CONTA, independente da politica do tenant
+            // (`politicaExige`). Sem isto, um tenant com
+            // MfaObrigatorioParaAdministradores desligado deixava a conta
+            // resetada por break-glass logar so com senha, nunca passando
+            // pelo ticket de rematricula que o proprio break-glass emitiu.
+            if (!estado.MfaAtivo && (politicaExige || estado.RematriculaObrigatoriaAposEmergencia))
             {
                 throw UsuariosServiceException.MfaObrigatorioNaoMatriculado();
             }
@@ -127,6 +138,7 @@ public class AutenticacaoService(
                          && a.Ativo
                          && a.TokenVersion == estado.TokenVersion
                          && !a.MfaAtivo
+                         && !a.RematriculaObrigatoriaAposEmergencia
                          && !db.Tenants.Any(t => t.Id == a.TenantId
                                               && t.MfaObrigatorioParaAdministradores
                                               && (a.Perfil == Domain.Enums.PerfilDeAtendente.Administrador

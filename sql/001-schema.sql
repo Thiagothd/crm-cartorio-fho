@@ -214,6 +214,14 @@ CREATE TABLE dbo.Atendentes
     MfaNivelDeBloqueio        TINYINT          NOT NULL CONSTRAINT DF_Atendentes_MfaNivelDeBloqueio DEFAULT (0),
     MfaBloqueadoAte           DATETIME2(3)     NULL,
 
+    -- RematriculaObrigatoriaAposEmergencia (migration 036) — true quando o
+    -- reset de emergencia (break-glass) removeu o MFA desta conta. Bloqueia
+    -- login so-senha INDEPENDENTE da politica obrigatoria do tenant, ate a
+    -- conta concluir uma matricula nova com o ticket que o proprio
+    -- break-glass emitiu. Volta a 0 so na confirmacao bem-sucedida dessa
+    -- matricula.
+    RematriculaObrigatoriaAposEmergencia BIT NOT NULL CONSTRAINT DF_Atendentes_RematriculaObrigatoriaAposEmergencia DEFAULT (0),
+
     UltimoAcessoEm DATETIME2(3)     NULL,
     CriadoEm       DATETIME2(3)     NOT NULL,
     AtualizadoEm   DATETIME2(3)     NOT NULL,

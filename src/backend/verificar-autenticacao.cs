@@ -5274,6 +5274,338 @@ try
                     .Select(t => t.MfaObrigatorioParaAdministradores).SingleAsync());
         }
     }
+
+    // ------------------------------------------------------------ cenario 74
+    // BLOQUEADOR B18 (sexta revisao independente) — break-glass exclusivamente
+    // como saida de deadlock: exige MFA ATUALMENTE ativo no alvo, e recusa
+    // quando existe outro ator apto a executar o reset NORMAL (outro
+    // Administrador com MFA — Titular tambem, se o alvo for Titular).
+
+    {
+        // Cada sub-teste ganha o PROPRIO tenant isolado — de proposito: a
+        // regra nova (existeAtorApto) e "existe OUTRO privilegiado apto NO
+        // MESMO TENANT". Compartilhar um unico tenant entre 74a-74d faria os
+        // administradores criados para PROVAR uma recusa (74b/74c) vazarem
+        // para o controle positivo (74d) e o fazerem falhar por um motivo
+        // that nao e o que o teste pretende provar.
+        async Task<Guid> NovoTenante74(string rotulo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var tenant = new Tenant
+            {
+                RazaoSocial = $"[TESTE SEC-03] Tenant isolado — break-glass elegibilidade ({rotulo})",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIdsDeTeste.Add(tenant.Id);
+            return tenant.Id;
+        }
+
+        async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada74(Guid tenantId, string rotulo, CargoNaServentia cargo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantId,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-74-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = cargo,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantId,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+
+            return (conta.Id, conta.Email, iniciado.SegredoBase32);
+        }
+
+        /// <summary>Privilegiada, ATIVA, mas NUNCA passou pelo ticket — MfaAtivo continua false.</summary>
+        async Task<(Guid Id, string Email)> ContaSemMfa74(Guid tenantId, string rotulo, CargoNaServentia cargo)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantId,
+                Nome = $"[TESTE SEC-03] {rotulo}",
+                Email = $"teste-sec-03-74-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = cargo,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            return (conta.Id, conta.Email);
+        }
+
+        // 74a — MfaAtivo=false no alvo: nao e um caso de break-glass (quem
+        // nunca se matriculou tem bootstrap/ticket normal a disposicao).
+        var tenant74a = await NovoTenante74("74a");
+        var semMfa74a = await ContaSemMfa74(tenant74a, "74a - privilegiada sem MFA", CargoNaServentia.Titular);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("74a. alvo sem MFA ativo -> ContaSemMfaAtivo (nao e caso de break-glass)",
+                await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, semMfa74a.Email)
+                    == ElegibilidadeDeEmergencia.ContaSemMfaAtivo);
+        }
+
+        // 74b — alvo TITULAR com outro Administrador+Titular ja matriculado
+        // com MFA: o caminho NORMAL resolve sozinho, break-glass recusa.
+        var tenant74b = await NovoTenante74("74b");
+        var titular74b = await ContaMatriculada74(tenant74b, "74b - Titular com saida normal", CargoNaServentia.Titular);
+        var outroTitularApto74b = await ContaMatriculada74(tenant74b, "74b - outro Titular apto", CargoNaServentia.Titular);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("74b. alvo Titular com outro Administrador+Titular apto -> ExisteAtorAptoParaResetNormal",
+                await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, titular74b.Email)
+                    == ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal);
+        }
+
+        // 74c — alvo NAO-Titular com qualquer outro Administrador com MFA
+        // (nao precisa ser Titular): caminho normal resolve, break-glass recusa.
+        var tenant74c = await NovoTenante74("74c");
+        var admin74c = await ContaMatriculada74(tenant74c, "74c - Administrador com saida normal", CargoNaServentia.Substituto);
+        var outroAdminApto74c = await ContaMatriculada74(tenant74c, "74c - outro Administrador apto", CargoNaServentia.Substituto);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("74c. alvo nao-Titular com outro Administrador apto (nao precisa ser Titular) -> ExisteAtorAptoParaResetNormal",
+                await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, admin74c.Email)
+                    == ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal);
+        }
+
+        // 74d — controle positivo: alvo nao-Titular com outro Administrador
+        // presente, mas SEM MFA ativo (nao apto) -> continua Elegivel.
+        var tenant74d = await NovoTenante74("74d");
+        var admin74d = await ContaMatriculada74(tenant74d, "74d - Administrador preso", CargoNaServentia.Substituto);
+        var outroSemMfa74d = await ContaSemMfa74(tenant74d, "74d - outro Administrador sem MFA (nao apto)", CargoNaServentia.Substituto);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            _ = outroSemMfa74d;
+            Checar("74d. outro Administrador presente mas SEM MFA ativo nao bloqueia -> continua Elegivel",
+                await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, admin74d.Email)
+                    == ElegibilidadeDeEmergencia.Elegivel);
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 75
+    // BLOQUEADOR B19 (sexta revisao independente) — apos o break-glass a
+    // conta fica sem login ATE a rematricula, INDEPENDENTE da politica do
+    // tenant. O cenario 73 ligava a politica antes do reset, o que mascarava
+    // este bloqueador (a recusa acontecia por causa da politica, nao do
+    // sinalizador novo). Este cenario roda com a politica DESLIGADA o tempo
+    // todo, provando que e o sinalizador por conta — nao a politica — quem
+    // bloqueia o login so-senha.
+
+    {
+        async Task<ElegibilidadeDeEmergencia> TentarResetarDeEmergenciaViaReflexaoAsync75(
+            CrmDbContext db, string email, string hashDoNovoTicket, string motivo, string atorExterno)
+        {
+            var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
+                "TentarResetarDeEmergenciaAsync", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("TentarResetarDeEmergenciaAsync nao encontrado via reflexao.");
+
+            var tarefa = (Task<ElegibilidadeDeEmergencia>)metodo.Invoke(
+                null, [db, email, hashDoNovoTicket, motivo, atorExterno, CancellationToken.None])!;
+
+            return await tarefa;
+        }
+
+        Guid tenantIsolado75;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — break-glass politica OFF (75)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado75 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado75);
+
+        // Titular SOLITARIO no tenant — nenhum outro privilegiado, entao a
+        // elegibilidade do break-glass nao esbarra em ExisteAtorAptoParaResetNormal.
+        Guid contaId75; string email75; string segredo75;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado75,
+                Nome = "[TESTE SEC-03] 75 - Titular solitario",
+                Email = $"teste-sec-03-75-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Cargo = CargoNaServentia.Titular,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado75,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            contaId75 = conta.Id;
+            email75 = conta.Email;
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+            segredo75 = iniciado.SegredoBase32;
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            Checar("75-preparo. politica obrigatoria do tenant continua DESLIGADA (controle do cenario)",
+                !await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado75)
+                    .Select(t => t.MfaObrigatorioParaAdministradores).SingleAsync());
+        }
+
+        var tokenNovoDeRematricula75 = SegredosAleatoriosMfa.NovoToken();
+        ElegibilidadeDeEmergencia resultadoBreakGlass75;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            resultadoBreakGlass75 = await TentarResetarDeEmergenciaViaReflexaoAsync75(
+                db, email75, SegredosAleatoriosMfa.Sha256Hex(tokenNovoDeRematricula75),
+                "teste automatizado do cenario 75 — break-glass com politica OFF", "teste@verificador");
+        }
+
+        Checar("75-1. break-glass reconhece elegibilidade mesmo sem nenhum outro privilegiado no tenant",
+            resultadoBreakGlass75 == ElegibilidadeDeEmergencia.Elegivel);
+
+        var estadoPosBreakGlass75 = await Ler(contaId75);
+        Checar("75-2. MFA removido pelo break-glass (MfaAtivo=false)", !estadoPosBreakGlass75.MfaAtivo);
+        Checar("75-3. RematriculaObrigatoriaAposEmergencia = true logo apos o break-glass",
+            estadoPosBreakGlass75.RematriculaObrigatoriaAposEmergencia);
+
+        // O NUCLEO do bloqueador B19: politica do tenant DESLIGADA, mas o
+        // login so-senha AINDA ASSIM tem que ser recusado — e o sinalizador
+        // por conta, nao a politica, quem decide aqui.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falha = null;
+            try
+            {
+                await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(email75, SenhaBoa));
+            }
+            catch (UsuariosServiceException ex) { falha = ex; }
+
+            Checar("75-4. com a politica DESLIGADA, login so-senha e RECUSADO apos o break-glass (mfa_obrigatorio_nao_matriculado)",
+                falha?.Codigo == "mfa_obrigatorio_nao_matriculado");
+        }
+
+        // Rematricula com o ticket que o proprio break-glass emitiu.
+        IniciarMfaResponse iniciadoRematricula75;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var mfa = NovoMfaService(db);
+            var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(email75, SenhaBoa, tokenNovoDeRematricula75), null, default);
+            iniciadoRematricula75 = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessaoRematricula.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessaoRematricula.Desafio, CodigoTotp(iniciadoRematricula75.SegredoBase32, -1)), null, default);
+        }
+
+        var estadoPosRematricula75 = await Ler(contaId75);
+        Checar("75-5. rematricula com o ticket do break-glass E POSSIVEL (MfaAtivo volta a true)",
+            estadoPosRematricula75.MfaAtivo);
+        Checar("75-6. RematriculaObrigatoriaAposEmergencia volta a false so na confirmacao da matricula nova",
+            !estadoPosRematricula75.RematriculaObrigatoriaAposEmergencia);
+
+        // SO DEPOIS da rematricula o login volta a funcionar — e volta a
+        // exigir MFA de novo (nunca vira login so-senha so porque a politica
+        // esta desligada: MfaAtivo=true sempre pede o segundo fator).
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var loginDepoisDaRematricula75 = await NovoAutenticacao(db, Guid.NewGuid())
+                .AutenticarAsync(new LoginRequest(email75, SenhaBoa));
+
+            Checar("75-7. SO DEPOIS da rematricula o login volta a funcionar, exigindo MFA de novo",
+                loginDepoisDaRematricula75.RequerMfa);
+        }
+
+        _ = segredo75;
+    }
+
+    // ------------------------------------------------------------ cenario 76
+    // BLOQUEADOR B18 (sexta revisao independente) — controle de DUAS PESSOAS
+    // do break-glass tecnicamente aplicado, nao so uma mensagem de console.
+    // PinDeDuasPessoasConfere e a decisao PURA (extraida de proposito, mesmo
+    // padrao de AmbienteNaoInterativo no cenario 72) — testada por reflexao
+    // sem reabrir nenhuma superficie publica.
+
+    {
+        var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
+            "PinDeDuasPessoasConfere", BindingFlags.NonPublic | BindingFlags.Static);
+        Checar("76a. PinDeDuasPessoasConfere existe, privado, estatico, devolve bool",
+            metodo is not null && metodo.ReturnType == typeof(bool) && !metodo.IsPublic);
+
+        var pinCorreto76 = "pin-de-teste-76-" + Guid.NewGuid().ToString("N");
+        var hashDoPin76 = SegredosAleatoriosMfa.Sha256Hex(pinCorreto76);
+
+        Checar("76b. PIN correto contra o hash configurado -> confere",
+            (bool)metodo!.Invoke(null, [pinCorreto76, hashDoPin76])!);
+
+        Checar("76c. PIN errado contra o mesmo hash -> NAO confere",
+            !(bool)metodo.Invoke(null, ["pin-errado-de-proposito", hashDoPin76])!);
+
+        Checar("76d. sem hash configurado (nulo/vazio) -> NAO confere (falha fechada, comando nao roda sem configurar)",
+            !(bool)metodo.Invoke(null, [pinCorreto76, null])!
+            && !(bool)metodo.Invoke(null, [pinCorreto76, ""])!);
+
+        Checar("76e. hash configurado invalido (nao-hex) -> NAO confere (falha fechada, nunca lanca)",
+            !(bool)metodo.Invoke(null, [pinCorreto76, "isto-nao-e-hex-valido"])!);
+
+        var caminhoDoArquivo76 = Path.Combine("CrmCartorio.Api", "Infrastructure", "Security", "FerramentaDeResetDeEmergencia.cs");
+        var codigoFonte76 = await File.ReadAllTextAsync(caminhoDoArquivo76);
+
+        Checar("76f. o codigo-fonte le a configuracao Emergencia:HashDoPinDeDuasPessoas",
+            codigoFonte76.Contains("Emergencia:HashDoPinDeDuasPessoas"));
+        Checar("76g. o codigo-fonte de fato CHAMA PinDeDuasPessoasConfere dentro do fluxo interativo (nao so imprime mensagem)",
+            codigoFonte76.Contains("PinDeDuasPessoasConfere("));
+
+        // Regressao posicional: a checagem do PIN precisa vir ANTES de
+        // qualquer conexao ao banco (CanConnectAsync) — duas pessoas
+        // presentes e precondicao do procedimento inteiro, nao so da
+        // gravacao final.
+        var posicaoDoPin76 = codigoFonte76.IndexOf("PinDeDuasPessoasConfere(", StringComparison.Ordinal);
+        var posicaoDoConnect76 = codigoFonte76.IndexOf("CanConnectAsync", StringComparison.Ordinal);
+        Checar("76h. a verificacao do PIN acontece ANTES de conectar ao banco (precondicao do procedimento inteiro)",
+            posicaoDoPin76 >= 0 && posicaoDoConnect76 >= 0 && posicaoDoPin76 < posicaoDoConnect76);
+    }
 }
 finally
 {

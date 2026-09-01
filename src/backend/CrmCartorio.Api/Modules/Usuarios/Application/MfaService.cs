@@ -940,6 +940,14 @@ public class MfaService(
                 .SetProperty(a => a.MfaFalhasConsecutivas, 0)
                 .SetProperty(a => a.MfaNivelDeBloqueio, (byte)0)
                 .SetProperty(a => a.MfaBloqueadoAte, (DateTime?)null)
+                // CORRECAO (bloqueador B19, sexta revisao independente): toda
+                // confirmacao bem-sucedida libera a exigencia de rematricula
+                // pos-emergencia, no MESMO UPDATE que reativa o MFA — nao ha
+                // distincao entre "confirmando com o ticket do break-glass" e
+                // qualquer outra confirmacao, porque o proprio ticket ja e a
+                // prova de quem autorizou. Contas que nunca passaram por
+                // break-glass ja nascem com este campo em false (no-op).
+                .SetProperty(a => a.RematriculaObrigatoriaAposEmergencia, false)
                 // CORRECAO (bloqueador 14): grava UltimoAcessoEm no MESMO
                 // UPDATE que de fato confirma o MFA — antes disto so existia
                 // na entidade em memoria usada pra montar a resposta,

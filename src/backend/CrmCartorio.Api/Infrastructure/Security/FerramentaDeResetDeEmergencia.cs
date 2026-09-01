@@ -1,4 +1,5 @@
 using System.Data;
+using System.Security.Cryptography;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
@@ -24,7 +25,26 @@ public enum ElegibilidadeDeEmergencia
     Elegivel,
     ContaInexistente,
     ContaInativa,
-    NaoPrivilegiada
+    NaoPrivilegiada,
+
+    /// <summary>
+    /// CORRECAO (bloqueador B18, sexta revisao independente) — a conta alvo
+    /// nao tem MFA ativo no banco. Break-glass nao e um emissor alternativo
+    /// de ticket para quem simplesmente ainda nao se matriculou: essa conta
+    /// ja tem o bootstrap (se for a primeira do tenant) ou o fluxo normal de
+    /// ticket (step-up de outro privilegiado ja matriculado) a disposicao.
+    /// </summary>
+    ContaSemMfaAtivo,
+
+    /// <summary>
+    /// CORRECAO (bloqueador B18, sexta revisao independente) — existe outro
+    /// Administrador (Titular tambem, se o alvo for Titular) ativo e com MFA
+    /// ativo no mesmo tenant, capaz de executar
+    /// <c>MfaService.ResetarAsync</c> normalmente. Break-glass e SO a saida
+    /// de um deadlock real, nunca um atalho quando o caminho normal ja
+    /// resolve.
+    /// </summary>
+    ExisteAtorAptoParaResetNormal
 }
 
 /// <summary>
@@ -66,11 +86,26 @@ public enum ElegibilidadeDeEmergencia
 /// bootstrap.</item>
 /// <item><b>Não</b> exige que o tenant esteja "sem ninguém matriculado" —
 /// ao contrário do bootstrap, funciona mesmo com outros privilegiados já
-/// com MFA ativo, porque é exatamente esse o cenário que precisa resolver.</item>
+/// com MFA ativo, DESDE QUE nenhum deles seja capaz de resolver pelo
+/// caminho normal (ver <see cref="ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal"/>).</item>
 /// <item><b>Não</b> desliga <c>Tenants.MfaObrigatorioParaAdministradores</c>
-/// — a política do tenant nunca é tocada aqui. Se estiver ligada, a conta
-/// resetada fica sem login até a rematrícula, como qualquer reset
-/// administrativo normal.</item>
+/// — a política do tenant nunca é tocada aqui.</item>
+/// <item><b>A conta fica sem login até a rematrícula, SEMPRE</b> — não só
+/// quando a política do tenant exige MFA. <c>RematriculaObrigatoriaAposEmergencia</c>
+/// (migration 036, bloqueador B19) é um sinalizador por conta, independente
+/// da política: sem ele, um tenant com a política desligada deixaria a
+/// conta resetada voltar a logar só com senha, sem nunca passar pelo ticket
+/// de rematrícula que o próprio break-glass emitiu.</item>
+/// <item><b>Exclusivamente saída de deadlock</b> (bloqueador B18) — exige
+/// MFA ATUALMENTE ativo no alvo (quem ainda não se matriculou tem o
+/// bootstrap ou o ticket normal) e recusa se existir outro ator apto a
+/// executar <c>MfaService.ResetarAsync</c> normalmente (outro Administrador
+/// com MFA — Titular também, se o alvo for Titular).</item>
+/// <item><b>Controle de duas pessoas tecnicamente aplicado</b>, não só uma
+/// mensagem de console — exige o PIN de um segundo custodiante
+/// (<c>Emergencia:HashDoPinDeDuasPessoas</c>, hash SHA-256, custódia
+/// separada de quem tem acesso SSH, mesmo modelo de <c>docs/BACKUP.md</c>).
+/// Sem essa configuração, o comando se recusa a rodar.</item>
 /// </list>
 /// </remarks>
 public static class FerramentaDeResetDeEmergencia
@@ -78,11 +113,19 @@ public static class FerramentaDeResetDeEmergencia
     private static readonly TimeSpan TtlDoTicket = TimeSpan.FromHours(24);
 
     /// <summary>
-    /// Toda a regra de elegibilidade — sem nenhuma interação de console, sem
-    /// exigir "ninguém matriculado ainda" (diferença deliberada do
-    /// bootstrap). É o método que tanto <see cref="ExecutarAsync"/> quanto o
-    /// verificador chamam; nunca há uma segunda cópia desta lógica.
+    /// Toda a regra de elegibilidade — sem nenhuma interação de console. É o
+    /// método que tanto <see cref="ExecutarAsync"/> quanto o verificador
+    /// chamam; nunca há uma segunda cópia desta lógica.
     /// </summary>
+    /// <remarks>
+    /// CORRECAO (bloqueador B18, sexta revisão independente) — a versão
+    /// anterior aceitava qualquer conta ativa e privilegiada, mesmo com
+    /// <c>MfaAtivo = false</c> e mesmo quando existia um caminho normal
+    /// disponível. Break-glass é EXCLUSIVAMENTE a saída do deadlock descrito
+    /// na classe: MFA que continua ativo NO BANCO (a conta perdeu o
+    /// autenticador/códigos, não o registro de que está matriculada) e
+    /// NENHUM outro ator capaz de resetar pelo caminho normal.
+    /// </remarks>
     public static async Task<ElegibilidadeDeEmergencia> VerificarElegibilidadeAsync(
         CrmDbContext db, string email, CancellationToken ct = default)
     {
@@ -95,7 +138,23 @@ public static class FerramentaDeResetDeEmergencia
         var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador || atendente.Cargo == CargoNaServentia.Titular;
         if (!privilegiado) return ElegibilidadeDeEmergencia.NaoPrivilegiada;
 
-        return ElegibilidadeDeEmergencia.Elegivel;
+        if (!atendente.MfaAtivo) return ElegibilidadeDeEmergencia.ContaSemMfaAtivo;
+
+        // O MESMO criterio que MfaService.ResetarAsync realmente exige de um
+        // ator: Administrador ativo com MFA ativo — e, se o alvo for
+        // Titular, tambem Cargo == Titular (GarantirTitularProtegido). Se
+        // existir, o reset normal (com step-up desse ator) resolve sozinho.
+        var existeAtorApto = await db.Atendentes.AsNoTracking()
+            .AnyAsync(a => a.TenantId == atendente.TenantId
+                        && a.Id != atendente.Id
+                        && a.Ativo
+                        && a.MfaAtivo
+                        && a.Perfil == PerfilDeAtendente.Administrador
+                        && (atendente.Cargo != CargoNaServentia.Titular || a.Cargo == CargoNaServentia.Titular), ct);
+
+        return existeAtorApto
+            ? ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal
+            : ElegibilidadeDeEmergencia.Elegivel;
     }
 
     /// <summary>
@@ -138,6 +197,15 @@ public static class FerramentaDeResetDeEmergencia
                 .SetProperty(a => a.MfaFalhasConsecutivas, 0)
                 .SetProperty(a => a.MfaNivelDeBloqueio, (byte)0)
                 .SetProperty(a => a.MfaBloqueadoAte, (DateTime?)null)
+                // CORRECAO (bloqueador B19, sexta revisao independente): sem
+                // isto, um tenant com a politica obrigatoria desligada
+                // deixava esta conta voltar a logar so com senha, nunca
+                // passando pelo ticket de rematricula emitido abaixo.
+                // AutenticacaoService.AutenticarAsync recusa login enquanto
+                // este campo for true, INDEPENDENTE da politica do tenant;
+                // so volta a false na confirmacao de uma matricula nova
+                // (MfaService.ConfirmarNucleoAsync).
+                .SetProperty(a => a.RematriculaObrigatoriaAposEmergencia, true)
                 .SetProperty(a => a.TokenVersion, a => a.TokenVersion + 1), ct);
 
         await db.CodigosDeRecuperacaoMfa.Where(c => c.AtendenteId == atendente.Id).ExecuteDeleteAsync(ct);
@@ -214,6 +282,42 @@ public static class FerramentaDeResetDeEmergencia
         || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null
         || Environment.GetEnvironmentVariable("CI") is not null;
 
+    /// <summary>
+    /// CORRECAO (bloqueador B18, sexta revisão independente) — decisão PURA
+    /// (sem efeito colateral) do controle de duas pessoas: confere o PIN
+    /// digitado por um SEGUNDO custodiante (custódia separada de quem tem
+    /// acesso SSH ao servidor — mesmo modelo de <c>docs/BACKUP.md</c>)
+    /// contra o hash SHA-256 configurado em
+    /// <c>Emergencia:HashDoPinDeDuasPessoas</c>. Antes desta correção, a
+    /// exigência de "duas pessoas presentes" era só uma mensagem impressa no
+    /// console, sem nenhuma verificação técnica — qualquer pessoa sozinha
+    /// com acesso SSH conseguia digitar "RESETAR" e concluir o procedimento
+    /// inteira sozinha. Extraída como método puro, testável por reflexão,
+    /// sem reabrir superfície pública nenhuma — permanece <c>private</c>.
+    /// Comparação em tempo constante (<see cref="CryptographicOperations.FixedTimeEquals"/>)
+    /// porque é, na prática, uma segunda credencial.
+    /// </summary>
+    private static bool PinDeDuasPessoasConfere(string pinDigitado, string? hashConfigurado)
+    {
+        if (string.IsNullOrWhiteSpace(hashConfigurado))
+        {
+            return false;
+        }
+
+        var calculado = SegredosAleatoriosMfa.Sha256Hex((pinDigitado ?? string.Empty).Trim());
+
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(calculado), Convert.FromHexString(hashConfigurado.Trim()));
+        }
+        catch (FormatException)
+        {
+            // Hash configurado nao e hex valido — falha fechada, nunca abre.
+            return false;
+        }
+    }
+
     public static async Task<int> ExecutarAsync(IConfiguration configuracao)
     {
         Console.WriteLine("=== CRM-Cartorio — RESET DE EMERGENCIA de MFA (SEC-03, break-glass) ===");
@@ -225,6 +329,34 @@ public static class FerramentaDeResetDeEmergencia
                 "RECUSADO: este comando so roda de forma interativa, no teclado, via SSH. " +
                 "Entrada OU SAIDA redirecionada (pipe, arquivo ou ambiente de CI) nunca e " +
                 "aceita.");
+            return 1;
+        }
+
+        // CORRECAO (bloqueador B18, sexta revisao independente) — controle
+        // de DUAS PESSOAS tecnicamente aplicado, nao so uma mensagem no
+        // console: exige o PIN de um segundo custodiante, com custodia
+        // separada de quem tem acesso SSH (ver docs/BACKUP.md). Checado
+        // ANTES de qualquer conexao a banco ou consulta de elegibilidade —
+        // sem as duas pessoas presentes, o procedimento nem comeca.
+        var hashDoPinDeDuasPessoas = configuracao["Emergencia:HashDoPinDeDuasPessoas"];
+        if (string.IsNullOrWhiteSpace(hashDoPinDeDuasPessoas))
+        {
+            Console.WriteLine(
+                "RECUSADO: controle de duas pessoas nao configurado " +
+                "(Emergencia:HashDoPinDeDuasPessoas ausente). Este comando nao roda sem ele.");
+            return 1;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Este procedimento exige DUAS PESSOAS presentes: quem executa este");
+        Console.WriteLine("comando (acesso SSH) e um segundo custodiante, com o PIN de emergencia");
+        Console.WriteLine("em custodia separada (docs/BACKUP.md) — nunca a mesma pessoa.");
+        Console.Write("PIN do segundo custodiante: ");
+        var pinDigitado = Console.ReadLine() ?? string.Empty;
+
+        if (!PinDeDuasPessoasConfere(pinDigitado, hashDoPinDeDuasPessoas))
+        {
+            Console.WriteLine("RECUSADO: PIN do segundo custodiante incorreto ou ausente.");
             return 1;
         }
 
@@ -266,6 +398,19 @@ public static class FerramentaDeResetDeEmergencia
             case ElegibilidadeDeEmergencia.NaoPrivilegiada:
                 Console.WriteLine("RECUSADO: este fluxo e exclusivo para Titular ou Administrador.");
                 return 1;
+            case ElegibilidadeDeEmergencia.ContaSemMfaAtivo:
+                Console.WriteLine(
+                    "RECUSADO: esta conta nao tem MFA ativo — nao e um caso de break-glass. " +
+                    "Use o bootstrap (se for a primeira conta privilegiada do tenant) ou o " +
+                    "ticket normal (step-up de outro privilegiado ja matriculado).");
+                return 1;
+            case ElegibilidadeDeEmergencia.ExisteAtorAptoParaResetNormal:
+                Console.WriteLine(
+                    "RECUSADO: existe outro Administrador (Titular, se o alvo for Titular) " +
+                    "ativo e com MFA ativo neste tenant, capaz de resetar esta conta pelo " +
+                    "caminho normal (MfaService.ResetarAsync, com step-up dele). Break-glass " +
+                    "e so a saida de um deadlock real — nao um atalho.");
+                return 1;
         }
 
         var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Email == email);
@@ -282,11 +427,8 @@ public static class FerramentaDeResetDeEmergencia
         Console.WriteLine();
         Console.WriteLine("ATENCAO: isto REMOVE o MFA atual desta conta — autenticador, codigos de");
         Console.WriteLine("recuperacao, desafios/tickets pendentes — e emite um ticket NOVO para");
-        Console.WriteLine("rematricula. A conta fica SEM LOGIN ate a rematricula (se a politica");
-        Console.WriteLine("obrigatoria estiver ligada para ela).");
-        Console.WriteLine("Confere: duas pessoas devem estar presentes para este procedimento —");
-        Console.WriteLine("quem executa este comando (acesso SSH) e o proprio titular da conta,");
-        Console.WriteLine("com identidade verificada fora de banda.");
+        Console.WriteLine("rematricula. A conta fica SEM LOGIN ate concluir a rematricula com esse");
+        Console.WriteLine("ticket — SEMPRE, independente da politica obrigatoria do tenant.");
         Console.Write($"Digite RESETAR para confirmar o break-glass de {atendente.Email}: ");
 
         if (!string.Equals(Console.ReadLine()?.Trim(), "RESETAR", StringComparison.Ordinal))
@@ -315,7 +457,7 @@ public static class FerramentaDeResetDeEmergencia
         Console.WriteLine();
         Console.WriteLine("Entregue ao portador por canal fora de banda (voz, presencial) — nunca por e-mail, chat ou SMS.");
         Console.WriteLine($"Registrado em EventosDeSeguranca como ResetDeEmergencia, ator externo '{atorExterno}'.");
-        Console.WriteLine("A politica obrigatoria do tenant (se ligada) NAO foi alterada — a conta so volta a logar apos a rematricula.");
+        Console.WriteLine("A politica obrigatoria do tenant NAO foi alterada — a conta fica sem login ate a rematricula, mesmo que a politica esteja desligada.");
 
         return 0;
     }

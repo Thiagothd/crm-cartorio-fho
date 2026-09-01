@@ -248,7 +248,8 @@ o segredo, código, ticket ou desafio em si.
 
 ### Break-glass — reset de emergência
 
-**Implementado** (revisão independente do PR #46, gap 17) — `FerramentaDeResetDeEmergencia`
+**Implementado** (revisão independente do PR #46, gap 17; restrito à sexta
+revisão, bloqueadores B18/B19) — `FerramentaDeResetDeEmergencia`
 (`Infrastructure/Security/FerramentaDeResetDeEmergencia.cs`), comando de
 execução única:
 
@@ -273,8 +274,6 @@ esse deadlock, com a MESMA disciplina do bootstrap:
   em claro.
 - Motivo obrigatório; identidade do operador em `EventosDeSeguranca.AtorExterno`
   (nunca em `Motivo`).
-- **Não** exige "ninguém matriculado ainda" (diferença deliberada do
-  bootstrap) — funciona mesmo com outros privilegiados já com MFA ativo.
 - **Não** toca `Tenants.MfaObrigatorioParaAdministradores` — a política do
   tenant nunca é desligada por isto.
 - Remove MFA do alvo (fatores, recovery codes, desafios/tickets pendentes),
@@ -285,8 +284,51 @@ esse deadlock, com a MESMA disciplina do bootstrap:
 - Superfície pública da classe: exatamente `{ExecutarAsync, VerificarElegibilidadeAsync}`
   — o núcleo que gera/persiste o ticket é `private`, testado por reflexão.
 
-Certificado em `CRM_Cartorio_Dev`, incluindo o cenário de deadlock (outro
-Administrador com MFA ativo, mas não-Titular, já existente no tenant).
+**Elegibilidade exclusivamente como saída de deadlock (bloqueador B18, sexta
+revisão independente).** A versão anterior aceitava qualquer conta ativa e
+privilegiada, mesmo sem MFA ativo e mesmo quando já existia um caminho
+normal disponível — o break-glass virava, na prática, um segundo emissor de
+ticket que contornava step-up/Titular/bootstrap. `VerificarElegibilidadeAsync`
+agora exige, além de conta ativa e privilegiada:
+
+- **`MfaAtivo = true` no alvo** — quem ainda não se matriculou tem o
+  bootstrap (se for o primeiro do tenant) ou o ticket normal (step-up de
+  outro privilegiado). Sem isto: `ContaSemMfaAtivo`.
+- **Nenhum outro ator apto a executar o reset NORMAL** — mesmo critério que
+  `MfaService.ResetarAsync` realmente exige: outro Administrador ativo com
+  MFA ativo no tenant e, se o alvo for `Cargo.Titular`, também `Cargo.Titular`.
+  Se existir, o caminho normal resolve sozinho. Sem isto: `ExisteAtorAptoParaResetNormal`.
+
+**Controle de duas pessoas tecnicamente aplicado (bloqueador B18).** Antes,
+"duas pessoas devem estar presentes" era só uma mensagem impressa no
+console — sem nenhuma verificação técnica, uma pessoa sozinha com acesso SSH
+completava o procedimento inteiro. Agora o comando exige, **antes de
+conectar ao banco**, o PIN de um segundo custodiante — configurado como hash
+SHA-256 em `Emergencia:HashDoPinDeDuasPessoas`, custódia separada de quem
+tem acesso SSH ao servidor (mesmo modelo de `docs/BACKUP.md`). Sem essa
+configuração, o comando se recusa a rodar. Comparação em tempo constante
+(`CryptographicOperations.FixedTimeEquals`) — é, na prática, uma segunda
+credencial.
+
+**Rematrícula obrigatória, independente da política do tenant (bloqueador
+B19).** `Atendentes.RematriculaObrigatoriaAposEmergencia` (migration 036) é
+gravado `true` na MESMA instrução atômica que zera `MfaAtivo`. Antes disto,
+num tenant com `MfaObrigatorioParaAdministradores` desligado, a conta
+resetada voltava a logar só com senha, nunca passando pelo ticket de
+rematrícula que o próprio break-glass emitiu — o reset de emergência virava
+"tirar o MFA de alguém", não "forçar rematrícula segura". Agora
+`AutenticacaoService.AutenticarAsync` recusa login só-senha enquanto esse
+campo for `true`, **em paralelo** à checagem de política do tenant (as duas
+condições, tanto na pré-checagem quanto no `WHERE` atômico final — nunca só
+uma). Só volta a `false` na confirmação bem-sucedida de uma matrícula nova
+(`MfaService.ConfirmarNucleoAsync`, mesmo `UPDATE` que reativa o MFA).
+
+Certificado em `CRM_Cartorio_Dev`, incluindo: o cenário de deadlock (outro
+Administrador com MFA ativo, mas não-Titular, já existente no tenant); a
+elegibilidade recusando conta sem MFA ativo e conta com ator apto disponível
+(alvo Titular e alvo não-Titular); e o fluxo completo com a política do
+tenant DESLIGADA, provando que a rematrícula continua obrigatória mesmo
+assim.
 
 ### O que ainda não existe
 

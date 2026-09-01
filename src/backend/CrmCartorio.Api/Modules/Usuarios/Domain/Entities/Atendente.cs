@@ -131,6 +131,19 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// <summary>Enquanto no futuro, nenhum JWT sai da etapa de MFA — nem com codigo correto.</summary>
     public DateTime? MfaBloqueadoAte { get; set; }
 
+    /// <summary>
+    /// SEC-03 (bloqueador B19, sexta revisao independente) — true quando o
+    /// reset de emergencia (break-glass) removeu o MFA desta conta. Enquanto
+    /// true, <c>AutenticacaoService.AutenticarAsync</c> recusa login so-senha
+    /// INDEPENDENTE de <c>Tenant.MfaObrigatorioParaAdministradores</c> — sem
+    /// isto, uma conta resetada por break-glass num tenant com a politica
+    /// desligada voltaria a logar so com a senha, nunca passando pelo ticket
+    /// de rematricula que o proprio break-glass emitiu. So a confirmacao
+    /// bem-sucedida de uma matricula nova (<c>MfaService.ConfirmarNucleoAsync</c>)
+    /// volta a false, na MESMA instrucao atomica que reativa o MFA.
+    /// </summary>
+    public bool RematriculaObrigatoriaAposEmergencia { get; set; }
+
     public bool PodeGerirCadastros =>
         Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
 

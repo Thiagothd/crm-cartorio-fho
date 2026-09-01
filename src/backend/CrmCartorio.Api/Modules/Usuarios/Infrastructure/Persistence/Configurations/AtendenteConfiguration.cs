@@ -37,6 +37,7 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.MfaFalhasConsecutivas).HasDefaultValue(0);
         builder.Property(a => a.MfaNivelDeBloqueio).HasDefaultValue((byte)0);
         builder.Property(a => a.MfaBloqueadoAte).HasColumnType("datetime2(3)");
+        builder.Property(a => a.RematriculaObrigatoriaAposEmergencia).HasDefaultValue(false);
 
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
