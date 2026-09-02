@@ -93,8 +93,18 @@ test('login com MFA so grava sessao depois do segundo fator', async ({ page }) =
   })
 
   await page.route('**/api/autenticacao/login/mfa', async (route) => {
-    const corpo = route.request().postDataJSON() as { desafio?: string; codigo?: string }
-    expect(corpo).toEqual({ desafio: 'desafio-mfa-e2e', codigo: '123456' })
+    const corpo = route.request().postDataJSON() as {
+      desafio?: string
+      codigo?: string
+      confiarNesteDispositivo?: boolean
+    }
+    // A intencao de confiar no dispositivo viaja no corpo e NAO marcada por
+    // padrao — computador de balcao de cartorio e compartilhado.
+    expect(corpo).toEqual({
+      desafio: 'desafio-mfa-e2e',
+      codigo: '123456',
+      confiarNesteDispositivo: false,
+    })
     await route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
@@ -107,14 +117,56 @@ test('login com MFA so grava sessao depois do segundo fator', async ({ page }) =
   await page.getByRole('textbox', { name: 'Senha', exact: true }).fill('Teste123!')
   await page.getByRole('button', { name: 'Entrar' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Verificação em duas etapas' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Confirme sua identidade' })).toBeVisible()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('crm-cartorio.token'))).toBeNull()
+
+  await expect(page.getByRole('checkbox', { name: /Confiar neste dispositivo/ })).not.toBeChecked()
 
   await page.getByLabel('Código').fill('123456')
   await page.getByRole('button', { name: 'Confirmar' }).click()
 
   await expect(page).toHaveURL(/\/$/)
   await expect.poll(() => page.evaluate(() => localStorage.getItem('crm-cartorio.token'))).toBe('token-administrador')
+})
+
+test('marcar "confiar neste dispositivo" envia a intencao ao servidor', async ({ page }) => {
+  await page.route('**/api/autenticacao/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        requerMfa: true,
+        sessao: null,
+        desafio: {
+          desafio: 'desafio-mfa-e2e',
+          tipo: 'SegundoFator',
+          expiraEm: '2026-09-01T20:00:00.000Z',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/api/autenticacao/login/mfa', async (route) => {
+    const corpo = route.request().postDataJSON() as { confiarNesteDispositivo?: boolean }
+    expect(corpo.confiarNesteDispositivo).toBe(true)
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(sessaoAdministrador),
+    })
+  })
+
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill('admin@teste.local')
+  await page.getByRole('textbox', { name: 'Senha', exact: true }).fill('Teste123!')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Confirme sua identidade' })).toBeVisible()
+  await page.getByRole('checkbox', { name: /Confiar neste dispositivo/ }).check()
+  await page.getByLabel('Código').fill('123456')
+  await page.getByRole('button', { name: 'Confirmar' }).click()
+
+  await expect(page).toHaveURL(/\/$/)
 })
 
 test('rota autenticada sem token redireciona para login', async ({ page }) => {

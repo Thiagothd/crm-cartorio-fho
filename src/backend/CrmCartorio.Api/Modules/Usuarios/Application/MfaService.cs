@@ -15,6 +15,7 @@ public class MfaService(
     IHashDeSenha hash,
     ICifraDeSegredoMfa cifra,
     IGeradorDeToken tokens,
+    ICookieDeDispositivoConfiavel cookieDeDispositivo,
     ILogger<MfaService> log) : IMfaService
 {
     private const int QuantidadeDeCodigosDeRecuperacao = 10;
@@ -294,7 +295,54 @@ public class MfaService(
             ? await db.CodigosDeRecuperacaoMfa.CountAsync(c => c.AtendenteId == atendente.Id && c.UsadoEm == null, ct)
             : null;
 
-        return new MfaSituacaoResponse(atendente.MfaAtivo, obrigatorio, restantes, atendente.MfaConfirmadoEm);
+        var agora = DateTime.UtcNow;
+
+        // Conta so o que ainda dispensaria o segundo fator HOJE: expirado,
+        // revogado ou preso a uma TokenVersion vencida ja e inerte, e mostrar
+        // isso na tela seria oferecer uma acao ("esquecer") que nao muda nada.
+        //
+        // A condicao aqui e DE PROPOSITO a mesma de
+        // AutenticacaoService.TentarConcluirPorDispositivoConfiavelAsync: a
+        // tela nao pode dizer "1 dispositivo confiavel ativo" para um registro
+        // que o login ja recusa. Sem o TokenVersionNoRegistro, trocar a senha
+        // invalidava o dispositivo de verdade mas ele continuava aparecendo
+        // como ativo — informacao de seguranca errada para quem le a tela.
+        var dispositivosConfiaveis = await db.DispositivosConfiaveis
+            .CountAsync(d => d.AtendenteId == atendente.Id
+                          && d.TenantId == atendente.TenantId
+                          && d.RevogadoEm == null
+                          && d.ExpiraEm > agora
+                          && d.TokenVersionNoRegistro == atendente.TokenVersion, ct);
+
+        return new MfaSituacaoResponse(
+            atendente.MfaAtivo, obrigatorio, restantes, atendente.MfaConfirmadoEm, dispositivosConfiaveis);
+    }
+
+    /// <inheritdoc cref="IMfaService.EsquecerDispositivosConfiaveisAsync"/>
+    public async Task<int> EsquecerDispositivosConfiaveisAsync(
+        IdentidadeParaMfa identidade, CancellationToken ct = default)
+    {
+        var agora = DateTime.UtcNow;
+
+        // Sem step-up de proposito: revogar confianca so PODE aumentar a
+        // seguranca da conta (o proximo login volta a exigir o segundo fator).
+        // Mesma razao pela qual sair da sessao nao pede a senha de novo.
+        var revogados = await db.DispositivosConfiaveis
+            .Where(d => d.AtendenteId == identidade.AtendenteId
+                     && d.TenantId == identidade.TenantId
+                     && d.RevogadoEm == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.RevogadoEm, agora), ct);
+
+        // O cookie deste navegador tambem sai — nao e o que garante a
+        // revogacao (o registro no banco e), so evita deixar um cookie morto
+        // sendo reenviado a cada login.
+        cookieDeDispositivo.Limpar();
+
+        log.LogInformation(
+            "Dispositivos confiaveis revogados por {AtendenteId}: {Quantidade}",
+            identidade.AtendenteId, revogados);
+
+        return revogados;
     }
 
     // ---------------------------------------------- matricula privilegiada (ticket)

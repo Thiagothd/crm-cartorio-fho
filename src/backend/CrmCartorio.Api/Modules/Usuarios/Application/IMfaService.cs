@@ -28,6 +28,19 @@ public interface IMfaService
 
     Task<MfaSituacaoResponse> ObterSituacaoAsync(IdentidadeParaMfa identidade, CancellationToken ct = default);
 
+    /// <summary>
+    /// SEC-03 — revoga TODOS os "confiar neste dispositivo por 30 dias" da
+    /// propria conta; o proximo login de qualquer navegador volta a exigir o
+    /// segundo fator. Devolve quantos foram revogados.
+    /// </summary>
+    /// <remarks>
+    /// Sem step-up de proposito, diferente das demais acoes deste servico:
+    /// desativar MFA, trocar autenticador ou regenerar codigos podem ENFRAQUECER
+    /// a conta e por isso exigem senha + fator atual; revogar confianca so
+    /// pode fortalece-la.
+    /// </remarks>
+    Task<int> EsquecerDispositivosConfiaveisAsync(IdentidadeParaMfa identidade, CancellationToken ct = default);
+
     // -------------------------------------------- matricula privilegiada (ticket)
 
     /// <summary>

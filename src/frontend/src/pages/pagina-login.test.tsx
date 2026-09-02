@@ -5,14 +5,35 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaginaLogin } from '@/pages/pagina-login'
 
 const entrar = vi.fn()
+const concluirLoginComMfa = vi.fn()
 
 vi.mock('@/lib/auth/usar-autenticacao', () => ({
   usarAutenticacao: () => ({
     atendente: null,
     carregando: false,
     entrar,
+    concluirLoginComMfa,
   }),
 }))
+
+const desafioDeMfa = {
+  desafio: 'desafio-de-teste',
+  tipo: 'SegundoFator' as const,
+  expiraEm: '2026-09-01T20:00:00.000Z',
+}
+
+/** Faz o login de senha cair na etapa do segundo fator. */
+async function chegarNoSegundoFator(usuario: ReturnType<typeof userEvent.setup>) {
+  entrar.mockResolvedValue({ tipo: 'mfa', desafio: desafioDeMfa })
+
+  await usuario.clear(screen.getByLabelText('E-mail'))
+  await usuario.clear(screen.getByLabelText('Senha'))
+  await usuario.type(screen.getByLabelText('E-mail'), 'admin@cartorio.com.br')
+  await usuario.type(screen.getByLabelText('Senha'), 'senha-segura')
+  await usuario.click(screen.getByRole('button', { name: 'Entrar' }))
+
+  await screen.findByRole('heading', { name: 'Confirme sua identidade' })
+}
 
 function renderizar() {
   return render(
@@ -25,6 +46,7 @@ function renderizar() {
 describe('PaginaLogin', () => {
   beforeEach(() => {
     entrar.mockReset().mockResolvedValue(undefined)
+    concluirLoginComMfa.mockReset().mockResolvedValue(undefined)
   })
 
   it('apresenta a marca e o acesso sem o bloco de serventia', () => {
@@ -70,5 +92,85 @@ describe('PaginaLogin', () => {
     await waitFor(() => {
       expect(entrar).toHaveBeenCalledWith('atendente@cartorio.com.br', 'senha-segura')
     })
+  })
+
+  // SEC-03 — segundo fator ------------------------------------------------
+
+  it('não marca "confiar neste dispositivo" por padrão e envia a intenção como false', async () => {
+    const usuario = userEvent.setup()
+    renderizar()
+    await chegarNoSegundoFator(usuario)
+
+    // Opt-in explícito: computador de balcão é compartilhado.
+    expect(screen.getByRole('checkbox', { name: /Confiar neste dispositivo por 30 dias/i })).not.toBeChecked()
+
+    await usuario.type(screen.getByLabelText('Código'), '123456')
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+    await waitFor(() => {
+      expect(concluirLoginComMfa).toHaveBeenCalledWith('desafio-de-teste', '123456', false)
+    })
+  })
+
+  it('envia a intenção de confiar no dispositivo quando a caixa é marcada', async () => {
+    const usuario = userEvent.setup()
+    renderizar()
+    await chegarNoSegundoFator(usuario)
+
+    await usuario.click(screen.getByRole('checkbox', { name: /Confiar neste dispositivo por 30 dias/i }))
+    await usuario.type(screen.getByLabelText('Código'), '654321')
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+    await waitFor(() => {
+      expect(concluirLoginComMfa).toHaveBeenCalledWith('desafio-de-teste', '654321', true)
+    })
+  })
+
+  it('o campo do autenticador aceita só dígitos e para em 6', async () => {
+    const usuario = userEvent.setup()
+    renderizar()
+    await chegarNoSegundoFator(usuario)
+
+    const campo = screen.getByLabelText('Código')
+    await usuario.type(campo, '12a34-5678')
+
+    // Colar "12a34-5678" de um SMS/gerenciador não pode travar o campo em
+    // silêncio: o que não é dígito sai, o resto entra até o limite.
+    expect(campo).toHaveValue('123456')
+  })
+
+  it('permite trocar para código de recuperação, que não usa o campo de 6 dígitos', async () => {
+    const usuario = userEvent.setup()
+    renderizar()
+    await chegarNoSegundoFator(usuario)
+
+    await usuario.click(screen.getByRole('button', { name: /código de recuperação/i }))
+
+    const campo = screen.getByLabelText('Código')
+    await usuario.type(campo, 'ABCD-EFGH-IJKL-MNOP')
+    expect(campo).toHaveValue('ABCD-EFGH-IJKL-MNOP')
+
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+    await waitFor(() => {
+      expect(concluirLoginComMfa).toHaveBeenCalledWith('desafio-de-teste', 'ABCD-EFGH-IJKL-MNOP', false)
+    })
+  })
+
+  it('voltar para a senha limpa código e intenção de confiança', async () => {
+    const usuario = userEvent.setup()
+    renderizar()
+    await chegarNoSegundoFator(usuario)
+
+    await usuario.click(screen.getByRole('checkbox', { name: /Confiar neste dispositivo por 30 dias/i }))
+    await usuario.click(screen.getByRole('button', { name: 'Voltar' }))
+
+    // De volta na senha…
+    expect(screen.getByRole('heading', { name: 'Entrar no CRM' })).toBeInTheDocument()
+
+    // …e ao voltar para o segundo fator, nada da tentativa anterior sobrou.
+    await chegarNoSegundoFator(usuario)
+    expect(screen.getByRole('checkbox', { name: /Confiar neste dispositivo por 30 dias/i })).not.toBeChecked()
+    expect(screen.getByLabelText('Código')).toHaveValue('')
   })
 })

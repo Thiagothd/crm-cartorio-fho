@@ -18,7 +18,18 @@ export interface EstadoDeAutenticacao {
   tenant: Tenant | null
   entrar: (email: string, senha: string) => Promise<ResultadoDoLogin>
   /** Etapa 2 — conclui um login que abriu desafio de segundo fator. */
-  concluirLoginComMfa: (desafio: string, codigo: string) => Promise<void>
+  concluirLoginComMfa: (desafio: string, codigo: string, confiarNesteDispositivo?: boolean) => Promise<void>
+  /**
+   * Aplica uma sessão nova recebida FORA do fluxo de login normal — hoje:
+   * confirmação de ativação/troca de autenticador de MFA e matrícula
+   * privilegiada por ticket. Todas essas confirmações sobem
+   * `Atendente.TokenVersion` na mesma escrita que ativam o MFA (SEC-01), o
+   * que invalida o JWT antigo na hora — sem aplicar a sessão nova devolvida
+   * na própria resposta, a próxima chamada autenticada cai em 401 e a tela
+   * fica branca. Nunca duplica a gravação de token/atendente/tenant: usa a
+   * MESMA rotina central que `entrar`/`concluirLoginComMfa` já usam.
+   */
+  aplicarNovaSessao: (sessao: Sessao) => void
   sair: () => void
   podeGerirCadastros: boolean
   podeGerirAtendentes: boolean
@@ -83,8 +94,8 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
   )
 
   const concluirLoginComMfa = useCallback(
-    async (desafio: string, codigo: string) => {
-      const sessao = await autenticacaoApi.loginMfa(desafio, codigo)
+    async (desafio: string, codigo: string, confiarNesteDispositivo = false) => {
+      const sessao = await autenticacaoApi.loginMfa(desafio, codigo, confiarNesteDispositivo)
       aplicarSessao(sessao)
     },
     [aplicarSessao],
@@ -119,12 +130,13 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
       tenant,
       entrar,
       concluirLoginComMfa,
+      aplicarNovaSessao: aplicarSessao,
       sair,
       podeGerirCadastros: perfil === 'Supervisor' || perfil === 'Administrador',
       podeGerirAtendentes: perfil === 'Administrador',
       podeOperarConversaDeTerceiro: perfil === 'Supervisor' || perfil === 'Administrador',
     }
-  }, [atendente, tenant, carregando, entrar, concluirLoginComMfa, sair])
+  }, [atendente, tenant, carregando, entrar, concluirLoginComMfa, aplicarSessao, sair])
 
   return <ContextoDeAutenticacao.Provider value={valor}>{children}</ContextoDeAutenticacao.Provider>
 }

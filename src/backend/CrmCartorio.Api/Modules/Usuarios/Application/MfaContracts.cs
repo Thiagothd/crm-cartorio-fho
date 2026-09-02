@@ -12,7 +12,13 @@ public readonly record struct IdentidadeParaMfa(Guid TenantId, Guid AtendenteId)
 
 // Entrada — etapa 1/2 do login ------------------------------------------------
 
-public record ConcluirLoginMfaRequest(string Desafio, string Codigo);
+/// <param name="ConfiarNesteDispositivo">
+/// SEC-03 — quando true, o segundo fator bem-sucedido tambem concede a este
+/// NAVEGADOR um cookie de dispositivo confiavel (30 dias). Opcional e com
+/// default `false` de proposito: quem nao pede, nao ganha — computador de
+/// balcao de cartorio e compartilhado.
+/// </param>
+public record ConcluirLoginMfaRequest(string Desafio, string Codigo, bool ConfiarNesteDispositivo = false);
 
 // Saida — etapa 1 do login -----------------------------------------------------
 
@@ -46,7 +52,9 @@ public record MfaSituacaoResponse(
     bool Ativo,
     bool Obrigatorio,
     int? CodigosDeRecuperacaoRestantes,
-    DateTime? ConfirmadoEm);
+    DateTime? ConfirmadoEm,
+    /// <summary>Navegadores com "confiar por 30 dias" vigente — 0 esconde a acao de esquecer.</summary>
+    int DispositivosConfiaveisAtivos);
 
 // Matricula privilegiada (ticket, sem JWT) ------------------------------------
 

@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import QRCode from 'qrcode'
-import { Copy, KeyRound, ShieldCheck, ShieldOff, TriangleAlert } from 'lucide-react'
+import { ShieldCheck, ShieldOff, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { mfaApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
+import { CodigosDeRecuperacao } from './codigos-de-recuperacao'
 
 /**
  * SEC-03 — gestão do próprio MFA (TOTP). Três estados: sem MFA (convite a
@@ -120,8 +123,61 @@ export function AbaSeguranca() {
               />
             ) : null}
           </div>
+
+          {situacao.dispositivosConfiaveisAtivos > 0 ? (
+            <BotaoEsquecerDispositivos
+              quantidade={situacao.dispositivosConfiaveisAtivos}
+              aoSucesso={() => clienteDeConsultas.invalidateQueries({ queryKey: ['mfa-situacao'] })}
+            />
+          ) : null}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Revoga TODOS os "confiar por 30 dias" do próprio atendente. Sem step-up:
+ * é uma ação que só pode AUMENTAR segurança (nunca desativa MFA, nunca troca
+ * segredo) — mesmo raciocínio de por que o logout não pede senha de novo.
+ */
+function BotaoEsquecerDispositivos({
+  quantidade,
+  aoSucesso,
+}: {
+  quantidade: number
+  aoSucesso: () => void
+}) {
+  const [enviando, setEnviando] = useState(false)
+
+  async function esquecer() {
+    if (!window.confirm('Isto vai pedir o código de verificação de novo em todos os navegadores confiáveis. Continuar?')) {
+      return
+    }
+
+    setEnviando(true)
+    try {
+      await mfaApi.esquecerDispositivosConfiaveis()
+      toast.success('Dispositivos confiáveis esquecidos.')
+      aoSucesso()
+    } catch (falha) {
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível concluir.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-linha bg-superficie p-3">
+      <span className="text-xs text-tinta-media">
+        {quantidade === 1
+          ? '1 dispositivo confiável não pede'
+          : `${quantidade} dispositivos confiáveis não pedem`}{' '}
+        o código de verificação por até 30 dias.
+      </span>
+      <Button type="button" variant="outline" size="sm" disabled={enviando} onClick={() => void esquecer()}>
+        {enviando ? 'Esquecendo…' : 'Esquecer dispositivos'}
+      </Button>
     </div>
   )
 }
@@ -239,6 +295,7 @@ function FluxoDeAtivacao({
   trocandoAutenticador: boolean
   aoConcluir: () => void
 }) {
+  const { aplicarNovaSessao } = usarAutenticacao()
   const [senha, setSenha] = useState('')
   const [codigoAtual, setCodigoAtual] = useState('')
   const [iniciado, setIniciado] = useState<{ otpauthUri: string; segredoBase32: string } | null>(null)
@@ -267,6 +324,15 @@ function FluxoDeAtivacao({
 
     try {
       const resposta = await mfaApi.confirmar(codigo)
+
+      // CORRECAO (tela branca pos-ativacao) — confirmar MFA sobe o
+      // TokenVersion na mesma escrita que ativa o MFA (SEC-01): o JWT antigo
+      // que este navegador ainda usa fica invalido NA HORA. A resposta ja
+      // traz a sessao nova pronta — aplicar pelo fluxo central antes de
+      // qualquer outra chamada autenticada, para nunca haver uma janela
+      // usando o token velho.
+      aplicarNovaSessao(resposta.sessao)
+
       setCodigosDeRecuperacao(resposta.codigosDeRecuperacao)
     } catch (falha) {
       setErro(falha instanceof ErroDaApi ? falha.message : 'Código inválido.')
@@ -286,34 +352,44 @@ function FluxoDeAtivacao({
 
   if (iniciado) {
     return (
-      <div className="flex max-w-md flex-col gap-4">
-        <p className="text-sm text-tinta-media">
-          Escaneie o QR Code com seu aplicativo autenticador, ou digite o código manualmente.
-        </p>
+      <div className="flex max-w-md flex-col gap-5">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold text-tinta">
+            {trocandoAutenticador ? 'Cadastre o novo autenticador' : 'Cadastre seu autenticador'}
+          </h3>
+          <p className="text-sm text-tinta-media">
+            Escaneie o QR Code com o aplicativo autenticador, ou digite o código manual abaixo.
+          </p>
+        </div>
 
         <QrCodeDoSegredo otpauthUri={iniciado.otpauthUri} />
 
         <div className="flex flex-col gap-1">
           <Label>Código manual</Label>
-          <code className="rounded-md border border-linha bg-superficie px-2 py-1.5 text-center text-sm tracking-widest">
+          <code className="rounded-md border border-linha bg-superficie px-2 py-1.5 text-center font-dado text-sm tracking-widest">
             {iniciado.segredoBase32}
           </code>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="confirmar-codigo">Digite o código de 6 dígitos gerado agora</Label>
-          <Input
+          <Label htmlFor="confirmar-codigo">Código de 6 dígitos gerado agora</Label>
+          <EntradaDeCodigoOtp
             id="confirmar-codigo"
-            inputMode="numeric"
             autoFocus
             value={codigo}
-            onChange={(evento) => setCodigo(evento.target.value)}
-            className="text-center tracking-[0.3em]"
+            onChange={setCodigo}
+            disabled={enviando}
+            aria-invalid={erro ? true : undefined}
+            aria-describedby={erro ? 'erro-confirmar-mfa' : undefined}
+            className="bg-superficie"
           />
+          <p className="text-xs text-tinta-fraca">
+            O código muda a cada 30 segundos — use o que estiver na tela agora.
+          </p>
         </div>
 
         {erro ? (
-          <p role="alert" className="text-xs text-erro">
+          <p id="erro-confirmar-mfa" role="alert" className="text-xs text-erro">
             {erro}
           </p>
         ) : null}
@@ -403,45 +479,3 @@ function QrCodeDoSegredo({ otpauthUri }: { otpauthUri: string }) {
   )
 }
 
-/** Os 10 códigos, mostrados UMA vez, com aviso e cópia rápida. */
-function CodigosDeRecuperacao({ codigos, aoFechar }: { codigos: string[]; aoFechar: () => void }) {
-  return (
-    <div className="flex max-w-md flex-col gap-3 rounded-md border border-ambar/40 bg-ambar/[0.06] p-4">
-      <p className="flex items-start gap-2 text-sm font-medium text-tinta">
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-ambar" aria-hidden />
-        Guarde estes 10 códigos de recuperação agora — eles não serão mostrados de novo.
-      </p>
-      <p className="text-xs text-tinta-media">
-        Cada um funciona uma única vez, no lugar do código do autenticador, se você perder o acesso a
-        ele.
-      </p>
-
-      <div className="grid grid-cols-2 gap-1.5 font-mono text-xs">
-        {codigos.map((codigoDeRecuperacao) => (
-          <code key={codigoDeRecuperacao} className="rounded border border-linha bg-branco px-2 py-1">
-            {codigoDeRecuperacao}
-          </code>
-        ))}
-      </div>
-
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard.writeText(codigos.join('\n'))
-            toast.success('Códigos copiados.')
-          }}
-        >
-          <Copy className="size-3.5" aria-hidden />
-          Copiar todos
-        </Button>
-        <Button type="button" size="sm" onClick={aoFechar}>
-          <KeyRound className="size-3.5" aria-hidden />
-          Já guardei — concluir
-        </Button>
-      </div>
-    </div>
-  )
-}

@@ -32,6 +32,7 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
     public DbSet<DesafioDeMfa> DesafiosDeMfa => Set<DesafioDeMfa>();
     public DbSet<CodigoDeRecuperacaoMfa> CodigosDeRecuperacaoMfa => Set<CodigoDeRecuperacaoMfa>();
     public DbSet<EventoDeSeguranca> EventosDeSeguranca => Set<EventoDeSeguranca>();
+    public DbSet<DispositivoConfiavel> DispositivosConfiaveis => Set<DispositivoConfiavel>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

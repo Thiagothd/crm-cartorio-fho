@@ -52,6 +52,18 @@ public class MfaController(IMfaService servico, IContextoDoUsuario ctx) : Contro
         [FromBody] RegenerarCodigosRequest request, CancellationToken ct) =>
         Ok(await servico.RegenerarCodigosAsync(Identidade, request, Ip, ct));
 
+    /// <summary>
+    /// SEC-03 — esquece todos os dispositivos confiaveis da propria conta.
+    /// Sem step-up: e uma acao que so aumenta seguranca (ver IMfaService).
+    /// </summary>
+    [HttpPost("dispositivos-confiaveis/esquecer")]
+    [Authorize]
+    public async Task<IActionResult> EsquecerDispositivosConfiaveis(CancellationToken ct)
+    {
+        await servico.EsquecerDispositivosConfiaveisAsync(Identidade, ct);
+        return NoContent();
+    }
+
     // ------------------------------------------- matricula privilegiada (ticket)
 
     /// <summary>

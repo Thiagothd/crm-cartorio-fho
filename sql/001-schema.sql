@@ -869,5 +869,50 @@ CREATE INDEX IX_EventosDeSeguranca_Tenant_Ocorrido ON dbo.EventosDeSeguranca (Te
 CREATE INDEX IX_EventosDeSeguranca_Atendente ON dbo.EventosDeSeguranca (AtendenteId);
 GO
 
+/* -----------------------------------------------------------------------------
+   16. DispositivosConfiaveis — "confiar neste dispositivo por 30 dias" (SEC-03)
+   -----------------------------------------------------------------------------
+   Uma linha por NAVEGADOR que aceitou a opcao no segundo fator do login, nunca
+   por conta. Guarda so o HASH do token opaco entregue como cookie HttpOnly.
+
+   TokenVersionNoRegistro e a mesma tecnica de DesafiosDeMfa.TokenVersionNoDesafio:
+   snapshot de Atendentes.TokenVersion na concessao, reconferido a cada uso —
+   troca de senha, reset/desativacao/troca de MFA, break-glass e mudanca de
+   Perfil/Cargo/Ativo ja sobem essa versao e invalidam o dispositivo sozinhos.
+
+   ExpiraEm e fixo desde a concessao; a rotacao do hash a cada uso nunca o
+   estende. A SENHA continua obrigatoria em todo login — so o segundo fator e
+   dispensado. Ver migration 038 e Modules/Usuarios/README.md.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.DispositivosConfiaveis
+(
+    Id                     UNIQUEIDENTIFIER NOT NULL,
+    TenantId               UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId            UNIQUEIDENTIFIER NOT NULL,
+    HashDoToken            CHAR(64)         NOT NULL,
+    TokenVersionNoRegistro INT              NOT NULL,
+    ExpiraEm               DATETIME2(3)     NOT NULL,
+    RevogadoEm             DATETIME2(3)     NULL,
+    UltimoUsoEm            DATETIME2(3)     NULL,
+    IpDeOrigem             VARCHAR(45)      NULL,
+    CriadoEm               DATETIME2(3)     NOT NULL,
+    AtualizadoEm           DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_DispositivosConfiaveis PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_DispositivosConfiaveis_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_DispositivosConfiaveis_Atendentes
+        FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_DispositivosConfiaveis_Hash
+    ON dbo.DispositivosConfiaveis (HashDoToken);
+
+CREATE INDEX IX_DispositivosConfiaveis_Atendente_Ativos
+    ON dbo.DispositivosConfiaveis (AtendenteId)
+    WHERE RevogadoEm IS NULL;
+GO
+
 PRINT 'Schema da Fase 1 criado.';
 GO

@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { KeyRound, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { mfaApi } from '@/lib/api/endpoints'
-import { ErroDaApi, gravarToken } from '@/lib/api/cliente-http'
+import { ErroDaApi } from '@/lib/api/cliente-http'
+import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { Button } from '@/components/ui/button'
+import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CodigosDeRecuperacao } from '@/features/configuracoes/codigos-de-recuperacao'
 
 /**
  * SEC-03 — matrícula de MFA para conta PRIVILEGIADA (Titular ou
@@ -15,6 +19,8 @@ import { Label } from '@/components/ui/label'
  * Segurança normal exige.
  */
 export function PaginaMatriculaMfa() {
+  const { aplicarNovaSessao } = usarAutenticacao()
+  const navegar = useNavigate()
   const [etapa, setEtapa] = useState<'ticket' | 'autenticador' | 'codigos'>('ticket')
 
   const [email, setEmail] = useState('')
@@ -55,7 +61,10 @@ export function PaginaMatriculaMfa() {
 
     try {
       const resposta = await mfaApi.confirmarViaDesafio(desafio, codigo)
-      gravarToken(resposta.sessao.token)
+      // Fluxo central de sessao (mesmo usado pelo login) — sem isto o
+      // atendente ficaria com token gravado mas o contexto de autenticacao
+      // (atendente/tenant em memoria) continuaria nulo ate um refresh.
+      aplicarNovaSessao(resposta.sessao)
       setCodigosDeRecuperacao(resposta.codigosDeRecuperacao)
       setEtapa('codigos')
     } catch (falha) {
@@ -148,20 +157,24 @@ export function PaginaMatriculaMfa() {
               </code>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="codigo-matricula">Código de 6 dígitos gerado agora</Label>
-              <Input
+            <div className="flex flex-col items-center gap-1.5">
+              <Label htmlFor="codigo-matricula" className="self-start">
+                Código de 6 dígitos gerado agora
+              </Label>
+              <EntradaDeCodigoOtp
                 id="codigo-matricula"
-                inputMode="numeric"
                 autoFocus
                 value={codigo}
-                onChange={(evento) => setCodigo(evento.target.value)}
-                className="text-center tracking-[0.3em]"
+                onChange={setCodigo}
+                disabled={enviando}
+                aria-invalid={erro ? true : undefined}
+                aria-describedby={erro ? 'erro-matricula-codigo' : undefined}
+                className="bg-superficie"
               />
             </div>
 
             {erro ? (
-              <p role="alert" className="text-xs text-erro">
+              <p id="erro-matricula-codigo" role="alert" className="text-xs text-erro">
                 {erro}
               </p>
             ) : null}
@@ -180,36 +193,11 @@ export function PaginaMatriculaMfa() {
         {etapa === 'codigos' && codigosDeRecuperacao ? (
           <div className="flex flex-col gap-3">
             <p className="text-sm font-medium text-verde">Matrícula concluída.</p>
-            <div className="flex flex-col gap-2 rounded-md border border-ambar/40 bg-ambar/[0.06] p-3">
-              <p className="flex items-start gap-2 text-sm font-medium text-tinta">
-                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-ambar" aria-hidden />
-                Guarde estes 10 códigos de recuperação — não serão mostrados de novo.
-              </p>
-              <div className="grid grid-cols-2 gap-1.5 font-mono text-xs">
-                {codigosDeRecuperacao.map((codigoDeRecuperacao) => (
-                  <code
-                    key={codigoDeRecuperacao}
-                    className="rounded border border-linha bg-branco px-2 py-1"
-                  >
-                    {codigoDeRecuperacao}
-                  </code>
-                ))}
-              </div>
-            </div>
-            <Button
-              type="button"
-              onClick={() => {
-                // Recarga completa (nao React Router): o contexto de
-                // autenticacao so le o token do localStorage no MOUNT — sem
-                // isto, /  acharia que ninguem esta logado e voltaria pro
-                // login mesmo com o token ja gravado.
-                window.location.assign('/')
-              }}
-              className="h-11"
-            >
-              <KeyRound className="size-4" aria-hidden />
-              Já guardei — entrar no CRM
-            </Button>
+            <CodigosDeRecuperacao
+              codigos={codigosDeRecuperacao}
+              rotuloDoBotao="Já guardei — entrar no CRM"
+              aoFechar={() => navegar('/', { replace: true })}
+            />
           </div>
         ) : null}
       </section>
