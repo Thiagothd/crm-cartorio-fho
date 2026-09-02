@@ -210,7 +210,8 @@ public class AutenticacaoService(
     /// <item>SO ENTAO o DISPOSITIVO e consumido: hash + conta + tenant + nao
     /// revogado + nao expirado + <c>TokenVersionNoRegistro</c> ainda igual a
     /// TokenVersion vigente. O mesmo UPDATE ROTACIONA o hash para um token
-    /// novo — uso unico por rotacao.</item>
+    /// novo: o valor apresentado deixa de valer e o sucessor volta no
+    /// Set-Cookie (ver o limite honesto disso mais abaixo).</item>
     /// </list>
     /// Se qualquer uma das duas afetar 0 linhas, as DUAS voltam atras
     /// (rollback): sem isso, uma conta que mudou de estado no meio do caminho
@@ -220,15 +221,19 @@ public class AutenticacaoService(
     /// <b>Corrida aceita e deliberada:</b> se o MESMO cookie for apresentado
     /// por duas requisicoes concorrentes (o caso que importa: uma copia
     /// exfiltrada correndo com o navegador legitimo), o UPDATE condicional
-    /// serializa: QUEM CHEGA PRIMEIRO rotaciona e segue confiavel, e a outra
-    /// encontra 0 linhas e cai no segundo fator completo.
+    /// serializa: QUEM CHEGA PRIMEIRO rotaciona, recebe o token sucessor no
+    /// Set-Cookie e segue confiavel; a outra encontra 0 linhas e cai no
+    /// segundo fator completo.
     ///
-    /// Nao ha aqui deteccao de roubo, e o vencedor da corrida NAO e
-    /// necessariamente o dono legitimo — se o atacante chegar antes, e o dono
-    /// que passa a ser desafiado. O que a rotacao entrega, e so isso, e
-    /// limitar a janela: um cookie exfiltrado vale por um unico uso, nunca
-    /// pelos 30 dias da concessao. O perdedor da corrida precisa do codigo do
-    /// autenticador para seguir.
+    /// <b>O limite honesto disto.</b> Rotacionar invalida copias
+    /// antigas/stale depois de um uso bem-sucedido e reduz replay do valor
+    /// anterior — nao transforma o dispositivo confiavel em credencial de uso
+    /// unico nem detecta roubo. O vencedor da corrida NAO e necessariamente o
+    /// dono legitimo, e se for o atacante ele CONTINUA com a cadeia
+    /// rotacionada ate ExpiraEm ou revogacao, desde que tambem tenha a senha.
+    /// Nao ha deteccao de reuso nem revogacao da familia de tokens aqui. O
+    /// que segura o estrago e a senha continuar obrigatoria em todo login e o
+    /// TokenVersion derrubar a cadeia inteira em qualquer evento de seguranca.
     ///
     /// <b>TokenVersion faz a revogacao de graca:</b> troca de senha, reset,
     /// desativacao ou troca de MFA, break-glass e mudanca de Perfil/Cargo/Ativo

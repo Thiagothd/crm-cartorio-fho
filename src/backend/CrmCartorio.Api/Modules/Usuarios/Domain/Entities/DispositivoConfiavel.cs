@@ -24,15 +24,20 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 ///
 /// <see cref="ExpiraEm"/> é fixado no momento da concessão e NUNCA estendido
 /// — teto duro de 30 dias, mesmo com uso diário. O hash é ROTACIONADO a cada
-/// uso bem-sucedido (uso único por rotação): o valor apresentado morre no
-/// mesmo UPDATE que grava o sucessor.
+/// uso bem-sucedido: o valor apresentado é invalidado no mesmo UPDATE que
+/// grava o sucessor, devolvido ao chamador num <c>Set-Cookie</c> novo.
 ///
-/// O que isso dá, exatamente, quando o cookie é copiado: <b>quem apresentar o
-/// token válido primeiro recebe a rotação e segue confiável; a cópia antiga
-/// deixa de valer e cai para o segundo fator completo.</b> Não há aqui
-/// detecção de roubo nem revogação dos dois lados — se o ladrão chegar antes,
-/// é o dono legítimo que passa a ser desafiado. O ganho real é limitar a
-/// janela: um cookie exfiltrado vale por um único uso, não pelos 30 dias.
+/// <b>O que a rotação NÃO é.</b> Ela invalida cópias antigas/stale depois de
+/// um uso bem-sucedido e reduz replay do valor anterior, mas não transforma
+/// isto em credencial de uso único nem detecta roubo. Quando há uma cópia
+/// exfiltrada, quem apresentar o token primeiro recebe o sucessor — e <b>se
+/// esse primeiro for o atacante, ele segue com a cadeia rotacionada até
+/// <see cref="ExpiraEm"/> ou revogação</b>, desde que também tenha a senha.
+/// Não há detecção de reuso, não há revogação da família de tokens, e não há
+/// garantia de limitar o atacante a um único login. O que de fato segura o
+/// estrago é a senha continuar obrigatória em todo login e qualquer evento
+/// que suba a <see cref="TokenVersionNoRegistro"/> correspondente derrubar a
+/// cadeia inteira.
 /// </remarks>
 public class DispositivoConfiavel : EntidadeBase
 {

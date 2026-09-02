@@ -3682,12 +3682,15 @@ try
                     Checar("64l. o cookie fica preso ao caminho EXATO /api/autenticacao/login — nao acompanha as rotas irmas",
                         CaminhoDoSetCookie(setCookie) == "/api/autenticacao/login");
 
-                    // Este processo de teste roda em HTTP puro em loopback. Se o
-                    // cookie viesse com `Secure` aqui, o navegador o descartaria e
-                    // a feature nao funcionaria em DEV — e o mesmo codigo marca
-                    // Secure automaticamente quando a requisicao chega por HTTPS
-                    // (producao e teste, ambos atras de HTTPS real).
-                    Checar("64m. sobre HTTP puro (DEV) o cookie NAO vem com Secure; o atributo acompanha o esquema da requisicao",
+                    // Esta API de teste sobe com ASPNETCORE_ENVIRONMENT=Development
+                    // (ver o preparo do cenario), em HTTP puro no loopback. A
+                    // ausencia de `Secure` aqui e decisao explicita de AMBIENTE,
+                    // nao do esquema da requisicao: em Development o painel roda
+                    // em localhost sobre HTTP, e um `Secure` fixo faria o
+                    // navegador descartar o cookie em silencio. Teste e Production
+                    // marcam `Secure` independentemente de Request.IsHttps — e o
+                    // que 64s prova, com a MESMA API publicada, tambem em HTTP puro.
+                    Checar("64m. em Development sobre HTTP puro o cookie NAO usa Secure — decisao explicita de ambiente, nao do esquema da requisicao",
                         setCookie?.Contains("secure", StringComparison.OrdinalIgnoreCase) == false);
 
                     Checar("64n. o cookie carrega uma data de expiracao (nao e cookie de sessao)",
@@ -6542,8 +6545,11 @@ try
     //      (Ativo/MfaAtivo/TokenVersion/expiracao/revogacao), nunca lido de
     //      algo que o cliente mandou.
     //   4. O token em claro NUNCA existe no banco — so o hash.
-    //   5. O uso ROTACIONA o token (uso unico), e a rotacao NAO estende a
-    //      janela de 30 dias.
+    //   5. O uso ROTACIONA o token — o valor apresentado deixa de valer e o
+    //      sucessor volta no Set-Cookie — e a rotacao NAO estende a janela de
+    //      30 dias. Atencao ao limite: rotacionar invalida copias antigas,
+    //      NAO faz do dispositivo uma credencial de uso unico nem detecta
+    //      roubo (ver DispositivoConfiavel e o README do modulo).
     //   6. Dispositivo confiavel nao vale para step-up de operacao
     //      administrativa — so para o segundo fator do LOGIN.
     {
@@ -6630,9 +6636,9 @@ try
         Checar("78j. navegador SEM o cookie continua exigindo o segundo fator",
             (await EtapaUm(conta78.Email, SenhaBoa, navegadorAnonimo)).RequerMfa);
 
-        // -- rotacao de uso unico ---------------------------------------------
+        // -- rotacao a cada uso -----------------------------------------------
 
-        Checar("78k. o uso ROTACIONOU o cookie (uso unico)",
+        Checar("78k. o uso ROTACIONOU o cookie — o valor apresentado deu lugar a um sucessor",
             navegadorDaMesa.Gravacoes == 2 && navegadorDaMesa.Cookie != cookieConcedido);
 
         var apos78 = await LerDispositivoDe(conta78.Id);
@@ -6649,9 +6655,15 @@ try
         Checar("78o. o cookie ANTERIOR a rotacao nao serve mais (replay recusado)",
             (await EtapaUm(conta78.Email, SenhaBoa, cookieVelho)).RequerMfa);
 
-        // Cookie roubado: dois navegadores com o MESMO cookie. So um rotaciona;
-        // o outro cai para MFA completo. E o comportamento pretendido, nao um
-        // buraco — o ladrao precisa do codigo para seguir.
+        // Cookie copiado: dois navegadores com o MESMO valor. So o PRIMEIRO a
+        // usar rotaciona e segue confiavel; o segundo cai para MFA completo.
+        //
+        // Neste teste o legitimo chega primeiro, mas a ordem e o unico
+        // criterio: se o atacante chegasse antes, seria ELE a receber o
+        // sucessor e a seguir com a cadeia rotacionada (precisando tambem da
+        // senha, que continua obrigatoria). O teste prova a invalidacao da
+        // copia stale — nao prova, e o codigo nao entrega, deteccao de roubo
+        // nem limite de um unico login para quem venceu a corrida.
         var navegadorLegitimo = new NavegadorFalso();
         var conta78Roubo = await NovaContaComMfaAtivo("cookie roubado", PerfilDeAtendente.Atendente);
         await LoginPeloNavegador(conta78Roubo.Email, conta78Roubo.SegredoBase32, navegadorLegitimo, confiar: true);
