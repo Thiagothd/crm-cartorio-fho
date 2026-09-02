@@ -62,9 +62,14 @@ export const autenticacaoApi = {
   login: (email: string, senha: string) =>
     api.post<LoginEtapa1Resposta>('/api/autenticacao/login', { email, senha }),
 
-  /** SEC-03 — etapa 2. `desafio` é a credencial aqui, nunca um JWT. */
-  loginMfa: (desafio: string, codigo: string) =>
-    api.post<Sessao>('/api/autenticacao/login/mfa', { desafio, codigo }),
+  /**
+   * SEC-03 — etapa 2. `desafio` é a credencial aqui, nunca um JWT.
+   * `confiarNesteDispositivo` pede um cookie de dispositivo confiável de 30
+   * dias — o backend decide tudo (hash, expiração, TokenVersion); o
+   * frontend só manda a intenção.
+   */
+  loginMfa: (desafio: string, codigo: string, confiarNesteDispositivo = false) =>
+    api.post<Sessao>('/api/autenticacao/login/mfa', { desafio, codigo, confiarNesteDispositivo }),
 
   sessao: () => api.get<Sessao>('/api/autenticacao/sessao'),
 
@@ -92,6 +97,10 @@ export const mfaApi = {
 
   regenerarCodigos: (senhaAtual: string, codigo: string) =>
     api.post<RegenerarCodigosResposta>('/api/mfa/codigos', { senhaAtual, codigo }),
+
+  /** Revoga TODOS os dispositivos confiáveis do próprio atendente. Sem step-up: só aumenta segurança. */
+  esquecerDispositivosConfiaveis: () =>
+    api.post<void>('/api/mfa/dispositivos-confiaveis/esquecer', undefined),
 
   // ------------------------------------------- matrícula privilegiada (ticket)
 

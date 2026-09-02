@@ -177,6 +177,8 @@ export interface MfaSituacao {
   /** `null` quando o MFA não está ativo. */
   codigosDeRecuperacaoRestantes: number | null
   confirmadoEm: string | null
+  /** Quantos navegadores têm "confiar por 30 dias" ativo agora — 0 esconde a ação de esquecer. */
+  dispositivosConfiaveisAtivos: number
 }
 
 export interface TicketDeMfa {

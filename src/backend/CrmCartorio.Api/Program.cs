@@ -131,6 +131,11 @@ builder.Services.AddScoped<IHashDeSenha, HashDeSenha>();
 builder.Services.AddScoped<IContextoDoUsuario, ContextoDoUsuario>();
 builder.Services.AddScoped<IGeradorDeToken, GeradorDeToken>();
 
+// SEC-03: cookie HttpOnly de "confiar neste dispositivo por 30 dias". So o
+// transporte mora aqui — quem decide conceder, aceitar ou recusar e o
+// AutenticacaoService (ver ICookieDeDispositivoConfiavel).
+builder.Services.AddScoped<ICookieDeDispositivoConfiavel, CookieDeDispositivoConfiavel>();
+
 // SEC-01: revogacao de sessao. ValidadorDeSessao confere Ativo/TokenVersion no
 // banco; SessaoAtivaHandler acopla essa checagem a policy padrao de
 // autorizacao (registrada mais abaixo), cobrindo controllers e o Hub do

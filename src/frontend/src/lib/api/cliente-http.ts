@@ -105,6 +105,13 @@ async function requisitar<T>(caminho: string, opcoes: Opcoes = {}): Promise<T> {
     headers: cabecalhos,
     body: corpo === undefined ? undefined : ehFormulario ? corpo : JSON.stringify(corpo),
     signal: sinal,
+    // SEC-03 — o cookie HttpOnly de dispositivo confiavel so viaja com
+    // 'include'. Sem isto, em DEV (frontend :5173, API :5210 — origens
+    // diferentes) o navegador nunca envia nem recebe o cookie, mesmo com CORS
+    // configurado com AllowCredentials no backend. Em producao (mesma origem)
+    // este valor e um no-op — cookie same-origin ja seria enviado de qualquer
+    // jeito.
+    credentials: 'include',
   })
 
   if (resposta.status === 401 && !ehTentativaDeEntrar(caminho)) {

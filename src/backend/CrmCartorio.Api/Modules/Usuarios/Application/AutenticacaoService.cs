@@ -14,6 +14,7 @@ public class AutenticacaoService(
     IGeradorDeToken tokens,
     ICifraDeSegredoMfa cifra,
     IContextoDoUsuario ctx,
+    ICookieDeDispositivoConfiavel cookieDeDispositivo,
     ILogger<AutenticacaoService> log) : IAutenticacaoService
 {
     /// <summary>SEC-02: falhas de SENHA seguidas que fecham um ciclo e abrem um bloqueio.</summary>
@@ -25,6 +26,9 @@ public class AutenticacaoService(
     private const int LimiteDeTentativasPorDesafio = 5;
 
     private static readonly TimeSpan TtlDoDesafioDeSegundoFator = TimeSpan.FromMinutes(5);
+
+    /// <summary>SEC-03: janela de "confiar neste dispositivo". Fixa desde a concessao, nunca estendida por uso.</summary>
+    private static readonly TimeSpan JanelaDeDispositivoConfiavel = TimeSpan.FromDays(30);
 
     /// <remarks>
     /// SEC-03 — a decisao final desta etapa NUNCA sai de um booleano lido antes
@@ -123,6 +127,20 @@ public class AutenticacaoService(
 
             if (estado.MfaAtivo)
             {
+                // SEC-03 — dispositivo confiavel: se ESTE navegador ja passou
+                // pelo segundo fator nos ultimos 30 dias e pediu para ser
+                // lembrado, o login conclui aqui, sem desafio. A senha
+                // continua obrigatoria (ja foi conferida acima) — o que se
+                // dispensa e SOMENTE o segundo fator. Qualquer falha na
+                // validacao cai no fluxo normal de MFA (fail closed).
+                var porDispositivoConfiavel = await TentarConcluirPorDispositivoConfiavelAsync(
+                    atendente, estado.TenantId, estado.TokenVersion, agora, ct);
+
+                if (porDispositivoConfiavel is not null)
+                {
+                    return porDispositivoConfiavel;
+                }
+
                 var desafio = await CriarDesafioAsync(
                     atendente.Id, estado.TenantId, estado.TokenVersion,
                     TipoDeDesafioMfa.SegundoFator, TtlDoDesafioDeSegundoFator, ct);
@@ -171,6 +189,130 @@ public class AutenticacaoService(
         }
 
         throw UsuariosServiceException.CredenciaisInvalidas();
+    }
+
+    /// <summary>
+    /// SEC-03 — tenta concluir o login SEM segundo fator, com base no cookie
+    /// de dispositivo confiavel deste navegador. Devolve <c>null</c> quando
+    /// nao ha cookie, quando ele nao confere, ou quando qualquer reconfirmacao
+    /// falha — e o chamador segue para o desafio normal de MFA.
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina de porteiro unico do resto do modulo: NENHUMA decisao
+    /// sai de valor lido antes da escrita. Duas escritas condicionais dentro
+    /// de UMA transacao, na ordem de autoridade (igual ao Passo C1 de
+    /// <see cref="ConcluirLoginMfaAsync"/>):
+    /// <list type="number">
+    /// <item>A CONTA e reconfirmada primeiro (Ativo, MfaAtivo, TokenVersion e
+    /// — por defesa em profundidade, ainda que estruturalmente impossivel
+    /// junto de MfaAtivo — a ausencia de rematricula pos-emergencia
+    /// pendente).</item>
+    /// <item>SO ENTAO o DISPOSITIVO e consumido: hash + conta + tenant + nao
+    /// revogado + nao expirado + <c>TokenVersionNoRegistro</c> ainda igual a
+    /// TokenVersion vigente. O mesmo UPDATE ROTACIONA o hash para um token
+    /// novo — uso unico por rotacao.</item>
+    /// </list>
+    /// Se qualquer uma das duas afetar 0 linhas, as DUAS voltam atras
+    /// (rollback): sem isso, uma conta que mudou de estado no meio do caminho
+    /// deixaria o dispositivo com hash rotacionado e o navegador legitimo com
+    /// um cookie morto, sem nunca ter concluido login nenhum.
+    ///
+    /// <b>Corrida aceita e deliberada:</b> se o MESMO cookie for apresentado
+    /// por duas requisicoes concorrentes (o caso que importa: um cookie
+    /// roubado correndo com o navegador legitimo), o UPDATE condicional
+    /// serializa e so uma rotaciona; a outra encontra 0 linhas e cai no
+    /// segundo fator completo. E o comportamento desejado — mesma familia de
+    /// raciocinio da rotacao de refresh token — e nunca uma brecha: o
+    /// perdedor da corrida precisa do codigo do autenticador.
+    ///
+    /// <b>TokenVersion faz a revogacao de graca:</b> troca de senha, reset,
+    /// desativacao ou troca de MFA, break-glass e mudanca de Perfil/Cargo/Ativo
+    /// ja sobem <c>Atendente.TokenVersion</c> hoje (SEC-01/SEC-03). Como o
+    /// registro guarda a versao vigente na concessao, todos esses eventos
+    /// invalidam o dispositivo sem nenhuma linha de codigo de revogacao.
+    /// </remarks>
+    private async Task<LoginEtapa1Response?> TentarConcluirPorDispositivoConfiavelAsync(
+        Atendente atendente, Guid tenantId, int tokenVersion, DateTime agora, CancellationToken ct)
+    {
+        var tokenApresentado = cookieDeDispositivo.Ler();
+
+        if (string.IsNullOrWhiteSpace(tokenApresentado))
+        {
+            return null;
+        }
+
+        var hashApresentado = SegredosAleatoriosMfa.Sha256Hex(tokenApresentado);
+
+        var tokenRotacionado = SegredosAleatoriosMfa.NovoToken();
+        var hashRotacionado = SegredosAleatoriosMfa.Sha256Hex(tokenRotacionado);
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        // 1) A CONTA, reconfirmada no instante da escrita — mesma condicao do
+        //    "Momento 3B" do login sem MFA, so que exigindo MfaAtivo (aqui a
+        //    conta TEM segundo fator; o que se dispensa e apresenta-lo agora).
+        var contaOk = await db.Atendentes
+            .Where(a => a.Id == atendente.Id
+                     && a.TenantId == tenantId
+                     && a.Ativo
+                     && a.MfaAtivo
+                     && a.TokenVersion == tokenVersion
+                     && !a.RematriculaObrigatoriaAposEmergencia)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.UltimoAcessoEm, agora), ct);
+
+        if (contaOk != 1)
+        {
+            await tx.RollbackAsync(ct);
+            return null;
+        }
+
+        // 2) O DISPOSITIVO. O WHERE amarra o cookie a ESTA conta e a ESTE
+        //    tenant: um cookie valido de outro atendente (ou de outro
+        //    cartorio) nunca casa aqui.
+        var dispositivoOk = await db.DispositivosConfiaveis
+            .Where(d => d.HashDoToken == hashApresentado
+                     && d.AtendenteId == atendente.Id
+                     && d.TenantId == tenantId
+                     && d.RevogadoEm == null
+                     && d.ExpiraEm > agora
+                     && d.TokenVersionNoRegistro == tokenVersion)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.HashDoToken, hashRotacionado)
+                .SetProperty(d => d.UltimoUsoEm, agora), ct);
+
+        if (dispositivoOk != 1)
+        {
+            await tx.RollbackAsync(ct);
+            return null;
+        }
+
+        // ExpiraEm NAO e relido para ser estendido — e relido para o cookie
+        // novo herdar exatamente a validade que o registro ja tinha.
+        var expiraEm = await db.DispositivosConfiaveis.AsNoTracking()
+            .Where(d => d.HashDoToken == hashRotacionado)
+            .Select(d => d.ExpiraEm)
+            .SingleAsync(ct);
+
+        await tx.CommitAsync(ct);
+
+        cookieDeDispositivo.Definir(tokenRotacionado, expiraEm);
+
+        // Os mesmos valores que as escritas acima acabaram de reconfirmar —
+        // nunca uma releitura, que reabriria a janela que este desenho fecha.
+        atendente.UltimoAcessoEm = agora;
+        atendente.TenantId = tenantId;
+        atendente.TokenVersion = tokenVersion;
+
+        var (token, expiraEmToken) = tokens.Gerar(atendente);
+
+        log.LogInformation(
+            "Login (dispositivo confiavel, sem segundo fator) de {AtendenteId} ({Nome})",
+            atendente.Id, atendente.Nome);
+
+        return new LoginEtapa1Response(false, new LoginResponse(
+            token, expiraEmToken,
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.ObterTenantAsync(db, tenantId, ct)), null);
     }
 
     /// <remarks>
@@ -315,7 +457,41 @@ public class AutenticacaoService(
                 TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado, desafio.IpDeOrigem, motivo: null, ct);
         }
 
+        // SEC-03 — "confiar neste dispositivo por 30 dias". So chega aqui
+        // depois de o segundo fator ter passado por todo o porteiro acima, e
+        // grava na MESMA transacao: ou o login inteiro vale (com a confianca
+        // concedida), ou nada vale. TokenVersionNoRegistro fica preso a
+        // TokenVersion que o proprio desafio validou — e o que faz qualquer
+        // evento de seguranca futuro invalidar este dispositivo sozinho.
+        string? tokenDoDispositivo = null;
+        var expiraEmDoDispositivo = agora.Add(JanelaDeDispositivoConfiavel);
+
+        if (request.ConfiarNesteDispositivo)
+        {
+            tokenDoDispositivo = SegredosAleatoriosMfa.NovoToken();
+
+            db.DispositivosConfiaveis.Add(new DispositivoConfiavel
+            {
+                TenantId = desafio.TenantId,
+                AtendenteId = atendente.Id,
+                HashDoToken = SegredosAleatoriosMfa.Sha256Hex(tokenDoDispositivo),
+                TokenVersionNoRegistro = desafio.TokenVersionNoDesafio,
+                ExpiraEm = expiraEmDoDispositivo,
+                IpDeOrigem = desafio.IpDeOrigem
+            });
+
+            await db.SaveChangesAsync(ct);
+        }
+
         await tx.CommitAsync(ct);
+
+        // Depois do commit de proposito: escrever cabecalho de resposta e
+        // efeito de HTTP, nao de banco — e so faz sentido se a transacao de
+        // fato valeu.
+        if (tokenDoDispositivo is not null)
+        {
+            cookieDeDispositivo.Definir(tokenDoDispositivo, expiraEmDoDispositivo);
+        }
 
         atendente.TenantId = desafio.TenantId;
         atendente.TokenVersion = desafio.TokenVersionNoDesafio;

@@ -11,6 +11,8 @@ using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -117,15 +119,19 @@ var opcoesDeMfa = Options.Create(new OpcoesDeMfa
 });
 var cifra = new CifraDeSegredoMfa(opcoesDeMfa);
 
-IAutenticacaoService NovoAutenticacao(CrmDbContext db, Guid atorId) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), NullLogger<AutenticacaoService>.Instance);
+// SEC-03 "confiar neste dispositivo": o cookie e o unico estado que vive no
+// NAVEGADOR. Quando o cenario nao passa um, cada chamada ganha um pote vazio e
+// descartavel — e o equivalente a "navegador novo, sem cookie nenhum", que e
+// exatamente o pressuposto de todos os cenarios anteriores a esta feature.
+IAutenticacaoService NovoAutenticacao(CrmDbContext db, Guid atorId, ICookieDeDispositivoConfiavel? navegador = null) =>
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), navegador ?? new NavegadorFalso(), NullLogger<AutenticacaoService>.Instance);
 
 // Mesma coisa, mas para um tenant ISOLADO — AlterarSenhaAsync filtra por
 // `ctx.AtendenteId && ctx.TenantId`, entao o AutenticacaoService acima
 // (fechado no `tenantId` COMPARTILHADO) nunca enxerga conta de tenant
 // isolado.
 IAutenticacaoService NovoAutenticacaoParaTenant(CrmDbContext db, Guid atorId, Guid tenantAlvo) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), new NavegadorFalso(), NullLogger<AutenticacaoService>.Instance);
 
 IAtendenteService NovoAtendenteService(CrmDbContext db, Guid atorId) =>
     new AtendenteService(db, new ContextoFixo(tenantId, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
@@ -136,8 +142,8 @@ IAtendenteService NovoAtendenteService(CrmDbContext db, Guid atorId) =>
 IAtendenteService NovoAtendenteServiceParaTenant(CrmDbContext db, Guid atorId, Guid tenantAlvo) =>
     new AtendenteService(db, new ContextoFixo(tenantAlvo, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
 
-IMfaService NovoMfaService(CrmDbContext db) =>
-    new MfaService(db, hash, cifra, tokens, NullLogger<MfaService>.Instance);
+IMfaService NovoMfaService(CrmDbContext db, ICookieDeDispositivoConfiavel? navegador = null) =>
+    new MfaService(db, hash, cifra, tokens, navegador ?? new NavegadorFalso(), NullLogger<MfaService>.Instance);
 
 /// <summary>
 /// SEC-03 (revisao independente do PR #46, bloqueador 9) —
@@ -373,20 +379,21 @@ async Task<(Guid Id, string Email, string SegredoBase32, IReadOnlyList<string> C
 }
 
 /// <summary>Etapa 1 pelo servico real.</summary>
-async Task<LoginEtapa1Response> EtapaUm(string email, string senha)
+async Task<LoginEtapa1Response> EtapaUm(string email, string senha, ICookieDeDispositivoConfiavel? navegador = null)
 {
     await using var db = new CrmDbContext(opcoes);
-    return await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(email, senha));
+    return await NovoAutenticacao(db, Guid.NewGuid(), navegador).AutenticarAsync(new LoginRequest(email, senha));
 }
 
 /// <summary>Etapa 2 pelo servico real. Devolve o token, ou null se recusado (qualquer motivo).</summary>
-async Task<string?> EtapaDois(string desafio, string codigo)
+async Task<string?> EtapaDois(
+    string desafio, string codigo, ICookieDeDispositivoConfiavel? navegador = null, bool confiarNesteDispositivo = false)
 {
     await using var db = new CrmDbContext(opcoes);
     try
     {
-        var resposta = await NovoAutenticacao(db, Guid.NewGuid())
-            .ConcluirLoginMfaAsync(new ConcluirLoginMfaRequest(desafio, codigo));
+        var resposta = await NovoAutenticacao(db, Guid.NewGuid(), navegador)
+            .ConcluirLoginMfaAsync(new ConcluirLoginMfaRequest(desafio, codigo, confiarNesteDispositivo));
 
         return resposta.Token;
     }
@@ -934,6 +941,7 @@ try
             var servico = new AutenticacaoService(
                 db, espiao, tokens, cifra,
                 new ContextoFixo(tenantId, Guid.NewGuid(), "Teste", PerfilDeAtendente.Atendente),
+                new NavegadorFalso(),
                 NullLogger<AutenticacaoService>.Instance);
 
             try { await servico.AutenticarAsync(new LoginRequest(email, senha)); }
@@ -3573,6 +3581,290 @@ try
 
                 Checar("64g. POST /api/mfa/confirmar real (privilegiado sem MFA) tambem falha — nenhum atalho HTTP",
                     !respostaConfirmar.IsSuccessStatusCode);
+
+                // ---------------------------------------------------------
+                // SEC-03 "confiar neste dispositivo": os atributos do cookie
+                // sao a defesa contra XSS (HttpOnly) e CSRF (SameSite), e nao
+                // aparecem em nenhum teste de chamada direta ao servico — so
+                // no cabecalho HTTP de verdade. Por isso a leitura e do
+                // Set-Cookie CRU, e nao de um CookieContainer (que ja teria
+                // interpretado e descartado os atributos).
+                // ---------------------------------------------------------
+                {
+                    var (_, emailCookie) = await NovaContaPrivilegiada(
+                        "64 - cookie de dispositivo", perfil: PerfilDeAtendente.Atendente);
+
+                    // A matricula tem que passar pela BORDA HTTP, nao pelo
+                    // MfaService local: o segredo TOTP e guardado cifrado, e a
+                    // chave deste verificador (aleatoria, so dele) nao e a que
+                    // a API publicada carrega do appsettings. Segredo gravado
+                    // aqui sairia ilegivel la — e o codigo, sempre invalido.
+                    var jwtCookie = await LoginHttpAsync(emailCookie);
+                    var (_, corpoIniciarCookie) = await IniciarMfaHttpAsync(jwtCookie ?? string.Empty);
+                    var segredoCookie = JsonDocument.Parse(corpoIniciarCookie)
+                        .RootElement.GetProperty("segredoBase32").GetString()!;
+
+                    using (var requisicaoConfirmarCookie = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/confirmar")
+                    {
+                        Content = JsonContent.Create(new { codigo = CodigoTotp(segredoCookie, -1) }, options: jsonOpcoes)
+                    })
+                    {
+                        requisicaoConfirmarCookie.Headers.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtCookie ?? string.Empty);
+                        using var respostaConfirmarCookie = await http.SendAsync(requisicaoConfirmarCookie);
+                        Checar("64h-preparo. matricula de MFA pela borda HTTP real conclui",
+                            respostaConfirmarCookie.IsSuccessStatusCode);
+                    }
+
+                    // Cliente SEM jar de cookies: o HttpClient padrao guardaria
+                    // e reenviaria o cookie sozinho, e o teste negativo ("sem o
+                    // cookie ainda pede o codigo") passaria a testar o
+                    // HttpClient, nao a API. Aqui cada cookie enviado e
+                    // colocado a mao, de proposito.
+                    using var semJar = new HttpClientHandler { UseCookies = false };
+                    using var httpDispositivo = new HttpClient(semJar)
+                    {
+                        BaseAddress = new Uri(baseUrl),
+                        Timeout = TimeSpan.FromSeconds(10)
+                    };
+
+                    using var respostaEtapa1 = await httpDispositivo.PostAsJsonAsync("/api/autenticacao/login",
+                        new { email = emailCookie, senha = SenhaBoa }, jsonOpcoes);
+                    var etapa1Http = await respostaEtapa1.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes);
+
+                    Checar("64h. login HTTP real de conta com MFA devolve desafio, nunca sessao",
+                        etapa1Http is { RequerMfa: true, Sessao: null, Desafio: not null });
+
+                    using var respostaEtapa2 = await httpDispositivo.PostAsJsonAsync("/api/autenticacao/login/mfa",
+                        new
+                        {
+                            desafio = etapa1Http!.Desafio!.Desafio,
+                            codigo = CodigoTotp(segredoCookie),
+                            confiarNesteDispositivo = true
+                        }, jsonOpcoes);
+
+                    var setCookie = respostaEtapa2.Headers.TryGetValues("Set-Cookie", out var valores)
+                        ? valores.FirstOrDefault(v => v.StartsWith("crm_dispositivo_confiavel=", StringComparison.Ordinal))
+                        : null;
+
+                    Checar("64i. concluir o segundo fator com confiarNesteDispositivo emite o Set-Cookie",
+                        respostaEtapa2.IsSuccessStatusCode && setCookie is not null);
+
+                    Checar("64j. o cookie e HttpOnly — JavaScript da pagina nunca alcanca o token",
+                        setCookie?.Contains("httponly", StringComparison.OrdinalIgnoreCase) == true);
+
+                    Checar("64k. o cookie e SameSite=Strict — nao viaja em requisicao de outro site (CSRF)",
+                        setCookie?.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase) == true);
+
+                    Checar("64l. o cookie fica preso ao caminho /api/autenticacao — nao acompanha o resto da API",
+                        setCookie?.Contains("path=/api/autenticacao", StringComparison.OrdinalIgnoreCase) == true);
+
+                    // Este processo de teste roda em HTTP puro em loopback. Se o
+                    // cookie viesse com `Secure` aqui, o navegador o descartaria e
+                    // a feature nao funcionaria em DEV — e o mesmo codigo marca
+                    // Secure automaticamente quando a requisicao chega por HTTPS
+                    // (producao e teste, ambos atras de HTTPS real).
+                    Checar("64m. sobre HTTP puro (DEV) o cookie NAO vem com Secure; o atributo acompanha o esquema da requisicao",
+                        setCookie?.Contains("secure", StringComparison.OrdinalIgnoreCase) == false);
+
+                    Checar("64n. o cookie carrega uma data de expiracao (nao e cookie de sessao)",
+                        setCookie?.Contains("expires=", StringComparison.OrdinalIgnoreCase) == true);
+
+                    // Replay do cookie na borda HTTP: o mesmo valor devolvido
+                    // pelo servidor dispensa o segundo fator no proximo login.
+                    var valorDoCookie = setCookie!.Split(';')[0];
+                    using var requisicaoComCookie = new HttpRequestMessage(HttpMethod.Post, "/api/autenticacao/login")
+                    {
+                        Content = JsonContent.Create(new { email = emailCookie, senha = SenhaBoa }, options: jsonOpcoes)
+                    };
+                    requisicaoComCookie.Headers.Add("Cookie", valorDoCookie);
+
+                    using var respostaComCookie = await httpDispositivo.SendAsync(requisicaoComCookie);
+                    var etapa1ComCookie = await respostaComCookie.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes);
+
+                    Checar("64o. reapresentar o cookie na borda HTTP dispensa o segundo fator e ja devolve a sessao",
+                        etapa1ComCookie is { RequerMfa: false, Sessao: not null, Desafio: null });
+
+                    using var requisicaoSemCookie = await httpDispositivo.PostAsJsonAsync("/api/autenticacao/login",
+                        new { email = emailCookie, senha = SenhaBoa }, jsonOpcoes);
+                    var etapa1SemCookie = await requisicaoSemCookie.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes);
+
+                    Checar("64p. sem o cookie, a mesma conta continua exigindo o segundo fator",
+                        etapa1SemCookie is { RequerMfa: true, Sessao: null });
+                }
+
+                // ---------------------------------------------------------
+                // SEC-03 — a MESMA API publicada, subida de novo com
+                // ASPNETCORE_ENVIRONMENT=Teste, ainda em HTTP puro no
+                // loopback. E exatamente a forma da infraestrutura real: TLS
+                // termina na Cloudflare e a perna interna do IIS chega em
+                // HTTP. Aqui `Request.IsHttps` e false — e o cookie tem que
+                // sair COM `Secure` mesmo assim.
+                // ---------------------------------------------------------
+                {
+                    int portaTeste;
+                    using (var sondaTeste = new TcpListener(IPAddress.Loopback, 0))
+                    {
+                        sondaTeste.Start();
+                        portaTeste = ((IPEndPoint)sondaTeste.LocalEndpoint).Port;
+                    }
+
+                    var baseUrlTeste = $"http://127.0.0.1:{portaTeste}";
+
+                    var processoTeste = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = "dotnet",
+                            Arguments = $"\"{caminhoDoAssembly}\"",
+                            WorkingDirectory = Path.GetDirectoryName(caminhoDoAssembly),
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true
+                        }
+                    };
+
+                    // Ambiente Teste nao carrega appsettings.Development.json,
+                    // entao o que a API exige para subir vai por variavel de
+                    // ambiente. Chaves DESCARTAVEIS, geradas agora, so deste
+                    // processo de teste — nunca segredo real, nunca versionado.
+                    processoTeste.StartInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Teste";
+                    processoTeste.StartInfo.EnvironmentVariables["ASPNETCORE_URLS"] = baseUrlTeste;
+                    processoTeste.StartInfo.EnvironmentVariables["ConnectionStrings__SqlServer"] = conexao;
+                    processoTeste.StartInfo.EnvironmentVariables["Jwt__Chave"] =
+                        Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+                    processoTeste.StartInfo.EnvironmentVariables["Mfa__VersaoCorrente"] = "1";
+                    processoTeste.StartInfo.EnvironmentVariables["Mfa__Chaves__1"] =
+                        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+                    processoTeste.StartInfo.EnvironmentVariables["CanalWhatsApp__Habilitado"] = "false";
+                    processoTeste.StartInfo.EnvironmentVariables["RespostaInteligente__Habilitada"] = "false";
+                    processoTeste.StartInfo.EnvironmentVariables["Automacao__VarrerPrazos"] = "false";
+
+                    var erroDoTeste = new System.Text.StringBuilder();
+                    processoTeste.OutputDataReceived += (_, e) => { };
+                    processoTeste.ErrorDataReceived += (_, e) =>
+                    {
+                        if (e.Data is not null && erroDoTeste.Length < 20000) erroDoTeste.AppendLine(e.Data);
+                    };
+
+                    processoTeste.Start();
+                    processoTeste.BeginOutputReadLine();
+                    processoTeste.BeginErrorReadLine();
+
+                    try
+                    {
+                        using var semJarTeste = new HttpClientHandler { UseCookies = false };
+                        using var httpTeste = new HttpClient(semJarTeste)
+                        {
+                            BaseAddress = new Uri(baseUrlTeste),
+                            Timeout = TimeSpan.FromSeconds(10)
+                        };
+
+                        var prontoTeste = false;
+                        for (var tentativa = 0; tentativa < 60 && !prontoTeste; tentativa++)
+                        {
+                            try
+                            {
+                                using var resposta = await httpTeste.GetAsync("/health/pronto");
+                                prontoTeste = resposta.IsSuccessStatusCode;
+                            }
+                            catch (HttpRequestException) { }
+                            catch (TaskCanceledException) { }
+
+                            if (!prontoTeste) await Task.Delay(500);
+                        }
+
+                        Checar("64q-preparo. a MESMA API publicada sobe com ASPNETCORE_ENVIRONMENT=Teste em HTTP puro",
+                            prontoTeste);
+
+                        if (!prontoTeste)
+                        {
+                            var erro = erroDoTeste.ToString();
+                            Console.WriteLine($"  Diagnostico: {erro[..Math.Min(2000, erro.Length)]}");
+                        }
+                        else
+                        {
+                            var (_, emailTeste) = await NovaContaPrivilegiada(
+                                "64 - cookie em ambiente Teste", perfil: PerfilDeAtendente.Atendente);
+
+                            // Matricula pela borda desta instancia: a cifra do
+                            // segredo TOTP usa a chave DELA, nao a do processo
+                            // Development nem a deste verificador.
+                            using var loginTeste = await httpTeste.PostAsJsonAsync("/api/autenticacao/login",
+                                new { email = emailTeste, senha = SenhaBoa }, jsonOpcoes);
+                            var jwtTeste = (await loginTeste.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes))
+                                ?.Sessao?.Token;
+
+                            string segredoTeste;
+                            using (var iniciarTeste = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/iniciar")
+                            {
+                                Content = JsonContent.Create(
+                                    new { senhaAtual = SenhaBoa, codigoAtual = (string?)null }, options: jsonOpcoes)
+                            })
+                            {
+                                iniciarTeste.Headers.Authorization =
+                                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtTeste ?? string.Empty);
+                                using var respostaIniciarTeste = await httpTeste.SendAsync(iniciarTeste);
+                                segredoTeste = JsonDocument.Parse(await respostaIniciarTeste.Content.ReadAsStringAsync())
+                                    .RootElement.GetProperty("segredoBase32").GetString()!;
+                            }
+
+                            using (var confirmarTeste = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/confirmar")
+                            {
+                                Content = JsonContent.Create(new { codigo = CodigoTotp(segredoTeste, -1) }, options: jsonOpcoes)
+                            })
+                            {
+                                confirmarTeste.Headers.Authorization =
+                                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtTeste ?? string.Empty);
+                                using var respostaConfirmarTeste = await httpTeste.SendAsync(confirmarTeste);
+                                Checar("64q. matricula de MFA pela API em ambiente Teste conclui",
+                                    respostaConfirmarTeste.IsSuccessStatusCode);
+                            }
+
+                            using var etapa1Teste = await httpTeste.PostAsJsonAsync("/api/autenticacao/login",
+                                new { email = emailTeste, senha = SenhaBoa }, jsonOpcoes);
+                            var desafioTeste = await etapa1Teste.Content.ReadFromJsonAsync<LoginEtapa1Response>(jsonOpcoes);
+
+                            using var etapa2Teste = await httpTeste.PostAsJsonAsync("/api/autenticacao/login/mfa",
+                                new
+                                {
+                                    desafio = desafioTeste!.Desafio!.Desafio,
+                                    codigo = CodigoTotp(segredoTeste),
+                                    confiarNesteDispositivo = true
+                                }, jsonOpcoes);
+
+                            var setCookieTeste = etapa2Teste.Headers.TryGetValues("Set-Cookie", out var valoresTeste)
+                                ? valoresTeste.FirstOrDefault(v => v.StartsWith("crm_dispositivo_confiavel=", StringComparison.Ordinal))
+                                : null;
+
+                            Checar("64r. ambiente Teste emite o Set-Cookie do dispositivo confiavel",
+                                etapa2Teste.IsSuccessStatusCode && setCookieTeste is not null);
+
+                            // O ponto do bloqueador: HTTP puro na perna
+                            // interna, `Request.IsHttps == false`, e mesmo
+                            // assim o cookie sai marcado como Secure.
+                            Checar("64s. em Teste, sobre HTTP puro, o cookie SAI COM Secure — nao depende de Request.IsHttps",
+                                setCookieTeste?.Contains("secure", StringComparison.OrdinalIgnoreCase) == true);
+
+                            Checar("64t. em Teste, HttpOnly e SameSite=Strict continuam presentes",
+                                setCookieTeste?.Contains("httponly", StringComparison.OrdinalIgnoreCase) == true
+                                && setCookieTeste.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase));
+
+                            Checar("64u. em Teste, Path=/api/autenticacao continua presente",
+                                setCookieTeste?.Contains("path=/api/autenticacao", StringComparison.OrdinalIgnoreCase) == true);
+                        }
+                    }
+                    finally
+                    {
+                        if (!processoTeste.HasExited)
+                        {
+                            try { processoTeste.Kill(entireProcessTree: true); } catch { }
+                            try { processoTeste.WaitForExit(5000); } catch { }
+                        }
+                        processoTeste.Dispose();
+                    }
+                }
             }
         }
         finally
@@ -6213,6 +6505,452 @@ try
                     == ElegibilidadeDeReemissaoDeTicket.NaoEstaEmRecuperacaoDeEmergencia);
         }
     }
+
+    // ------------------------------------------------------------ cenario 78
+    // SEC-03 — "confiar neste dispositivo por 30 dias".
+    //
+    // O que precisa ser provado, e por que cada um importa:
+    //
+    //   1. A dispensa e REAL (o segundo login no mesmo navegador nao pede
+    //      codigo) — senao a feature nao existe.
+    //   2. A dispensa e SO daquele navegador, daquela conta, daquele tenant —
+    //      senao virou bypass de MFA.
+    //   3. Todo estado de autoridade e reconferido NO INSTANTE DO USO
+    //      (Ativo/MfaAtivo/TokenVersion/expiracao/revogacao), nunca lido de
+    //      algo que o cliente mandou.
+    //   4. O token em claro NUNCA existe no banco — so o hash.
+    //   5. O uso ROTACIONA o token (uso unico), e a rotacao NAO estende a
+    //      janela de 30 dias.
+    //   6. Dispositivo confiavel nao vale para step-up de operacao
+    //      administrativa — so para o segundo fator do LOGIN.
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 78 — confiar neste dispositivo por 30 dias.");
+
+        async Task<DispositivoConfiavel?> LerDispositivoDe(Guid atendenteId)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            return await db.DispositivosConfiaveis.AsNoTracking()
+                .Where(d => d.AtendenteId == atendenteId)
+                .OrderByDescending(d => d.CriadoEm)
+                .FirstOrDefaultAsync();
+        }
+
+        async Task<int> ContarDispositivosDe(Guid atendenteId)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            return await db.DispositivosConfiaveis.CountAsync(d => d.AtendenteId == atendenteId && d.RevogadoEm == null);
+        }
+
+        /// Login completo com MFA por um navegador especifico, opcionalmente
+        /// pedindo a confianca de 30 dias.
+        async Task<LoginEtapa1Response> LoginPeloNavegador(
+            string email, string segredo, NavegadorFalso navegador, bool confiar, int deslocamento = 0)
+        {
+            var etapa1 = await EtapaUm(email, SenhaBoa, navegador);
+            if (!etapa1.RequerMfa || etapa1.Desafio is null) return etapa1;
+
+            await EtapaDois(etapa1.Desafio.Desafio, CodigoTotp(segredo, deslocamento), navegador, confiar);
+            return etapa1;
+        }
+
+        // -- concessao ------------------------------------------------------
+
+        var conta78 = await NovaContaComMfaAtivo("dispositivo confiavel", PerfilDeAtendente.Atendente);
+        var navegadorDaMesa = new NavegadorFalso();
+
+        Checar("78a. sem cookie, o login com MFA abre desafio de segundo fator (comportamento de sempre)",
+            (await EtapaUm(conta78.Email, SenhaBoa, navegadorDaMesa)).RequerMfa);
+
+        await LoginPeloNavegador(conta78.Email, conta78.SegredoBase32, navegadorDaMesa, confiar: true);
+
+        Checar("78b. concluir o segundo fator pedindo confianca grava o cookie no navegador",
+            navegadorDaMesa.Cookie is not null && navegadorDaMesa.Gravacoes == 1);
+
+        var dispositivo78 = await LerDispositivoDe(conta78.Id);
+        Checar("78c. a concessao criou UMA linha em DispositivosConfiaveis", dispositivo78 is not null);
+
+        var cookieConcedido = navegadorDaMesa.Cookie!;
+        Checar("78d. o banco guarda o HASH, nunca o token em claro",
+            dispositivo78!.HashDoToken == SegredosAleatoriosMfa.Sha256Hex(cookieConcedido)
+            && dispositivo78.HashDoToken != cookieConcedido);
+
+        var tokenVersionNaConcessao = (await Ler(conta78.Id)).TokenVersion;
+        Checar("78e. TokenVersionNoRegistro e o snapshot do TokenVersion validado no desafio",
+            dispositivo78.TokenVersionNoRegistro == tokenVersionNaConcessao);
+
+        var janela78 = dispositivo78.ExpiraEm - dispositivo78.CriadoEm;
+        Checar("78f. a janela concedida e de 30 dias",
+            janela78 > TimeSpan.FromDays(29.9) && janela78 < TimeSpan.FromDays(30.1));
+
+        Checar("78g. nasce sem revogacao e sem uso", dispositivo78.RevogadoEm is null && dispositivo78.UltimoUsoEm is null);
+
+        // -- a dispensa, e so dela --------------------------------------------
+
+        var segundoLogin = await EtapaUm(conta78.Email, SenhaBoa, navegadorDaMesa);
+        Checar("78h. o MESMO navegador nao precisa mais do segundo fator",
+            !segundoLogin.RequerMfa && segundoLogin.Sessao is not null && segundoLogin.Desafio is null);
+
+        var senhaErradaRecusada = false;
+        try
+        {
+            await EtapaUm(conta78.Email, SenhaRuim, navegadorDaMesa);
+        }
+        catch (UsuariosServiceException ex) when (ex.Codigo == "credenciais_invalidas")
+        {
+            senhaErradaRecusada = true;
+        }
+
+        Checar("78i. mesmo dispensando o codigo, a SENHA continua obrigatoria", senhaErradaRecusada);
+
+        var navegadorAnonimo = new NavegadorFalso();
+        Checar("78j. navegador SEM o cookie continua exigindo o segundo fator",
+            (await EtapaUm(conta78.Email, SenhaBoa, navegadorAnonimo)).RequerMfa);
+
+        // -- rotacao de uso unico ---------------------------------------------
+
+        Checar("78k. o uso ROTACIONOU o cookie (uso unico)",
+            navegadorDaMesa.Gravacoes == 2 && navegadorDaMesa.Cookie != cookieConcedido);
+
+        var apos78 = await LerDispositivoDe(conta78.Id);
+        Checar("78l. o hash no banco acompanhou a rotacao",
+            apos78!.HashDoToken == SegredosAleatoriosMfa.Sha256Hex(navegadorDaMesa.Cookie!));
+
+        Checar("78m. a rotacao NAO estende a janela de 30 dias (teto duro desde a concessao)",
+            apos78.ExpiraEm == dispositivo78.ExpiraEm);
+
+        Checar("78n. o uso carimba UltimoUsoEm", apos78.UltimoUsoEm is not null);
+
+        var cookieVelho = new NavegadorFalso();
+        cookieVelho.Definir(cookieConcedido, apos78.ExpiraEm);
+        Checar("78o. o cookie ANTERIOR a rotacao nao serve mais (replay recusado)",
+            (await EtapaUm(conta78.Email, SenhaBoa, cookieVelho)).RequerMfa);
+
+        // Cookie roubado: dois navegadores com o MESMO cookie. So um rotaciona;
+        // o outro cai para MFA completo. E o comportamento pretendido, nao um
+        // buraco — o ladrao precisa do codigo para seguir.
+        var navegadorLegitimo = new NavegadorFalso();
+        var conta78Roubo = await NovaContaComMfaAtivo("cookie roubado", PerfilDeAtendente.Atendente);
+        await LoginPeloNavegador(conta78Roubo.Email, conta78Roubo.SegredoBase32, navegadorLegitimo, confiar: true);
+        var navegadorLadrao = navegadorLegitimo.Clonar();
+
+        var usoDoLegitimo = await EtapaUm(conta78Roubo.Email, SenhaBoa, navegadorLegitimo);
+        var usoDoLadrao = await EtapaUm(conta78Roubo.Email, SenhaBoa, navegadorLadrao);
+        Checar("78p. cookie copiado so vale para quem usar primeiro; a copia cai para MFA completo",
+            !usoDoLegitimo.RequerMfa && usoDoLadrao.RequerMfa);
+
+        // -- fronteiras: conta, tenant, expiracao, revogacao, TokenVersion ----
+
+        var outraConta78 = await NovaContaComMfaAtivo("outra conta", PerfilDeAtendente.Atendente);
+        var navegadorCruzado = new NavegadorFalso();
+        await LoginPeloNavegador(conta78.Email, conta78.SegredoBase32, navegadorCruzado, confiar: true);
+        Checar("78q. cookie de OUTRA conta nao dispensa o segundo fator (fronteira de atendente)",
+            (await EtapaUm(outraConta78.Email, SenhaBoa, navegadorCruzado)).RequerMfa);
+
+        {
+            var contaTenant78 = await NovaContaComMfaAtivo("fronteira de tenant", PerfilDeAtendente.Atendente);
+            var navegadorTenant = new NavegadorFalso();
+            await LoginPeloNavegador(contaTenant78.Email, contaTenant78.SegredoBase32, navegadorTenant, confiar: true);
+
+            Guid tenantIntruso;
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                var tenant = new Tenant
+                {
+                    RazaoSocial = "[TESTE SEC-03] Tenant isolado — dispositivo confiavel",
+                    Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+                };
+                db.Tenants.Add(tenant);
+                await db.SaveChangesAsync();
+                tenantIntruso = tenant.Id;
+            }
+            tenantIdsDeTeste.Add(tenantIntruso);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaTenant78.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.TenantId, tenantIntruso));
+            }
+
+            Checar("78r. dispositivo de OUTRO tenant nao dispensa o segundo fator (fronteira de tenant)",
+                (await EtapaUm(contaTenant78.Email, SenhaBoa, navegadorTenant)).RequerMfa);
+        }
+
+        {
+            var contaExpirada = await NovaContaComMfaAtivo("dispositivo expirado", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaExpirada.Email, contaExpirada.SegredoBase32, navegador, confiar: true);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaExpirada.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.ExpiraEm, DateTime.UtcNow.AddMinutes(-1)));
+            }
+
+            Checar("78s. dispositivo EXPIRADO volta a exigir o segundo fator",
+                (await EtapaUm(contaExpirada.Email, SenhaBoa, navegador)).RequerMfa);
+        }
+
+        {
+            var contaRevogada = await NovaContaComMfaAtivo("dispositivo revogado", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaRevogada.Email, contaRevogada.SegredoBase32, navegador, confiar: true);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaRevogada.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.RevogadoEm, DateTime.UtcNow));
+            }
+
+            Checar("78t. dispositivo REVOGADO volta a exigir o segundo fator",
+                (await EtapaUm(contaRevogada.Email, SenhaBoa, navegador)).RequerMfa);
+        }
+
+        // TokenVersion e o mecanismo universal (SEC-01): qualquer evento que ja
+        // derruba sessao JWT tem que derrubar a confianca do dispositivo junto,
+        // SEM nenhuma bookkeeping nova. Troca de senha e o representante direto.
+        {
+            var contaSenha = await NovaContaComMfaAtivo("troca de senha invalida", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaSenha.Email, contaSenha.SegredoBase32, navegador, confiar: true);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await NovoAutenticacao(db, contaSenha.Id)
+                    .AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "OutraSenhaBoa456"));
+            }
+
+            Checar("78u. trocar a senha (que sobe TokenVersion) invalida o dispositivo confiavel",
+                (await EtapaUm(contaSenha.Email, "OutraSenhaBoa456", navegador)).RequerMfa);
+        }
+
+        // Rematricula obrigatoria pos-emergencia: mesmo com dispositivo valido,
+        // a conta nao pode entrar sem refazer a matricula.
+        {
+            var contaRematricula = await NovaContaComMfaAtivo("rematricula obrigatoria", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaRematricula.Email, contaRematricula.SegredoBase32, navegador, confiar: true);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await db.Atendentes.Where(a => a.Id == contaRematricula.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(a => a.RematriculaObrigatoriaAposEmergencia, true));
+            }
+
+            Checar("78v. conta em rematricula obrigatoria nao entra por dispositivo confiavel",
+                (await EtapaUm(contaRematricula.Email, SenhaBoa, navegador)).RequerMfa);
+        }
+
+        // -- nao concessao ----------------------------------------------------
+
+        {
+            var contaSemConfianca = await NovaContaComMfaAtivo("sem marcar a caixa", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaSemConfianca.Email, contaSemConfianca.SegredoBase32, navegador, confiar: false);
+
+            Checar("78w. sem marcar a caixa, nenhum dispositivo e criado e nenhum cookie e gravado",
+                await ContarDispositivosDe(contaSemConfianca.Id) == 0
+                && navegador.Cookie is null && navegador.Gravacoes == 0);
+        }
+
+        // -- esquecer dispositivos --------------------------------------------
+
+        {
+            var contaEsquecer = await NovaContaComMfaAtivo("esquecer dispositivos", PerfilDeAtendente.Atendente);
+            var navegadorA = new NavegadorFalso();
+            var navegadorB = new NavegadorFalso();
+            await LoginPeloNavegador(contaEsquecer.Email, contaEsquecer.SegredoBase32, navegadorA, confiar: true);
+            await LoginPeloNavegador(contaEsquecer.Email, contaEsquecer.SegredoBase32, navegadorB, confiar: true, deslocamento: 1);
+
+            var identidade = new IdentidadeParaMfa(tenantId, contaEsquecer.Id);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                var situacao = await NovoMfaService(db).ObterSituacaoAsync(identidade);
+                Checar("78x. a situacao de MFA conta os dispositivos confiaveis ativos",
+                    situacao.DispositivosConfiaveisAtivos == 2);
+            }
+
+            int revogados;
+            var navegadorQueChamou = navegadorA.Clonar();
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                revogados = await NovoMfaService(db, navegadorQueChamou).EsquecerDispositivosConfiaveisAsync(identidade);
+            }
+
+            Checar("78y. esquecer revoga TODOS os dispositivos do proprio atendente",
+                revogados == 2 && await ContarDispositivosDe(contaEsquecer.Id) == 0);
+
+            Checar("78z. esquecer tambem limpa o cookie do navegador que chamou",
+                navegadorQueChamou.Cookie is null);
+
+            Checar("78aa. depois de esquecer, os dois navegadores voltam a pedir o segundo fator",
+                (await EtapaUm(contaEsquecer.Email, SenhaBoa, navegadorA)).RequerMfa
+                && (await EtapaUm(contaEsquecer.Email, SenhaBoa, navegadorB)).RequerMfa);
+        }
+
+        // -- fronteira com step-up --------------------------------------------
+
+        // O cookie NAO e uma credencial de operacao administrativa. Desativar o
+        // MFA continua exigindo senha + codigo, mesmo do navegador confiavel.
+        {
+            var contaStepUp = await NovaContaComMfaAtivo("step-up nao aceita cookie", PerfilDeAtendente.Atendente);
+            var navegador = new NavegadorFalso();
+            await LoginPeloNavegador(contaStepUp.Email, contaStepUp.SegredoBase32, navegador, confiar: true);
+
+            var recusou = false;
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                try
+                {
+                    await NovoMfaService(db, navegador).DesativarAsync(
+                        new IdentidadeParaMfa(tenantId, contaStepUp.Id),
+                        new DesativarMfaRequest(SenhaBoa, "000000"), null);
+                }
+                catch (UsuariosServiceException) { recusou = true; }
+            }
+
+            Checar("78ab. dispositivo confiavel NAO dispensa o step-up de operacao administrativa", recusou);
+            Checar("78ac. e o MFA continua ativo depois da recusa", (await Ler(contaStepUp.Id)).MfaAtivo);
+        }
+
+        // -- o token em claro nunca encosta no banco --------------------------
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var todosOsHashes = await db.DispositivosConfiaveis.AsNoTracking()
+                .Where(d => ids.Contains(d.AtendenteId))
+                .Select(d => d.HashDoToken)
+                .ToListAsync();
+
+            Checar("78ad. nenhum token em claro conhecido por este teste aparece no banco",
+                todosOsHashes.Count > 0
+                && !todosOsHashes.Contains(cookieConcedido)
+                && !todosOsHashes.Contains(navegadorDaMesa.Cookie!)
+                && todosOsHashes.TrueForAll(h => h.Length == 64));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 79
+    // SEC-03 — politica do atributo `Secure` do cookie de dispositivo
+    // confiavel, por AMBIENTE.
+    //
+    // Por que este cenario existe: a versao anterior decidia `Secure` por
+    // `Request.IsHttps`. Na infraestrutura real o TLS termina na Cloudflare e
+    // o IIS recebe a perna interna em HTTP puro — ali `IsHttps` e false com o
+    // navegador falando HTTPS, e o cookie de confianca sairia SEM `Secure`.
+    // A regra passou a ser "seguro por omissao": so `Development` pode abrir
+    // mao, nomeado explicitamente. Ambiente novo nasce protegido.
+    //
+    // Este bloco testa a CLASSE de producao diretamente contra um
+    // HttpContext real, lendo o cabecalho `Set-Cookie` CRU — nao um
+    // CookieContainer, que ja teria interpretado e descartado os atributos.
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 79 — Secure do cookie de dispositivo confiavel, por ambiente.");
+
+        static string SetCookieDe(string ambiente, bool limpando = false)
+        {
+            var contexto = new DefaultHttpContext();
+            var cookie = new CookieDeDispositivoConfiavel(
+                new HttpContextAccessor { HttpContext = contexto }, new AmbienteFalso(ambiente));
+
+            if (limpando) cookie.Limpar();
+            else cookie.Definir("token-descartavel-de-teste", DateTime.UtcNow.AddDays(30));
+
+            return contexto.Response.Headers["Set-Cookie"].ToString();
+        }
+
+        static bool Tem(string setCookie, string trecho) =>
+            setCookie.Contains(trecho, StringComparison.OrdinalIgnoreCase);
+
+        // O ambiente TESTE e o caso que motivou a mudanca: API local em HTTP
+        // puro atras do TLS da Cloudflare.
+        var teste79 = SetCookieDe("Teste");
+        Checar("79a. ambiente Teste emite o cookie COM Secure, mesmo sem HTTPS na requisicao",
+            Tem(teste79, "secure"));
+
+        var producao79 = SetCookieDe("Production");
+        Checar("79b. ambiente Production emite o cookie COM Secure", Tem(producao79, "secure"));
+
+        // Seguro por omissao: qualquer nome que nao seja Development e tratado
+        // como ambiente real. Um ambiente novo (Staging, Homologacao, o que
+        // vier) nao precisa lembrar de configurar nada para nascer protegido.
+        Checar("79c. ambiente Staging (nao previsto hoje) tambem emite com Secure",
+            Tem(SetCookieDe("Staging"), "secure"));
+        Checar("79d. ambiente de nome desconhecido tambem emite com Secure — a excecao e so Development",
+            Tem(SetCookieDe("AmbienteQueNinguemInventouAinda"), "secure"));
+
+        // Development e a UNICA excecao, e e deliberada: painel em
+        // http://localhost:5173 contra API em http://localhost:5210 — com
+        // Secure fixo o navegador descartaria o cookie em silencio.
+        var desenvolvimento79 = SetCookieDe("Development");
+        Checar("79e. Development (unica excecao, documentada) emite sem Secure",
+            !Tem(desenvolvimento79, "secure"));
+
+        // A politica NAO pode depender do esquema da requisicao: mesmo
+        // ambiente, HTTP e HTTPS tem que dar o mesmo resultado.
+        Checar("79f. o Secure NAO acompanha Request.IsHttps — em Teste da o mesmo resultado que em Production",
+            Tem(teste79, "secure") == Tem(producao79, "secure"));
+
+        // Os demais atributos continuam em todos os ambientes — inclusive no
+        // unico que abre mao do Secure.
+        foreach (var ambiente in new[] { "Development", "Teste", "Production", "Staging" })
+        {
+            var setCookie = SetCookieDe(ambiente);
+
+            Checar($"79g[{ambiente}]. HttpOnly presente — XSS nunca le o token", Tem(setCookie, "httponly"));
+            Checar($"79h[{ambiente}]. SameSite=Strict presente — o cookie nao viaja em requisicao de outro site",
+                Tem(setCookie, "samesite=strict"));
+            Checar($"79i[{ambiente}]. Path=/api/autenticacao presente — nao acompanha o resto da API",
+                Tem(setCookie, "path=/api/autenticacao"));
+            Checar($"79j[{ambiente}]. o cookie sai com expiracao explicita", Tem(setCookie, "expires="));
+        }
+
+        // A EXCLUSAO tem que repetir os mesmos atributos: navegador so apaga
+        // um cookie quando eles batem com os da gravacao. Se a rotina de
+        // limpar divergisse, "esquecer dispositivos" deixaria cookie orfao
+        // vivo no navegador.
+        foreach (var ambiente in new[] { "Teste", "Production" })
+        {
+            var aoLimpar = SetCookieDe(ambiente, limpando: true);
+
+            Checar($"79k[{ambiente}]. a EXCLUSAO do cookie repete Secure", Tem(aoLimpar, "secure"));
+            Checar($"79l[{ambiente}]. a EXCLUSAO do cookie repete SameSite=Strict", Tem(aoLimpar, "samesite=strict"));
+            Checar($"79m[{ambiente}]. a EXCLUSAO do cookie repete Path=/api/autenticacao",
+                Tem(aoLimpar, "path=/api/autenticacao"));
+        }
+
+        Checar("79n. a exclusao em Development segue a mesma decisao da gravacao (sem Secure)",
+            !Tem(SetCookieDe("Development", limpando: true), "secure"));
+
+        // Regressao estrutural: se alguem reintroduzir Request.IsHttps na
+        // decisao do cookie, este teste quebra sozinho — sem depender de
+        // revisao humana notar.
+        {
+            var fonte = await File.ReadAllTextAsync(Path.Combine(
+                "CrmCartorio.Api", "Infrastructure", "Security", "CookieDeDispositivoConfiavel.cs"));
+
+            var fonteSemComentarios = string.Join('\n', fonte
+                .Split('\n')
+                .Where(l => !l.TrimStart().StartsWith("//", StringComparison.Ordinal)
+                         && !l.TrimStart().StartsWith("///", StringComparison.Ordinal)
+                         && !l.TrimStart().StartsWith("*", StringComparison.Ordinal)));
+
+            Checar("79o. a decisao de Secure nao volta a depender de Request.IsHttps (regressao estrutural)",
+                !fonteSemComentarios.Contains("IsHttps", StringComparison.Ordinal));
+
+            Checar("79p. Secure sai de IsDevelopment(), nao do esquema da requisicao",
+                fonteSemComentarios.Contains("Secure = !ambiente.IsDevelopment()", StringComparison.Ordinal));
+
+            // Sem forwarded headers global so por causa deste cookie — seria
+            // uma mudanca de pipeline muito maior, afetando toda a API.
+            var programa = await File.ReadAllTextAsync(Path.Combine("CrmCartorio.Api", "Program.cs"));
+            Checar("79q. nenhuma configuracao global de ForwardedHeaders foi introduzida para resolver este cookie",
+                !programa.Contains("ForwardedHeaders", StringComparison.Ordinal)
+                && !programa.Contains("UseForwardedHeaders", StringComparison.Ordinal));
+        }
+    }
 }
 finally
 {
@@ -6223,6 +6961,7 @@ finally
     await db.DesafiosDeMfa.Where(d => ids.Contains(d.AtendenteId)).ExecuteDeleteAsync();
     await db.CodigosDeRecuperacaoMfa.Where(c => ids.Contains(c.AtendenteId)).ExecuteDeleteAsync();
     await db.EventosDeSeguranca.Where(e => ids.Contains(e.AtendenteId)).ExecuteDeleteAsync();
+    await db.DispositivosConfiaveis.Where(d => ids.Contains(d.AtendenteId)).ExecuteDeleteAsync();
 
     var removidos = await db.Atendentes.Where(a => ids.Contains(a.Id)).ExecuteDeleteAsync();
 
@@ -6263,6 +7002,57 @@ file sealed class HashEspiao(IHashDeSenha real) : IHashDeSenha
     {
         Verificacoes++;
         return real.Verificar(senha, hashArmazenado);
+    }
+}
+
+/// <summary>
+/// SEC-03 (cenario 79) — ambiente de hospedagem com nome escolhido pelo teste.
+/// So o <c>EnvironmentName</c> importa: e dele que sai a decisao de `Secure`.
+/// </summary>
+file sealed class AmbienteFalso(string nome) : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = nome;
+    public string ApplicationName { get; set; } = "CrmCartorio.Api";
+    public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+}
+
+/// <summary>
+/// SEC-03 ("confiar neste dispositivo") — o estado que fica NO NAVEGADOR.
+/// Uma instancia = um navegador; instancias diferentes = navegadores
+/// diferentes (ou uma aba anonima). Guarda o token EM CLARO porque e
+/// exatamente isso que o navegador real guarda; o servidor so ve o hash.
+/// </summary>
+file sealed class NavegadorFalso : ICookieDeDispositivoConfiavel
+{
+    public string? Cookie { get; private set; }
+
+    /// <summary>Quantas vezes o servidor mandou gravar — a rotacao vira contagem observavel.</summary>
+    public int Gravacoes { get; private set; }
+
+    public DateTime? ExpiraEmGravado { get; private set; }
+
+    public string? Ler() => Cookie;
+
+    public void Definir(string tokenEmClaro, DateTime expiraEm)
+    {
+        Cookie = tokenEmClaro;
+        ExpiraEmGravado = expiraEm;
+        Gravacoes++;
+    }
+
+    public void Limpar()
+    {
+        Cookie = null;
+        ExpiraEmGravado = null;
+    }
+
+    /// <summary>Copia deste navegador — o equivalente de teste a um cookie ROUBADO.</summary>
+    public NavegadorFalso Clonar()
+    {
+        var copia = new NavegadorFalso();
+        if (Cookie is not null) copia.Definir(Cookie, ExpiraEmGravado ?? DateTime.UtcNow.AddDays(30));
+        return copia;
     }
 }
 

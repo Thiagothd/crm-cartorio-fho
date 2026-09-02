@@ -414,6 +414,54 @@ Certificado em `CRM_Cartorio_Dev`: break-glass → ticket antigo perdido/
 expirado → login continua bloqueado → reemissão → ticket antigo inválido →
 novo ticket matricula → sinalizador limpa → login volta.
 
+### Dispositivo confiável — "não pedir o código por 30 dias"
+
+Opt-in explícito no segundo fator do login. Nunca marcado por padrão: o
+computador de balcão de uma serventia é compartilhado, e "lembrar" por engano
+numa máquina de uso comum é exatamente o que não pode acontecer.
+
+O que o navegador guarda é um **token opaco de 256 bits** num cookie
+`HttpOnly` + `SameSite=Strict`, preso ao caminho `/api/autenticacao` e com
+`Secure` acompanhando o esquema da requisição. O banco
+(`dbo.DispositivosConfiaveis`) guarda **só o SHA-256** — o valor em claro
+nunca é persistido, mesmo padrão de `DesafiosDeMfa`.
+
+**A senha continua obrigatória em todo login.** O que o dispositivo confiável
+dispensa é *apenas* o segundo fator. Não existe caminho em que o cookie
+sozinho abra uma sessão.
+
+**Revogação sem bookkeeping nova.** A linha guarda
+`TokenVersionNoRegistro` — snapshot do `TokenVersion` validado no desafio,
+mesmo mecanismo de `DesafioDeMfa.TokenVersionNoDesafio` e
+`MfaPendenteTokenVersion`. A cada uso o serviço exige que ele *ainda* bata com
+o `TokenVersion` atual da conta. Como troca de senha, desativação/reset/troca
+de MFA, break-glass e mudança de Perfil/Cargo/Ativo **já** sobem o
+`TokenVersion` (ver SEC-01), todos esses eventos derrubam a confiança do
+dispositivo automaticamente — nenhum código novo de invalidação.
+
+**Uso único por rotação.** Cada uso bem-sucedido gera um token novo e regrava
+o hash na mesma transação; o valor anterior morre. `ExpiraEm` é fixado na
+concessão e **nunca** estendido pela rotação — teto duro de 30 dias, mesmo com
+uso diário. Se o mesmo cookie for apresentado duas vezes (cópia roubada
+correndo contra o navegador legítimo), só uma das duas rotaciona; a outra cai
+para MFA completo. É o comportamento pretendido, não um buraco.
+
+**Fora do alcance do step-up.** O cookie é lido em `AutenticarAsync` e
+escrito em `ConcluirLoginMfaAsync`, em nenhum outro lugar. Operação
+administrativa (desativar MFA, regenerar códigos, emitir ticket, resetar
+terceiro) continua exigindo senha + código, mesmo do navegador confiável.
+
+**Logout não revoga a confiança — e isso é deliberado.** `sair()` no frontend
+é 100% local (limpa o `localStorage`) e um cookie `HttpOnly` não pode ser
+apagado por JavaScript nem que quisesse. Sair encerra a sessão JWT, como
+sempre encerrou; no próximo login a senha continua obrigatória e só o segundo
+fator é dispensado. Quem quiser revogar de verdade usa **"esquecer
+dispositivos confiáveis"** na tela de Segurança
+(`POST /api/mfa/dispositivos-confiaveis/esquecer`), que marca `RevogadoEm` em
+todas as linhas ativas do próprio atendente. Essa ação não pede step-up: ela
+só pode *aumentar* a segurança da conta — mesmo raciocínio de por que o logout
+também não pede senha de novo.
+
 ### O que ainda não existe
 
 - **Roubo de JWT continua fora do alcance do MFA.** Token em `localStorage`,
