@@ -172,6 +172,24 @@ async Task<ElegibilidadeDeBootstrap> TentarRegistrarTicketViaReflexaoAsync(
 
 IValidadorDeSessao NovoValidador(CrmDbContext db) => new ValidadorDeSessao(db);
 
+/// <summary>
+/// SEC-03 — extrai o VALOR do atributo Path de um cabecalho Set-Cookie, para
+/// os testes compararem o caminho por igualdade e nao por Contains.
+/// </summary>
+/// <remarks>
+/// Contains e armadilha aqui: "path=/api/autenticacao" e substring de
+/// "path=/api/autenticacao/login", entao um teste escrito com Contains
+/// continuaria verde se alguem alargasse o caminho do cookie de volta para o
+/// controller inteiro — que e justamente a regressao a evitar. Devolve string
+/// vazia quando nao ha Path, para o teste falhar em vez de lancar.
+/// </remarks>
+static string CaminhoDoSetCookie(string? setCookie) =>
+    (setCookie ?? string.Empty)
+        .Split(';', StringSplitOptions.TrimEntries)
+        .Where(atributo => atributo.StartsWith("path=", StringComparison.OrdinalIgnoreCase))
+        .Select(atributo => atributo["path=".Length..])
+        .FirstOrDefault() ?? string.Empty;
+
 int LerVersaoDaClaim(string jwt) =>
     int.Parse(new JsonWebTokenHandler().ReadJsonWebToken(jwt).Claims.First(c => c.Type == ClaimsDoAtendente.TokenVersion).Value);
 
@@ -3656,8 +3674,13 @@ try
                     Checar("64k. o cookie e SameSite=Strict — nao viaja em requisicao de outro site (CSRF)",
                         setCookie?.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase) == true);
 
-                    Checar("64l. o cookie fica preso ao caminho /api/autenticacao — nao acompanha o resto da API",
-                        setCookie?.Contains("path=/api/autenticacao", StringComparison.OrdinalIgnoreCase) == true);
+                    // Comparacao EXATA, nao Contains: "path=/api/autenticacao"
+                    // e substring de "path=/api/autenticacao/login", entao um
+                    // Contains passaria feliz se alguem alargasse o caminho de
+                    // volta — exatamente a regressao que este check existe para
+                    // pegar.
+                    Checar("64l. o cookie fica preso ao caminho EXATO /api/autenticacao/login — nao acompanha as rotas irmas",
+                        CaminhoDoSetCookie(setCookie) == "/api/autenticacao/login");
 
                     // Este processo de teste roda em HTTP puro em loopback. Se o
                     // cookie viesse com `Secure` aqui, o navegador o descartaria e
@@ -3851,8 +3874,8 @@ try
                                 setCookieTeste?.Contains("httponly", StringComparison.OrdinalIgnoreCase) == true
                                 && setCookieTeste.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase));
 
-                            Checar("64u. em Teste, Path=/api/autenticacao continua presente",
-                                setCookieTeste?.Contains("path=/api/autenticacao", StringComparison.OrdinalIgnoreCase) == true);
+                            Checar("64u. em Teste, o Path continua exatamente /api/autenticacao/login",
+                                CaminhoDoSetCookie(setCookieTeste) == "/api/autenticacao/login");
                         }
                     }
                     finally
@@ -6902,8 +6925,8 @@ try
             Checar($"79g[{ambiente}]. HttpOnly presente — XSS nunca le o token", Tem(setCookie, "httponly"));
             Checar($"79h[{ambiente}]. SameSite=Strict presente — o cookie nao viaja em requisicao de outro site",
                 Tem(setCookie, "samesite=strict"));
-            Checar($"79i[{ambiente}]. Path=/api/autenticacao presente — nao acompanha o resto da API",
-                Tem(setCookie, "path=/api/autenticacao"));
+            Checar($"79i[{ambiente}]. Path e EXATAMENTE /api/autenticacao/login — nao acompanha as rotas irmas",
+                CaminhoDoSetCookie(setCookie) == "/api/autenticacao/login");
             Checar($"79j[{ambiente}]. o cookie sai com expiracao explicita", Tem(setCookie, "expires="));
         }
 
@@ -6917,12 +6940,68 @@ try
 
             Checar($"79k[{ambiente}]. a EXCLUSAO do cookie repete Secure", Tem(aoLimpar, "secure"));
             Checar($"79l[{ambiente}]. a EXCLUSAO do cookie repete SameSite=Strict", Tem(aoLimpar, "samesite=strict"));
-            Checar($"79m[{ambiente}]. a EXCLUSAO do cookie repete Path=/api/autenticacao",
-                Tem(aoLimpar, "path=/api/autenticacao"));
+            Checar($"79m[{ambiente}]. a EXCLUSAO do cookie repete o Path exato /api/autenticacao/login",
+                CaminhoDoSetCookie(aoLimpar) == "/api/autenticacao/login");
         }
 
         Checar("79n. a exclusao em Development segue a mesma decisao da gravacao (sem Secure)",
             !Tem(SetCookieDe("Development", limpando: true), "secure"));
+
+        // ---------------------------------------------------------------
+        // O Path e uma decisao de SUPERFICIE: cada rota irma que passa a
+        // receber o cookie e uma chance a mais de a credencial vazar (log de
+        // proxy, header dump, erro que ecoa a requisicao). O caminho tem que
+        // cobrir as duas rotas de login e absolutamente mais nada.
+        // ---------------------------------------------------------------
+        {
+            var caminho79 = CaminhoDoSetCookie(SetCookieDe("Production"));
+
+            // Regra de casamento de caminho do RFC 6265, 5.1.4: o navegador
+            // envia o cookie quando o caminho da requisicao e igual ao do
+            // cookie, ou quando o do cookie e prefixo e o proximo caractere
+            // do caminho da requisicao e "/". Reproduzida aqui para provar
+            // COMPORTAMENTO (quais rotas recebem), nao so o literal gravado.
+            static bool NavegadorEnviaria(string caminhoDoCookie, string rota) =>
+                rota.Equals(caminhoDoCookie, StringComparison.Ordinal)
+                || (rota.StartsWith(caminhoDoCookie, StringComparison.Ordinal)
+                    && rota.Length > caminhoDoCookie.Length
+                    && (caminhoDoCookie.EndsWith('/') || rota[caminhoDoCookie.Length] == '/'));
+
+            Checar("79r. o cookie e enviado para POST /api/autenticacao/login (etapa 1)",
+                NavegadorEnviaria(caminho79, "/api/autenticacao/login"));
+            Checar("79s. o cookie e enviado para POST /api/autenticacao/login/mfa (etapa 2)",
+                NavegadorEnviaria(caminho79, "/api/autenticacao/login/mfa"));
+
+            // As rotas irmas REAIS do AutenticacaoController — nenhuma delas
+            // precisa da credencial de dispositivo confiavel.
+            foreach (var rotaIrma in new[]
+                     {
+                         "/api/autenticacao/serventia",
+                         "/api/autenticacao/sessao",
+                         "/api/autenticacao/senha",
+                         "/api/autenticacao",
+                         "/api/mfa/situacao",
+                         "/api/mfa/dispositivos-confiaveis/esquecer"
+                     })
+            {
+                Checar($"79t. o cookie NAO e enviado para {rotaIrma}",
+                    !NavegadorEnviaria(caminho79, rotaIrma));
+            }
+
+            // Rota irma FUTURA: o valor estreito protege sozinho o que ainda
+            // nao existe. Se o caminho voltar a ser o controller inteiro,
+            // esta linha quebra sem ninguem precisar lembrar de revisar.
+            Checar("79u. rota irma que ainda nem existe ja nasce fora do alcance do cookie",
+                !NavegadorEnviaria(caminho79, "/api/autenticacao/rota-que-ainda-nao-existe"));
+
+            // "loginX" nao e "login/": prefixo textual nao pode virar
+            // casamento de caminho.
+            Checar("79v. prefixo textual nao basta — /api/autenticacao/loginqualquer fica de fora",
+                !NavegadorEnviaria(caminho79, "/api/autenticacao/loginqualquer"));
+
+            Checar("79w. o caminho gravado e o literal esperado, sem barra no fim",
+                caminho79 == "/api/autenticacao/login");
+        }
 
         // Regressao estrutural: se alguem reintroduzir Request.IsHttps na
         // decisao do cookie, este teste quebra sozinho — sem depender de
@@ -6949,6 +7028,90 @@ try
             Checar("79q. nenhuma configuracao global de ForwardedHeaders foi introduzida para resolver este cookie",
                 !programa.Contains("ForwardedHeaders", StringComparison.Ordinal)
                 && !programa.Contains("UseForwardedHeaders", StringComparison.Ordinal));
+
+            Checar("79x. o caminho no codigo e o estreito, nao o do controller inteiro (regressao estrutural)",
+                fonteSemComentarios.Contains("Caminho = \"/api/autenticacao/login\"", StringComparison.Ordinal));
+
+            // Gravacao, rotacao e exclusao tem que sair da MESMA rotina de
+            // opcoes. Se alguem montar um CookieOptions a parte para o
+            // Delete, os atributos podem divergir e o navegador deixa de
+            // apagar o cookie — orfao vivo com credencial dentro.
+            Checar("79y. gravacao e exclusao usam a mesma rotina de opcoes (uma unica MontarOpcoes)",
+                System.Text.RegularExpressions.Regex.Matches(
+                    fonteSemComentarios, @"CookieOptions MontarOpcoes").Count == 1
+                && fonteSemComentarios.Contains("Append(Nome, tokenEmClaro, MontarOpcoes(", StringComparison.Ordinal)
+                && fonteSemComentarios.Contains("Delete(Nome, MontarOpcoes(", StringComparison.Ordinal));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 80
+    // SEC-03 — a CONTAGEM de dispositivos confiaveis ativos, mostrada na tela
+    // de Seguranca, tem que enxergar exatamente o que o login enxerga.
+    //
+    // O defeito que este cenario tranca: a contagem filtrava por conta,
+    // tenant, revogacao e expiracao, mas NAO por TokenVersionNoRegistro.
+    // Resultado: trocar a senha invalidava o dispositivo de verdade (o login
+    // voltava a exigir o segundo fator), mas a tela continuava dizendo
+    // "1 dispositivo confiavel ativo". Informacao de seguranca errada — a
+    // pessoa via um risco que nao existia mais, e o botao de "esquecer" nao
+    // mudava nada.
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 80 — a tela conta o mesmo que o login aceita.");
+
+        var conta80 = await NovaContaComMfaAtivo("contagem x TokenVersion", PerfilDeAtendente.Atendente);
+        var navegador80 = new NavegadorFalso();
+        var identidade80 = new IdentidadeParaMfa(tenantId, conta80.Id);
+
+        async Task<int> ContarNaTelaAsync()
+        {
+            await using var db = new CrmDbContext(opcoes);
+            return (await NovoMfaService(db).ObterSituacaoAsync(identidade80)).DispositivosConfiaveisAtivos;
+        }
+
+        // 1) Concede a confianca pelo fluxo real de login.
+        var etapa1De80 = await EtapaUm(conta80.Email, SenhaBoa, navegador80);
+        await EtapaDois(etapa1De80.Desafio!.Desafio, CodigoTotp(conta80.SegredoBase32), navegador80,
+            confiarNesteDispositivo: true);
+
+        Checar("80a. concedido o dispositivo, a situacao mostra 1 ativo", await ContarNaTelaAsync() == 1);
+
+        // 2) Troca a senha pelo servico real — sobe TokenVersion (SEC-01).
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await NovoAutenticacao(db, conta80.Id)
+                .AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaTrocada80x"));
+        }
+
+        // 3) O login com o MESMO cookie volta a exigir o segundo fator.
+        Checar("80b. depois da troca de senha, o cookie nao dispensa mais o segundo fator",
+            (await EtapaUm(conta80.Email, "SenhaTrocada80x", navegador80)).RequerMfa);
+
+        // 4) E a tela para de contar o registro que o login ja recusa.
+        Checar("80c. a situacao passa a mostrar 0 — a tela nao promete confianca que o login nega",
+            await ContarNaTelaAsync() == 0);
+
+        // A linha continua existindo no banco (nao ha faxina automatica); o
+        // que mudou e so ela ter deixado de ser CONTADA como ativa. Sem esta
+        // checagem, um "0" vindo de um DELETE acidental passaria por correto.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var aindaExiste = await db.DispositivosConfiaveis
+                .AsNoTracking()
+                .AnyAsync(d => d.AtendenteId == conta80.Id && d.RevogadoEm == null);
+
+            Checar("80d. a linha continua no banco, apenas inerte — o 0 vem do filtro, nao de exclusao",
+                aindaExiste);
+        }
+
+        // A contagem da tela e o gate do login precisam usar o MESMO criterio.
+        // Se um dia divergirem de novo, esta prova estrutural quebra.
+        {
+            var fonteDoMfa = await File.ReadAllTextAsync(Path.Combine(
+                "CrmCartorio.Api", "Modules", "Usuarios", "Application", "MfaService.cs"));
+
+            Checar("80e. ObterSituacaoAsync filtra por TokenVersionNoRegistro (regressao estrutural)",
+                fonteDoMfa.Contains("d.TokenVersionNoRegistro == atendente.TokenVersion", StringComparison.Ordinal));
         }
     }
 }

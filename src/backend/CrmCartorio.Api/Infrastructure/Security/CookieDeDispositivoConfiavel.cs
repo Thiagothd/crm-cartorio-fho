@@ -11,11 +11,23 @@ public class CookieDeDispositivoConfiavel(IHttpContextAccessor acessor, IHostEnv
     internal const string Nome = "crm_dispositivo_confiavel";
 
     /// <summary>
-    /// SÓ as duas rotas que leem/escrevem este cookie (login etapa 1 e etapa
-    /// 2) ficam sob este caminho. Sem isto o navegador anexaria a credencial
-    /// em TODA chamada da API, ampliando a superfície sem nenhum ganho.
+    /// O caminho mais estreito que ainda cobre as duas — e apenas as duas —
+    /// rotas que leem ou escrevem este cookie: <c>POST /api/autenticacao/login</c>
+    /// (etapa 1) e <c>POST /api/autenticacao/login/mfa</c> (etapa 2).
     /// </summary>
-    internal const string Caminho = "/api/autenticacao";
+    /// <remarks>
+    /// O casamento de caminho de cookie é por SEGMENTO (RFC 6265, 5.1.4): este
+    /// valor casa com <c>/api/autenticacao/login</c> e com qualquer coisa sob
+    /// <c>/api/autenticacao/login/</c>, e com mais nada. As rotas irmãs
+    /// (<c>/serventia</c>, <c>/sessao</c>, <c>/senha</c>) e qualquer rota nova
+    /// que venha a nascer ao lado delas ficam de fora sem ninguém precisar
+    /// lembrar disso — o navegador simplesmente não anexa a credencial ali.
+    ///
+    /// O valor anterior era <c>/api/autenticacao</c>, que funcionava mas
+    /// mandava o cookie de dispositivo confiável junto de toda chamada do
+    /// controller de autenticação. Superfície gratuita, sem nenhum ganho.
+    /// </remarks>
+    internal const string Caminho = "/api/autenticacao/login";
 
     public string? Ler()
     {

@@ -218,12 +218,17 @@ public class AutenticacaoService(
     /// um cookie morto, sem nunca ter concluido login nenhum.
     ///
     /// <b>Corrida aceita e deliberada:</b> se o MESMO cookie for apresentado
-    /// por duas requisicoes concorrentes (o caso que importa: um cookie
-    /// roubado correndo com o navegador legitimo), o UPDATE condicional
-    /// serializa e so uma rotaciona; a outra encontra 0 linhas e cai no
-    /// segundo fator completo. E o comportamento desejado — mesma familia de
-    /// raciocinio da rotacao de refresh token — e nunca uma brecha: o
-    /// perdedor da corrida precisa do codigo do autenticador.
+    /// por duas requisicoes concorrentes (o caso que importa: uma copia
+    /// exfiltrada correndo com o navegador legitimo), o UPDATE condicional
+    /// serializa: QUEM CHEGA PRIMEIRO rotaciona e segue confiavel, e a outra
+    /// encontra 0 linhas e cai no segundo fator completo.
+    ///
+    /// Nao ha aqui deteccao de roubo, e o vencedor da corrida NAO e
+    /// necessariamente o dono legitimo — se o atacante chegar antes, e o dono
+    /// que passa a ser desafiado. O que a rotacao entrega, e so isso, e
+    /// limitar a janela: um cookie exfiltrado vale por um unico uso, nunca
+    /// pelos 30 dias da concessao. O perdedor da corrida precisa do codigo do
+    /// autenticador para seguir.
     ///
     /// <b>TokenVersion faz a revogacao de graca:</b> troca de senha, reset,
     /// desativacao ou troca de MFA, break-glass e mudanca de Perfil/Cargo/Ativo

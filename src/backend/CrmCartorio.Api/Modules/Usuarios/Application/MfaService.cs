@@ -297,14 +297,22 @@ public class MfaService(
 
         var agora = DateTime.UtcNow;
 
-        // Conta so o que ainda dispensaria o segundo fator HOJE: expirado ou
-        // revogado ja e inerte, e mostra-los na tela seria oferecer uma acao
-        // ("esquecer") que nao muda nada.
+        // Conta so o que ainda dispensaria o segundo fator HOJE: expirado,
+        // revogado ou preso a uma TokenVersion vencida ja e inerte, e mostrar
+        // isso na tela seria oferecer uma acao ("esquecer") que nao muda nada.
+        //
+        // A condicao aqui e DE PROPOSITO a mesma de
+        // AutenticacaoService.TentarConcluirPorDispositivoConfiavelAsync: a
+        // tela nao pode dizer "1 dispositivo confiavel ativo" para um registro
+        // que o login ja recusa. Sem o TokenVersionNoRegistro, trocar a senha
+        // invalidava o dispositivo de verdade mas ele continuava aparecendo
+        // como ativo — informacao de seguranca errada para quem le a tela.
         var dispositivosConfiaveis = await db.DispositivosConfiaveis
             .CountAsync(d => d.AtendenteId == atendente.Id
                           && d.TenantId == atendente.TenantId
                           && d.RevogadoEm == null
-                          && d.ExpiraEm > agora, ct);
+                          && d.ExpiraEm > agora
+                          && d.TokenVersionNoRegistro == atendente.TokenVersion, ct);
 
         return new MfaSituacaoResponse(
             atendente.MfaAtivo, obrigatorio, restantes, atendente.MfaConfirmadoEm, dispositivosConfiaveis);

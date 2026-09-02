@@ -442,9 +442,20 @@ dispositivo automaticamente — nenhum código novo de invalidação.
 **Uso único por rotação.** Cada uso bem-sucedido gera um token novo e regrava
 o hash na mesma transação; o valor anterior morre. `ExpiraEm` é fixado na
 concessão e **nunca** estendido pela rotação — teto duro de 30 dias, mesmo com
-uso diário. Se o mesmo cookie for apresentado duas vezes (cópia roubada
-correndo contra o navegador legítimo), só uma das duas rotaciona; a outra cai
-para MFA completo. É o comportamento pretendido, não um buraco.
+uso diário.
+
+O que a rotação garante, com precisão: **quem apresentar o token válido
+primeiro recebe a rotação e continua confiável; a cópia antiga deixa de valer
+e cai para o segundo fator completo.** Se o mesmo cookie for apresentado duas
+vezes (uma cópia exfiltrada correndo contra o navegador legítimo), só uma das
+duas segue — e **não há garantia de que seja a legítima**. Se o atacante
+chegar primeiro, é o dono que passa a ser desafiado.
+
+Isto **não** é detecção de roubo e **não** revoga a confiança dos dois lados.
+O ganho é estritamente o de reduzir a janela: um cookie exfiltrado vale por um
+único uso, não pelos 30 dias da concessão. Detectar o uso duplicado e revogar
+a linha inteira nos dois lados seria o passo seguinte — hoje não existe, e a
+tela de "esquecer dispositivos confiáveis" é o instrumento manual para isso.
 
 **Fora do alcance do step-up.** O cookie é lido em `AutenticarAsync` e
 escrito em `ConcluirLoginMfaAsync`, em nenhum outro lugar. Operação

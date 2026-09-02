@@ -4,7 +4,11 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 
 /// <summary>
 /// SEC-03 — "confiar neste dispositivo por 30 dias" no segundo fator do
-/// login. Uma linha por navegador que aceitou a opção, nunca por conta.
+/// login. Cada linha é uma concessão de confiança de UM navegador para UMA
+/// conta: o registro é amarrado a <see cref="TenantId"/> +
+/// <see cref="AtendenteId"/> + <see cref="HashDoToken"/>. O mesmo navegador
+/// usado por duas contas gera duas linhas, e a mesma conta acessada de dois
+/// navegadores também — nenhuma das duas dispensa o segundo fator da outra.
 /// </summary>
 /// <remarks>
 /// Mesma disciplina de <see cref="DesafioDeMfa"/>: o banco nunca guarda o
@@ -20,10 +24,15 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 ///
 /// <see cref="ExpiraEm"/> é fixado no momento da concessão e NUNCA estendido
 /// — teto duro de 30 dias, mesmo com uso diário. O hash é ROTACIONADO a cada
-/// uso bem-sucedido (uso único por rotação): um cookie roubado, usado uma
-/// vez, para de funcionar tanto para quem roubou quanto para o dono legítimo
-/// — o próximo login de qualquer um dos dois exige o segundo fator de novo,
-/// o que é o sinal de alerta correto.
+/// uso bem-sucedido (uso único por rotação): o valor apresentado morre no
+/// mesmo UPDATE que grava o sucessor.
+///
+/// O que isso dá, exatamente, quando o cookie é copiado: <b>quem apresentar o
+/// token válido primeiro recebe a rotação e segue confiável; a cópia antiga
+/// deixa de valer e cai para o segundo fator completo.</b> Não há aqui
+/// detecção de roubo nem revogação dos dois lados — se o ladrão chegar antes,
+/// é o dono legítimo que passa a ser desafiado. O ganho real é limitar a
+/// janela: um cookie exfiltrado vale por um único uso, não pelos 30 dias.
 /// </remarks>
 public class DispositivoConfiavel : EntidadeBase
 {
