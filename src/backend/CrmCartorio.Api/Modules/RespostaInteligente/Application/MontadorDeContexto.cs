@@ -21,6 +21,14 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
 /// respondido — a lista de nomes chegava sem nenhuma pista de a qual setor cada
 /// um pertence, e a IA, corretamente, recusava adivinhar).
 ///
+/// Cada serviço também leva, quando cadastrados, os <c>DocumentosNecessarios</c>
+/// e o <c>Prazo</c> (SLA em <c>PrazoServico</c>, convertido de horas para a
+/// unidade de balcão). Antes ficavam de fora do grounding e a IA recusava
+/// perguntas de documento/prazo mesmo com o dado no banco — só chegavam ao
+/// cliente por marcador em mensagem automática roteirizada, nunca em resposta
+/// livre. O <c>PromptDeSistema</c> (Regra 1) já libera usar o que está no
+/// contexto e continua proibindo inventar o que não está.
+///
 /// <c>RespostaRapida.Conteudo</c> aceita os marcadores de
 /// <see cref="Configuracoes.Domain.PlaceholdersDeMensagem"/>. Só {NomeCartorio} é
 /// resolvido aqui — é o único que faz sentido fora de uma conversa específica; os
@@ -43,9 +51,14 @@ public static partial class MontadorDeContexto
             {
                 t.Nome,
                 t.Descricao,
+                t.DocumentosNecessarios,
                 SetorNome = db.Setores
                     .Where(s => s.Id == t.SetorId)
                     .Select(s => s.Nome)
+                    .FirstOrDefault(),
+                Prazo = db.PrazosServico
+                    .Where(p => p.TipoServicoId == t.Id && p.Ativo)
+                    .Select(p => new { p.PrazoHoras, p.ApenasDiasUteis })
                     .FirstOrDefault()
             })
             .ToListAsync(ct);
@@ -79,6 +92,18 @@ public static partial class MontadorDeContexto
             }
 
             texto.AppendLine();
+
+            if (!string.IsNullOrWhiteSpace(servico.DocumentosNecessarios))
+            {
+                texto.Append("  Documentos necessarios: ")
+                    .AppendLine(servico.DocumentosNecessarios.Trim());
+            }
+
+            if (servico.Prazo is not null)
+            {
+                texto.Append("  Prazo: ~")
+                    .AppendLine(DescreverPrazo(servico.Prazo.PrazoHoras, servico.Prazo.ApenasDiasUteis));
+            }
         }
 
         texto.AppendLine();
@@ -102,6 +127,32 @@ public static partial class MontadorDeContexto
     {
         var comNomeResolvido = conteudo.Replace("{NomeCartorio}", nomeCartorio, StringComparison.Ordinal);
         return RegexDeMarcadorRestante().Replace(comNomeResolvido, string.Empty);
+    }
+
+    /// <summary>
+    /// O prazo e guardado em horas, mas ninguem no balcao pensa em "120 horas".
+    /// Converte para a unidade que a pessoa usaria na frase. Espelha
+    /// <c>TipoServicoService.DescreverPrazo</c> (privado la): duplicar ~15 linhas de
+    /// formatacao pura evita este modulo referenciar o Application do modulo Servicos.
+    /// </summary>
+    private static string DescreverPrazo(int prazoHoras, bool apenasDiasUteis)
+    {
+        if (prazoHoras < 24)
+        {
+            return prazoHoras == 1 ? "1 hora" : $"{prazoHoras} horas";
+        }
+
+        var dias = prazoHoras / 24;
+        var horas = prazoHoras % 24;
+
+        var texto = dias == 1 ? "1 dia" : $"{dias} dias";
+
+        if (horas > 0)
+        {
+            texto += horas == 1 ? " e 1 hora" : $" e {horas} horas";
+        }
+
+        return texto + (apenasDiasUteis ? " uteis" : " corridos");
     }
 
     [GeneratedRegex(@"\{[A-Za-z][A-Za-z0-9]*\}")]
