@@ -50,19 +50,24 @@ public class MfaService(
             throw UsuariosServiceException.SenhaAtualIncorreta();
         }
 
-        // CORRECAO (revisao independente do PR #46, bloqueador 1): a PRIMEIRA
-        // matricula de conta PRIVILEGIADA (Titular ou Administrador) nunca pode
-        // acontecer pelo fluxo autenticado comum — JWT + senha nao bastam, por
-        // desenho. So chega ao segredo pendente de um privilegiado sem MFA
-        // quem passou por ConfirmarViaDesafioAsync com um DesafioDeMfa de
-        // matricula valido, que por sua vez so nasce de senha + TICKET fora de
-        // banda (IniciarMatriculaPrivilegiadaAsync). Sem esta trava, o proprio
-        // endpoint autenticado normal era um atalho que contornava o ticket
-        // inteiro — exatamente o que a correcao fecha.
-        var privilegiado = atendente.Perfil == PerfilDeAtendente.Administrador
-            || atendente.Cargo == CargoNaServentia.Titular;
-
-        if (!atendente.MfaAtivo && privilegiado)
+        // MUDANCA DE REGRA DE PRODUTO (pos-homologacao do SEC-03 em TESTE):
+        // qualquer perfil — INCLUSIVE Titular e Administrador — pode ativar o
+        // MFA da propria conta voluntariamente pelo fluxo autenticado comum
+        // (JWT + senha). O bloqueio por privilegio que existia aqui foi
+        // removido: o ticket fora de banda (IniciarMatriculaPrivilegiadaAsync)
+        // continua existindo, mas so para quem REALMENTE precisa dele —
+        // rematricula obrigatoria pos-emergencia (unica trava que sobra
+        // abaixo) e fluxos administrativos que exigem ticket explicitamente
+        // (matricula de terceiro, reemissao apos break-glass). Ver o README
+        // do modulo para o historico da decisao.
+        //
+        // Uma conta resetada por break-glass nao pode reativar o MFA por
+        // conta propria sem o ticket que o proprio break-glass emitiu — sem
+        // esta trava, o fluxo voluntario seria um atalho que contorna o
+        // motivo de o break-glass ter existido. RematriculaObrigatoriaAposEmergencia
+        // so volta a false na MESMA escrita atomica que confirma uma
+        // matricula com ticket (MfaService.ConfirmarNucleoAsync).
+        if (atendente.RematriculaObrigatoriaAposEmergencia)
         {
             throw UsuariosServiceException.MatriculaPrivilegiadaExigeTicket();
         }
@@ -907,20 +912,25 @@ public class MfaService(
             throw UsuariosServiceException.CodigoMfaInvalido();
         }
 
-        // CORRECAO (revisao independente do PR #46, bloqueador 5) — mensagem
-        // mais util no caso comum, sem corrida: se isto e uma confirmacao SEM
-        // desafio de matricula (hashDoDesafioParaConsumir nulo — ou seja, nao
-        // veio do fluxo de ticket) E a conta ainda nao tem MFA ativo E ja e
-        // privilegiada, a PRIMEIRA matricula so pode nascer de ticket. Isto
-        // fecha a promocao-no-meio-do-caminho: comum inicia (recebe segredo
-        // pendente), e promovido a Administrador/Titular ANTES de confirmar, e
-        // tenta terminar a matricula sem nunca ter passado por um ticket. Quem
-        // decide de verdade e o WHERE atomico logo abaixo, que reconfere a
-        // mesma condicao no instante exato do commit — esta e so a mensagem.
-        var privilegiadoAgora = atendente.Perfil == PerfilDeAtendente.Administrador
-            || atendente.Cargo == CargoNaServentia.Titular;
-
-        if (hashDoDesafioParaConsumir is null && !atendente.MfaAtivo && privilegiadoAgora)
+        // Pre-checagem SO para mensagem mais util, sem corrida (mesmo padrao
+        // do resto do arquivo): se isto e uma confirmacao SEM desafio de
+        // matricula (hashDoDesafioParaConsumir nulo — fluxo voluntario) e a
+        // conta esta em rematricula obrigatoria pos-emergencia, ela nao pode
+        // concluir sem o ticket que o break-glass emitiu. Quem decide de
+        // verdade e o WHERE atomico logo abaixo, que reconfere isto contra o
+        // estado ATUAL da linha no instante do commit — esta e so a mensagem.
+        //
+        // MUDANCA DE REGRA: privilegio (Titular/Administrador) NAO bloqueia
+        // mais este fluxo — qualquer perfil pode concluir a ativacao
+        // voluntaria do MFA, mesmo sendo privilegiado (ver IniciarAsync). A
+        // promocao-no-meio-do-caminho (comum inicia, vira Administrador/
+        // Titular antes de confirmar) continua fechada, mas agora pelo
+        // mecanismo generico de TokenVersion no WHERE atomico abaixo — toda
+        // mudanca de Perfil/Cargo que cruza a fronteira de privilegio ja
+        // sobe TokenVersion (AtendenteService.AtualizarAsync), entao o
+        // segredo pendente gerado ANTES da promocao deixa de bater
+        // (a.TokenVersion == a.MfaPendenteTokenVersion).
+        if (hashDoDesafioParaConsumir is null && atendente.RematriculaObrigatoriaAposEmergencia)
         {
             throw UsuariosServiceException.MatriculaPrivilegiadaExigeTicket();
         }
@@ -948,25 +958,29 @@ public class MfaService(
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        // O PORTEIRO FINAL (bloqueador 5): a MESMA condicao da pre-checagem
-        // acima, mas reconferida contra o estado ATUAL da linha no instante do
-        // UPDATE, nunca a partir do `atendente` lido no inicio do metodo.
-        // Sem desafio de matricula, so pode concluir se: ja tinha MFA ativo
-        // (troca de autenticador legitima, ja gated por step-up em
-        // IniciarAsync) OU a conta ainda NAO e privilegiada agora. Com
+        // O PORTEIRO FINAL: a MESMA condicao da pre-checagem acima, mas
+        // reconferida contra o estado ATUAL da linha no instante do UPDATE,
+        // nunca a partir do `atendente` lido no inicio do metodo. Sem desafio
+        // de matricula, so pode concluir se: ja tinha MFA ativo (troca de
+        // autenticador legitima, ja gated por step-up em IniciarAsync) OU a
+        // conta NAO esta em rematricula obrigatoria pos-emergencia. Com
         // desafio de matricula (hashDoDesafioParaConsumir != null), a
         // exigencia de ticket ja foi provada por IniciarMatriculaPrivilegiadaAsync
         // — nada extra a checar aqui.
         //
-        // CORRECAO (revisao independente do PR #46, bloqueador 8):
-        // `a.TokenVersion == a.MfaPendenteTokenVersion` compara as DUAS
-        // colunas da linha ATUAL entre si (nunca um valor lido em memoria) —
-        // se qualquer evento subiu a TokenVersion depois que este segredo
-        // pendente foi gerado (troca de senha, Perfil/Cargo, reset, politica
-        // obrigatoria), a igualdade quebra e a confirmacao falha fechada,
-        // mesmo com o codigo TOTP correto. Vale para toda cerimonia sem
-        // ticket — voluntaria E troca de autenticador; o fluxo de ticket
-        // continua com sua propria protecao (tokenVersionEsperada, acima).
+        // MUDANCA DE REGRA: o disjunto que antes exigia "a conta ainda NAO e
+        // privilegiada agora" foi removido — qualquer perfil pode concluir a
+        // ativacao voluntaria, mesmo Titular/Administrador. A promocao-no-
+        // meio-do-caminho continua fechada pela condicao de TokenVersion logo
+        // abaixo (nao por privilegio): `a.TokenVersion == a.MfaPendenteTokenVersion`
+        // compara as DUAS colunas da linha ATUAL entre si (nunca um valor
+        // lido em memoria) — se qualquer evento subiu a TokenVersion depois
+        // que este segredo pendente foi gerado (troca de senha, Perfil/Cargo
+        // cruzando a fronteira de privilegio, reset, politica obrigatoria), a
+        // igualdade quebra e a confirmacao falha fechada, mesmo com o codigo
+        // TOTP correto. Vale para toda cerimonia sem ticket — voluntaria E
+        // troca de autenticador; o fluxo de ticket continua com sua propria
+        // protecao (tokenVersionEsperada, acima).
         var confirmou = await db.Atendentes
             .Where(a => a.Id == atendente.Id
                      && a.TenantId == identidade.TenantId
@@ -976,7 +990,7 @@ public class MfaService(
                      && (tokenVersionEsperada == null || a.TokenVersion == tokenVersionEsperada)
                      && (hashDoDesafioParaConsumir != null
                          || a.MfaAtivo
-                         || !(a.Perfil == PerfilDeAtendente.Administrador || a.Cargo == CargoNaServentia.Titular)))
+                         || !a.RematriculaObrigatoriaAposEmergencia))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.MfaAtivo, true)
                 .SetProperty(a => a.MfaSegredoCifrado, atendente.MfaSegredoPendenteCifrado)

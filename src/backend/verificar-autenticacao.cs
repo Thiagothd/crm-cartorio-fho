@@ -1935,60 +1935,112 @@ try
     // =====================================================================
 
     // ------------------------------------------------------------ cenario 55
-    // BLOQUEADOR 1 — a primeira matricula de conta PRIVILEGIADA nunca acontece
-    // pelo fluxo autenticado comum (JWT + senha), mesmo com as duas corretas.
+    // MUDANCA DE REGRA DE PRODUTO (pos-homologacao do SEC-03 em TESTE):
+    // qualquer perfil — INCLUSIVE Titular e Administrador — pode ativar o MFA
+    // da propria conta voluntariamente pelo fluxo autenticado comum (JWT +
+    // senha). O bloqueador 1 original (privilegiado sem MFA sempre recusado
+    // aqui) foi revogado deliberadamente; o que sobrevive dele e testado no
+    // cenario 81 (rematricula obrigatoria pos-emergencia).
 
     {
-        var (idAdmin, emailAdmin) = await NovaContaPrivilegiada("bloqueador1 - admin sem mfa");
+        var (idAdmin, emailAdmin) = await NovaContaPrivilegiada("cenario55 - admin sem mfa");
         var (idTitular, emailTitular) = await NovaContaPrivilegiada(
-            "bloqueador1 - titular sem mfa", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Titular);
+            "cenario55 - titular sem mfa", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Titular);
         var (idComum, emailComum) = await NovaContaPrivilegiada(
-            "bloqueador1 - nao privilegiado", perfil: PerfilDeAtendente.Atendente);
+            "cenario55 - nao privilegiado", perfil: PerfilDeAtendente.Atendente);
 
-        async Task<string?> TentarIniciarComJwtESenha(Guid id)
+        async Task<(string? Codigo, IniciarMfaResponse? Resposta)> TentarIniciarComJwtESenha(Guid id, string senha)
         {
             await using var db = new CrmDbContext(opcoes);
             try
             {
-                await NovoMfaService(db).IniciarAsync(
-                    new IdentidadeParaMfa(tenantId, id), new IniciarMfaRequest(SenhaBoa, null), null, default);
-                return null;
+                var resposta = await NovoMfaService(db).IniciarAsync(
+                    new IdentidadeParaMfa(tenantId, id), new IniciarMfaRequest(senha, null), null, default);
+                return (null, resposta);
             }
             catch (UsuariosServiceException ex)
             {
-                return ex.Codigo;
+                return (ex.Codigo, null);
             }
         }
 
-        Checar("55a. Administrador sem MFA + JWT + senha correta em /mfa/iniciar -> RECUSADO",
-            await TentarIniciarComJwtESenha(idAdmin) == "matricula_privilegiada_exige_ticket");
+        // 1/2/3 da lista pedida: comum, Administrador e Titular sem MFA
+        // conseguem iniciar a ativacao voluntaria — nenhum dos tres e
+        // recusado por privilegio.
+        var (codigoAdmin, iniciadoAdmin) = await TentarIniciarComJwtESenha(idAdmin, SenhaBoa);
+        Checar("55a. Administrador sem MFA + JWT + senha correta em /mfa/iniciar -> SUCESSO (ativacao voluntaria permitida)",
+            codigoAdmin is null && iniciadoAdmin is not null);
 
-        Checar("55b. Titular (via Cargo) sem MFA + JWT + senha correta -> RECUSADO",
-            await TentarIniciarComJwtESenha(idTitular) == "matricula_privilegiada_exige_ticket");
+        var (codigoTitular, iniciadoTitular) = await TentarIniciarComJwtESenha(idTitular, SenhaBoa);
+        Checar("55b. Titular (via Cargo) sem MFA + JWT + senha correta em /mfa/iniciar -> SUCESSO (ativacao voluntaria permitida)",
+            codigoTitular is null && iniciadoTitular is not null);
 
+        var (codigoComum, iniciadoComum) = await TentarIniciarComJwtESenha(idComum, SenhaBoa);
         Checar("55c. conta NAO privilegiada sem MFA: ativacao voluntaria continua funcionando",
-            await TentarIniciarComJwtESenha(idComum) is null);
+            codigoComum is null && iniciadoComum is not null);
 
-        // 55d — nenhum OUTRO endpoint (nem confirmar) chega ao segredo sem
-        // ticket: como iniciar foi recusado, nao existe segredo pendente, e
-        // confirmar tambem falha — nao ha atalho nenhum.
+        // 4 da lista pedida: senha errada continua bloqueando os tres,
+        // independente de privilegio — a mudanca de regra so afeta a trava
+        // de privilegio, nunca a exigencia de senha correta.
+        Checar("55d. senha ERRADA bloqueia o Administrador do mesmo jeito (nao vira atalho)",
+            (await TentarIniciarComJwtESenha(idAdmin, SenhaRuim)).Codigo == "senha_atual_incorreta");
+        Checar("55e. senha ERRADA bloqueia o Titular do mesmo jeito",
+            (await TentarIniciarComJwtESenha(idTitular, SenhaRuim)).Codigo == "senha_atual_incorreta");
+        Checar("55f. senha ERRADA bloqueia a conta comum do mesmo jeito",
+            (await TentarIniciarComJwtESenha(idComum, SenhaRuim)).Codigo == "senha_atual_incorreta");
+
+        // Nenhuma das tres contas foi afetada pelas tentativas com senha errada.
+        Checar("55g. as tres contas continuam com MfaAtivo=false apos as tentativas com senha errada",
+            !(await Ler(idAdmin)).MfaAtivo && !(await Ler(idTitular)).MfaAtivo && !(await Ler(idComum)).MfaAtivo);
+
+        // A ativacao voluntaria nao para em "iniciar" — o Administrador e o
+        // Titular tem que conseguir CONCLUIR de verdade: confirmar com o TOTP
+        // correto, MfaAtivo vira true, 10 codigos de recuperacao emitidos, e
+        // TODAS as protecoes de sempre (anti-replay, TokenVersion) continuam
+        // valendo — nada disto foi simplificado.
         await using (var db = new CrmDbContext(opcoes))
         {
-            UsuariosServiceException? falha = null;
+            var confirmadoAdmin = await NovoMfaService(db).ConfirmarAsync(
+                new IdentidadeParaMfa(tenantId, idAdmin),
+                new ConfirmarMfaRequest(CodigoTotp(iniciadoAdmin!.SegredoBase32)), null, default);
+
+            Checar("55h. Administrador CONCLUI a ativacao voluntaria (10 codigos de recuperacao emitidos)",
+                confirmadoAdmin.CodigosDeRecuperacao.Count == 10);
+        }
+        Checar("55i. Administrador esta com MfaAtivo=true apos a confirmacao voluntaria",
+            (await Ler(idAdmin)).MfaAtivo);
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var confirmadoTitular = await NovoMfaService(db).ConfirmarAsync(
+                new IdentidadeParaMfa(tenantId, idTitular),
+                new ConfirmarMfaRequest(CodigoTotp(iniciadoTitular!.SegredoBase32)), null, default);
+
+            Checar("55j. Titular CONCLUI a ativacao voluntaria (10 codigos de recuperacao emitidos)",
+                confirmadoTitular.CodigosDeRecuperacao.Count == 10);
+        }
+        Checar("55k. Titular esta com MfaAtivo=true apos a confirmacao voluntaria",
+            (await Ler(idTitular)).MfaAtivo);
+
+        // Depois de ativo, uma nova "primeira confirmacao" (sem segredo
+        // pendente, porque o anterior ja foi consumido) nao encontra nada
+        // para confirmar — o anti-replay de troca de autenticador (exige
+        // CodigoAtual/step-up) e coberto pelos cenarios 27 e 44, que este
+        // cenario nao duplica.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falhaSemSegredoPendente = null;
             try
             {
                 await NovoMfaService(db).ConfirmarAsync(
-                    new IdentidadeParaMfa(tenantId, idAdmin), new ConfirmarMfaRequest("000000"), null, default);
+                    new IdentidadeParaMfa(tenantId, idAdmin),
+                    new ConfirmarMfaRequest(CodigoTotp(iniciadoAdmin!.SegredoBase32)), null, default);
             }
-            catch (UsuariosServiceException ex) { falha = ex; }
+            catch (UsuariosServiceException ex) { falhaSemSegredoPendente = ex; }
 
-            Checar("55d. confirmar tambem falha para privilegiado sem ticket (nao ha segredo pendente)",
-                falha is not null);
+            Checar("55l. depois de ativo, confirmar de novo sem segredo pendente falha (nao ha reativacao gratuita)",
+                falhaSemSegredoPendente?.Codigo == "codigo_mfa_invalido");
         }
-
-        var estadoAdmin = await Ler(idAdmin);
-        Checar("55e. Administrador continua com MfaAtivo=false apos as tentativas recusadas",
-            !estadoAdmin.MfaAtivo);
     }
 
     // ------------------------------------------------------------ cenario 56
@@ -2913,14 +2965,20 @@ try
     }
 
     // ------------------------------------------------------------ cenario 62
-    // BLOQUEADOR 5 — confirmacao de MFA sem ticket so pode concluir a
-    // PRIMEIRA matricula se a conta AINDA NAO for privilegiada no instante do
-    // commit (porteiro final em MfaService.ConfirmarNucleoAsync, nao so a
-    // pre-checagem em memoria).
+    // MUDANCA DE REGRA: este bloqueador NAO e mais sobre privilegio — desde o
+    // cenario 55, privilegiado pode concluir a ativacao voluntaria
+    // normalmente. O que sobra aqui e uma protecao mais generica e mais
+    // forte, que ja existia por baixo do disjunto de privilegio removido:
+    // qualquer promocao que cruze a fronteira de privilegio (Perfil/Cargo) ja
+    // sobe TokenVersion (AtendenteService.AtualizarAsync, cenario 61), e o
+    // porteiro final de ConfirmarNucleoAsync exige `a.TokenVersion ==
+    // a.MfaPendenteTokenVersion` — uma promocao ENTRE iniciar e confirmar
+    // quebra essa igualdade e falha fechado (codigo_mfa_invalido), mesmo com
+    // o TOTP certo, independente de para onde a conta foi promovida.
 
     {
         // 62a — comum inicia -> promovido a Administrador (via Perfil) ->
-        // confirmar sem ticket e recusado.
+        // confirmar sem ticket falha (TokenVersion mudou no meio do caminho).
         var (idA, emailA) = await NovaContaPrivilegiada("bloqueador5 - promovido por Perfil", perfil: PerfilDeAtendente.Atendente);
 
         IniciarMfaResponse iniciadoA;
@@ -2946,8 +3004,8 @@ try
             }
             catch (UsuariosServiceException ex) { falha = ex; }
 
-            Checar("62a. comum inicia MFA -> promovido a Administrador (Perfil) -> confirmar sem ticket e recusado",
-                falha?.Codigo == "matricula_privilegiada_exige_ticket");
+            Checar("62a. comum inicia MFA -> promovido a Administrador (Perfil) -> confirmar sem ticket falha por TokenVersion (nao por privilegio)",
+                falha?.Codigo == "codigo_mfa_invalido");
         }
 
         Checar("62a-pos. MfaAtivo continua false apos a confirmacao recusada",
@@ -2979,8 +3037,8 @@ try
             }
             catch (UsuariosServiceException ex) { falha = ex; }
 
-            Checar("62b. comum inicia MFA -> promovido a Titular (Cargo) -> confirmar sem ticket e recusado",
-                falha?.Codigo == "matricula_privilegiada_exige_ticket");
+            Checar("62b. comum inicia MFA -> promovido a Titular (Cargo) -> confirmar sem ticket falha por TokenVersion (nao por privilegio)",
+                falha?.Codigo == "codigo_mfa_invalido");
         }
 
         // 62c — corrida REAL: ConfirmarAsync concorrente com a promocao a
@@ -3575,11 +3633,15 @@ try
                     return (resposta.StatusCode, corpo);
                 }
 
+                // MUDANCA DE REGRA: privilegiado sem MFA agora ativa
+                // voluntariamente pelo fluxo HTTP comum, igual a conta comum —
+                // prova na borda real (nao so na chamada direta ao servico do
+                // cenario 55), com o artefato publicado de verdade.
                 var (statusPriv, corpoPriv) = await IniciarMfaHttpAsync(jwtPriv ?? string.Empty);
-                Checar("64c. POST /api/mfa/iniciar real (privilegiado sem MFA, JWT+senha corretos) -> 409 Conflict",
-                    statusPriv == HttpStatusCode.Conflict);
-                Checar("64d. corpo real da recusa traz o codigo estavel matricula_privilegiada_exige_ticket",
-                    corpoPriv.Contains("matricula_privilegiada_exige_ticket"));
+                Checar("64c. POST /api/mfa/iniciar real (privilegiado sem MFA, JWT+senha corretos) -> 200 OK (ativacao voluntaria permitida)",
+                    statusPriv == HttpStatusCode.OK);
+                Checar("64d. corpo real do privilegiado traz um segredoBase32",
+                    corpoPriv.Contains("segredoBase32"));
 
                 var (statusComum, corpoComum) = await IniciarMfaHttpAsync(jwtComum ?? string.Empty);
                 Checar("64e. POST /api/mfa/iniciar real (conta comum sem MFA) -> 200, continua funcionando",
@@ -3587,18 +3649,23 @@ try
                 Checar("64f. corpo real da conta comum traz um segredoBase32",
                     corpoComum.Contains("segredoBase32"));
 
-                // Nenhum outro caminho HTTP autenticado alcanca a primeira
-                // matricula privilegiada sem ticket: como /iniciar recusou, a
-                // conta nunca teve segredo pendente — /confirmar tambem falha.
+                // 64g — o privilegiado consegue CONCLUIR a ativacao pela
+                // borda HTTP real: /confirmar com o TOTP correto tem que
+                // suceder, exatamente como aconteceria para a conta comum.
+                var segredoPriv = JsonDocument.Parse(corpoPriv).RootElement.GetProperty("segredoBase32").GetString()!;
                 using var requisicaoConfirmar = new HttpRequestMessage(HttpMethod.Post, "/api/mfa/confirmar")
                 {
-                    Content = JsonContent.Create(new { codigo = "000000" }, options: jsonOpcoes)
+                    Content = JsonContent.Create(new { codigo = CodigoTotp(segredoPriv) }, options: jsonOpcoes)
                 };
                 requisicaoConfirmar.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtPriv ?? string.Empty);
                 using var respostaConfirmar = await http.SendAsync(requisicaoConfirmar);
+                var corpoConfirmar = await respostaConfirmar.Content.ReadAsStringAsync();
 
-                Checar("64g. POST /api/mfa/confirmar real (privilegiado sem MFA) tambem falha — nenhum atalho HTTP",
-                    !respostaConfirmar.IsSuccessStatusCode);
+                Checar("64g. POST /api/mfa/confirmar real (privilegiado, TOTP correto) -> sucesso, MFA ativado pela borda HTTP",
+                    respostaConfirmar.IsSuccessStatusCode && corpoConfirmar.Contains("codigosDeRecuperacao"));
+
+                Checar("64g2. o privilegiado esta com MfaAtivo=true no banco apos a confirmacao HTTP real",
+                    (await Ler(idPriv)).MfaAtivo);
 
                 // ---------------------------------------------------------
                 // SEC-03 "confiar neste dispositivo": os atributos do cookie
@@ -7124,6 +7191,197 @@ try
 
             Checar("80e. ObterSituacaoAsync filtra por TokenVersionNoRegistro (regressao estrutural)",
                 fonteDoMfa.Contains("d.TokenVersionNoRegistro == atendente.TokenVersion", StringComparison.Ordinal));
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 81
+    // MUDANCA DE REGRA DE PRODUTO — ativacao voluntaria de MFA permitida para
+    // qualquer perfil (cenario 55). A UNICA trava de privilegio que sobrevive
+    // e a rematricula obrigatoria pos-emergencia: uma conta resetada por
+    // break-glass NAO pode reativar o MFA pelo fluxo voluntario, contornando
+    // o motivo de o break-glass ter existido — ela tem que passar pelo ticket
+    // que o proprio break-glass emitiu (mesmo fluxo do cenario 75).
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 81 — rematricula obrigatoria pos-emergencia nao e contornavel pelo fluxo voluntario.");
+
+        async Task<ElegibilidadeDeEmergencia> TentarResetarDeEmergenciaViaReflexaoAsync81(
+            CrmDbContext db, string email, string hashDoNovoTicket, string motivo, string atorExterno)
+        {
+            var metodo = typeof(FerramentaDeResetDeEmergencia).GetMethod(
+                "TentarResetarDeEmergenciaAsync", BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("TentarResetarDeEmergenciaAsync nao encontrado via reflexao.");
+
+            var tarefa = (Task<ElegibilidadeDeEmergencia>)metodo.Invoke(
+                null, [db, email, hashDoNovoTicket, motivo, atorExterno, CancellationToken.None])!;
+
+            return await tarefa;
+        }
+
+        Guid tenantIsolado81;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE SEC-03] Tenant isolado — rematricula obrigatoria (81)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado81 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado81);
+
+        // Conta Administrador MATRICULADA de verdade (via ticket, como exige
+        // a primeira matricula privilegiada) — break-glass so faz sentido
+        // para quem ja tinha MFA e perdeu o acesso a ele.
+        Guid contaId81;
+        string email81;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado81,
+                Nome = "[TESTE SEC-03] cenario81 - administrador com MFA",
+                Email = $"teste-sec-03-81-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+
+            var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
+            db.DesafiosDeMfa.Add(new DesafioDeMfa
+            {
+                TenantId = tenantIsolado81,
+                AtendenteId = conta.Id,
+                HashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(tokenEmClaro),
+                Tipo = TipoDeDesafioMfa.Ticket,
+                TokenVersionNoDesafio = conta.TokenVersion,
+                ExpiraEm = DateTime.UtcNow.AddHours(24)
+            });
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            contaId81 = conta.Id;
+            email81 = conta.Email;
+
+            var mfa = NovoMfaService(db);
+            var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(conta.Email, SenhaBoa, tokenEmClaro), null, default);
+            var iniciado = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessao.Desafio), default);
+            await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessao.Desafio, CodigoTotp(iniciado.SegredoBase32, -1)), null, default);
+        }
+
+        Checar("81-preparo. Administrador matriculado via ticket esta com MfaAtivo=true antes do break-glass",
+            (await Ler(contaId81)).MfaAtivo);
+
+        var tokenDeRematricula81 = SegredosAleatoriosMfa.NovoToken();
+        ElegibilidadeDeEmergencia resultadoBreakGlass81;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            resultadoBreakGlass81 = await TentarResetarDeEmergenciaViaReflexaoAsync81(
+                db, email81, SegredosAleatoriosMfa.Sha256Hex(tokenDeRematricula81),
+                "teste automatizado do cenario 81 — break-glass", "teste@verificador");
+        }
+
+        Checar("81-1. break-glass reconhece elegibilidade e reseta a conta", resultadoBreakGlass81 == ElegibilidadeDeEmergencia.Elegivel);
+
+        var estadoPosBreakGlass81 = await Ler(contaId81);
+        Checar("81-2. MFA removido pelo break-glass (MfaAtivo=false)", !estadoPosBreakGlass81.MfaAtivo);
+        Checar("81-3. RematriculaObrigatoriaAposEmergencia = true logo apos o break-glass",
+            estadoPosBreakGlass81.RematriculaObrigatoriaAposEmergencia);
+
+        // O NUCLEO deste cenario: mesmo com a REGRA NOVA permitindo qualquer
+        // perfil ativar voluntariamente, esta conta especifica — em
+        // rematricula obrigatoria — continua RECUSADA no fluxo voluntario.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falhaIniciar = null;
+            try
+            {
+                await NovoMfaService(db).IniciarAsync(
+                    new IdentidadeParaMfa(tenantIsolado81, contaId81), new IniciarMfaRequest(SenhaBoa, null), null, default);
+            }
+            catch (UsuariosServiceException ex) { falhaIniciar = ex; }
+
+            Checar("81-4. IniciarAsync (fluxo voluntario) RECUSA a conta em rematricula obrigatoria, mesmo com senha correta",
+                falhaIniciar?.Codigo == "matricula_privilegiada_exige_ticket");
+        }
+
+        Checar("81-5. nenhum segredo pendente foi gravado pela tentativa recusada",
+            (await Ler(contaId81)).MfaAtivo == false);
+
+        // Mesmo se, por qualquer falha futura, um segredo pendente existisse
+        // (defesa em profundidade — o porteiro final de ConfirmarNucleoAsync
+        // reconfere isto independente do que IniciarAsync deixou passar),
+        // confirmar sem ticket tambem tem que falhar.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await db.Atendentes.Where(a => a.Id == contaId81)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.MfaSegredoPendenteCifrado, cifra.Cifrar(ValidadorDeTotp.GerarSegredoBase32(), tenantIsolado81, contaId81))
+                    .SetProperty(a => a.MfaPendenteExpiraEm, DateTime.UtcNow.AddMinutes(10))
+                    .SetProperty(a => a.MfaPendenteTokenVersion, estadoPosBreakGlass81.TokenVersion));
+        }
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            UsuariosServiceException? falhaConfirmar = null;
+            try
+            {
+                await NovoMfaService(db).ConfirmarAsync(
+                    new IdentidadeParaMfa(tenantIsolado81, contaId81), new ConfirmarMfaRequest("000000"), null, default);
+            }
+            catch (UsuariosServiceException ex) { falhaConfirmar = ex; }
+
+            Checar("81-6. ConfirmarAsync (porteiro final, mesmo com segredo pendente forcado) tambem RECUSA sem ticket",
+                falhaConfirmar?.Codigo == "matricula_privilegiada_exige_ticket");
+        }
+
+        Checar("81-7. a conta continua com MfaAtivo=false — a rematricula obrigatoria nao foi contornada",
+            !(await Ler(contaId81)).MfaAtivo);
+
+        // A rematricula LEGITIMA (com o ticket que o break-glass emitiu)
+        // continua funcionando normalmente — a trava e so contra o atalho
+        // voluntario, nunca contra o fluxo que ela existe para exigir.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var mfa = NovoMfaService(db);
+            var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
+                new MatricularPrivilegiadoRequest(email81, SenhaBoa, tokenDeRematricula81), null, default);
+            var iniciadoRematricula = await mfa.IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessaoRematricula.Desafio), default);
+            var confirmadoRematricula = await mfa.ConfirmarViaDesafioAsync(
+                new ConfirmarViaDesafioRequest(sessaoRematricula.Desafio, CodigoTotp(iniciadoRematricula.SegredoBase32, -1)), null, default);
+
+            Checar("81-8. rematricula com o ticket do break-glass FUNCIONA normalmente (fluxo que a trava protege)",
+                confirmadoRematricula.CodigosDeRecuperacao.Count == 10);
+        }
+
+        var estadoFinal81 = await Ler(contaId81);
+        Checar("81-9. apos a rematricula legitima, MfaAtivo volta a true", estadoFinal81.MfaAtivo);
+        Checar("81-10. apos a rematricula legitima, RematriculaObrigatoriaAposEmergencia volta a false",
+            !estadoFinal81.RematriculaObrigatoriaAposEmergencia);
+
+        // E, agora que a rematricula obrigatoria acabou, esta MESMA conta
+        // volta a poder usar o fluxo voluntario normalmente no futuro (troca
+        // de autenticador, step-up de sempre) — a trava era so temporaria,
+        // presa ao sinalizador, nunca ao fato de ser Administrador.
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var trocaVoluntaria = await NovoMfaService(db).IniciarAsync(
+                new IdentidadeParaMfa(tenantIsolado81, contaId81),
+                new IniciarMfaRequest(SenhaBoa, CodigoTotp((await mfaSegredoAtualDoAtendente81Async(db, contaId81)))), null, default);
+
+            Checar("81-11. depois da rematricula, o fluxo voluntario (troca de autenticador) volta a funcionar normalmente",
+                trocaVoluntaria is not null);
+        }
+
+        async Task<string> mfaSegredoAtualDoAtendente81Async(CrmDbContext dbLeitura, Guid id)
+        {
+            var segredoCifrado = await dbLeitura.Atendentes.AsNoTracking()
+                .Where(a => a.Id == id).Select(a => a.MfaSegredoCifrado).SingleAsync();
+            return cifra.Decifrar(segredoCifrado!, tenantIsolado81, id);
         }
     }
 }

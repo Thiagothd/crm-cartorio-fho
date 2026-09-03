@@ -61,9 +61,17 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
             "Este acesso exige verificacao em duas etapas. Procure um administrador para matricular seu autenticador.",
             401);
 
+    /// <remarks>
+    /// Único gatilho hoje: conta em rematrícula obrigatória após reset de
+    /// emergência (break-glass) tentando reativar o MFA pelo fluxo
+    /// voluntário. Qualquer perfil — inclusive Titular e Administrador —
+    /// pode ativar o MFA voluntariamente fora dessa situação; o código e o
+    /// nome do método sobrevivem por compatibilidade com o fluxo de
+    /// matrícula/rematrícula por ticket, que continua existindo.
+    /// </remarks>
     public static UsuariosServiceException MatriculaPrivilegiadaExigeTicket() =>
         new("matricula_privilegiada_exige_ticket",
-            "Contas Titular ou Administrador só ativam o primeiro fator pelo fluxo de matrícula com ticket fora de banda.",
+            "Esta conta está em rematrícula obrigatória após um reset de emergência — a reativação do MFA exige o fluxo de matrícula com ticket fora de banda.",
             409);
 
     public static UsuariosServiceException MfaJaAtivo() =>
