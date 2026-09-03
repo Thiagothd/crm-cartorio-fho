@@ -13,6 +13,7 @@ using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -108,6 +109,10 @@ string etapaFinalNome;
 Guid etapaInicialId;
 Guid servicoId;
 string servicoNome;
+// TESTE 8: dado esperado do servico que carrega documentos + prazo no grounding.
+string? servicoComDadosNome = null;
+string? docsEsperados = null;
+string? prazoUnidadeEsperada = null;
 List<(Guid Id, string Nome, int Ordem)> setores;
 
 await using (var db = new CrmDbContext(opcoes))
@@ -162,6 +167,38 @@ await using (var db = new CrmDbContext(opcoes))
         .FirstAsync();
 
     (servicoId, servicoNome) = (servico.Id, servico.Nome);
+
+    // Para o TESTE 8: um servico que tem documentos E prazo ativos, para provar
+    // que ambos chegam ao grounding. O banco de dev ja tem esse dado
+    // (DocumentosNecessarios por sql/015, PrazoServico pelo seed).
+    var servicoComDados = await db.TiposServico
+        .Where(t => t.TenantId == tenantId && t.Ativo && t.DocumentosNecessarios != null
+            && db.PrazosServico.Any(p => p.TipoServicoId == t.Id && p.Ativo))
+        .OrderBy(t => t.Nome)
+        .Select(t => new
+        {
+            t.Nome,
+            t.DocumentosNecessarios,
+            Prazo = db.PrazosServico
+                .Where(p => p.TipoServicoId == t.Id && p.Ativo)
+                .Select(p => new { p.PrazoHoras, p.ApenasDiasUteis })
+                .FirstOrDefault()
+        })
+        .FirstOrDefaultAsync();
+
+    if (servicoComDados is not null && servicoComDados.Prazo is not null)
+    {
+        servicoComDadosNome = servicoComDados.Nome;
+        docsEsperados = servicoComDados.DocumentosNecessarios!.Trim();
+
+        // Espelha a unidade que MontadorDeContexto.DescreverPrazo emite. So o token
+        // de cabeca (N horas / N dias) — o sufixo e as horas restantes ficam de fora
+        // de proposito, para o Contains nao quebrar com "N dias e M horas uteis".
+        var ph = servicoComDados.Prazo.PrazoHoras;
+        prazoUnidadeEsperada = ph < 24
+            ? (ph == 1 ? "1 hora" : $"{ph} horas")
+            : (ph / 24 == 1 ? "1 dia" : $"{ph / 24} dias");
+    }
 }
 
 Console.WriteLine($"Tenant ....... {tenantId}");
@@ -877,16 +914,20 @@ Checar("anotacao interna registra que foi o cliente quem encerrou",
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
-// TESTE 8 — grounding da IA leva o setor de cada servico
+// TESTE 8 — grounding da IA leva setor, documentos e prazo de cada servico
 // ---------------------------------------------------------------------------
 
-Console.WriteLine("TESTE 8 — catalogo da IA inclui o setor de cada servico");
+Console.WriteLine("TESTE 8 — catalogo da IA inclui setor, documentos e prazo");
 
 // ACHADO AO VIVO, 2026-08-18: cliente perguntou "quais os servicos de
 // tabelionato de notas" e a IA nao soube responder — o catalogo listava nome e
 // descricao de cada TipoServico, mas nunca o setor, entao nao havia como a IA
 // filtrar por setor sem inventar. Testa direto o texto que MontadorDeContexto
 // monta, sem precisar da chamada real a Anthropic (Habilitada=false).
+//
+// ACHADO DA AUDITORIA v0.2 (P1-01): DocumentosNecessarios e o Prazo (SLA)
+// existiam no cadastro mas ficavam de fora do grounding — a IA recusava perguntas
+// de documento/prazo mesmo com o dado no banco. Agora o catalogo os inclui.
 await using (var db = new CrmDbContext(opcoes))
 {
     var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
@@ -896,6 +937,73 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("catalogo cita o setor de CADA servico ativo (os 2 setores aparecem entre parenteses)",
         setoresNoCatalogo == setores.Count,
         $"setores citados: {setoresNoCatalogo}/{setores.Count}");
+
+    Checar("existe servico com documentos e prazo no banco de dev (sql/015 + seed)",
+        servicoComDadosNome is not null,
+        "rode sql/015-checklist-e-mensagens-de-servico.sql e o seed de demonstracao");
+
+    if (docsEsperados is not null)
+    {
+        Checar($"catalogo traz os documentos necessarios do servico \"{servicoComDadosNome}\"",
+            contexto.Contains(docsEsperados),
+            "MontadorDeContexto nao emitiu DocumentosNecessarios no grounding");
+    }
+
+    if (prazoUnidadeEsperada is not null)
+    {
+        Checar($"catalogo traz o prazo (SLA) do servico \"{servicoComDadosNome}\" em unidade de balcao",
+            contexto.Contains("Prazo: ~") && contexto.Contains(prazoUnidadeEsperada),
+            $"esperava conter \"Prazo: ~\" e \"{prazoUnidadeEsperada}\"");
+    }
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 8B — grounding da IA so traz ConhecimentoDeIa dentro da vigencia
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 8B — conhecimento aprovado entra no catalogo so dentro da vigencia");
+
+// Item do backlog "Configurar memoria e base de conhecimento versionada da IA":
+// cadastro governado, consumido por MontadorDeContexto, filtrado por Ativo e por
+// janela de vigencia (VigenteDesde/VigenteAte, ambos opcionais).
+var tituloVigente = $"{PrefixoDeTeste}conhecimento vigente";
+var tituloVencido = $"{PrefixoDeTeste}conhecimento vencido";
+var conteudoVigente = $"{PrefixoDeTeste}texto do conhecimento vigente {Guid.NewGuid():N}";
+var conteudoVencido = $"{PrefixoDeTeste}texto do conhecimento vencido {Guid.NewGuid():N}";
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    db.ConhecimentosDeIa.Add(new ConhecimentoDeIa
+    {
+        TenantId = tenantId,
+        Titulo = tituloVigente,
+        Conteudo = conteudoVigente,
+        Tema = "Teste automatizado",
+        Ativo = true
+        // VigenteDesde/VigenteAte nulos: vale desde sempre, para sempre.
+    });
+
+    db.ConhecimentosDeIa.Add(new ConhecimentoDeIa
+    {
+        TenantId = tenantId,
+        Titulo = tituloVencido,
+        Conteudo = conteudoVencido,
+        Tema = "Teste automatizado",
+        VigenteAte = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1),
+        Ativo = true
+    });
+
+    await db.SaveChangesAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
+
+    Checar("catalogo traz o conhecimento dentro da vigencia", contexto.Contains(conteudoVigente));
+    Checar("catalogo NAO traz o conhecimento com vigencia vencida", !contexto.Contains(conteudoVencido));
 }
 
 Console.WriteLine();
@@ -2439,6 +2547,19 @@ async Task<int> LimparAsync()
     // --- 3. Regras de teste. A configuracao do cartório parceiro nao e tocada. ----------
     total += await db.MensagensAutomaticas
         .Where(x => x.TenantId == tenantId && x.Conteudo.StartsWith(PrefixoDeTeste))
+        .ExecuteDeleteAsync();
+
+    // --- 3b. Conhecimento de IA do TESTE 8B ---------------------------------
+    var conhecimentosDeTeste = db.ConhecimentosDeIa
+        .Where(x => x.TenantId == tenantId && x.Titulo.StartsWith(PrefixoDeTeste))
+        .Select(x => x.Id);
+
+    total += await db.HistoricoDeConhecimentosDeIa
+        .Where(x => conhecimentosDeTeste.Contains(x.ConhecimentoDeIaId))
+        .ExecuteDeleteAsync();
+
+    total += await db.ConhecimentosDeIa
+        .Where(x => x.TenantId == tenantId && x.Titulo.StartsWith(PrefixoDeTeste))
         .ExecuteDeleteAsync();
 
     // --- 4. Devolve a configuracao de encerramento como estava --------------

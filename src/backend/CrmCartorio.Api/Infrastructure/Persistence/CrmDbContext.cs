@@ -29,6 +29,8 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
     public DbSet<ConexaoDoCanal> CanalWhatsappConexoes => Set<ConexaoDoCanal>();
     public DbSet<DescarteDoCanal> CanalWhatsappDescartes => Set<DescarteDoCanal>();
     public DbSet<ChamadaDeIa> ChamadasDeIa => Set<ChamadaDeIa>();
+    public DbSet<ConhecimentoDeIa> ConhecimentosDeIa => Set<ConhecimentoDeIa>();
+    public DbSet<HistoricoDeConhecimentoDeIa> HistoricoDeConhecimentosDeIa => Set<HistoricoDeConhecimentoDeIa>();
     public DbSet<DesafioDeMfa> DesafiosDeMfa => Set<DesafioDeMfa>();
     public DbSet<CodigoDeRecuperacaoMfa> CodigosDeRecuperacaoMfa => Set<CodigoDeRecuperacaoMfa>();
     public DbSet<EventoDeSeguranca> EventosDeSeguranca => Set<EventoDeSeguranca>();

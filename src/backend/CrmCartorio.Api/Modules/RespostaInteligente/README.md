@@ -34,7 +34,8 @@ provedor, e continua sem saber que existem dois.
 | `Cota/DisjuntorDoGemini` | Fechado → Aberto → Meio-Aberto; recuperação automática por sonda |
 | `Cota/ContadorDeLimiteDiario` | Reserva atômica dos dois tetos diários por tenant (`LimiteDiario`, `LimiteDiarioHaiku`) |
 | `Cota/RegistradorDeChamadas` | Grava `ChamadaDeIa` num `DbContext` próprio — sobrevive a falha do fluxo de negócio |
-| `MontadorDeContexto` | Monta o texto de grounding: catálogo de `TipoServico` + `RespostaRapida` ativos — igual para os dois provedores |
+| `MontadorDeContexto` | Monta o texto de grounding: catálogo de `TipoServico` (nome, setor, descrição, **documentos necessários e prazo/SLA**), `RespostaRapida` ativa e `ConhecimentoDeIa` ativo/vigente — igual para os dois provedores |
+| `IConhecimentoDeIaService` / `ConhecimentoDeIaService` | Cadastro governado de conhecimento (por serviço/tema, com vigência); toda edição preserva a versão anterior em `HistoricoDeConhecimentoDeIa` antes de sobrescrever |
 | `PromptDeSistema` | Prompt fixo, versionado em código. `ParaAnthropic()`/`ParaGemini()` — mesmo texto, ajuste por modelo só se um caso real do corpus de qualidade provar necessidade |
 | `OpcoesDaIA` / `OpcoesDoGemini` / `OpcoesDoAnthropic` | Configuração dos dois provedores + tetos |
 | `ISituacaoDaIa` / `SituacaoDaIa` | Estado para o painel `/automacao/ia` e resumo leve para Indicadores/sino |
