@@ -108,6 +108,10 @@ string etapaFinalNome;
 Guid etapaInicialId;
 Guid servicoId;
 string servicoNome;
+// TESTE 8: dado esperado do servico que carrega documentos + prazo no grounding.
+string? servicoComDadosNome = null;
+string? docsEsperados = null;
+string? prazoUnidadeEsperada = null;
 List<(Guid Id, string Nome, int Ordem)> setores;
 
 await using (var db = new CrmDbContext(opcoes))
@@ -162,6 +166,38 @@ await using (var db = new CrmDbContext(opcoes))
         .FirstAsync();
 
     (servicoId, servicoNome) = (servico.Id, servico.Nome);
+
+    // Para o TESTE 8: um servico que tem documentos E prazo ativos, para provar
+    // que ambos chegam ao grounding. O banco de dev ja tem esse dado
+    // (DocumentosNecessarios por sql/015, PrazoServico pelo seed).
+    var servicoComDados = await db.TiposServico
+        .Where(t => t.TenantId == tenantId && t.Ativo && t.DocumentosNecessarios != null
+            && db.PrazosServico.Any(p => p.TipoServicoId == t.Id && p.Ativo))
+        .OrderBy(t => t.Nome)
+        .Select(t => new
+        {
+            t.Nome,
+            t.DocumentosNecessarios,
+            Prazo = db.PrazosServico
+                .Where(p => p.TipoServicoId == t.Id && p.Ativo)
+                .Select(p => new { p.PrazoHoras, p.ApenasDiasUteis })
+                .FirstOrDefault()
+        })
+        .FirstOrDefaultAsync();
+
+    if (servicoComDados is not null && servicoComDados.Prazo is not null)
+    {
+        servicoComDadosNome = servicoComDados.Nome;
+        docsEsperados = servicoComDados.DocumentosNecessarios!.Trim();
+
+        // Espelha a unidade que MontadorDeContexto.DescreverPrazo emite. So o token
+        // de cabeca (N horas / N dias) — o sufixo e as horas restantes ficam de fora
+        // de proposito, para o Contains nao quebrar com "N dias e M horas uteis".
+        var ph = servicoComDados.Prazo.PrazoHoras;
+        prazoUnidadeEsperada = ph < 24
+            ? (ph == 1 ? "1 hora" : $"{ph} horas")
+            : (ph / 24 == 1 ? "1 dia" : $"{ph / 24} dias");
+    }
 }
 
 Console.WriteLine($"Tenant ....... {tenantId}");
@@ -877,16 +913,20 @@ Checar("anotacao interna registra que foi o cliente quem encerrou",
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
-// TESTE 8 — grounding da IA leva o setor de cada servico
+// TESTE 8 — grounding da IA leva setor, documentos e prazo de cada servico
 // ---------------------------------------------------------------------------
 
-Console.WriteLine("TESTE 8 — catalogo da IA inclui o setor de cada servico");
+Console.WriteLine("TESTE 8 — catalogo da IA inclui setor, documentos e prazo");
 
 // ACHADO AO VIVO, 2026-08-18: cliente perguntou "quais os servicos de
 // tabelionato de notas" e a IA nao soube responder — o catalogo listava nome e
 // descricao de cada TipoServico, mas nunca o setor, entao nao havia como a IA
 // filtrar por setor sem inventar. Testa direto o texto que MontadorDeContexto
 // monta, sem precisar da chamada real a Anthropic (Habilitada=false).
+//
+// ACHADO DA AUDITORIA v0.2 (P1-01): DocumentosNecessarios e o Prazo (SLA)
+// existiam no cadastro mas ficavam de fora do grounding — a IA recusava perguntas
+// de documento/prazo mesmo com o dado no banco. Agora o catalogo os inclui.
 await using (var db = new CrmDbContext(opcoes))
 {
     var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
@@ -896,6 +936,24 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("catalogo cita o setor de CADA servico ativo (os 2 setores aparecem entre parenteses)",
         setoresNoCatalogo == setores.Count,
         $"setores citados: {setoresNoCatalogo}/{setores.Count}");
+
+    Checar("existe servico com documentos e prazo no banco de dev (sql/015 + seed)",
+        servicoComDadosNome is not null,
+        "rode sql/015-checklist-e-mensagens-de-servico.sql e o seed de demonstracao");
+
+    if (docsEsperados is not null)
+    {
+        Checar($"catalogo traz os documentos necessarios do servico \"{servicoComDadosNome}\"",
+            contexto.Contains(docsEsperados),
+            "MontadorDeContexto nao emitiu DocumentosNecessarios no grounding");
+    }
+
+    if (prazoUnidadeEsperada is not null)
+    {
+        Checar($"catalogo traz o prazo (SLA) do servico \"{servicoComDadosNome}\" em unidade de balcao",
+            contexto.Contains("Prazo: ~") && contexto.Contains(prazoUnidadeEsperada),
+            $"esperava conter \"Prazo: ~\" e \"{prazoUnidadeEsperada}\"");
+    }
 }
 
 Console.WriteLine();
