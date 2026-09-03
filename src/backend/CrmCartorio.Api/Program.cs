@@ -184,8 +184,14 @@ builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
-// Resposta Inteligente (Fase 2B, dois provedores desde a Fase 2G): Gemini 3.7
-// Flash principal, Haiku 4.5 de contingencia — ver Modules/RespostaInteligente/README.md.
+// Resposta Inteligente (Fase 2B, dois provedores desde a Fase 2G): arquitetura
+// pensada como Gemini 3.7 Flash principal + Haiku 4.5 de contingencia, mas
+// ACHADO AO VIVO, 2026-09-03: Gemini.Habilitado esta FALSE por decisao temporaria
+// do Thiago — free tier instavel (timeouts de 20-60s, 429/503) e o tier pago exige
+// pre-pagamento que ele nao quis comprometer agora. Enquanto isso, Haiku e o UNICO
+// provedor. Nada nesta orquestracao precisou mudar para isso: PoliticaDeSelecao
+// pula o Gemini synchronously (sem HTTP, sem espera) quando desligado — ver
+// Modules/RespostaInteligente/README.md.
 // Sem chave configurada, os dois sobem do mesmo jeito; EstaConfigurado de cada
 // provedor decide se ele e tentado, nunca o registro no DI.
 //

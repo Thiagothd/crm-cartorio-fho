@@ -5,10 +5,22 @@ com o menu de triagem, tenta responder **só com dado cadastrado** antes de
 escalar para atendimento humano.
 
 **Desde 2026-08-25 (Fase 2G):** dois provedores por trás da mesma porta —
-**Gemini 3.7 Flash é o principal** (gratuito dentro da franquia), **Claude
-Haiku 4.5 é a contingência** (paga). Um `OrquestradorDeProvedores` escolhe,
-tenta e cai para o outro quando necessário; a troca é invisível para quem
-chama e para o cliente.
+arquitetura pensada como **Gemini 3.7 Flash principal** (gratuito dentro da
+franquia) com **Claude Haiku 4.5 de contingência** (paga). Um
+`OrquestradorDeProvedores` escolhe, tenta e cai para o outro quando necessário;
+a troca é invisível para quem chama e para o cliente.
+
+**Desde 2026-09-03: `Gemini.Habilitado=false`, Haiku é o único provedor de
+fato.** Decisão temporária do Thiago — o free tier do Gemini se mostrou
+instável demais (timeouts de 20-60s, 429/503 mesmo com tráfego espaçado; ver
+"Decisões que parecem estranhas mas não são" abaixo) e o tier pago exige
+pré-pagamento mínimo (R$200 na conta testada) que ele não quis comprometer
+agora. Nada na orquestração precisou mudar para isso: `PoliticaDeSelecao` pula
+o Gemini de forma síncrona (sem HTTP, sem espera) quando desligado. Reativar é
+só voltar o flag para `true` — mas reveja `Anthropic.LimiteDiarioHaiku` junto
+(foi igualado ao `LimiteDiario` geral enquanto o Haiku carrega 100% do
+tráfego; com o Gemini de volta absorvendo a maioria, esse número volta a fazer
+sentido menor).
 
 ## Por que existe um slice inteiro para isto
 
@@ -115,6 +127,21 @@ provedor, e continua sem saber que existem dois.
   raro no papel era o caso comum na prática. Descartados na investigação: rede
   (chamada real ao Google respondeu em 2,2s do próprio servidor), IPv6 (falha em
   681ms, sem travar) e nome de modelo inválido.
+
+- **A causa real da lentidão do Gemini não era conexão fria, era o free tier
+  sendo estrangulado.** Investigação ao vivo, 2026-09-03, depois do timeout de
+  8s (achado acima) já estar em produção: medi chamada real, direta, do
+  próprio servidor, contra `/v1/interactions` e contra `/v1beta/generateContent`
+  (5 rodadas cada). Resultado: **~40-50% de falha em qualquer um dos dois
+  endpoints**, alternando entre timeout (20-60s), `503 Service Unavailable` e
+  `429 Too Many Requests` — às vezes rápido (200-700ms), às vezes pendurando a
+  conexão inteira. Testei também os 5 modelos Flash disponíveis na conta
+  (3.5/3.6/3.7/3.8/`flash-latest`): todos com o mesmo padrão de falha
+  errática, nenhum consistente. Aquecer conexão (achado abaixo) e cortar o
+  timeout ajudam a limitar o prejuízo, mas **não eliminam a causa**: é a
+  franquia gratuita do Google, que estrangula por taxa e tem prioridade baixa
+  na fila. Corrigir de verdade exige tier pago — decisão comercial, não
+  técnica, registrada no topo deste README (`Gemini.Habilitado=false`).
 
 - **`AquecedorDeConexaoDoGemini` sonda o Google sem chave de API, e isso é
   intencional.** O objetivo da sondagem é abrir DNS + TCP + TLS e deixar a conexão

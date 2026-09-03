@@ -14,11 +14,18 @@ public interface IOrquestradorDeProvedores
 
 /// <summary>
 /// Escolhe o provedor, tenta, registra a tentativa e cai para o outro quando
-/// necessário. Gemini primeiro, Haiku por trás — a troca é transparente para
-/// quem chama: <see cref="ResponderAsync"/> devolve no máximo uma
-/// <see cref="RespostaDaIA"/>, nunca duas, e nunca lança (exceto o cancelamento
-/// de quem chamou).
+/// necessário. Estruturalmente sempre tenta o Gemini primeiro e o Haiku por
+/// trás — a troca é transparente para quem chama: <see cref="ResponderAsync"/>
+/// devolve no máximo uma <see cref="RespostaDaIA"/>, nunca duas, e nunca lança
+/// (exceto o cancelamento de quem chamou).
 /// </summary>
+/// <remarks>
+/// ACHADO AO VIVO, 2026-09-03: com <c>Gemini.Habilitado=false</c> (decisão
+/// temporária, ver <c>Program.cs</c>), <see cref="PoliticaDeSelecao.DecidirAsync"/>
+/// devolve <c>TentarOGemini=false</c> antes de qualquer I/O — o Gemini nunca é
+/// discado, nenhum tempo é gasto nele, e o Haiku vira o único provedor de fato,
+/// sem que este orquestrador precise saber disso.
+/// </remarks>
 /// <remarks>
 /// Os dois tetos diários (<see cref="OpcoesDaIA.LimiteDiario"/> e
 /// <see cref="OpcoesDoAnthropic.LimiteDiarioHaiku"/>) são reservados ANTES da
