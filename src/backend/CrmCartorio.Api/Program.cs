@@ -18,6 +18,7 @@ using CrmCartorio.Api.Modules.Indicadores.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.RespostaInteligente.Infrastructure;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
@@ -209,11 +210,36 @@ builder.Services.AddKeyedScoped<IProvedorDeIa>(
 // HttpClient tipado, mesmo padrao do EvolutionClient — nao existe SDK .NET
 // oficial para a Interactions API do Gemini (o pacote Google.GenAI so cobre o
 // generateContent legado).
+// A conexao com o Google e mantida VIVA de proposito. O padrao do
+// IHttpClientFactory recicla o handler a cada 2 minutos; num chat de cartorio, que
+// passa longos periodos ocioso, isso garantia que quase toda conversa comecasse
+// pagando DNS + TCP + TLS do zero. Ver ACHADO em OpcoesDoGemini.TimeoutSegundos:
+// a primeira chamada apos ociosidade estourava 20s enquanto as seguintes
+// respondiam em ~2,4s.
 builder.Services.AddHttpClient<ProvedorGemini>((sp, http) =>
 {
     var opcoesGemini = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value.Gemini;
     http.BaseAddress = new Uri(opcoesGemini.BaseUrl);
-});
+})
+    // Infinito aqui NAO vaza conexao: quem controla a idade da conexao passa a ser
+    // PooledConnectionLifetime abaixo, que e o mecanismo correto para isso e ainda
+    // respeita troca de DNS. Sem esta linha, a rotacao de 2min do factory jogaria
+    // fora justamente a conexao que acabamos de aquecer.
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        // Uma conexao travada falha rapido e libera o orcamento de latencia para a
+        // contingencia, em vez de consumir a espera inteira do cliente.
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+
+        // Renova a conexao periodicamente (acompanha mudanca de DNS do Google) sem
+        // descartar a cada 2 minutos como o padrao do factory faria.
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+
+        // Mantem a conexao ociosa no pool por mais tempo que o intervalo do
+        // aquecedor, para que ele de fato encontre uma conexao viva para reusar.
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+    });
 builder.Services.AddKeyedScoped<IProvedorDeIa>(
     ChaveDoProvedor.Gemini, (sp, _) => sp.GetRequiredService<ProvedorGemini>());
 
@@ -266,6 +292,11 @@ builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
 // O webhook confirma depois do commit curto; automacao/IA/saida sao retomadas
 // por workers coordenados no SQL Server, inclusive apos reciclagem do IIS.
 builder.Services.AddHostedService<HospedeDoProcessamentoDeEntradaWhatsapp>();
+
+// Canal de cartorio fica ocioso a maior parte do dia, entao quase toda conversa
+// comecava com a conexao do Gemini fria — e a primeira chamada estourava o
+// orcamento de latencia inteiro. Sondagem sem chave, custo zero de token.
+builder.Services.AddHostedService<AquecedorDeConexaoDoGemini>();
 
 // ---------------------------------------------------------------- autenticacao
 
