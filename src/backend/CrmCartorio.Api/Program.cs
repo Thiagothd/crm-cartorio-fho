@@ -232,6 +232,7 @@ builder.Services.AddScoped<IOrquestradorDeProvedores, OrquestradorDeProvedores>(
 
 builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
 builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
+builder.Services.AddScoped<IConhecimentoDeIaService, ConhecimentoDeIaService>();
 
 // Visão Geral, Indicadores e Relatórios, alertas do sino — só consulta, lê o
 // DbContext direto (permitido; chamar o Service de outro slice não seria).
