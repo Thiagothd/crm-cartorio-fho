@@ -202,13 +202,54 @@ Anti-replay: `Atendentes.MfaUltimoPassoUsado`, compare-and-set (`WHERE
 MfaUltimoPassoUsado IS NULL OR MfaUltimoPassoUsado < @passo`) na MESMA
 transação do consumo do desafio.
 
-### Matrícula privilegiada — nunca só JWT + senha
+### Ativação voluntária de MFA — qualquer perfil, inclusive privilegiado
 
-Para `Administrador`/`Titular`, a primeira matrícula (e só ela) exige também
-um **ticket fora de banda** — token aleatório, hash no banco, TTL 24h, uso
+**Mudança de regra de produto (pós-homologação do SEC-03 em TESTE):** todo
+perfil — inclusive `Administrador` e `Titular` — pode ativar o MFA da própria
+conta pelo fluxo autenticado comum (`JWT + senha`, `Configurações >
+Segurança`). A trava original ("primeira matrícula de conta privilegiada
+nunca acontece por JWT + senha sozinhos") foi revogada deliberadamente: fazia
+sentido enquanto matrícula por ticket era a ÚNICA porta de entrada oferecida
+ao usuário, mas depois de homologada em TESTE a decisão de produto passou a
+ser deixar qualquer atendente proteger a própria conta quando quiser, sem
+depender de outra pessoa emitir um ticket.
+
+O que **não** mudou: a ativação voluntária continua exigindo sessão
+autenticada válida, senha atual correta, confirmação do TOTP novo, geração
+dos 10 códigos de recuperação, e todas as proteções de sempre (anti-replay,
+`TokenVersion`, porteiro único). Nenhuma delas foi simplificada — só a trava
+de privilégio em si foi removida.
+
+**A única trava de privilégio que sobrevive é a rematrícula obrigatória
+pós-emergência.** Uma conta resetada por break-glass
+(`RematriculaObrigatoriaAposEmergencia = true`) continua bloqueada no fluxo
+voluntário — `IniciarAsync` e o porteiro final de `ConfirmarNucleoAsync`
+recusam com `matricula_privilegiada_exige_ticket` enquanto essa flag estiver
+ligada, mesmo com senha correta. Sem isto, o fluxo voluntário seria um atalho
+que contorna o próprio motivo de o break-glass ter existido. A flag só volta
+a `false` na mesma escrita atômica que confirma uma matrícula com ticket —
+nunca por ativação voluntária.
+
+O **ticket fora de banda** — token aleatório, hash no banco, TTL 24h, uso
 único, emitido por quem já tem MFA (com step-up) ou pela ferramenta de
-bootstrap (`--emitir-ticket-de-bootstrap` no binário publicado). Contas não
-privilegiadas matriculam com `JWT + senha` normalmente, sem ticket.
+bootstrap (`--emitir-ticket-de-bootstrap` no binário publicado) — continua
+existindo e é obrigatório para:
+
+1. rematrícula obrigatória após break-glass (acima);
+2. matricular **outra** conta administrativamente (o ator nunca digita a
+   senha do alvo; o ticket é a prova de identidade fora de banda);
+3. a futura política obrigatória de MFA (`AtivarObrigatoriedadeAsync`),
+   que continua **desligada** e fora do escopo desta mudança.
+
+**Promoção no meio do caminho continua fechada — agora por `TokenVersion`,
+não por privilégio.** Uma conta comum que inicia a ativação e é promovida a
+`Administrador`/`Titular` antes de confirmar não conclui mais por causa de
+privilégio (isso agora seria permitido) — mas continua falhando, porque toda
+mudança de `Perfil`/`Cargo` que cruza a fronteira de privilégio já sobe
+`TokenVersion` (SEC-01), e o porteiro final exige `TokenVersion ==
+MfaPendenteTokenVersion` da linha atual. O mecanismo genérico de
+revogação-por-`TokenVersion` absorveu uma proteção que antes era específica
+de privilégio.
 
 **Bootstrap fecha sozinho:** o comando se recusa a rodar se já existir
 qualquer conta privilegiada com `MfaAtivo = true` no tenant — depois do
