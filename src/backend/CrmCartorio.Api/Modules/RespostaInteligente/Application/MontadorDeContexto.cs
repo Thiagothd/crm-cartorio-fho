@@ -34,6 +34,15 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
 /// resolvido aqui — é o único que faz sentido fora de uma conversa específica; os
 /// demais ({NomeCliente}, {Servico}, {Protocolo}, {MenuSetores}) são removidos, para
 /// a IA nunca ver um marcador solto e reproduzi-lo litealmente numa resposta.
+///
+/// Terceira fonte: <see cref="Domain.Entities.ConhecimentoDeIa"/> ativo e dentro da
+/// janela de vigência (quando cadastrada). Diferente de <c>RespostaRapida</c> —
+/// atalho de digitação do atendente que só de raspão alimenta a IA — este é o
+/// cadastro governado: versão incrementada e estado anterior preservado a cada
+/// edição (<see cref="ConhecimentoDeIaService"/>), autor rastreado, vigência
+/// opcional. Nota: as duas fontes podem, com o tempo, competir pelo mesmo tipo de
+/// conteúdo — não resolvido agora, decisão futura possível é aposentar o papel de
+/// "informação do cartório" do RespostaRapida em favor deste cadastro.
 /// </remarks>
 public static partial class MontadorDeContexto
 {
@@ -67,6 +76,24 @@ public static partial class MontadorDeContexto
             .Where(r => r.TenantId == tenantId && r.Ativo)
             .OrderBy(r => r.Titulo)
             .Select(r => new { r.Titulo, r.Conteudo })
+            .ToListAsync(ct);
+
+        var hoje = DateOnly.FromDateTime(DateTime.UtcNow);
+        var conhecimentos = await db.ConhecimentosDeIa.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && c.Ativo
+                && (c.VigenteDesde == null || c.VigenteDesde <= hoje)
+                && (c.VigenteAte == null || c.VigenteAte >= hoje))
+            .OrderBy(c => c.Tema).ThenBy(c => c.Titulo)
+            .Select(c => new
+            {
+                c.Titulo,
+                c.Conteudo,
+                c.Tema,
+                ServicoNome = db.TiposServico
+                    .Where(t => t.Id == c.TipoServicoId)
+                    .Select(t => t.Nome)
+                    .FirstOrDefault()
+            })
             .ToListAsync(ct);
 
         var texto = new StringBuilder();
@@ -118,6 +145,26 @@ public static partial class MontadorDeContexto
             texto.Append("- ").Append(resposta.Titulo).Append(": ")
                 .Append(ResolverConteudo(resposta.Conteudo, nomeCartorio))
                 .AppendLine();
+        }
+
+        texto.AppendLine();
+        texto.AppendLine("CONHECIMENTO APROVADO:");
+        if (conhecimentos.Count == 0)
+        {
+            texto.AppendLine("(nenhum conhecimento cadastrado)");
+        }
+
+        foreach (var conhecimento in conhecimentos)
+        {
+            texto.Append("- ").Append(conhecimento.Titulo)
+                .Append(" (").Append(conhecimento.Tema);
+
+            if (!string.IsNullOrWhiteSpace(conhecimento.ServicoNome))
+            {
+                texto.Append(", ").Append(conhecimento.ServicoNome);
+            }
+
+            texto.Append("): ").Append(conhecimento.Conteudo).AppendLine();
         }
 
         return texto.ToString();

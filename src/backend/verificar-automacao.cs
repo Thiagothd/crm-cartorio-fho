@@ -13,6 +13,7 @@ using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -954,6 +955,55 @@ await using (var db = new CrmDbContext(opcoes))
             contexto.Contains("Prazo: ~") && contexto.Contains(prazoUnidadeEsperada),
             $"esperava conter \"Prazo: ~\" e \"{prazoUnidadeEsperada}\"");
     }
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 8B — grounding da IA so traz ConhecimentoDeIa dentro da vigencia
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 8B — conhecimento aprovado entra no catalogo so dentro da vigencia");
+
+// Item do backlog "Configurar memoria e base de conhecimento versionada da IA":
+// cadastro governado, consumido por MontadorDeContexto, filtrado por Ativo e por
+// janela de vigencia (VigenteDesde/VigenteAte, ambos opcionais).
+var tituloVigente = $"{PrefixoDeTeste}conhecimento vigente";
+var tituloVencido = $"{PrefixoDeTeste}conhecimento vencido";
+var conteudoVigente = $"{PrefixoDeTeste}texto do conhecimento vigente {Guid.NewGuid():N}";
+var conteudoVencido = $"{PrefixoDeTeste}texto do conhecimento vencido {Guid.NewGuid():N}";
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    db.ConhecimentosDeIa.Add(new ConhecimentoDeIa
+    {
+        TenantId = tenantId,
+        Titulo = tituloVigente,
+        Conteudo = conteudoVigente,
+        Tema = "Teste automatizado",
+        Ativo = true
+        // VigenteDesde/VigenteAte nulos: vale desde sempre, para sempre.
+    });
+
+    db.ConhecimentosDeIa.Add(new ConhecimentoDeIa
+    {
+        TenantId = tenantId,
+        Titulo = tituloVencido,
+        Conteudo = conteudoVencido,
+        Tema = "Teste automatizado",
+        VigenteAte = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1),
+        Ativo = true
+    });
+
+    await db.SaveChangesAsync();
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
+
+    Checar("catalogo traz o conhecimento dentro da vigencia", contexto.Contains(conteudoVigente));
+    Checar("catalogo NAO traz o conhecimento com vigencia vencida", !contexto.Contains(conteudoVencido));
 }
 
 Console.WriteLine();
@@ -2497,6 +2547,19 @@ async Task<int> LimparAsync()
     // --- 3. Regras de teste. A configuracao do cartório parceiro nao e tocada. ----------
     total += await db.MensagensAutomaticas
         .Where(x => x.TenantId == tenantId && x.Conteudo.StartsWith(PrefixoDeTeste))
+        .ExecuteDeleteAsync();
+
+    // --- 3b. Conhecimento de IA do TESTE 8B ---------------------------------
+    var conhecimentosDeTeste = db.ConhecimentosDeIa
+        .Where(x => x.TenantId == tenantId && x.Titulo.StartsWith(PrefixoDeTeste))
+        .Select(x => x.Id);
+
+    total += await db.HistoricoDeConhecimentosDeIa
+        .Where(x => conhecimentosDeTeste.Contains(x.ConhecimentoDeIaId))
+        .ExecuteDeleteAsync();
+
+    total += await db.ConhecimentosDeIa
+        .Where(x => x.TenantId == tenantId && x.Titulo.StartsWith(PrefixoDeTeste))
         .ExecuteDeleteAsync();
 
     // --- 4. Devolve a configuracao de encerramento como estava --------------

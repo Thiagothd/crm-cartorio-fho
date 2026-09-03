@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   BarChart3,
+  BookOpen,
   Bot,
   Building2,
   GitBranch,
@@ -165,6 +166,18 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         grupoPai: 'Automação',
         descricao: 'Resposta Inteligente — status e uso do dia',
         carregar: pagina(() => import('@/pages/pagina-ia'), 'PaginaIa'),
+      }),
+      item({
+        rotulo: 'Conhecimento da IA',
+        rota: '/automacao/conhecimento-ia',
+        icone: BookOpen,
+        permissao: 'gestao',
+        grupoPai: 'Automação',
+        descricao: 'Conteúdo aprovado, por serviço/tema, com vigência e histórico',
+        carregar: pagina(
+          () => import('@/pages/pagina-conhecimento-de-ia'),
+          'PaginaConhecimentoDeIa',
+        ),
       }),
       item({
         rotulo: 'Encerramento automático',

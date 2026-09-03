@@ -914,5 +914,91 @@ CREATE INDEX IX_DispositivosConfiaveis_Atendente_Ativos
     WHERE RevogadoEm IS NULL;
 GO
 
+/* -----------------------------------------------------------------------------
+   17. ConhecimentosDeIa — conhecimento aprovado, por servico/tema, para a IA
+   -----------------------------------------------------------------------------
+   Cadastrado por um humano com permissao de gerir cadastros; a IA nunca
+   escreve aqui. Diferente de RespostasRapidas (atalho de digitacao do
+   atendente), este cadastro e consumido por MontadorDeContexto no grounding
+   da IA, com vinculo opcional a um TipoServico, categoria livre (Tema),
+   vigencia opcional e numero de versao. Ver migration 039.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.ConhecimentosDeIa
+(
+    Id                       UNIQUEIDENTIFIER NOT NULL,
+    TenantId                 UNIQUEIDENTIFIER NOT NULL,
+    Titulo                   NVARCHAR(160)    NOT NULL,
+    Conteudo                 NVARCHAR(2000)   NOT NULL,
+    Tema                     NVARCHAR(80)     NOT NULL,
+    TipoServicoId            UNIQUEIDENTIFIER NULL,
+    VigenteDesde             DATE             NULL,
+    VigenteAte               DATE             NULL,
+    Versao                   INT              NOT NULL CONSTRAINT DF_ConhecimentosDeIa_Versao DEFAULT (1),
+    CriadoPorAtendenteId     UNIQUEIDENTIFIER NULL,
+    AtualizadoPorAtendenteId UNIQUEIDENTIFIER NULL,
+    Ativo                    BIT              NOT NULL CONSTRAINT DF_ConhecimentosDeIa_Ativo DEFAULT (1),
+    CriadoEm                 DATETIME2(3)     NOT NULL,
+    AtualizadoEm             DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_ConhecimentosDeIa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_TiposServico
+        FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Atendentes_CriadoPor
+        FOREIGN KEY (CriadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Atendentes_AtualizadoPor
+        FOREIGN KEY (AtualizadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_ConhecimentosDeIa_Vigencia
+        CHECK (VigenteDesde IS NULL OR VigenteAte IS NULL OR VigenteDesde <= VigenteAte)
+);
+GO
+
+CREATE INDEX IX_ConhecimentosDeIa_Tenant_Ativo
+    ON dbo.ConhecimentosDeIa (TenantId, Ativo);
+GO
+
+/* -----------------------------------------------------------------------------
+   18. HistoricoDeConhecimentosDeIa — trilha de versoes. So cresce.
+   -----------------------------------------------------------------------------
+   Snapshot de um ConhecimentoDeIa tirado imediatamente ANTES de cada edicao —
+   mesmo espirito de HistoricoEtapas. E o que torna o conhecimento
+   "inspecionavel e corrigivel": a edicao grava aqui o estado que estava
+   valendo antes de sobrescrever o registro vivo.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.HistoricoDeConhecimentosDeIa
+(
+    Id                     UNIQUEIDENTIFIER NOT NULL,
+    TenantId               UNIQUEIDENTIFIER NOT NULL,
+    ConhecimentoDeIaId     UNIQUEIDENTIFIER NOT NULL,
+    Versao                 INT              NOT NULL,
+    Titulo                 NVARCHAR(160)    NOT NULL,
+    Conteudo               NVARCHAR(2000)   NOT NULL,
+    Tema                   NVARCHAR(80)     NOT NULL,
+    TipoServicoId          UNIQUEIDENTIFIER NULL,
+    VigenteDesde           DATE             NULL,
+    VigenteAte             DATE             NULL,
+    Ativo                  BIT              NOT NULL,
+    AlteradoPorAtendenteId UNIQUEIDENTIFIER NULL,
+    OcorridoEm             DATETIME2(3)     NOT NULL,
+    CriadoEm               DATETIME2(3)     NOT NULL,
+    AtualizadoEm           DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_HistoricoDeConhecimentosDeIa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_ConhecimentosDeIa
+        FOREIGN KEY (ConhecimentoDeIaId) REFERENCES dbo.ConhecimentosDeIa (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_TiposServico
+        FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_Atendentes
+        FOREIGN KEY (AlteradoPorAtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE INDEX IX_HistoricoDeConhecimentosDeIa_Conhecimento_Versao
+    ON dbo.HistoricoDeConhecimentosDeIa (ConhecimentoDeIaId, Versao);
+GO
+
 PRINT 'Schema da Fase 1 criado.';
 GO

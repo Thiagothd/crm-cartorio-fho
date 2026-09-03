@@ -630,6 +630,39 @@ export interface RespostaRapida {
   ativo: boolean
 }
 
+// Conhecimento de IA ----------------------------------------------------------
+
+export interface ConhecimentoDeIa {
+  id: string
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoId: string | null
+  tipoServicoNome: string | null
+  /** Datas ISO ("AAAA-MM-DD"). Nulo = sem limite. */
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  versao: number
+  criadoPorNome: string | null
+  atualizadoPorNome: string | null
+  ativo: boolean
+  criadoEm: string
+  atualizadoEm: string
+}
+
+export interface VersaoDeConhecimentoDeIa {
+  versao: number
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoNome: string | null
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  ativo: boolean
+  alteradoPorNome: string | null
+  ocorridoEm: string
+}
+
 // Servicos ------------------------------------------------------------------
 
 export interface PrazoServico {

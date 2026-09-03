@@ -8,6 +8,7 @@ import type {
   Cliente,
   ConexaoDoCanal,
   ConfirmarImportacaoResponse,
+  ConhecimentoDeIa,
   Conversa,
   ConversaDetalhada,
   DadosDeCliente,
@@ -52,6 +53,7 @@ import type {
   TicketDeMfa,
   TipoDeNumeroDoCanal,
   TipoServico,
+  VersaoDeConhecimentoDeIa,
   VisaoGeral,
 } from './tipos'
 
@@ -406,6 +408,30 @@ export const respostasRapidasApi = {
 
   atualizar: (id: string, dados: DadosDeRespostaRapida) =>
     api.put<RespostaRapida>(`/api/respostas-rapidas/${id}`, dados),
+}
+
+interface DadosDeConhecimentoDeIa {
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoId: string | null
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  ativo: boolean
+}
+
+export const conhecimentoDeIaApi = {
+  listar: (incluirInativos = false) =>
+    api.get<ConhecimentoDeIa[]>(`/api/conhecimento-de-ia${montarQuery({ incluirInativos })}`),
+
+  criar: (dados: DadosDeConhecimentoDeIa) =>
+    api.post<ConhecimentoDeIa>('/api/conhecimento-de-ia', dados),
+
+  atualizar: (id: string, dados: DadosDeConhecimentoDeIa) =>
+    api.put<ConhecimentoDeIa>(`/api/conhecimento-de-ia/${id}`, dados),
+
+  historico: (id: string) =>
+    api.get<VersaoDeConhecimentoDeIa[]>(`/api/conhecimento-de-ia/${id}/historico`),
 }
 
 // Servicos ------------------------------------------------------------------
