@@ -987,18 +987,18 @@ Checar(
 
 var autoriaAtendente = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "Maria Rezende");
 Checar(
-    "Atendente assina em italico com o nome projetado do AtendenteId",
-    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == "Bom dia\n\n_— Maria Rezende_");
+    "Atendente ganha cabecalho em negrito com o nome projetado do AtendenteId, conteudo abaixo",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == "*Maria Rezende*\nBom dia");
 
 var autoriaIa = new AutoriaDaMensagem(AutorTipo.Sistema, true, true, null);
 Checar(
-    "Resposta da IA leva a marca de mensagem automatica",
+    "Resposta da IA leva o cabecalho 'Assistente Virtual'",
     AssinaturaDeAutoria.Decorar("O valor varia conforme a tabela do TJ.", autoriaIa)
-        == "O valor varia conforme a tabela do TJ.\n\n_Mensagem automática_");
+        == "*Assistente Virtual*\nO valor varia conforme a tabela do TJ.");
 
 var autoriaRegraCadastrada = new AutoriaDaMensagem(AutorTipo.Sistema, true, false, null);
 Checar(
-    "Automatica de REGRA CADASTRADA nao recebe marca nenhuma (decisao do Thiago, 2026-09-04)",
+    "Automatica de REGRA CADASTRADA nao recebe cabecalho nenhum (decisao do Thiago, 2026-09-04)",
     AssinaturaDeAutoria.Decorar("Certo! Um atendente vai continuar seu atendimento.", autoriaRegraCadastrada)
         == "Certo! Um atendente vai continuar seu atendimento.");
 
@@ -1015,12 +1015,12 @@ Checar(
 
 var autoriaAtendenteSemNome = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, null);
 Checar(
-    "Atendente sem nome utilizavel nao produz rodape vazio (nunca '_— _')",
+    "Atendente sem nome utilizavel nao produz cabecalho vazio (nunca '**')",
     AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteSemNome) == "Bom dia");
 
 var autoriaAtendenteNomeSoEspacos = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "   ");
 Checar(
-    "Atendente com nome so de espacos tambem nao produz rodape",
+    "Atendente com nome so de espacos tambem nao produz cabecalho",
     AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteNomeSoEspacos) == "Bom dia");
 
 var autoriaNomeComFormatacao = new AutoriaDaMensagem(
@@ -1028,22 +1028,22 @@ var autoriaNomeComFormatacao = new AutoriaDaMensagem(
 Checar(
     "Nome com caracteres de formatacao do WhatsApp e quebra de linha e higienizado",
     AssinaturaDeAutoria.Decorar("Bom dia", autoriaNomeComFormatacao)
-        == "Bom dia\n\n_— Maria Rezende do Carmo_");
+        == "*Maria Rezende do Carmo*\nBom dia");
 
 var nomeMuitoLongo = new string('A', 120);
 var autoriaNomeLongo = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, nomeMuitoLongo);
-var rodapeDoNomeLongo = AssinaturaDeAutoria.Rodape(autoriaNomeLongo);
+var cabecalhoDoNomeLongo = AssinaturaDeAutoria.Cabecalho(autoriaNomeLongo);
 Checar(
-    "Nome acima do limite e cortado (rodape nao cresce sem controle)",
-    rodapeDoNomeLongo is not null && rodapeDoNomeLongo.Length < nomeMuitoLongo.Length);
+    "Nome acima do limite e cortado (cabecalho nao cresce sem controle)",
+    cabecalhoDoNomeLongo is not null && cabecalhoDoNomeLongo.Length < nomeMuitoLongo.Length);
 
 Checar(
-    "Legenda de midia escrita por gente e assinada",
+    "Legenda de midia escrita por gente ganha o mesmo cabecalho",
     AssinaturaDeAutoria.DecorarLegenda("Segue a certidão digitalizada.", autoriaAtendente)
-        == "Segue a certidão digitalizada.\n\n_— Maria Rezende_");
+        == "*Maria Rezende*\nSegue a certidão digitalizada.");
 
 Checar(
-    "Legenda nula continua nula — foto sem legenda nao ganha assinatura (decisao do Thiago, 2026-09-04)",
+    "Legenda nula continua nula — foto sem legenda nao ganha cabecalho (decisao do Thiago, 2026-09-04)",
     AssinaturaDeAutoria.DecorarLegenda(null, autoriaAtendente) is null);
 
 Checar(
