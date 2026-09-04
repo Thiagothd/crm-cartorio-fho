@@ -182,7 +182,24 @@ builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
 builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
 builder.Services.AddHttpClient();
-builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
+
+// Mesmo ajuste de pool de conexao aplicado ao ProvedorGemini (ver comentario
+// abaixo, "ACHADO AO VIVO 2026-09-03"): o padrao do IHttpClientFactory recicla o
+// handler a cada 2 minutos, forcando abertura de conexao do zero para quem
+// chamar depois de um intervalo ocioso. Aqui o alvo e localhost (BaseUrl da
+// Evolution API, sem DNS nem TLS de verdade), entao o ganho esperado e bem menor
+// que o do Gemini — mas custa nada aplicar o mesmo padrao e elimina essa
+// variavel por completo. Nao define BaseAddress aqui de proposito: EvolutionClient
+// resolve a URL em tempo de chamada (o numero pode ser trocado pela tela sem
+// reiniciar o processo — Fase 2F).
+builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>()
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+    });
 
 // Resposta Inteligente (Fase 2B, dois provedores desde a Fase 2G): arquitetura
 // pensada como Gemini 3.7 Flash principal + Haiku 4.5 de contingencia, mas
