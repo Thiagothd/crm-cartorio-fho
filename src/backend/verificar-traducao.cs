@@ -250,6 +250,15 @@ Checar("Disparador: regras de gatilho de etapa", () =>
         .Select(m => m.Conteudo)
         .ToQueryString());
 
+Checar("Disparador: modelos ativos do gatilho EncerramentoPeloAtendente (sem filtro de etapa)", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.Ativo
+                 && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
+        .OrderBy(m => m.CriadoEm)
+        .Select(m => m.Conteudo)
+        .ToQueryString());
+
 Checar("Disparador: setores do menu de triagem", () =>
     db.Setores.AsNoTracking()
         .Where(s => s.TenantId == tenantId && s.Ativo)
@@ -650,7 +659,7 @@ Checar("Canal WhatsApp: historico de conexoes com nome do atendente (subconsulta
         })
         .ToQueryString());
 
-Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de EnviadorPeloWhatsApp)", () =>
+Checar("Canal WhatsApp: envio — projecao completa do alvo (identica a EnviadorPeloWhatsApp.EnviarAsync)", () =>
     db.Mensagens.AsNoTracking()
         .Where(m => m.Id == Guid.Empty)
         .Select(m => new
@@ -658,6 +667,16 @@ Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de 
             m.Id,
             m.Conteudo,
             m.StatusEntrega,
+            m.ArquivoCaminho,
+            m.ArquivoNome,
+            m.ArquivoTipoMime,
+            m.AutorTipo,
+            m.EhAutomatica,
+            m.GeradaPorIa,
+            AtendenteNome = db.Atendentes
+                .Where(a => a.Id == m.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefault(),
             Canal = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.Canal).FirstOrDefault(),
             TenantId = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.TenantId).FirstOrDefault(),
             Telefone = db.Conversas

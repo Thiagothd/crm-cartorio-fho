@@ -236,6 +236,20 @@ claim WA-OUT-01; a resposta automática é persistida antes do envio.
   comum num canal com IA na frente — ficava presa para sempre e nunca entrava
   na varredura. Corrigido com uma subconsulta em `Mensagens` (última
   `EnviadaEm` da conversa, dentro do lote de 200) comparando `AutorTipo`.
+- **`ConversaService.EncerrarAsync` avisa o cliente desde 2026-09-04 — gatilho
+  próprio (`EncerramentoPeloAtendente`), não `Despedida`.** Era o único dos
+  quatro caminhos de encerramento que fechava em silêncio. Envia **só a
+  mensagem gerada** (`canal.EnviarAsync` por id), nunca
+  `canal.EnviarPendentesAsync`: aquele método drena toda automática parada na
+  conversa, e uma conversa antiga pode ter backlog de semanas (menu de
+  continuação, boas-vindas presas por canal caído) — despejar isso junto da
+  despedida faria o cliente responder a um menu morto e reabrir um
+  atendimento fantasma no exato momento em que este foi fechado.
+  `VarredorDeInatividade` continua drenando a fila de propósito: lá quem
+  dispara é um relógio que só chega à fase 2 depois de a fase 1 já ter
+  perguntado; aqui é uma pessoa que pode encerrar qualquer conversa a
+  qualquer momento. Guardado por `Canal == WhatsApp`, mesmo cuidado da
+  varredura — conversa simulada não gera nada.
 
 ## Fronteiras
 

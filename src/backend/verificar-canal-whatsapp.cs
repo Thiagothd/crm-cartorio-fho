@@ -977,6 +977,79 @@ Checar(
     "Ficha do contato autorizado pode consultar foto no gateway",
     fotoPermitida is null && gatewayDeFotos.ConsultasDeFoto == 1);
 
+// ---------------------------------------------------------------------------
+// AssinaturaDeAutoria — funcao pura, sem banco nem gateway. Prova o que o
+// cliente le no WhatsApp quando um atendente responde, a IA responde, ou uma
+// regra cadastrada dispara. O caminho feliz completo (gateway real + prova de
+// nao-persistencia no banco) esta em verificar-concorrencia-saida-whatsapp.cs,
+// que usa SQL Server de verdade — o InMemory nao implementa ExecuteUpdate.
+// ---------------------------------------------------------------------------
+
+var autoriaAtendente = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "Maria Rezende");
+Checar(
+    "Atendente assina em italico com o nome projetado do AtendenteId",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == "Bom dia\n\n_— Maria Rezende_");
+
+var autoriaIa = new AutoriaDaMensagem(AutorTipo.Sistema, true, true, null);
+Checar(
+    "Resposta da IA leva a marca de mensagem automatica",
+    AssinaturaDeAutoria.Decorar("O valor varia conforme a tabela do TJ.", autoriaIa)
+        == "O valor varia conforme a tabela do TJ.\n\n_Mensagem automática_");
+
+var autoriaRegraCadastrada = new AutoriaDaMensagem(AutorTipo.Sistema, true, false, null);
+Checar(
+    "Automatica de REGRA CADASTRADA nao recebe marca nenhuma (decisao do Thiago, 2026-09-04)",
+    AssinaturaDeAutoria.Decorar("Certo! Um atendente vai continuar seu atendimento.", autoriaRegraCadastrada)
+        == "Certo! Um atendente vai continuar seu atendimento.");
+
+var autoriaAnotacaoInterna = new AutoriaDaMensagem(AutorTipo.Sistema, false, false, null);
+Checar(
+    "Anotacao interna (Sistema, EhAutomatica=false) nao e decorada — defensivo, nunca deveria chegar aqui",
+    AssinaturaDeAutoria.Decorar("Conversa assumida por Fulano.", autoriaAnotacaoInterna)
+        == "Conversa assumida por Fulano.");
+
+var autoriaCliente = new AutoriaDaMensagem(AutorTipo.Cliente, false, false, null);
+Checar(
+    "Mensagem do cliente nao e decorada — defensivo",
+    AssinaturaDeAutoria.Decorar("Oi, bom dia", autoriaCliente) == "Oi, bom dia");
+
+var autoriaAtendenteSemNome = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, null);
+Checar(
+    "Atendente sem nome utilizavel nao produz rodape vazio (nunca '_— _')",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteSemNome) == "Bom dia");
+
+var autoriaAtendenteNomeSoEspacos = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "   ");
+Checar(
+    "Atendente com nome so de espacos tambem nao produz rodape",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteNomeSoEspacos) == "Bom dia");
+
+var autoriaNomeComFormatacao = new AutoriaDaMensagem(
+    AutorTipo.Atendente, false, false, "Ma*ria_ `Re~zende\ndo Carmo");
+Checar(
+    "Nome com caracteres de formatacao do WhatsApp e quebra de linha e higienizado",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaNomeComFormatacao)
+        == "Bom dia\n\n_— Maria Rezende do Carmo_");
+
+var nomeMuitoLongo = new string('A', 120);
+var autoriaNomeLongo = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, nomeMuitoLongo);
+var rodapeDoNomeLongo = AssinaturaDeAutoria.Rodape(autoriaNomeLongo);
+Checar(
+    "Nome acima do limite e cortado (rodape nao cresce sem controle)",
+    rodapeDoNomeLongo is not null && rodapeDoNomeLongo.Length < nomeMuitoLongo.Length);
+
+Checar(
+    "Legenda de midia escrita por gente e assinada",
+    AssinaturaDeAutoria.DecorarLegenda("Segue a certidão digitalizada.", autoriaAtendente)
+        == "Segue a certidão digitalizada.\n\n_— Maria Rezende_");
+
+Checar(
+    "Legenda nula continua nula — foto sem legenda nao ganha assinatura (decisao do Thiago, 2026-09-04)",
+    AssinaturaDeAutoria.DecorarLegenda(null, autoriaAtendente) is null);
+
+Checar(
+    "Reenvio da mesma mensagem produz string identica (nao ha estado escondido na decoracao)",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente));
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as restrições do canal WhatsApp passaram."

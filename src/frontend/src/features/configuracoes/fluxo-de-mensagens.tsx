@@ -52,6 +52,10 @@ const ENCERROU_SOZINHO: PontoFixo = {
   gatilho: 'EncerramentoPorInatividade',
   rotulo: 'Encerrou por falta de resposta',
 }
+const ENCERRAMENTO_PELO_ATENDENTE: PontoFixo = {
+  gatilho: 'EncerramentoPeloAtendente',
+  rotulo: 'Atendente encerrou',
+}
 
 export function FluxoDeMensagens({
   mensagens,
@@ -209,6 +213,29 @@ export function FluxoDeMensagens({
                 />
               </PontoComSeta>
             ))}
+          </Trilho>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
+          <CornerDownRight className="size-3.5 shrink-0" />
+          <span>Quando um atendente fecha o atendimento pelo painel — diferente de o cliente escolher encerrar:</span>
+        </div>
+
+        <div className="mt-2 pl-5">
+          <Trilho>
+            <PontoComSeta primeiro>
+              <Ponto
+                rotulo={ENCERRAMENTO_PELO_ATENDENTE.rotulo}
+                mensagem={encontrar(ENCERRAMENTO_PELO_ATENDENTE.gatilho)}
+                aoClicar={() =>
+                  aoClicarPonto(
+                    ENCERRAMENTO_PELO_ATENDENTE.gatilho,
+                    null,
+                    encontrar(ENCERRAMENTO_PELO_ATENDENTE.gatilho),
+                  )
+                }
+              />
+            </PontoComSeta>
           </Trilho>
         </div>
       </div>

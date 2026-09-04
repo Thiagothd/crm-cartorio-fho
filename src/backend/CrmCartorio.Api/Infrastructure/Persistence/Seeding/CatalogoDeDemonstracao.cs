@@ -374,6 +374,17 @@ public static class CatalogoDeDemonstracao
             "Antes de começarmos, como posso te chamar?",
             true),
 
+        // ESPELHO OBRIGATORIO de sql/041-encerramento-pelo-atendente.sql — os dois
+        // precisam bater caractere a caractere. Nao reusa Despedida (10) de
+        // proposito: aquele texto e a voz de quem foi atendido ate o fim e
+        // ESCOLHEU fechar; aqui quem fechou foi a serventia.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.EncerramentoPeloAtendente,
+            GatilhoDeMensagem.EncerramentoPeloAtendente,
+            null,
+            "Encerramos seu atendimento de protocolo {Protocolo} por aqui, {NomeCliente}. 🙏\n\n" +
+            "Se precisar de qualquer coisa, é só mandar uma mensagem — abrimos um novo atendimento na hora.",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

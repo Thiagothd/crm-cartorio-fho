@@ -280,6 +280,16 @@ public class VarredorDeInatividade(
     /// <see cref="Conversa"/> carrega <see cref="Conversa.RowVersion"/> — a varredura
     /// roda fora de requisicao HTTP e nao pode disputar o token com quem esta
     /// atendendo. SE MEXER LA, MEXA AQUI.
+    ///
+    /// <b>Divergencia deliberada, desde 2026-09-04:</b> este caminho dispara
+    /// <see cref="GatilhoDeMensagem.EncerramentoPorInatividade"/> e drena a fila
+    /// inteira com <c>EnviarPendentesAsync</c> — correto aqui, porque quem
+    /// dispara e um relogio e so chega a este ponto depois de a Fase 1 ja ter
+    /// perguntado. <see cref="Atendimento.Application.ConversaService.EncerrarAsync"/>
+    /// dispara <see cref="GatilhoDeMensagem.EncerramentoPeloAtendente"/> e envia
+    /// SO a mensagem gerada — la quem aciona e uma pessoa, que pode encerrar
+    /// qualquer conversa a qualquer momento, inclusive uma com backlog parado ha
+    /// semanas; drenar a fila naquele caminho reabriria atendimento fantasma.
     /// </remarks>
     private async Task<bool> EncerrarUmaAsync(Conversa conversa, DateTime agora, CancellationToken ct)
     {

@@ -3,8 +3,10 @@
 > **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
 > só escala por pedido explícito; Fase 2H — encerramento automático por
 > inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um; Fase
-> 2J — dois provedores de IA, Gemini principal e Haiku de contingência).
-> **Última atualização:** 2026-08-26
+> 2J — dois provedores de IA, Gemini principal e Haiku de contingência; Fase
+> 2K — aviso ao cliente quando o atendente encerra pelo painel, e assinatura
+> de autoria no texto que sai pelo WhatsApp).
+> **Última atualização:** 2026-09-04
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -52,15 +54,21 @@ Três mecanismos garantem isso, em camadas, do mais específico para o mais gera
 | **Resposta da IA** | sim | o sistema (modelo de linguagem) | sim | `AutorTipo.Sistema` + `EhAutomatica=true` + `GeradaPorIa=true` |
 | **Anotação de sistema** | sim | ninguém — é registro | nunca | `AutorTipo.Sistema` + `EhAutomatica=false` |
 
-As duas primeiras são **indistinguíveis para o cliente** — chegam como mensagem
-normal no WhatsApp. A interface do painel é quem rotula "Automática" ou "IA"
-para o atendente, usando `GeradaPorIa` para diferenciar. A terceira nunca sai
-do painel: é o "Triagem automática encaminhou ao setor X" que dá contexto ao
-próximo atendente sem virar mensagem ao cliente.
+**Até 2026-09-04 as duas primeiras eram indistinguíveis para o cliente** —
+chegavam como mensagem normal no WhatsApp, e só a interface do painel rotulava
+"Automática" ou "IA" para o atendente. Desde a Fase 2K,
+`CanalWhatsApp.Application.AssinaturaDeAutoria` decora o texto **só na saída**
+(nunca gravado no banco — ver `Modules/CanalWhatsApp/README.md`): a resposta
+da IA sai com o rodapé `_Mensagem automática_`; a mensagem automática de
+**regra cadastrada** continua sem marca nenhuma (decisão deliberada — aquele
+texto já fala na voz institucional do cartório); e toda mensagem de
+**atendente** passa a sair assinada `_— Nome do Atendente_`. A anotação de
+sistema continua nunca saindo do painel — é o "Triagem automática encaminhou
+ao setor X" que dá contexto ao próximo atendente sem virar mensagem ao cliente.
 
 ---
 
-## 3. Os 14 gatilhos
+## 3. Os 15 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -84,8 +92,9 @@ automáticas, sem release.
 | 12 | `ConfirmacaoDeEncerramento` | Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` — pergunta se pode encerrar, com menu numerado `1`/`2`. Ver §10 | `VarredorDeInatividade` (fase 1 — perguntar) |
 | 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
 | 14 | `PedidoDeNome` | O contato chegou sem nome utilizável no perfil do WhatsApp — pergunta como pode chamá-lo **antes** das boas-vindas. Ver §11 | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
+| 15 | `EncerramentoPeloAtendente` | Um atendente encerrou o atendimento pelo painel — avisa o cliente. Cortesia, não condição (mesma divergência do 13): sem texto ativo a conversa encerra do mesmo jeito. Não reusa `Despedida` (10): aquele é a voz de quem foi atendido até o fim e escolheu fechar; aqui quem fechou foi a serventia. Ver §9 | `ConversaService.EncerrarAsync`, e só ele |
 
-Os gatilhos de 5 a 14 são texto que o **cliente do cartório lê** — por isso
+Os gatilhos de 5 a 15 são texto que o **cliente do cartório lê** — por isso
 nenhum deles é constante fixa em C#: virariam a única mensagem do sistema que
 o cartório parceiro não poderia reescrever sozinho pela tela.
 
@@ -578,6 +587,21 @@ conversa continuava `Status = Ativa` no painel para sempre. Hoje,
 
 Coberto por teste — `verificar-automacao.cs`, TESTE 7.
 
+### Encerrar pelo atendente também avisa o cliente — desde 2026-09-04
+
+Dos quatro caminhos que encerram uma conversa (pelo cliente, acima; pela
+resposta à pergunta de inatividade e pelo próprio varredor, §10; e este),
+**este era o único que fechava em silêncio.** `ConversaService.EncerrarAsync`
+agora enfileira o gatilho 15 (`EncerramentoPeloAtendente`) e envia **só a
+mensagem gerada** — nunca `EnviarPendentesAsync`, que drenaria qualquer
+automática parada há tempo naquela conversa (menu de continuação, boas-vindas
+presas por canal caído) junto da despedida, arriscando o cliente responder a
+um menu morto e reabrir um atendimento fantasma no mesmo instante em que este
+foi fechado. Guardado por `Canal == WhatsApp`, mesmo cuidado do varredor de
+inatividade (§10, guarda 2) — conversa simulada não gera nada. O motivo
+digitado pelo atendente fica só na anotação interna; o texto do gatilho 15 não
+tem como nomeá-lo.
+
 ---
 
 ## 10. Encerramento automático por inatividade
@@ -890,7 +914,8 @@ num lado exige mexer no outro.
 | Grounding da IA | `Modules/RespostaInteligente/Application/MontadorDeContexto.cs` |
 | Opções da IA (chave, modelo, teto diário) | `Modules/RespostaInteligente/Application/OpcoesDaIA.cs` |
 | Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (rota de simulação, hoje só usada pelo verificador), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
-| Cobertura automatizada | `src/backend/verificar-automacao.cs` |
+| Assinatura de autoria no texto de saída (atendente/IA) | `Modules/CanalWhatsApp/Application/AssinaturaDeAutoria.cs` |
+| Cobertura automatizada | `src/backend/verificar-automacao.cs`, `src/backend/verificar-canal-whatsapp.cs` |
 
 ---
 

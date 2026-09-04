@@ -94,6 +94,12 @@ const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }
     explicacao: 'Sai quando o cliente escolhe "Encerrar atendimento" no menu de continuação.',
   },
   {
+    valor: 'EncerramentoPeloAtendente',
+    rotulo: 'Atendente encerrou o atendimento',
+    explicacao:
+      'Sai quando um atendente encerra a conversa pelo painel. Diferente de "Cliente escolheu encerrar": ali quem fechou foi o cliente. Sem este texto o atendimento encerra do mesmo jeito, só sem avisar. O motivo digitado no encerramento NÃO vai para o cliente — fica só no registro interno.',
+  },
+  {
     valor: 'RespostaSemCorrespondencia',
     rotulo: 'IA sem resposta específica',
     explicacao:

@@ -1,9 +1,9 @@
 # MODELO DE DADOS
 
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
-> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I" nas seções
-> abaixo.
-> **Última atualização:** 2026-08-26
+> (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I/2K" nas
+> seções abaixo.
+> **Última atualização:** 2026-09-04
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -496,6 +496,7 @@ Configurável, no mesmo padrão de `Setor` e `EtapaFunil`.
 | `ConfirmacaoDeEncerramento` | **Fase 2H.** Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` | `VarredorDeInatividade` (fase 1) |
 | `EncerramentoPorInatividade` | **Fase 2H.** Sem resposta à pergunta acima dentro de `Tenant.MinutosParaEncerrarSemResposta` | `VarredorDeInatividade` (fase 2) |
 | `PedidoDeNome` | **Fase 2I.** Contato chegou sem nome utilizável no perfil do WhatsApp — pergunta antes das boas-vindas | `RecebimentoDeWhatsApp` |
+| `EncerramentoPeloAtendente` | **Fase 2K.** Atendente encerrou pelo painel — avisa o cliente. Cortesia, não condição, como `EncerramentoPorInatividade`; não reusa `Despedida` (quem fechou foi a serventia, não o cliente) | `ConversaService.EncerrarAsync`, e só ele |
 
 Comportamento completo de cada gatilho — a máquina de estado, quando a IA
 entra, quando escala — em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). Esta

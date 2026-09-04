@@ -425,7 +425,8 @@ export function CabecalhoDaConversa({
             <DialogTitle>Encerrar atendimento</DialogTitle>
             <DialogDescription>
               A conversa sai da lista de ativas e vai para o arquivo. Nada é apagado — todo o
-              histórico continua consultável e o atendimento pode ser reaberto.
+              histórico continua consultável e o atendimento pode ser reaberto. O cliente recebe um
+              aviso de encerramento pelo WhatsApp.
             </DialogDescription>
           </DialogHeader>
 
@@ -438,6 +439,9 @@ export function CabecalhoDaConversa({
               placeholder="Ex.: certidão entregue no balcão"
               maxLength={500}
             />
+            <p className="text-xs text-tinta-fraca">
+              Fica só no registro interno — o cliente não vê o motivo.
+            </p>
           </div>
 
           <DialogFooter>
