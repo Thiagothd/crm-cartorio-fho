@@ -77,7 +77,27 @@ public class OpcoesDoGemini
     /// </summary>
     public string BaseUrl { get; set; } = "https://generativelanguage.googleapis.com/v1/";
 
-    public int TimeoutSegundos { get; set; } = 20;
+    /// <summary>
+    /// Orçamento de latência do Gemini antes de cair para a contingência — NÃO é
+    /// "quanto o Gemini costuma demorar", é "quanto o cliente aceita esperar por ele".
+    /// </summary>
+    /// <remarks>
+    /// ACHADO AO VIVO, 2026-09-03 (telemetria de <c>ChamadaDeIa</c> no ambiente de
+    /// teste): quando o Gemini responde, responde em ~2,4s — mais rápido que o Haiku.
+    /// Mas na primeira chamada depois de um período ocioso ele estoura qualquer
+    /// limite, e o valor antigo (20s) fazia o cliente esperar 20 segundos em silêncio
+    /// antes de o Haiku (que responde em 1,5–3,7s) sequer ser consultado. Total
+    /// observado: 22–25s para uma pergunta trivial.
+    ///
+    /// 8s é deliberadamente maior que a latência normal (2,4s) e menor que a
+    /// paciência de quem está no WhatsApp: dá margem de sobra para uma resposta
+    /// legítima um pouco lenta, sem transformar um tropeço do Gemini em espera
+    /// absurda. O piso de 5s em <c>ProvedorGemini</c> continua valendo.
+    ///
+    /// O Anthropic mantém orçamento maior de propósito: ele é o último recurso, e
+    /// desistir dele cedo demais deixaria o cliente sem resposta nenhuma.
+    /// </remarks>
+    public int TimeoutSegundos { get; set; } = 8;
 
     /// <summary>
     /// Requisições por minuto do free tier. <c>0</c> = não cadastrado — o Google

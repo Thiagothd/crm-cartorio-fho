@@ -5,10 +5,22 @@ com o menu de triagem, tenta responder **só com dado cadastrado** antes de
 escalar para atendimento humano.
 
 **Desde 2026-08-25 (Fase 2G):** dois provedores por trás da mesma porta —
-**Gemini 3.7 Flash é o principal** (gratuito dentro da franquia), **Claude
-Haiku 4.5 é a contingência** (paga). Um `OrquestradorDeProvedores` escolhe,
-tenta e cai para o outro quando necessário; a troca é invisível para quem
-chama e para o cliente.
+arquitetura pensada como **Gemini 3.7 Flash principal** (gratuito dentro da
+franquia) com **Claude Haiku 4.5 de contingência** (paga). Um
+`OrquestradorDeProvedores` escolhe, tenta e cai para o outro quando necessário;
+a troca é invisível para quem chama e para o cliente.
+
+**Desde 2026-09-03: `Gemini.Habilitado=false`, Haiku é o único provedor de
+fato.** Decisão temporária do Thiago — o free tier do Gemini se mostrou
+instável demais (timeouts de 20-60s, 429/503 mesmo com tráfego espaçado; ver
+"Decisões que parecem estranhas mas não são" abaixo) e o tier pago exige
+pré-pagamento mínimo (R$200 na conta testada) que ele não quis comprometer
+agora. Nada na orquestração precisou mudar para isso: `PoliticaDeSelecao` pula
+o Gemini de forma síncrona (sem HTTP, sem espera) quando desligado. Reativar é
+só voltar o flag para `true` — mas reveja `Anthropic.LimiteDiarioHaiku` junto
+(foi igualado ao `LimiteDiario` geral enquanto o Haiku carrega 100% do
+tráfego; com o Gemini de volta absorvendo a maioria, esse número volta a fazer
+sentido menor).
 
 ## Por que existe um slice inteiro para isto
 
@@ -36,6 +48,7 @@ provedor, e continua sem saber que existem dois.
 | `Cota/RegistradorDeChamadas` | Grava `ChamadaDeIa` num `DbContext` próprio — sobrevive a falha do fluxo de negócio |
 | `MontadorDeContexto` | Monta o texto de grounding: catálogo de `TipoServico` (nome, setor, descrição, **documentos necessários e prazo/SLA**), `RespostaRapida` ativa e `ConhecimentoDeIa` ativo/vigente — igual para os dois provedores |
 | `IConhecimentoDeIaService` / `ConhecimentoDeIaService` | Cadastro governado de conhecimento (por serviço/tema, com vigência); toda edição preserva a versão anterior em `HistoricoDeConhecimentoDeIa` antes de sobrescrever |
+| `Infrastructure/AquecedorDeConexaoDoGemini` | Mantém a conexão HTTP com o Google viva (sondagem sem chave, custo zero de token) para o primeiro cliente não pagar a abertura de conexão |
 | `PromptDeSistema` | Prompt fixo, versionado em código. `ParaAnthropic()`/`ParaGemini()` — mesmo texto, ajuste por modelo só se um caso real do corpus de qualidade provar necessidade |
 | `OpcoesDaIA` / `OpcoesDoGemini` / `OpcoesDoAnthropic` | Configuração dos dois provedores + tetos |
 | `ISituacaoDaIa` / `SituacaoDaIa` | Estado para o painel `/automacao/ia` e resumo leve para Indicadores/sino |
@@ -97,6 +110,53 @@ provedor, e continua sem saber que existem dois.
   confia cegamente no número: qualquer valor fora de `(0, 3600]` segundos é
   descartado (achado ao vivo: um parse retornou um valor absurdo uma vez, e sem
   esse limite o disjuntor teria aberto por "anos").
+
+- **O orçamento de latência do Gemini (8s) é menor que o do Anthropic (20s), de
+  propósito.** Não é uma medida de quanto cada um demora — é quanto o cliente
+  aceita esperar por cada um. O Gemini é a primeira tentativa: se ele tropeça, a
+  espera dele é pura perda, porque ainda falta consultar a contingência. O
+  Anthropic é o último recurso: desistir dele cedo demais deixaria o cliente sem
+  resposta nenhuma. Daí a assimetria.
+
+  **Achado ao vivo, 2026-09-03** (telemetria de `dbo.ChamadasDeIa` no ambiente de
+  teste): quando o Gemini responde, responde em **~2,4s** — mais rápido que o
+  Haiku. Mas a primeira chamada depois de um período ocioso estourava o limite
+  antigo de 20s, e só então o Haiku (1,5–3,7s) era consultado: **22 a 25 segundos
+  para uma pergunta trivial**. Como o canal de um cartório fica ocioso a maior
+  parte do dia, quase toda conversa começava exatamente nessa condição — o caso
+  raro no papel era o caso comum na prática. Descartados na investigação: rede
+  (chamada real ao Google respondeu em 2,2s do próprio servidor), IPv6 (falha em
+  681ms, sem travar) e nome de modelo inválido.
+
+- **A causa real da lentidão do Gemini não era conexão fria, era o free tier
+  sendo estrangulado.** Investigação ao vivo, 2026-09-03, depois do timeout de
+  8s (achado acima) já estar em produção: medi chamada real, direta, do
+  próprio servidor, contra `/v1/interactions` e contra `/v1beta/generateContent`
+  (5 rodadas cada). Resultado: **~40-50% de falha em qualquer um dos dois
+  endpoints**, alternando entre timeout (20-60s), `503 Service Unavailable` e
+  `429 Too Many Requests` — às vezes rápido (200-700ms), às vezes pendurando a
+  conexão inteira. Testei também os 5 modelos Flash disponíveis na conta
+  (3.5/3.6/3.7/3.8/`flash-latest`): todos com o mesmo padrão de falha
+  errática, nenhum consistente. Aquecer conexão (achado abaixo) e cortar o
+  timeout ajudam a limitar o prejuízo, mas **não eliminam a causa**: é a
+  franquia gratuita do Google, que estrangula por taxa e tem prioridade baixa
+  na fila. Corrigir de verdade exige tier pago — decisão comercial, não
+  técnica, registrada no topo deste README (`Gemini.Habilitado=false`).
+
+- **`AquecedorDeConexaoDoGemini` sonda o Google sem chave de API, e isso é
+  intencional.** O objetivo da sondagem é abrir DNS + TCP + TLS e deixar a conexão
+  no pool — não gerar texto. Sem chave, o Google responde 401/403 na hora, que
+  serve perfeitamente e **não consome nenhum token nem cota da franquia gratuita**.
+  Junto com `SetHandlerLifetime(Infinite)` + `PooledConnectionLifetime` em
+  `Program.cs`, evita que o `IHttpClientFactory` descarte a cada 2 minutos
+  justamente a conexão recém-aquecida.
+
+  Se medições futuras mostrarem que a lentidão da primeira chamada vem do modelo
+  frio do lado do Google (e não da conexão fria do nosso lado), aquecer conexão
+  reduz mas não elimina o problema — nesse caso a próxima alavanca é disparar
+  Gemini e Haiku **em paralelo** após alguns segundos e ficar com quem responder
+  primeiro, trocando um pouco de custo por latência previsível. Decisão comercial,
+  não técnica: medir `ChamadasDeIa` antes de decidir.
 
 - **`claude-haiku-4-5` sem `thinking` nem `effort`.** O modelo não aceita esses
   parâmetros (erro 400) — a chamada é simples de propósito, e é o modelo mais
