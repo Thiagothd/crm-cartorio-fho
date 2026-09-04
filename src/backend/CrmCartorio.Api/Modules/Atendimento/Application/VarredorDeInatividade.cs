@@ -135,10 +135,23 @@ public class VarredorDeInatividade(
                      // cartório parceiro usa para ver o produto teria se desmontado sozinha.
                      && c.Canal == CanalOrigem.WhatsApp
 
-                     // O cartorio esta devendo resposta. Perguntar "quer encerrar?"
-                     // para quem escreveu e nunca foi atendido e o pior uso possivel
-                     // do canal.
-                     && c.MensagensNaoLidas == 0)
+                     // O cartorio esta devendo resposta quando a ULTIMA mensagem do fio
+                     // foi do cliente. MensagensNaoLidas mede "nenhum humano abriu no
+                     // CRM", nao "o cartorio nao respondeu" — so zera quando um humano
+                     // abre a conversa, o cliente encerra ou esta propria varredura
+                     // fecha (NUNCA quando a IA responde). Consequencia: toda conversa
+                     // atendida so pela IA, sem humano nunca abrir — o caso mais comum
+                     // num canal com IA na frente — ficava com o contador positivo para
+                     // sempre e nunca entrava aqui. Confirmado em producao em
+                     // 2026-09-03: cliente reabria a conversa velha ja passada da
+                     // triagem em vez de cair no menu de boas-vindas. Perguntar "quer
+                     // encerrar?" para quem escreveu por ultimo e nunca foi atendido e
+                     // o pior uso possivel do canal.
+                     && db.Mensagens
+                            .Where(m => m.ConversaId == c.Id)
+                            .OrderByDescending(m => m.EnviadaEm)
+                            .Select(m => m.AutorTipo)
+                            .FirstOrDefault() != AutorTipo.Cliente)
             .OrderBy(c => c.UltimaMensagemEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);

@@ -217,16 +217,25 @@ claim WA-OUT-01; a resposta automática é persistida antes do envio.
   `PediuMenu` (que usam `Contains` porque errar ali custa uma mensagem a
   mais). Errar aqui fecharia o atendimento: "assim" contém "sim".
 - **Guardas na fase 1** (perguntar): `Canal == WhatsApp` (protege a base de
-  demonstração), `MensagensNaoLidas == 0` (não pergunta "quer encerrar?"
-  quando o cartório ainda deve resposta) e `UltimaMensagemEm` capturado no
-  `WHERE` do `ExecuteUpdateAsync` (corrida com o webhook — 0 linhas afetadas
-  = o varredor perde a corrida em silêncio, em vez de colidir com o
-  `SaveChanges` do webhook). **Não** olha `PrazoLimite`/SLA — guarda removida
-  em 2026-08-23: como a maioria dos serviços tem SLA cadastrado, a versão
-  original ficava presa pelos dias inteiros do prazo sempre que o cliente
-  escolhia um serviço, e nunca fechava se ele sumisse nesse meio tempo.
-  Encerrar é soft-close (o protocolo não desaparece); só o canal de WhatsApp
-  fecha, não o atendimento offline do ato.
+  demonstração), a **última mensagem do fio não é do cliente** (não pergunta
+  "quer encerrar?" quando o cartório ainda deve resposta) e `UltimaMensagemEm`
+  capturado no `WHERE` do `ExecuteUpdateAsync` (corrida com o webhook — 0
+  linhas afetadas = o varredor perde a corrida em silêncio, em vez de colidir
+  com o `SaveChanges` do webhook). **Não** olha `PrazoLimite`/SLA — guarda
+  removida em 2026-08-23: como a maioria dos serviços tem SLA cadastrado, a
+  versão original ficava presa pelos dias inteiros do prazo sempre que o
+  cliente escolhia um serviço, e nunca fechava se ele sumisse nesse meio
+  tempo. Encerrar é soft-close (o protocolo não desaparece); só o canal de
+  WhatsApp fecha, não o atendimento offline do ato.
+- **A guarda de "devendo resposta" olha o autor da última mensagem, não
+  `MensagensNaoLidas`.** Até 2026-09-03 usava `MensagensNaoLidas == 0`, que
+  mede "nenhum humano abriu no CRM" — não "o cartório não deve resposta". O
+  contador só zera quando um humano abre a conversa, o cliente encerra ou a
+  própria varredura fecha; **a IA responder não zera**. Resultado: toda
+  conversa atendida inteiramente pela IA, sem humano nunca abrir — o caso mais
+  comum num canal com IA na frente — ficava presa para sempre e nunca entrava
+  na varredura. Corrigido com uma subconsulta em `Mensagens` (última
+  `EnviadaEm` da conversa, dentro do lote de 200) comparando `AutorTipo`.
 
 ## Fronteiras
 

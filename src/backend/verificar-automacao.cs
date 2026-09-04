@@ -1297,6 +1297,7 @@ Console.WriteLine("TESTE 13 — mensagem nao lida e canal simulado ficam de fora
 var conversaComPrazo = await NovaConversaParadaAsync("Com prazo", 60);
 var conversaNaoLida = await NovaConversaParadaAsync("Nao lida", 60);
 var conversaSimulada = await NovaConversaParadaAsync("Simulada", 60);
+var conversaSoIa = await NovaConversaParadaAsync("So IA", 60);
 
 await using (var db = new CrmDbContext(opcoes))
 {
@@ -1306,13 +1307,51 @@ await using (var db = new CrmDbContext(opcoes))
         .ExecuteUpdateAsync(s => s
             .SetProperty(c => c.PrazoLimite, DateTime.UtcNow.AddDays(3)));
 
-    // O cartorio esta devendo resposta.
+    // O cartorio esta devendo resposta: a ULTIMA mensagem do fio e do cliente,
+    // que ainda nao foi atendido. MensagensNaoLidas por si so nao bloqueia mais
+    // a pergunta (BUG confirmado em 2026-09-03) — o que bloqueia agora e o autor
+    // da ultima mensagem. EnviadaEm = agora (nao o UltimaMensagemEm ja retroagido
+    // da conversa) de proposito: precisa ser a mensagem mais recente do FIO,
+    // depois da boas-vindas automatica que CriarAsync ja gravou na criacao.
+    db.Mensagens.Add(new Mensagem
+    {
+        TenantId = tenantId,
+        ConversaId = conversaNaoLida,
+        AutorTipo = AutorTipo.Cliente,
+        Conteudo = "Ainda aguardando resposta",
+        StatusEntrega = StatusEntrega.Entregue,
+        EnviadaEm = DateTime.UtcNow
+    });
+
     await db.Conversas.Where(c => c.Id == conversaNaoLida)
         .ExecuteUpdateAsync(s => s.SetProperty(c => c.MensagensNaoLidas, 2));
+
+    await db.SaveChangesAsync();
 
     // Conversa de demonstracao nao sai pelo gateway.
     await db.Conversas.Where(c => c.Id == conversaSimulada)
         .ExecuteUpdateAsync(s => s.SetProperty(c => c.Canal, CanalOrigem.Simulado));
+
+    // Reproduz o BUG confirmado em 2026-09-03: conversa atendida inteiramente
+    // pela IA, sem nenhum humano abrir no CRM — MensagensNaoLidas nunca zera
+    // nesse caminho, mas a ULTIMA mensagem do fio e do sistema/IA, entao o
+    // cartorio nao deve resposta e a pergunta TEM que sair.
+    db.Mensagens.Add(new Mensagem
+    {
+        TenantId = tenantId,
+        ConversaId = conversaSoIa,
+        AutorTipo = AutorTipo.Sistema,
+        Conteudo = "Resposta gerada pela IA",
+        EhAutomatica = true,
+        GeradaPorIa = true,
+        StatusEntrega = StatusEntrega.Entregue,
+        EnviadaEm = DateTime.UtcNow
+    });
+
+    await db.Conversas.Where(c => c.Id == conversaSoIa)
+        .ExecuteUpdateAsync(s => s.SetProperty(c => c.MensagensNaoLidas, 3));
+
+    await db.SaveChangesAsync();
 }
 
 await using (var db = new CrmDbContext(opcoes))
@@ -1327,6 +1366,8 @@ await using (var db = new CrmDbContext(opcoes))
         (await RecarregarAsync(conversaNaoLida)).PerguntaDeEncerramentoEnviadaEm is null);
     Checar("conversa simulada nao foi perguntada",
         (await RecarregarAsync(conversaSimulada)).PerguntaDeEncerramentoEnviadaEm is null);
+    Checar("conversa so atendida pela IA (MensagensNaoLidas > 0) FOI perguntada (regressao do bug de 2026-09-03)",
+        (await RecarregarAsync(conversaSoIa)).PerguntaDeEncerramentoEnviadaEm is not null);
 }
 
 // Recurso desligado no tenant: nada acontece, nem mesmo nas que ja se qualificavam.
