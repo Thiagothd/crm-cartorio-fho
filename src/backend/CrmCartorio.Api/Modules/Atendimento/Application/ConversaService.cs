@@ -715,12 +715,45 @@ public class ConversaService(
 
         db.Mensagens.Add(MensagemDeSistema(id, conversa.TenantId, texto, agora));
 
+        // O cliente precisa saber que o atendimento fechou — ate 2026-09-04 este
+        // era o UNICO dos quatro caminhos de encerramento que ficava em silencio
+        // (os outros disparam Despedida ou EncerramentoPorInatividade). Guarda por
+        // canal e obrigatoria: o gate de canal do enviador fica na SAIDA, nao no
+        // enfileiramento (EnviadorPeloWhatsApp), entao sem isto uma conversa da
+        // base de demonstracao acrescentaria ao fio uma automatica eternamente
+        // Pendente a cada encerramento pelo painel — mesmo cuidado documentado em
+        // VarredorDeInatividade sobre nao desmontar a base que o cartório parceiro usa.
+        var geradas = conversa.Canal == CanalOrigem.WhatsApp
+            ? await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.EncerramentoPeloAtendente, ct: ct)
+            : [];
+
         await db.SaveChangesAsync(ct);
 
         log.LogInformation("Conversa {ConversaId} encerrada por {AtendenteId}", id, ctx.AtendenteId);
 
         var resumo = await ObterResumoAsync(id, ct);
         await notificador.ConversaEncerradaAsync(conversa.TenantId, resumo, ct);
+
+        // Envia SO a(s) mensagem(ns) que acabamos de gerar — nunca
+        // EnviarPendentesAsync. Aquele metodo drena TODA automatica parada da
+        // conversa (menu de continuacao, boas-vindas presas por canal caido ou
+        // numero fora da allowlist), e uma conversa antiga pode ter esse backlog
+        // ha semanas. Despejar isso junto da despedida faria o cliente responder
+        // a um menu morto, reabrindo um atendimento fantasma no exato momento em
+        // que este foi fechado. Diverge de proposito de VarredorDeInatividade
+        // (que drena a fila): la quem dispara e um relogio; aqui e uma pessoa que
+        // nao faz ideia do que esta parado na fila.
+        foreach (var gerada in geradas)
+        {
+            try
+            {
+                await canal.EnviarAsync(gerada.Id, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Conversa {ConversaId} encerrada, mas o aviso ao cliente falhou.", id);
+            }
+        }
 
         return resumo;
     }

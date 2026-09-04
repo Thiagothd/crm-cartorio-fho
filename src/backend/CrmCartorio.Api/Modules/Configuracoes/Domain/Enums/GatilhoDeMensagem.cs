@@ -167,5 +167,39 @@ public enum GatilhoDeMensagem : byte
     /// para <see cref="NovoAtendimento"/> na mesma passada, e o cliente recebe o
     /// menu de sempre. Conversa muda seria pior que "Ola!".
     /// </remarks>
-    PedidoDeNome = 14
+    PedidoDeNome = 14,
+
+    /// <summary>
+    /// Um atendente encerrou o atendimento pelo painel. Avisa o cliente de que a
+    /// conversa foi fechada.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nao reusa <see cref="Despedida"/> de proposito.</b> Aquele texto e a voz
+    /// de quem foi atendido ate o fim e DECIDIU fechar ("obrigado por escolher o
+    /// cartorio"). Aqui quem fechou foi a serventia — pode ter sido resolvido no
+    /// balcao, pode ter sido fim de expediente. A mesma frase nos dois casos soa
+    /// como se o sistema nao soubesse a diferenca.
+    ///
+    /// Ate 2026-09-04 este era o UNICO dos quatro caminhos de encerramento que
+    /// fechava em silencio: o cliente parava de ser respondido sem saber que o
+    /// atendimento tinha acabado. Os outros tres ja avisavam
+    /// (<see cref="Despedida"/> quando e o cliente que escolhe encerrar,
+    /// <see cref="EncerramentoPorInatividade"/> na varredura automatica).
+    ///
+    /// Como <see cref="EncerramentoPorInatividade"/>, e cortesia e NAO condicao
+    /// para o efeito: sem regra cadastrada a conversa encerra do mesmo jeito, so
+    /// sem avisar. Prender o encerramento manual do atendente a existencia de um
+    /// texto seria dar a um cadastro poder de veto sobre uma acao humana.
+    ///
+    /// <b>O texto nao tem como nomear quem encerrou nem repetir o motivo:</b> nao
+    /// existe marcador de atendente em
+    /// <see cref="Domain.PlaceholdersDeMensagem"/>, e o motivo digitado no
+    /// encerramento e registro interno. O par natural existe do outro lado — a
+    /// mensagem que o atendente escreve sai assinada com o nome dele
+    /// (ver <c>CanalWhatsApp.Application.AssinaturaDeAutoria</c>).
+    ///
+    /// Quem provoca: <see cref="Atendimento.Application.ConversaService"/>
+    /// (<c>EncerrarAsync</c>), e so ele.
+    /// </remarks>
+    EncerramentoPeloAtendente = 15
 }

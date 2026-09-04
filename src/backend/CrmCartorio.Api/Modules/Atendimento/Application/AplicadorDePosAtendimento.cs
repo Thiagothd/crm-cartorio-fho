@@ -223,6 +223,13 @@ public static class AplicadorDePosAtendimento
     ///
     /// <c>internal</c> e nao <c>private</c> desde 2026-08-19: o aplicador da
     /// resposta a pergunta de inatividade encerra pelo mesmo caminho.
+    ///
+    /// <b>Divergencia deliberada, desde 2026-09-04:</b> este caminho dispara o
+    /// gatilho <see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.Despedida"/>
+    /// (quem fechou foi o cliente, escolhendo); <see cref="ConversaService"/>
+    /// dispara <see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.EncerramentoPeloAtendente"/>
+    /// (quem fechou foi a serventia). Nao e a mesma mensagem por proposito — nao
+    /// precisa ficar em sincronia com aquele gatilho.
     /// </remarks>
     internal static void EncerrarPeloCliente(
         CrmDbContext db,

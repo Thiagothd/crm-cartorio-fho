@@ -667,7 +667,7 @@ GO
             7 ServicoEscolhido, 8 MenuDeContinuacao, 9 PedidoDeAtendente,
             10 Despedida, 11 RespostaSemCorrespondencia,
             12 ConfirmacaoDeEncerramento, 13 EncerramentoPorInatividade,
-            14 PedidoDeNome
+            14 PedidoDeNome, 15 EncerramentoPeloAtendente
 
    Enum, e nao tabela, porque cada valor corresponde a um ponto de codigo que
    precisa existir para disparar. Ja o TEXTO da mensagem e QUAL etapa dispara sao
@@ -693,7 +693,7 @@ CREATE TABLE dbo.MensagensAutomaticas
     CONSTRAINT PK_MensagensAutomaticas PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_MensagensAutomaticas_Tenants     FOREIGN KEY (TenantId)    REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_MensagensAutomaticas_EtapasFunil FOREIGN KEY (EtapaAlvoId) REFERENCES dbo.EtapasFunil (Id),
-    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)),
+    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)),
 
     -- Gatilho de etapa SEM etapa alvo dispararia mensagem ao cliente em toda
     -- movimentacao interna do funil; etapa alvo em gatilho que nao e de etapa e

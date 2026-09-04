@@ -57,6 +57,7 @@ export type GatilhoDeMensagem =
   | 'ConfirmacaoDeEncerramento'
   | 'EncerramentoPorInatividade'
   | 'PedidoDeNome'
+  | 'EncerramentoPeloAtendente'
 
 /**
  * Encerramento automático de conversa parada.

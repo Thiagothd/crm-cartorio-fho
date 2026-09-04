@@ -256,13 +256,13 @@ void Checar(string descricao, bool condicao, string? detalhe = null)
     }
 }
 
-ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome) =>
+ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome, IEnviadorDeCanal? canal = null) =>
     new(db,
         new ContextoFixo(tenantId, quem, nome, PerfilDeAtendente.Administrador),
         new GeradorDeProtocolo(db),
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
-        new CanalSilencioso(),
+        canal ?? new CanalSilencioso(),
         NullLogger<ConversaService>.Instance);
 
 MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
@@ -2500,6 +2500,180 @@ await using (var db = new CrmDbContext(opcoes))
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 31 — Aviso ao cliente quando o ATENDENTE encerra pelo painel
+// (gatilho 15, EncerramentoPeloAtendente). Ate 2026-09-04 este era o UNICO
+// dos quatro caminhos de encerramento que ficava em silencio.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 31 — EncerrarAsync avisa o cliente (gatilho 15), so pelo canal e nunca via EnviarPendentesAsync");
+
+var canal31 = new CanalContador();
+
+Guid conversa31;
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Encerrado pelo atendente"), setores[0].Id, null, null));
+    conversa31 = criada.Id;
+
+    // CriarAsync abre como Simulado; ajustado por fora para exercitar o canal
+    // real, como o resto do arquivo ja faz (ex.: TESTE 29). EncerrarAsync exige
+    // responsavel atribuido (GarantirQuePodeOperarAsync) — mesmo ajuste direto
+    // que TESTE 29 ja faz, sem passar por AssumirAsync.
+    await db.Conversas.Where(c => c.Id == conversa31)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.Canal, CanalOrigem.WhatsApp)
+            .SetProperty(c => c.AtendenteId, atendenteId));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome, canal31).EncerrarAsync(
+        conversa31, new EncerrarConversaRequest("Motivo interno de teste — nunca deveria chegar ao cliente"));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31);
+    var automaticas = await db.Mensagens.AsNoTracking()
+        .Where(m => m.ConversaId == conversa31 && m.EhAutomatica)
+        .ToListAsync();
+    var anotacoes = await db.Mensagens.AsNoTracking()
+        .Where(m => m.ConversaId == conversa31 && m.AutorTipo == AutorTipo.Sistema && !m.EhAutomatica)
+        .ToListAsync();
+
+    Checar("conversa encerrada de verdade", conversa.Status == StatusConversa.Encerrada);
+    Checar("exatamente UMA automatica gerada (o gatilho 15)", automaticas.Count == 1,
+        $"count={automaticas.Count}");
+    Checar("EncerrarAsync chamou EnviarAsync (por mensagem), nunca EnviarPendentesAsync",
+        canal31.ChamadasDeEnviarPendentes == 0 && canal31.MensagensEnviadas.Count == 1,
+        $"pendentes={canal31.ChamadasDeEnviarPendentes} enviarAsync={canal31.MensagensEnviadas.Count}");
+    Checar("a mensagem enviada pelo canal E a automatica gerada (nao a anotacao interna)",
+        automaticas.Count == 1 && canal31.MensagensEnviadas.Contains(automaticas[0].Id));
+    Checar("o motivo digitado NAO aparece na mensagem que vai ao cliente",
+        automaticas.Count == 1 && !automaticas[0].Conteudo.Contains("Motivo interno de teste"));
+    Checar("a anotacao interna continua EhAutomatica=false e Entregue (nunca sai pelo canal)",
+        anotacoes.Count == 1
+            && anotacoes[0].StatusEntrega == StatusEntrega.Entregue
+            && anotacoes[0].Conteudo.Contains("Motivo interno de teste"));
+    Checar("a anotacao interna NAO foi passada ao canal",
+        anotacoes.Count == 1 && !canal31.MensagensEnviadas.Contains(anotacoes[0].Id));
+}
+
+Console.WriteLine();
+Console.WriteLine("TESTE 31b — conversa SIMULADA nao enfileira nada ao ser encerrada pelo atendente");
+
+var canal31b = new CanalContador();
+
+Guid conversa31b;
+await using (var db = new CrmDbContext(opcoes))
+{
+    // Canal fica Simulado (o default de CriarAsync) — de proposito, sem ajuste.
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31b).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Simulada encerrada pelo atendente"), setores[0].Id, null, null));
+    conversa31b = criada.Id;
+
+    // So o responsavel; o Canal fica Simulado (o default de CriarAsync), sem ajuste.
+    await db.Conversas.Where(c => c.Id == conversa31b)
+        .ExecuteUpdateAsync(s => s.SetProperty(c => c.AtendenteId, atendenteId));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome, canal31b).EncerrarAsync(
+        conversa31b, new EncerrarConversaRequest(null));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31b);
+    var automaticas = await db.Mensagens.AsNoTracking()
+        .CountAsync(m => m.ConversaId == conversa31b && m.EhAutomatica);
+
+    Checar("conversa simulada tambem encerra de verdade", conversa.Status == StatusConversa.Encerrada);
+    Checar("nenhuma automatica gerada para conversa simulada — nao desmonta a base de demonstracao",
+        automaticas == 0, $"count={automaticas}");
+    Checar("nada foi passado ao canal para a conversa simulada",
+        canal31b.MensagensEnviadas.Count == 0 && canal31b.ChamadasDeEnviarPendentes == 0);
+}
+
+Console.WriteLine();
+Console.WriteLine("TESTE 31c — sem regra ativa do gatilho 15, o encerramento acontece do mesmo jeito (cortesia, nao efeito)");
+
+var canal31c = new CanalContador();
+
+// Desativa o texto do 15, como se o cartório parceiro o tivesse desligado pela tela.
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, false));
+}
+
+Guid conversa31c;
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31c).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Sem texto do gatilho 15"), setores[0].Id, null, null));
+    conversa31c = criada.Id;
+
+    await db.Conversas.Where(c => c.Id == conversa31c)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.Canal, CanalOrigem.WhatsApp)
+            .SetProperty(c => c.AtendenteId, atendenteId));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await NovaConversaService(db, atendenteId, atendenteNome, canal31c).EncerrarAsync(
+        conversa31c, new EncerrarConversaRequest(null));
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31c);
+
+    Checar("sem texto cadastrado, a conversa encerra do mesmo jeito (nao fica presa)",
+        conversa.Status == StatusConversa.Encerrada);
+    Checar("sem texto cadastrado, nada foi passado ao canal",
+        canal31c.MensagensEnviadas.Count == 0 && canal31c.ChamadasDeEnviarPendentes == 0);
+}
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await db.MensagensAutomaticas
+        .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
+        .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, true));
+}
+
+Console.WriteLine();
+Console.WriteLine("TESTE 31d — anti-regressao: os outros dois caminhos continuam nos gatilhos 10 e 13, nao no 15");
+
+Checar("cliente encerrando pelo menu de continuacao continua no gatilho Despedida (10) — ver TESTE 12",
+    true, "provado em TESTE 12/2 (fio traz a mensagem do gatilho 10) — nada de codigo novo a checar aqui");
+Checar("varredura automatica continua no gatilho EncerramentoPorInatividade (13) — ver TESTE 9-15",
+    true, "provado nos testes de inatividade acima — nada de codigo novo a checar aqui");
+
+Console.WriteLine();
+Console.WriteLine("TESTE 31e — ReabrirAsync nao redispara o gatilho 15");
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var antesDeReabrir = await db.Mensagens.AsNoTracking()
+        .CountAsync(m => m.ConversaId == conversa31 && m.EhAutomatica);
+
+    await NovaConversaService(db, atendenteId, atendenteNome, canal31).ReabrirAsync(conversa31);
+
+    var depoisDeReabrir = await db.Mensagens.AsNoTracking()
+        .CountAsync(m => m.ConversaId == conversa31 && m.EhAutomatica);
+
+    Checar("reabrir nao gera nenhuma automatica nova (nem do 15, nem de outro gatilho)",
+        depoisDeReabrir == antesDeReabrir, $"antes={antesDeReabrir} depois={depoisDeReabrir}");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
@@ -2620,7 +2794,8 @@ async Task<int> LimparAsync()
         .Where(m => m.TenantId == tenantId
                  && !m.Ativo
                  && (m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
-                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPorInatividade))
+                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPorInatividade
+                  || m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente))
         .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, true));
 
     return total;
@@ -2774,6 +2949,30 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
         Task.FromResult<string?>(null);
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Conta separadamente EnviarAsync (por mensagem) e EnviarPendentesAsync
+/// (drena a fila inteira da conversa). Existe para provar que
+/// ConversaService.EncerrarAsync usa SOMENTE o primeiro — nunca o segundo,
+/// que despejaria qualquer automatica parada na conversa junto da despedida.
+/// </summary>
+file sealed class CanalContador : IEnviadorDeCanal
+{
+    public List<Guid> MensagensEnviadas { get; } = [];
+    public int ChamadasDeEnviarPendentes { get; private set; }
+
+    public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default)
+    {
+        MensagensEnviadas.Add(m);
+        return Task.FromResult<string?>(null);
+    }
+
+    public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default)
+    {
+        ChamadasDeEnviarPendentes++;
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>

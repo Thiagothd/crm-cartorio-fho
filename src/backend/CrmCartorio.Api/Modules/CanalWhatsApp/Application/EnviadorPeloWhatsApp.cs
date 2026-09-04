@@ -47,6 +47,13 @@ public class EnviadorPeloWhatsApp(
                 m.ArquivoCaminho,
                 m.ArquivoNome,
                 m.ArquivoTipoMime,
+                m.AutorTipo,
+                m.EhAutomatica,
+                m.GeradaPorIa,
+                AtendenteNome = db.Atendentes
+                    .Where(a => a.Id == m.AtendenteId)
+                    .Select(a => a.Nome)
+                    .FirstOrDefault(),
                 Canal = db.Conversas
                     .Where(c => c.Id == m.ConversaId)
                     .Select(c => c.Canal)
@@ -147,6 +154,12 @@ public class EnviadorPeloWhatsApp(
             return null;
         }
 
+        // Decoracao de autoria SO aqui, no call site do gateway — nunca gravada.
+        // Ver o remark de AssinaturaDeAutoria para o porque: se entrasse no
+        // banco, vazaria para o painel, para a citacao, para o encaminhamento e
+        // para o historico que alimenta a IA.
+        var autoria = new AutoriaDaMensagem(alvo.AutorTipo, alvo.EhAutomatica, alvo.GeradaPorIa, alvo.AtendenteNome);
+
         try
         {
             var idExterno = conteudoDoArquivo is not null
@@ -155,9 +168,10 @@ public class EnviadorPeloWhatsApp(
                     conteudoDoArquivo,
                     tipoMime!,
                     nomeDoArquivo!,
-                    legenda,
+                    AssinaturaDeAutoria.DecorarLegenda(legenda, autoria),
                     ct)
-                : await gateway.EnviarTextoAsync(alvo.Telefone, alvo.Conteudo, ct);
+                : await gateway.EnviarTextoAsync(
+                    alvo.Telefone, AssinaturaDeAutoria.Decorar(alvo.Conteudo, autoria), ct);
 
             await MarcarEnviadaAsync(mensagemId, claimAdquiridoEm, idExterno, ct);
 
