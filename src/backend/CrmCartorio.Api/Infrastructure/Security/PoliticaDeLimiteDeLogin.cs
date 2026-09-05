@@ -35,9 +35,18 @@ public static class PoliticaDeLimiteDeLogin
     /// <summary>Gestao de MFA (iniciar, confirmar, desativar, codigos, reset, ticket, politica) — todas exigem step-up, entao o limite aqui e so o mesmo amortecedor de sempre.</summary>
     public const string NomeGestao = "mfa-gestao";
 
+    /// <summary>
+    /// Entrada da Central de IA (Modules/CentralDeIa) — endpoint anonimo que
+    /// aceita um segredo. Mesma familia de amortecedor por IP dos outros: nao e
+    /// a protecao que importa (essa e o proprio segredo, comparado em tempo
+    /// fixo), so o que faz um script obvio parar cedo.
+    /// </summary>
+    public const string NomeCentralDeIa = "central-ia";
+
     public const int TentativasPorMinuto = 10;
     public const int TentativasDeMfaPorMinuto = 20;
     public const int TentativasDeGestaoPorMinuto = 10;
+    public const int TentativasDeCentralDeIaPorMinuto = 10;
 
     public static IServiceCollection AdicionarLimiteDeLogin(this IServiceCollection servicos) =>
         servicos.AddRateLimiter(opcoes =>
@@ -45,6 +54,7 @@ public static class PoliticaDeLimiteDeLogin
             AdicionarJanelaFixaPorIp(opcoes, Nome, TentativasPorMinuto);
             AdicionarJanelaFixaPorIp(opcoes, NomeMfa, TentativasDeMfaPorMinuto);
             AdicionarJanelaFixaPorIp(opcoes, NomeGestao, TentativasDeGestaoPorMinuto);
+            AdicionarJanelaFixaPorIp(opcoes, NomeCentralDeIa, TentativasDeCentralDeIaPorMinuto);
 
             opcoes.OnRejected = async (contexto, ct) =>
             {
