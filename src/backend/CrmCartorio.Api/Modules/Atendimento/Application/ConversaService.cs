@@ -16,7 +16,7 @@ public class ConversaService(
     IGeradorDeProtocolo protocolos,
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
-    IEnviadorDeCanal canal,
+    IFilaDeEnvioDoCanal fila,
     ILogger<ConversaService> log) : IConversaService
 {
     // ---------------------------------------------------------------- leitura
@@ -578,11 +578,16 @@ public class ConversaService(
         await db.SaveChangesAsync(ct);
 
         // O aviso so sai depois do commit, e so em conversa de WhatsApp — o gate
-        // fica no adaptador. E a mensagem de maior valor percebido pelo cliente
-        // ("seu ato esta pronto"), entao vale ela chegar de verdade.
+        // fica no adaptador. Agendado, e nao esperado aqui: e a mensagem de maior
+        // valor percebido pelo cliente ("seu ato esta pronto"), mas o clique do
+        // atendente que mudou a etapa nao pode ficar preso a uma chamada de rede
+        // ao gateway — achado ao vivo, envio real leva de poucos segundos a dezenas
+        // de segundos (retentativa de mensagem em Falha inclusa). Quem espera o
+        // envio de fato e' o SignalR (HospedeDaFilaDeEnvioDoCanal), nao esta
+        // requisicao.
         if (mudouEtapa)
         {
-            await canal.EnviarPendentesAsync(id, ct);
+            fila.Agendar(id);
         }
 
         var resumo = await ObterResumoAsync(id, ct);

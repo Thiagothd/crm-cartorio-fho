@@ -111,6 +111,13 @@ builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
 builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
+
+// Fila em memoria para o envio pendente nao bloquear a acao do atendente (ex.:
+// mudar etapa) esperando a chamada de rede ao gateway. Singleton unico: quem
+// escreve (ConversaService, via IFilaDeEnvioDoCanal) e quem le
+// (HospedeDaFilaDeEnvioDoCanal, pelo tipo concreto) precisam do mesmo Channel.
+builder.Services.AddSingleton<FilaDeEnvioDoCanal>();
+builder.Services.AddSingleton<IFilaDeEnvioDoCanal>(sp => sp.GetRequiredService<FilaDeEnvioDoCanal>());
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
@@ -154,6 +161,10 @@ builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
 // ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
 // boas-vindas, sem triagem. Ver IVarredorDeInatividade.
 builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
+
+// Drena a fila acima em segundo plano — ver FilaDeEnvioDoCanal e
+// HospedeDaFilaDeEnvioDoCanal para o porque de existir.
+builder.Services.AddHostedService<HospedeDaFilaDeEnvioDoCanal>();
 
 // ---------------------------------------------------------------- autenticacao
 

@@ -216,7 +216,7 @@ ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome) =>
         new GeradorDeProtocolo(db),
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
-        new CanalSilencioso(),
+        new FilaSilenciosa(),
         NullLogger<ConversaService>.Instance);
 
 MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
@@ -1930,6 +1930,15 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
         Task.FromResult<string?>(null);
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Mesmo papel de <see cref="CanalSilencioso"/> para o caminho assincrono de
+/// ConversaService.MudarEtapaAsync: o verificador exercita a regra, nao a fila.
+/// </summary>
+file sealed class FilaSilenciosa : IFilaDeEnvioDoCanal
+{
+    public void Agendar(Guid conversaId) { }
 }
 
 /// <summary>
