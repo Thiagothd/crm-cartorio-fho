@@ -156,17 +156,19 @@ quem falou — atendente ou IA — em `EnviadorPeloWhatsApp.EnviarAsync`, no
 momento exato da chamada. Até então o cliente não via nenhuma marca: nem nome
 de atendente, nem sinal de automático, mesmo o painel já mostrando os dois.
 
-- **Mensagem de atendente** sai com o rodapé `_— Nome do Atendente_`.
-- **Resposta da IA** sai com `_Mensagem automática_`.
-- **Mensagem automática de regra cadastrada** não leva marca nenhuma — decisão
-  deliberada: aquele texto já fala na voz institucional do cartório, e marcar
-  toda automática viraria ruído repetido em quase toda mensagem do fluxo
-  guiado.
-- **Foto sem legenda não ganha assinatura** — criar uma legenda que só tem o
+- **Mensagem de atendente** sai com um cabeçalho em negrito, numa linha antes
+  do conteúdo: `*Nome do Atendente*` seguido de quebra de linha.
+- **Resposta da IA** sai com o cabeçalho `*Assistente Virtual*` — o rótulo
+  descreve QUEM fala, não o mecanismo (por isso não é "mensagem automática").
+- **Mensagem automática de regra cadastrada** não leva cabeçalho nenhum —
+  decisão deliberada: aquele texto já fala na voz institucional do cartório,
+  e marcar toda automática viraria ruído repetido em quase toda mensagem do
+  fluxo guiado.
+- **Foto sem legenda não ganha cabeçalho** — criar uma legenda que só tem o
   nome, embaixo de uma imagem muda, é mais estranho que não assinar aquela
   mensagem em particular.
 
-**Por que mora aqui e não no `Atendimento`.** `_itálico_` é sintaxe do
+**Por que mora aqui e não no `Atendimento`.** `*negrito*` é sintaxe do
 WhatsApp — trocar para a Cloud API da Meta mantém a decisão; trocar o canal
 por SMS ou e-mail jogaria fora. **Por que não decora dentro de
 `PrepararArquivoAsync`.** Aquela função tem uma responsabilidade — decidir se
@@ -177,13 +179,13 @@ direto para o "testar envio" da tela de gestão do canal; a mensagem de teste
 sairia assinada como se fosse de alguém.
 
 **Por que só na saída, nunca gravado no banco.** Se a decoração fosse
-persistida em `Mensagem.Conteudo`, o rodapé apareceria no painel, na prévia da
-citação, no texto copiado por encaminhamento e no histórico que alimenta o
-grounding da IA — que passaria a ver "— Maria Rezende" como parte da conversa
-e a imitar. A projeção do alvo em `EnviadorPeloWhatsApp` carrega `AutorTipo`,
-`EhAutomatica`, `GeradaPorIa` e o nome do atendente (subconsulta
-correlacionada) só para decidir o rodapé no instante do envio; nada disso sai
-do método.
+persistida em `Mensagem.Conteudo`, o cabeçalho apareceria no painel, na
+prévia da citação, no texto copiado por encaminhamento e no histórico que
+alimenta o grounding da IA — que passaria a ver "Maria Rezende" como parte da
+conversa e a imitar. A projeção do alvo em `EnviadorPeloWhatsApp` carrega
+`AutorTipo`, `EhAutomatica`, `GeradaPorIa` e o nome do atendente (subconsulta
+correlacionada) só para decidir o cabeçalho no instante do envio; nada disso
+sai do método.
 
 ## Fronteiras
 

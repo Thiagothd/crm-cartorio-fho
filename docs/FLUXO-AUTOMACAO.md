@@ -59,10 +59,11 @@ chegavam como mensagem normal no WhatsApp, e só a interface do painel rotulava
 "Automática" ou "IA" para o atendente. Desde a Fase 2K,
 `CanalWhatsApp.Application.AssinaturaDeAutoria` decora o texto **só na saída**
 (nunca gravado no banco — ver `Modules/CanalWhatsApp/README.md`): a resposta
-da IA sai com o rodapé `_Mensagem automática_`; a mensagem automática de
-**regra cadastrada** continua sem marca nenhuma (decisão deliberada — aquele
-texto já fala na voz institucional do cartório); e toda mensagem de
-**atendente** passa a sair assinada `_— Nome do Atendente_`. A anotação de
+da IA sai com o cabeçalho em negrito `*Assistente Virtual*` (numa linha antes
+do conteúdo); a mensagem automática de **regra cadastrada** continua sem marca
+nenhuma (decisão deliberada — aquele texto já fala na voz institucional do
+cartório); e toda mensagem de **atendente** passa a sair com `*Nome do
+Atendente*` em negrito antes do conteúdo. A anotação de
 sistema continua nunca saindo do painel — é o "Triagem automática encaminhou
 ao setor X" que dá contexto ao próximo atendente sem virar mensagem ao cliente.
 
