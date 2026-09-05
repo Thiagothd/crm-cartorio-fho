@@ -11,6 +11,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Infrastructure.Web;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.CentralDeIa.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
@@ -90,6 +91,7 @@ builder.Services.Configure<OpcoesDoCanalWhatsApp>(
 builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
 builder.Services.Configure<OpcoesDeMfa>(builder.Configuration.GetSection(OpcoesDeMfa.Secao));
+builder.Services.Configure<OpcoesDaCentralDeIa>(builder.Configuration.GetSection(OpcoesDaCentralDeIa.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 var opcoesCanalWhatsApp = builder.Configuration
@@ -290,6 +292,12 @@ builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteServi
 builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
 builder.Services.AddScoped<IConhecimentoDeIaService, ConhecimentoDeIaService>();
 
+// Central de IA privada do desenvolvedor — identidade propria, fora do modelo
+// Atendente/Tenant. Ver Modules/CentralDeIa/README.md.
+builder.Services.AddScoped<IGeradorDeTokenDaCentralDeIa, GeradorDeTokenDaCentralDeIa>();
+builder.Services.AddScoped<ICentralDeIaAutenticador, CentralDeIaAutenticador>();
+builder.Services.AddScoped<ISituacaoGlobalDaIa, SituacaoGlobalDaIaService>();
+
 // Visão Geral, Indicadores e Relatórios, alertas do sino — só consulta, lê o
 // DbContext direto (permitido; chamar o Service de outro slice não seria).
 builder.Services.AddScoped<IIndicadoresService, IndicadoresService>();
@@ -391,15 +399,26 @@ builder.Services
 builder.Services.AdicionarLimiteDeLogin();
 
 // SEC-01: a policy padrao (usada por todo [Authorize] sem policy nomeada —
-// controllers e o Hub do SignalR, nenhum deste projeto nomeia policy hoje)
-// passa a exigir tambem SessaoAtivaRequirement: sessao ativa no banco, nao so
-// JWT com assinatura e expiracao validas. Ver SessaoAtivaHandler.
+// controllers e o Hub do SignalR, nenhum deles nomeia policy) passa a exigir
+// tambem SessaoAtivaRequirement: sessao ativa no banco, nao so JWT com
+// assinatura e expiracao validas. Ver SessaoAtivaHandler. A unica excecao do
+// projeto e a policy nomeada "CentralDeIa" logo abaixo — motivo no comentario
+// dela.
 builder.Services.AddAuthorization(opcoes =>
 {
     opcoes.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
         .AddRequirements(new SessaoAtivaRequirement())
         .Build();
+
+    // Modules/CentralDeIa — a UNICA policy NOMEADA do projeto (todo o resto usa
+    // a DefaultPolicy acima, sem nome). E o caso certo de fugir da regra: o
+    // ator aqui nao e um Atendente, entao SessaoAtivaRequirement (que exige
+    // TokenVersion de um Atendente) nao se aplica — a exigencia e so a claim
+    // propria do token da Central. Ver Modules/CentralDeIa/README.md.
+    opcoes.AddPolicy("CentralDeIa", politica => politica
+        .RequireAuthenticatedUser()
+        .RequireClaim(ClaimsDaCentralDeIa.Operador, "true"));
 });
 
 // ------------------------------------------------------------------- pipeline

@@ -15,6 +15,19 @@ const PaginaMatriculaMfa = lazy(() =>
 )
 
 /**
+ * Central de IA privada do desenvolvedor (Modules/CentralDeIa) — área FORA do
+ * sistema do cartório, com identidade e autenticação próprias (endpoint
+ * `POST /api/central-ia/entrar`, nunca o login de Atendente). Por isso a rota
+ * vive aqui, ao lado de `/login` e `/mfa/matricular`, e não dentro de
+ * `todosOsItens()`: sem `ExigeAutenticacao`, sem `Shell`, e deliberadamente
+ * ausente de `app/navegacao.ts` — quem não tem o link não sabe que esta tela
+ * existe.
+ */
+const PaginaCentralDeIa = lazy(() =>
+  import('@/pages/pagina-central-de-ia').then((modulo) => ({ default: modulo.PaginaCentralDeIa })),
+)
+
+/**
  * Um `lazy()` por rota, derivado da MESMA lista que o rail, o cabeçalho e a
  * navegação do celular usam (`app/navegacao.ts`) — nenhuma rota existe em dois
  * lugares. `/atendimentos/:id` reaproveita o componente de `/atendimentos`
@@ -149,6 +162,18 @@ export function Rotas() {
           element={
             <PaginaSobDemanda>
               <PaginaMatriculaMfa />
+            </PaginaSobDemanda>
+          }
+        />
+
+        {/* Central de IA — pública de propósito, pelo mesmo motivo do login:
+            a autenticação é feita DENTRO da própria página, contra um
+            segredo exclusivo, nunca contra a sessão do Atendente. */}
+        <Route
+          path="/central-ia"
+          element={
+            <PaginaSobDemanda>
+              <PaginaCentralDeIa />
             </PaginaSobDemanda>
           }
         />
