@@ -63,6 +63,11 @@ CREATE TABLE dbo.Tenants
     EncerramentoHoraInicial          INT        NULL,
     EncerramentoHoraFinal            INT        NULL,
 
+    -- SEC-03: liga a exigencia de MFA para Administrador/Titular. So muda por
+    -- uma operacao transacional que confirma matricula de todos os alvos e
+    -- sobe o TokenVersion deles — nunca por UPDATE direto nesta coluna.
+    MfaObrigatorioParaAdministradores BIT NOT NULL CONSTRAINT DF_Tenants_MfaObrigatorioParaAdministradores DEFAULT (0),
+
     Ativo                     BIT              NOT NULL CONSTRAINT DF_Tenants_Ativo DEFAULT (1),
     CriadoEm                  DATETIME2(3)     NOT NULL,
     AtualizadoEm              DATETIME2(3)     NOT NULL,
@@ -162,6 +167,61 @@ CREATE TABLE dbo.Atendentes
 
     SetorPadraoId  UNIQUEIDENTIFIER NULL,
     Ativo          BIT              NOT NULL CONSTRAINT DF_Atendentes_Ativo DEFAULT (1),
+
+    -- SEC-01: sobe a cada troca de senha, desativacao ou mudanca de Perfil.
+    -- Todo JWT carrega a versao vigente no instante em que foi emitido; o
+    -- token so continua valido enquanto ela bater com esta coluna. Nunca
+    -- volta para tras, nem quando o atendente e reativado.
+    TokenVersion   INT              NOT NULL CONSTRAINT DF_Atendentes_TokenVersion DEFAULT (1),
+
+    -- SEC-02 — backoff progressivo contra forca bruta no login.
+    --
+    -- FalhasDeLoginConsecutivas conta as falhas do ciclo atual; na 5a, zera e
+    -- abre um bloqueio. NivelDeBloqueio conta quantos bloqueios ja houve SEM
+    -- login bem-sucedido no meio e escolhe a duracao do proximo na progressao
+    -- 1, 2, 4, 8, 16 e 30 minutos (teto 6 = 30 min). BloqueadoAte diz ate quando
+    -- a conta esta travada. Um login bem-sucedido zera os tres.
+    --
+    -- Senha correta NAO fura bloqueio vigente, tentativa durante bloqueio nao o
+    -- estende, e conta inativa nao acumula lockout. Ver
+    -- Modules/Usuarios/Application/AutenticacaoService.cs.
+    FalhasDeLoginConsecutivas INT     NOT NULL CONSTRAINT DF_Atendentes_FalhasDeLoginConsecutivas DEFAULT (0),
+    NivelDeBloqueio           TINYINT NOT NULL CONSTRAINT DF_Atendentes_NivelDeBloqueio DEFAULT (0),
+    BloqueadoAte              DATETIME2(3) NULL,
+
+    -- SEC-03 — MFA (TOTP, RFC 6238) para contas privilegiadas.
+    --
+    -- MfaAtivo so vira 1 na CONFIRMACAO do 1o codigo — nunca ao gerar o
+    -- segredo pendente. MfaSegredoCifrado/MfaSegredoPendenteCifrado sao
+    -- AES-256-GCM (nonce+tag+ciphertext, formato versionado — ver
+    -- Infrastructure/Security/CifraDeSegredoMfa.cs). MfaUltimoPassoUsado e o
+    -- anti-replay (compare-and-set do ultimo passo TOTP de 30s aceito).
+    -- MfaFalhasConsecutivas/MfaNivelDeBloqueio/MfaBloqueadoAte sao um
+    -- contador PROPRIO, mesma progressao de NivelDeBloqueio (senha) mas nunca
+    -- somado a ele — bloqueio de MFA e por CONTA, nao por desafio.
+    -- MfaPendenteTokenVersion (migration 035) e a TokenVersion gravada no
+    -- MESMO instante do segredo pendente — a confirmacao so conclui se ainda
+    -- bater com a TokenVersion atual, fechando promocao/revogacao no meio da
+    -- cerimonia de ativacao voluntaria ou troca de autenticador.
+    MfaAtivo                  BIT              NOT NULL CONSTRAINT DF_Atendentes_MfaAtivo DEFAULT (0),
+    MfaSegredoCifrado         VARBINARY(256)   NULL,
+    MfaSegredoPendenteCifrado VARBINARY(256)   NULL,
+    MfaPendenteExpiraEm       DATETIME2(3)     NULL,
+    MfaPendenteTokenVersion   INT              NULL,
+    MfaConfirmadoEm           DATETIME2(3)     NULL,
+    MfaUltimoPassoUsado       BIGINT           NULL,
+    MfaFalhasConsecutivas     INT              NOT NULL CONSTRAINT DF_Atendentes_MfaFalhasConsecutivas DEFAULT (0),
+    MfaNivelDeBloqueio        TINYINT          NOT NULL CONSTRAINT DF_Atendentes_MfaNivelDeBloqueio DEFAULT (0),
+    MfaBloqueadoAte           DATETIME2(3)     NULL,
+
+    -- RematriculaObrigatoriaAposEmergencia (migration 036) — true quando o
+    -- reset de emergencia (break-glass) removeu o MFA desta conta. Bloqueia
+    -- login so-senha INDEPENDENTE da politica obrigatoria do tenant, ate a
+    -- conta concluir uma matricula nova com o ticket que o proprio
+    -- break-glass emitiu. Volta a 0 so na confirmacao bem-sucedida dessa
+    -- matricula.
+    RematriculaObrigatoriaAposEmergencia BIT NOT NULL CONSTRAINT DF_Atendentes_RematriculaObrigatoriaAposEmergencia DEFAULT (0),
+
     UltimoAcessoEm DATETIME2(3)     NULL,
     CriadoEm       DATETIME2(3)     NOT NULL,
     AtualizadoEm   DATETIME2(3)     NOT NULL,
@@ -170,7 +230,13 @@ CREATE TABLE dbo.Atendentes
     CONSTRAINT FK_Atendentes_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_Atendentes_Setores FOREIGN KEY (SetorPadraoId) REFERENCES dbo.Setores (Id),
     CONSTRAINT CK_Atendentes_Perfil CHECK (Perfil IN (1, 2, 3)),
-    CONSTRAINT CK_Atendentes_Cargo  CHECK (Cargo  IN (0, 1, 2, 3, 4, 5))
+    CONSTRAINT CK_Atendentes_Cargo  CHECK (Cargo  IN (0, 1, 2, 3, 4, 5)),
+    CONSTRAINT CK_Atendentes_FalhasDeLogin   CHECK (FalhasDeLoginConsecutivas >= 0),
+    CONSTRAINT CK_Atendentes_NivelDeBloqueio CHECK (NivelDeBloqueio BETWEEN 0 AND 6),
+    CONSTRAINT CK_Atendentes_MfaFalhas CHECK (MfaFalhasConsecutivas >= 0),
+    CONSTRAINT CK_Atendentes_MfaNivel  CHECK (MfaNivelDeBloqueio BETWEEN 0 AND 6),
+    -- Invariante central: nunca existe conta com MfaAtivo=1 sem segredo.
+    CONSTRAINT CK_Atendentes_MfaAtivoTemSegredo CHECK (MfaAtivo = 0 OR MfaSegredoCifrado IS NOT NULL)
 );
 GO
 
@@ -408,6 +474,9 @@ CREATE INDEX IX_Conversas_Atendente ON dbo.Conversas (TenantId, AtendenteId, Sta
 CREATE INDEX IX_Conversas_Etapa     ON dbo.Conversas (TenantId, EtapaId, Status);
 CREATE INDEX IX_Conversas_Setor     ON dbo.Conversas (TenantId, SetorId, Status);
 CREATE INDEX IX_Conversas_Cliente   ON dbo.Conversas (TenantId, ClienteId);
+CREATE UNIQUE INDEX UQ_Conversas_Tenant_Cliente_Canal_Ativa
+    ON dbo.Conversas (TenantId, ClienteId, Canal)
+    WHERE Status = 1;
 CREATE INDEX IX_Conversas_Prazo     ON dbo.Conversas (TenantId, Status, PrazoLimite);
 
 -- Varredura de prazo. Filtrados porque, em regime, quase toda conversa antiga ja
@@ -449,8 +518,13 @@ CREATE TABLE dbo.Mensagens
     -- 1 Texto, 2 Imagem, 3 Documento, 4 Audio, 5 Video (midia so na Fase 2)
     Tipo              TINYINT          NOT NULL CONSTRAINT DF_Mensagens_Tipo DEFAULT (1),
 
-    -- 1 Pendente, 2 Enviada, 3 Entregue, 4 Lida, 5 Falha
+    -- 1 Pendente, 2 Enviada, 3 Entregue, 4 Lida, 5 Falha, 6 Enviando
     StatusEntrega     TINYINT          NOT NULL CONSTRAINT DF_Mensagens_Status DEFAULT (2),
+
+    -- Claim persistente do envio. Disparado preenchido significa que a chamada
+    -- externa pode ter comecado e, portanto, nao admite retry automatico cego.
+    EnvioIniciadoEm   DATETIME2(3)     NULL,
+    EnvioDisparadoEm  DATETIME2(3)     NULL,
 
     -- Gerada por regra de MensagemAutomatica. Combinada com AutorTipo = 3, separa a
     -- anotacao interna do fio ("Conversa assumida por Fulano", que o cliente nunca
@@ -464,6 +538,15 @@ CREATE TABLE dbo.Mensagens
 
     -- ID da mensagem na Meta. Preenchido apenas na Fase 2.
     IdExternoWhatsapp VARCHAR(80)      NULL,
+
+    -- Fila duravel da entrada: 1 Pendente, 2 Processando, 3 Processada, 4 Falha.
+    -- Nulo para mensagens que nao vieram do webhook.
+    EstadoProcessamentoEntrada       TINYINT       NULL,
+    ProcessamentoEntradaIniciadoEm   DATETIME2(3)  NULL,
+    ProcessamentoEntradaConcluidoEm  DATETIME2(3)  NULL,
+    ProcessamentoEntradaDisponivelEm DATETIME2(3)  NULL,
+    TentativasProcessamentoEntrada   INT           NOT NULL CONSTRAINT DF_Mensagens_TentativasProcessamentoEntrada DEFAULT (0),
+    ErroProcessamentoEntrada         NVARCHAR(1000) NULL,
 
     -- Mensagem original citada numa resposta. Sempre da mesma conversa,
     -- validado pelo servico antes de gravar.
@@ -497,7 +580,12 @@ CREATE TABLE dbo.Mensagens
     CONSTRAINT FK_Mensagens_EncaminhadaDe  FOREIGN KEY (EncaminhadaDeMensagemId) REFERENCES dbo.Mensagens (Id),
     CONSTRAINT CK_Mensagens_AutorTipo     CHECK (AutorTipo     IN (1, 2, 3)),
     CONSTRAINT CK_Mensagens_Tipo          CHECK (Tipo          IN (1, 2, 3, 4, 5)),
-    CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5)),
+    CONSTRAINT CK_Mensagens_StatusEntrega CHECK (StatusEntrega IN (1, 2, 3, 4, 5, 6)),
+    CONSTRAINT CK_Mensagens_ProcessamentoEntrada CHECK
+    (
+        EstadoProcessamentoEntrada IS NULL OR
+        (AutorTipo = 1 AND IdExternoWhatsapp IS NOT NULL AND EstadoProcessamentoEntrada IN (1, 2, 3, 4))
+    ),
 
     -- Rede de seguranca do RF-007 no banco: mensagem de atendente sem AtendenteId
     -- nao entra, venha de onde vier (API, importacao, webhook da Fase 2).
@@ -520,6 +608,14 @@ CREATE INDEX IX_Mensagens_Conversa_Enviada ON dbo.Mensagens (ConversaId, Enviada
 CREATE INDEX IX_Mensagens_Tenant_Atendente ON dbo.Mensagens (TenantId, AtendenteId);
 CREATE INDEX IX_Mensagens_MensagemRespondida ON dbo.Mensagens (MensagemRespondidaId) WHERE MensagemRespondidaId IS NOT NULL;
 CREATE INDEX IX_Mensagens_Fixada ON dbo.Mensagens (ConversaId) WHERE FixadaEm IS NOT NULL;
+CREATE UNIQUE INDEX UQ_Mensagens_Tenant_IdExterno_Cliente
+    ON dbo.Mensagens (TenantId, IdExternoWhatsapp)
+    WHERE IdExternoWhatsapp IS NOT NULL AND AutorTipo = 1;
+CREATE INDEX IX_Mensagens_ProcessamentoEntrada
+    ON dbo.Mensagens
+       (EstadoProcessamentoEntrada, ProcessamentoEntradaDisponivelEm,
+        ProcessamentoEntradaIniciadoEm, ConversaId, EnviadaEm)
+    WHERE EstadoProcessamentoEntrada IN (1, 2, 4);
 GO
 
 /* -----------------------------------------------------------------------------
@@ -571,7 +667,7 @@ GO
             7 ServicoEscolhido, 8 MenuDeContinuacao, 9 PedidoDeAtendente,
             10 Despedida, 11 RespostaSemCorrespondencia,
             12 ConfirmacaoDeEncerramento, 13 EncerramentoPorInatividade,
-            14 PedidoDeNome
+            14 PedidoDeNome, 15 EncerramentoPeloAtendente
 
    Enum, e nao tabela, porque cada valor corresponde a um ponto de codigo que
    precisa existir para disparar. Ja o TEXTO da mensagem e QUAL etapa dispara sao
@@ -597,7 +693,7 @@ CREATE TABLE dbo.MensagensAutomaticas
     CONSTRAINT PK_MensagensAutomaticas PRIMARY KEY CLUSTERED (Id),
     CONSTRAINT FK_MensagensAutomaticas_Tenants     FOREIGN KEY (TenantId)    REFERENCES dbo.Tenants (Id),
     CONSTRAINT FK_MensagensAutomaticas_EtapasFunil FOREIGN KEY (EtapaAlvoId) REFERENCES dbo.EtapasFunil (Id),
-    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)),
+    CONSTRAINT CK_MensagensAutomaticas_Gatilho CHECK (Gatilho IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)),
 
     -- Gatilho de etapa SEM etapa alvo dispararia mensagem ao cliente em toda
     -- movimentacao interna do funil; etapa alvo em gatilho que nao e de etapa e
@@ -645,6 +741,263 @@ GO
 -- duas linhas identicas e nao tem como escolher a certa.
 CREATE UNIQUE INDEX UQ_RespostasRapidas_Tenant_Atalho
     ON dbo.RespostasRapidas (TenantId, Atalho);
+GO
+
+/* -----------------------------------------------------------------------------
+   13. DesafiosDeMfa — SEC-03: segunda etapa de login, matricula privilegiada,
+   e o proprio ticket fora de banda (Tipo = 3)
+   -----------------------------------------------------------------------------
+   Estado persistido, nao um JWT de escopo reduzido: uso unico de verdade exige
+   uma linha que possa ser consumida atomicamente, e um desafio precisa poder
+   ser invalidado por um evento de seguranca ocorrido DEPOIS da emissao —
+   TokenVersionNoDesafio e a comparacao repetida na conclusao. O token em claro
+   NUNCA e gravado, so o SHA-256 dele.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.DesafiosDeMfa
+(
+    Id                    UNIQUEIDENTIFIER NOT NULL,
+    TenantId              UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId           UNIQUEIDENTIFIER NOT NULL,
+    HashDoDesafio         CHAR(64)         NOT NULL,
+
+    -- 1 SegundoFator, 2 MatriculaPrivilegiada, 3 Ticket
+    Tipo                  TINYINT          NOT NULL,
+
+    TokenVersionNoDesafio INT              NOT NULL,
+    ExpiraEm              DATETIME2(3)     NOT NULL,
+
+    -- Incrementado ANTES de validar o codigo (reserva de tentativa) — e o
+    -- proprio esgotamento em 5, sem passo separado de "inutilizar".
+    TentativasDeCodigo    INT              NOT NULL CONSTRAINT DF_DesafiosDeMfa_Tentativas DEFAULT (0),
+
+    -- Nulo enquanto em aberto. So marcado no caminho de SUCESSO.
+    ConsumidoEm           DATETIME2(3)     NULL,
+    IpDeOrigem            VARCHAR(45)      NULL,
+    CriadoEm              DATETIME2(3)     NOT NULL,
+    AtualizadoEm          DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_DesafiosDeMfa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_DesafiosDeMfa_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_DesafiosDeMfa_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_DesafiosDeMfa_Tipo CHECK (Tipo IN (1, 2, 3)),
+    CONSTRAINT CK_DesafiosDeMfa_Tentativas CHECK (TentativasDeCodigo >= 0)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_DesafiosDeMfa_Hash ON dbo.DesafiosDeMfa (HashDoDesafio);
+
+-- Varredura de expirados: so os ainda em aberto interessam.
+CREATE INDEX IX_DesafiosDeMfa_ExpiraEm_Abertos ON dbo.DesafiosDeMfa (ExpiraEm)
+    WHERE ConsumidoEm IS NULL;
+GO
+
+/* -----------------------------------------------------------------------------
+   14. CodigosDeRecuperacaoMfa — 10 por conta, 80 bits, uso unico
+   -----------------------------------------------------------------------------
+   16 caracteres Crockford Base32 (sem I/L/O/U). So o hash SHA-256 do codigo
+   normalizado e gravado; o texto claro so existe na resposta da ativacao ou
+   da regeneracao, uma unica vez.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.CodigosDeRecuperacaoMfa
+(
+    Id           UNIQUEIDENTIFIER NOT NULL,
+    TenantId     UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId  UNIQUEIDENTIFIER NOT NULL,
+    HashDoCodigo CHAR(64)         NOT NULL,
+
+    -- Nulo enquanto disponivel. Consumo e atomico e definitivo.
+    UsadoEm      DATETIME2(3)     NULL,
+    CriadoEm     DATETIME2(3)     NOT NULL,
+    AtualizadoEm DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_CodigosDeRecuperacaoMfa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_CodigosDeRecuperacaoMfa_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_CodigosDeRecuperacaoMfa_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_CodigosDeRecuperacaoMfa_Atendente_Hash
+    ON dbo.CodigosDeRecuperacaoMfa (AtendenteId, HashDoCodigo);
+GO
+
+/* -----------------------------------------------------------------------------
+   15. EventosDeSeguranca — trilha append-only de fatos de seguranca de MFA
+   -----------------------------------------------------------------------------
+   Mesmo padrao de CanalWhatsappConexoes: existe para a tela (e uma
+   investigacao) responderem "o que aconteceu e quando" sem depender do log do
+   servidor. NUNCA grava segredo, codigo, ticket, senha ou desafio — so o
+   FATO. Isto vale tambem para Motivo, texto livre digitado por um humano numa
+   acao administrativa, nunca preenchido a partir de dado sensivel.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.EventosDeSeguranca
+(
+    Id               UNIQUEIDENTIFIER NOT NULL,
+    TenantId         UNIQUEIDENTIFIER NOT NULL,
+
+    -- De quem este evento fala — a conta afetada.
+    AtendenteId      UNIQUEIDENTIFIER NOT NULL,
+
+    -- Quem executou, quando foi OUTRO atendente (reset, ativacao de politica).
+    -- Nulo quando o proprio alvo agiu sobre si mesmo.
+    AtorAtendenteId  UNIQUEIDENTIFIER NULL,
+
+    -- Identidade de quem agiu FORA do sistema (acesso SSH que rodou a
+    -- ferramenta de bootstrap, ou break-glass). So identidade, nunca motivo.
+    AtorExterno      NVARCHAR(120)    NULL,
+
+    -- 1 MfaAtivado, 2 MfaDesativado, 3 CodigoDeRecuperacaoUsado,
+    -- 4 CodigosDeRecuperacaoRegenerados, 5 ResetAdministrativo,
+    -- 6 ResetDeEmergencia, 7 BloqueioDeMfaPorFalhas,
+    -- 8 TicketDeMatriculaEmitido, 9 TicketDeBootstrapEmitido,
+    -- 10 PoliticaDeMfaAtivada, 11 TicketDeRematriculaReemitido (migration 037)
+    Tipo             TINYINT          NOT NULL,
+
+    OcorridoEm       DATETIME2(3)     NOT NULL,
+    IpDeOrigem       VARCHAR(45)      NULL,
+    Motivo           NVARCHAR(400)    NULL,
+    CriadoEm         DATETIME2(3)     NOT NULL,
+    AtualizadoEm     DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_EventosDeSeguranca PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_EventosDeSeguranca_Tenants FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_EventosDeSeguranca_Atendentes FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_EventosDeSeguranca_Tipo CHECK (Tipo BETWEEN 1 AND 11)
+);
+GO
+
+CREATE INDEX IX_EventosDeSeguranca_Tenant_Ocorrido ON dbo.EventosDeSeguranca (TenantId, OcorridoEm);
+CREATE INDEX IX_EventosDeSeguranca_Atendente ON dbo.EventosDeSeguranca (AtendenteId);
+GO
+
+/* -----------------------------------------------------------------------------
+   16. DispositivosConfiaveis — "confiar neste dispositivo por 30 dias" (SEC-03)
+   -----------------------------------------------------------------------------
+   Uma linha por NAVEGADOR que aceitou a opcao no segundo fator do login, nunca
+   por conta. Guarda so o HASH do token opaco entregue como cookie HttpOnly.
+
+   TokenVersionNoRegistro e a mesma tecnica de DesafiosDeMfa.TokenVersionNoDesafio:
+   snapshot de Atendentes.TokenVersion na concessao, reconferido a cada uso —
+   troca de senha, reset/desativacao/troca de MFA, break-glass e mudanca de
+   Perfil/Cargo/Ativo ja sobem essa versao e invalidam o dispositivo sozinhos.
+
+   ExpiraEm e fixo desde a concessao; a rotacao do hash a cada uso nunca o
+   estende. A SENHA continua obrigatoria em todo login — so o segundo fator e
+   dispensado. Ver migration 038 e Modules/Usuarios/README.md.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.DispositivosConfiaveis
+(
+    Id                     UNIQUEIDENTIFIER NOT NULL,
+    TenantId               UNIQUEIDENTIFIER NOT NULL,
+    AtendenteId            UNIQUEIDENTIFIER NOT NULL,
+    HashDoToken            CHAR(64)         NOT NULL,
+    TokenVersionNoRegistro INT              NOT NULL,
+    ExpiraEm               DATETIME2(3)     NOT NULL,
+    RevogadoEm             DATETIME2(3)     NULL,
+    UltimoUsoEm            DATETIME2(3)     NULL,
+    IpDeOrigem             VARCHAR(45)      NULL,
+    CriadoEm               DATETIME2(3)     NOT NULL,
+    AtualizadoEm           DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_DispositivosConfiaveis PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_DispositivosConfiaveis_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_DispositivosConfiaveis_Atendentes
+        FOREIGN KEY (AtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE UNIQUE INDEX UQ_DispositivosConfiaveis_Hash
+    ON dbo.DispositivosConfiaveis (HashDoToken);
+
+CREATE INDEX IX_DispositivosConfiaveis_Atendente_Ativos
+    ON dbo.DispositivosConfiaveis (AtendenteId)
+    WHERE RevogadoEm IS NULL;
+GO
+
+/* -----------------------------------------------------------------------------
+   17. ConhecimentosDeIa — conhecimento aprovado, por servico/tema, para a IA
+   -----------------------------------------------------------------------------
+   Cadastrado por um humano com permissao de gerir cadastros; a IA nunca
+   escreve aqui. Diferente de RespostasRapidas (atalho de digitacao do
+   atendente), este cadastro e consumido por MontadorDeContexto no grounding
+   da IA, com vinculo opcional a um TipoServico, categoria livre (Tema),
+   vigencia opcional e numero de versao. Ver migration 039.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.ConhecimentosDeIa
+(
+    Id                       UNIQUEIDENTIFIER NOT NULL,
+    TenantId                 UNIQUEIDENTIFIER NOT NULL,
+    Titulo                   NVARCHAR(160)    NOT NULL,
+    Conteudo                 NVARCHAR(2000)   NOT NULL,
+    Tema                     NVARCHAR(80)     NOT NULL,
+    TipoServicoId            UNIQUEIDENTIFIER NULL,
+    VigenteDesde             DATE             NULL,
+    VigenteAte               DATE             NULL,
+    Versao                   INT              NOT NULL CONSTRAINT DF_ConhecimentosDeIa_Versao DEFAULT (1),
+    CriadoPorAtendenteId     UNIQUEIDENTIFIER NULL,
+    AtualizadoPorAtendenteId UNIQUEIDENTIFIER NULL,
+    Ativo                    BIT              NOT NULL CONSTRAINT DF_ConhecimentosDeIa_Ativo DEFAULT (1),
+    CriadoEm                 DATETIME2(3)     NOT NULL,
+    AtualizadoEm             DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_ConhecimentosDeIa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_TiposServico
+        FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Atendentes_CriadoPor
+        FOREIGN KEY (CriadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT FK_ConhecimentosDeIa_Atendentes_AtualizadoPor
+        FOREIGN KEY (AtualizadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_ConhecimentosDeIa_Vigencia
+        CHECK (VigenteDesde IS NULL OR VigenteAte IS NULL OR VigenteDesde <= VigenteAte)
+);
+GO
+
+CREATE INDEX IX_ConhecimentosDeIa_Tenant_Ativo
+    ON dbo.ConhecimentosDeIa (TenantId, Ativo);
+GO
+
+/* -----------------------------------------------------------------------------
+   18. HistoricoDeConhecimentosDeIa — trilha de versoes. So cresce.
+   -----------------------------------------------------------------------------
+   Snapshot de um ConhecimentoDeIa tirado imediatamente ANTES de cada edicao —
+   mesmo espirito de HistoricoEtapas. E o que torna o conhecimento
+   "inspecionavel e corrigivel": a edicao grava aqui o estado que estava
+   valendo antes de sobrescrever o registro vivo.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.HistoricoDeConhecimentosDeIa
+(
+    Id                     UNIQUEIDENTIFIER NOT NULL,
+    TenantId               UNIQUEIDENTIFIER NOT NULL,
+    ConhecimentoDeIaId     UNIQUEIDENTIFIER NOT NULL,
+    Versao                 INT              NOT NULL,
+    Titulo                 NVARCHAR(160)    NOT NULL,
+    Conteudo               NVARCHAR(2000)   NOT NULL,
+    Tema                   NVARCHAR(80)     NOT NULL,
+    TipoServicoId          UNIQUEIDENTIFIER NULL,
+    VigenteDesde           DATE             NULL,
+    VigenteAte             DATE             NULL,
+    Ativo                  BIT              NOT NULL,
+    AlteradoPorAtendenteId UNIQUEIDENTIFIER NULL,
+    OcorridoEm             DATETIME2(3)     NOT NULL,
+    CriadoEm               DATETIME2(3)     NOT NULL,
+    AtualizadoEm           DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_HistoricoDeConhecimentosDeIa PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_ConhecimentosDeIa
+        FOREIGN KEY (ConhecimentoDeIaId) REFERENCES dbo.ConhecimentosDeIa (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_TiposServico
+        FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
+    CONSTRAINT FK_HistoricoDeConhecimentosDeIa_Atendentes
+        FOREIGN KEY (AlteradoPorAtendenteId) REFERENCES dbo.Atendentes (Id)
+);
+GO
+
+CREATE INDEX IX_HistoricoDeConhecimentosDeIa_Conhecimento_Versao
+    ON dbo.HistoricoDeConhecimentosDeIa (ConhecimentoDeIaId, Versao);
 GO
 
 PRINT 'Schema da Fase 1 criado.';

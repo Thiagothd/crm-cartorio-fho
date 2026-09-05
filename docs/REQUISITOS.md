@@ -244,28 +244,32 @@ confirmar ou trocar.
 
 ### 5.8 Triagem continua ativa depois de um atendente assumir
 
-**Comportamento atual, encontrado em teste manual e mantido de propósito** —
-registrado aqui para o cartório parceiro decidir, não para ser corrigido por nossa conta.
+**Status em 2026-08-26: resolvido como efeito colateral da correção do
+BUG-ATD-01 (Human Takeover), não por uma decisão de atendimento tomada com o
+cartório parceiro.** Registrado aqui do mesmo jeito — para ele saber que o comportamento
+mudou e confirmar que o resultado é o que ele preferiria.
 
-| # | Pergunta em aberto |
+| # | Pergunta em aberto (histórico) |
 | --- | --- |
-| 20 | Um atendente assume a conversa manualmente enquanto o menu de triagem está no ar. O cliente então responde algo que não corresponde a nenhum setor. **Hoje o sistema dispara a mensagem "vou te encaminhar para um de nossos atendentes"** — mesmo já havendo um atendente com a conversa na mão |
+| 20 | Um atendente assume a conversa manualmente enquanto o menu de triagem está no ar. O cliente então responde algo que não corresponde a nenhum setor. **Antes do BUG-ATD-01, o sistema disparava a mensagem "vou te encaminhar para um de nossos atendentes"** mesmo já havendo um atendente com a conversa na mão. |
 
-**Por que não corrigimos direto.** Os dois comportamentos são defensáveis e a
-escolha é de atendimento, não de código:
+**O que mudou e por quê.** `Conversa.EmAtendimentoHumano` (ver
+`src/backend/CrmCartorio.Api/Modules/Atendimento/README.md`, seção "Human
+Takeover") passou a ser a condição verificada ANTES de qualquer automação
+conversacional — inclusive antes de `AplicadorDeTriagem`. Um atendente que
+assume a conversa liga esse campo, e a partir daí nenhuma automação reage a
+mensagem do cliente, o que resolve esta pergunta como a segunda opção
+("suprimir quando já há responsável") — a mesma que já valia para `SetorId`
+definido, agora estendida para `AtendenteId` também, sem precisar de uma
+linha dedicada em `ResponderTriagemAsync`.
 
-- **Manter como está:** o cliente escreveu algo fora do menu e recebe uma
-  confirmação de que foi ouvido. Do lado dele, nada mudou — ele não sabe que
-  alguém assumiu a conversa nos bastidores.
-- **Suprimir quando já há responsável:** a mensagem promete um encaminhamento que
-  já aconteceu, e um atendente lendo o fio vê o sistema dizendo que vai fazer o
-  que ele já fez.
-
-> Existe precedente para a segunda opção: quando o **setor** já foi definido, a
-> triagem se cala em silêncio, exatamente com esse raciocínio. Estender a mesma
-> regra para "já tem responsável" seria uma linha em `ResponderTriagemAsync` —
-> mas seria nossa decisão sobre como o cartório fala com o cliente, e essas ficam
-> com o cartório parceiro.
+**Isto não foi uma escolha deliberada sobre como o cartório fala com o
+cliente** — foi consequência de fechar um bug de produto mais grave (a IA
+respondendo por cima de atendimento humano já em curso). Se o cartório parceiro preferir
+o comportamento antigo especificamente para este caso (triagem sem
+correspondência com atendente já na conversa, MAS sem pedido explícito de
+humano), isso exigiria reabrir uma exceção pontual — não fica implícito
+que a decisão anterior foi revista.
 
 **A decisão que importa — automático ou manual, por aviso:**
 

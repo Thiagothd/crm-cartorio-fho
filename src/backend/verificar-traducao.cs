@@ -250,6 +250,15 @@ Checar("Disparador: regras de gatilho de etapa", () =>
         .Select(m => m.Conteudo)
         .ToQueryString());
 
+Checar("Disparador: modelos ativos do gatilho EncerramentoPeloAtendente (sem filtro de etapa)", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.Ativo
+                 && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
+        .OrderBy(m => m.CriadoEm)
+        .Select(m => m.Conteudo)
+        .ToQueryString());
+
 Checar("Disparador: setores do menu de triagem", () =>
     db.Setores.AsNoTracking()
         .Where(s => s.TenantId == tenantId && s.Ativo)
@@ -650,7 +659,7 @@ Checar("Canal WhatsApp: historico de conexoes com nome do atendente (subconsulta
         })
         .ToQueryString());
 
-Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de EnviadorPeloWhatsApp)", () =>
+Checar("Canal WhatsApp: envio — projecao completa do alvo (identica a EnviadorPeloWhatsApp.EnviarAsync)", () =>
     db.Mensagens.AsNoTracking()
         .Where(m => m.Id == Guid.Empty)
         .Select(m => new
@@ -658,6 +667,16 @@ Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de 
             m.Id,
             m.Conteudo,
             m.StatusEntrega,
+            m.ArquivoCaminho,
+            m.ArquivoNome,
+            m.ArquivoTipoMime,
+            m.AutorTipo,
+            m.EhAutomatica,
+            m.GeradaPorIa,
+            AtendenteNome = db.Atendentes
+                .Where(a => a.Id == m.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefault(),
             Canal = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.Canal).FirstOrDefault(),
             TenantId = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.TenantId).FirstOrDefault(),
             Telefone = db.Conversas
@@ -687,24 +706,29 @@ Checar("Inatividade: tenants com o recurso configurado (projecao de nulavel com 
         })
         .ToQueryString());
 
-Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; SLA nao bloqueia mais)", () =>
+Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; ultima mensagem nao e do cliente via subconsulta)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm == null
                  && c.UltimaMensagemEm < agora.AddMinutes(-20)
                  && c.Canal == CanalOrigem.WhatsApp
-                 && c.MensagensNaoLidas == 0)
+                 && db.Mensagens
+                        .Where(m => m.ConversaId == c.Id)
+                        .OrderByDescending(m => m.EnviadaEm)
+                        .Select(m => m.AutorTipo)
+                        .FirstOrDefault() != AutorTipo.Cliente)
         .OrderBy(c => c.UltimaMensagemEm)
         .Take(200)
         .ToQueryString());
 
-Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta", () =>
+Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAtendimentoHumano, BUG-ATD-01)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm != null
-                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30))
+                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30)
+                 && !c.EmAtendimentoHumano)
         .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
         .Take(200)
         .ToQueryString());
@@ -714,6 +738,14 @@ Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilh
         .Where(m => m.TenantId == tenantId
                  && m.Ativo
                  && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
+        .ToQueryString());
+
+// --- Human Takeover / BUG-ATD-01 (028) --------------------------------------
+
+Checar("EmAtendimentoHumano: recheck pos-IA em AplicadorDeRespostaInteligente (projecao de bool unico)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.Id == tenantId)
+        .Select(c => c.EmAtendimentoHumano)
         .ToQueryString());
 
 // --- Pedido de nome (025) ---------------------------------------------------

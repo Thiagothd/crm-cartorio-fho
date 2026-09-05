@@ -34,6 +34,7 @@ public class GeradorDeToken(IOptions<OpcoesDeJwt> opcoes) : IGeradorDeToken
                 new Claim(ClaimsDoAtendente.TenantId, atendente.TenantId.ToString()),
                 new Claim(ClaimsDoAtendente.Nome, atendente.Nome),
                 new Claim(ClaimsDoAtendente.Perfil, atendente.Perfil.ToString()),
+                new Claim(ClaimsDoAtendente.TokenVersion, atendente.TokenVersion.ToString()),
                 new Claim(ClaimTypes.NameIdentifier, atendente.Id.ToString()),
                 new Claim(ClaimTypes.Name, atendente.Nome),
                 new Claim(ClaimTypes.Email, atendente.Email),

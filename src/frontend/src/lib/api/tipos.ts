@@ -33,7 +33,7 @@ export type AutorTipo = 'Cliente' | 'Atendente' | 'Sistema'
 
 export type TipoMensagem = 'Texto' | 'Imagem' | 'Documento' | 'Audio' | 'Video'
 
-export type StatusEntrega = 'Pendente' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
+export type StatusEntrega = 'Pendente' | 'Enviando' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
 
 export type SituacaoPrazo = 'SemPrazo' | 'EmDia' | 'EmAlerta' | 'Atrasada'
 
@@ -57,6 +57,7 @@ export type GatilhoDeMensagem =
   | 'ConfirmacaoDeEncerramento'
   | 'EncerramentoPorInatividade'
   | 'PedidoDeNome'
+  | 'EncerramentoPeloAtendente'
 
 /**
  * Encerramento automático de conversa parada.
@@ -128,6 +129,62 @@ export interface Sessao {
   expiraEm: string
   atendente: Atendente
   tenant: Tenant
+}
+
+// MFA (SEC-03) ----------------------------------------------------------------
+
+/** Tipo do desafio de MFA — decide qual tela a etapa 2 mostra. */
+export type TipoDeDesafioMfa = 'SegundoFator' | 'MatriculaPrivilegiada' | 'Ticket'
+
+export interface DesafioMfa {
+  /** O DESAFIO em si — a credencial da etapa 2. Nunca um JWT. */
+  desafio: string
+  tipo: TipoDeDesafioMfa
+  expiraEm: string
+}
+
+/**
+ * Resposta única da etapa 1 do login. `requerMfa` decide qual dos dois campos
+ * está preenchido — nunca os dois, nunca nenhum.
+ */
+export interface LoginEtapa1Resposta {
+  requerMfa: boolean
+  sessao: Sessao | null
+  desafio: DesafioMfa | null
+}
+
+export interface IniciarMfaResposta {
+  /** URI `otpauth://` — vira o QR Code, renderizado no navegador (o segredo nunca sai daqui). */
+  otpauthUri: string
+  /** Para quem prefere digitar manualmente em vez de escanear. */
+  segredoBase32: string
+  expiraEm: string
+}
+
+export interface ConfirmarMfaResposta {
+  sessao: Sessao
+  /** Os 10 códigos em texto — mostrados UMA única vez nesta resposta. */
+  codigosDeRecuperacao: string[]
+}
+
+export interface RegenerarCodigosResposta {
+  codigosDeRecuperacao: string[]
+}
+
+export interface MfaSituacao {
+  ativo: boolean
+  /** A política da serventia exige MFA para este perfil/cargo — quando true, `/mfa/desativar` é recusado. */
+  obrigatorio: boolean
+  /** `null` quando o MFA não está ativo. */
+  codigosDeRecuperacaoRestantes: number | null
+  confirmadoEm: string | null
+  /** Quantos navegadores têm "confiar por 30 dias" ativo agora — 0 esconde a ação de esquecer. */
+  dispositivosConfiaveisAtivos: number
+}
+
+export interface TicketDeMfa {
+  ticket: string
+  expiraEm: string
 }
 
 // Atendimento ---------------------------------------------------------------
@@ -574,6 +631,39 @@ export interface RespostaRapida {
   ativo: boolean
 }
 
+// Conhecimento de IA ----------------------------------------------------------
+
+export interface ConhecimentoDeIa {
+  id: string
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoId: string | null
+  tipoServicoNome: string | null
+  /** Datas ISO ("AAAA-MM-DD"). Nulo = sem limite. */
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  versao: number
+  criadoPorNome: string | null
+  atualizadoPorNome: string | null
+  ativo: boolean
+  criadoEm: string
+  atualizadoEm: string
+}
+
+export interface VersaoDeConhecimentoDeIa {
+  versao: number
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoNome: string | null
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  ativo: boolean
+  alteradoPorNome: string | null
+  ocorridoEm: string
+}
+
 // Servicos ------------------------------------------------------------------
 
 export interface PrazoServico {
@@ -861,10 +951,67 @@ export interface AlertaOperacional {
   rota: string
 }
 
+/** `Disponivel`, `Contingencia`, `SemChave` ou `TetoDiarioAtingido`. */
+export type StatusDoProvedorDeIa = 'Disponivel' | 'Contingencia' | 'SemChave' | 'TetoDiarioAtingido'
+
+export interface EstadoDoProvedorDeIa {
+  nome: string
+  modelo: string
+  configurado: boolean
+  status: StatusDoProvedorDeIa
+  voltaATentarEm: string | null
+  motivo: string | null
+}
+
+export interface FranquiaDoGemini {
+  limitesCadastrados: boolean
+  limiteRpd: number | null
+  requisicoesHoje: number
+  limiteRpm: number | null
+  requisicoesNaJanela: number
+  limiteTpm: number | null
+  tokensNaJanela: number
+  percentualDeSeguranca: number
+  sugestaoDeLimiteRpd: number | null
+}
+
+export interface HojeDaIa {
+  totalDeChamadas: number
+  atendidasPeloGemini: number
+  caidasNoHaiku: number
+  percentualGratuito: number
+  custoEstimadoHaikuReais: number
+  tokensDoGemini: number
+}
+
+export interface MotivosDeFallback {
+  quota: number
+  rateLimit: number
+  indisponibilidade: number
+  configuracao: number
+  outros: number
+}
+
+export interface EconomiaDaIa {
+  custoRealHaikuReais: number
+  custoSeFosseTudoHaikuReais: number
+  economiaEstimadaReais: number
+  percentualDeEconomia: number
+}
+
 export interface SituacaoDaIa {
   habilitada: boolean
   estaConfigurada: boolean
-  modelo: string
+  gemini: EstadoDoProvedorDeIa
+  anthropic: EstadoDoProvedorDeIa
   limiteDiario: number
-  usadoHoje: number
+  usadoHojeGeral: number
+  limiteDiarioHaiku: number
+  usadoHojeHaiku: number
+  franquia: FranquiaDoGemini
+  hoje: HojeDaIa
+  motivosDeFallback: MotivosDeFallback
+  economia: EconomiaDaIa
+  periodoDe: string
+  periodoAte: string
 }

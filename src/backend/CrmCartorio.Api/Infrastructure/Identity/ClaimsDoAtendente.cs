@@ -10,4 +10,10 @@ public static class ClaimsDoAtendente
     public const string TenantId = "tenant_id";
     public const string Nome = "nome";
     public const string Perfil = "perfil";
+
+    /// <summary>
+    /// SEC-01: versao de TokenVersion (Modules/Usuarios/Domain/Entities/Atendente.cs)
+    /// no instante da emissao.
+    /// </summary>
+    public const string TokenVersion = "token_version";
 }

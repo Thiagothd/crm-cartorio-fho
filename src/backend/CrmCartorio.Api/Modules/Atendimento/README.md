@@ -31,6 +31,121 @@ cliente recebe respostas contraditórias. Este módulo trata isso em três camad
 `MensagemService.EnviarAsync` fecha o cerco do outro lado: quem não é o
 responsável não escreve.
 
+## Human Takeover — a IA nunca responde por cima de um atendente
+
+A trava acima protege atendente × atendente. Até 2026-08-26 não existia
+proteção equivalente para atendente × automação: um cliente que já tinha um
+humano cuidando da conversa continuava recebendo respostas da IA (ou do bot
+de menu) por cima dele — **BUG-ATD-01**, reproduzido ao vivo em `testecrm`.
+
+A causa raiz: nenhum ponto do despacho de mensagem do cliente
+(`RecebimentoDeWhatsApp.ReceberAsync`, `MensagemService.SimularRecebimentoAsync`)
+olhava `Conversa.AtendenteId` antes de decidir chamar automação — a decisão
+era só pelas flags `Aguardando*`, com um piso (`AplicadorDePosAtendimento`)
+desenhado de propósito para nunca deixar mensagem sem resposta. E
+`AtendenteId` sozinho não bastaria mesmo que fosse checado:
+`ConversaService.LiberarAsync` zera esse campo para devolver a conversa à
+fila, mas a conversa continua devendo humano, não devendo bot.
+
+**`Conversa.EmAtendimentoHumano`** é o campo que resolve a ambiguidade — ver
+o XML-doc da propriedade para a lista completa de quando liga/desliga. Regra
+central: liga assim que o cliente pede atendente OU um atendente assume
+(o que vier primeiro), e só desliga no encerramento — nunca em
+`LiberarAsync` nem `TransferirAsync`.
+
+Um único gate, no topo de cada cadeia de despacho (antes de QUALQUER flag,
+inclusive antes de "menu"/`AguardandoTriagem`): se `EmAtendimentoHumano` é
+verdadeiro, nenhum `Aplicador*` é chamado — a mensagem é só persistida
+(já aconteceu antes do gate), `UltimaMensagemEm`/`MensagensNaoLidas`
+continuam atualizando normalmente, e o SignalR continua dis­parando. A única
+exceção é `PerguntaDeEncerramentoEnviadaEm`: se havia uma pendente, a
+mensagem do cliente ainda conta como prova de vida e limpa o carimbo — mesmo
+princípio já usado em `MensagemService.ConcluirEnvioAsync` quando o
+ATENDENTE responde.
+
+**Corrida de IA "em voo":** a chamada à IA pode levar segundos; um atendente
+pode assumir nesse meio-tempo.
+`AplicadorDeRespostaInteligente.AplicarAsync` relê `EmAtendimentoHumano`
+(leitura fresca, fora do change tracker) logo depois que a IA responde e
+antes de gravar — se mudou nesse intervalo, descarta a resposta em vez de
+entregá-la. Prova sob concorrência real em `verificar-concorrencia.cs`
+(Teste 4).
+
+`VarredorDeInatividade.EncerrarSemRespostaAsync` (fase 2) também respeita o
+modo humano — filtra `!EmAtendimentoHumano` no WHERE, para não encerrar
+sozinha uma conversa que um atendente está respondendo (ou que está na fila
+humana, aguardando outro). A fase 1 (a pergunta "ainda está aí?") **não**
+foi alterada — continua saindo mesmo com atendente na conversa; é decisão de
+produto separada, registrada em `docs/REQUISITOS.md` §5.8.
+
+As flags `Aguardando*` **não são zeradas** ao entrar em modo humano — ficam
+congeladas no valor que tinham no instante do takeover, porque o gate as
+torna irrelevantes enquanto `EmAtendimentoHumano` for verdadeiro. Só são
+zeradas no encerramento (`ConversaService.EncerrarAsync`, espelhando
+`AplicadorDePosAtendimento.EncerrarPeloCliente`), que é fronteira de ciclo de
+vida, não de takeover.
+
+Efeito colateral bem-vindo: como o gate intercepta antes de
+`AplicadorDeTriagem`, o caso registrado em `docs/REQUISITOS.md` §5.8 original
+(triagem reagindo com atendente já na conversa) deixou de acontecer — mesmo
+sem nenhuma mudança específica naquele arquivo.
+
+## Entrada WhatsApp durável e ordenada
+
+O webhook não mantém mais a mensagem recebida na mesma transação das
+automações. `RecebimentoDeWhatsApp` faz uma aceitação curta: resolve
+cliente/conversa, insere a `Mensagem` como `Pendente`, incrementa
+`MensagensNaoLidas` atomicamente, avança `UltimaMensagemEm` somente quando o
+novo instante é maior e confirma a transação. Depois disso o HTTP pode terminar;
+IA, Evolution e SignalR não seguram essa transação.
+
+`ProcessadorDeEntradaWhatsapp` consome a fila persistida em `Mensagens`. Quatro
+workers locais dão paralelismo entre conversas, mas um `sp_getapplock` exclusivo
+por `ConversaId` serializa as transições da mesma conversa no SQL Server. O lock
+é por sessão, não por transação: funciona entre processos IIS e é liberado pelo
+próprio SQL quando uma conexão morre, sem manter transação aberta durante IA ou
+Evolution.
+
+Dentro da conversa, a ordem é `EnviadaEm` e `Id`. A entrada anterior precisa
+estar `Processada` antes de a posterior adquirir claim. `Processando` antigo e
+`Falha` cujo prazo chegou podem ser retomados; a varredura a cada cinco segundos
+reencontra mensagens mesmo depois de reciclagem do IIS. O canal em memória só
+reduz a latência — nunca é a fonte da verdade.
+
+Uma falha é retentada no máximo **seis vezes**, com backoff de 1, 2, 4, 8, 16 e
+32 minutos. Na sexta falha ela permanece em `Falha`, sem horário de nova
+disponibilidade e com o prefixo `FALHA TERMINAL` no diagnóstico; o processador
+emite `LogCritical`, não tenta novamente e não deixa entradas posteriores
+ultrapassarem a mensagem problemática. A saída operacional é intervenção humana
+na conversa e no erro registrado — a mensagem recebida nunca é apagada nem é
+marcada como processada com sucesso.
+
+Antes de gravar automação, o worker confronta o estado atual da conversa com o
+snapshot que carregou. Só rebasa o `RowVersion` quando a diferença é limitada a
+`MensagensNaoLidas`, `UltimaMensagemEm`, `AtualizadoEm` e ao próprio token,
+efeitos técnicos da aceitação de outra entrada. Qualquer mudança de negócio —
+status, takeover, atendente, etapa, setor, serviço, flags ou ciclo de
+encerramento/reabertura — descarta todo o `ChangeTracker` da automação e conclui
+somente a entrada recebida. Assim uma IA lenta não sobrescreve decisão humana nem
+deixa alterações colaterais em cliente, histórico ou mensagens automáticas.
+
+Há no máximo uma conversa ativa por cliente, tenant e canal. A regra global
+anterior vinha da Fase 1, quando `Simulado` era o único canal. Agora `Simulado`
+continua isolado como demonstração: uma entrada WhatsApp nunca o reutiliza nem o
+promove, pois isso poderia liberar mensagens antigas no gateway real. O índice
+`UQ_Conversas_Tenant_Cliente_Canal_Ativa` impede que duas primeiras mensagens
+simultâneas do WhatsApp abram dois protocolos ativos; o mesmo cliente pode ter
+em paralelo uma conversa Simulada, que permanece fora do envio real. Colisão de
+telefone, conversa ativa ou protocolo repete somente a transação curta, antes de
+qualquer efeito externo. O índice IA-03 (`TenantId + IdExternoWhatsapp`,
+filtrado para cliente) continua decidindo reentregas: o mesmo ID produz uma
+mensagem lógica e um processamento lógico.
+
+Há uma janela residual inevitável para IA sem chave idempotente: se o processo
+morrer depois de o provedor responder e antes de persistir a resposta, a retomada
+pode chamar o provedor outra vez. Evolution continua protegido separadamente pelo
+claim WA-OUT-01; a resposta automática é persistida antes do envio.
+
 ## Decisões que parecem estranhas mas não são
 
 - **Mensagem de sistema não move a conversa na inbox.** `UltimaMensagemEm` só é
@@ -57,9 +172,10 @@ responsável não escreve.
 | `AplicadorDeEncerramentoPorInatividade` | Interpreta a resposta do cliente à pergunta pendente |
 
 - **O disparador enfileira, não grava.** As mensagens entram no `DbContext` e quem
-  chamou decide o `SaveChanges`. É o que põe a mensagem de boas-vindas na mesma
-  transação que cria a conversa e gera o protocolo — gravando por conta própria, um
-  erro depois deixaria uma boas-vindas órfã apontando para conversa inexistente.
+  chamou decide o `SaveChanges`. No webhook durável, cliente/conversa/entrada já
+  foram confirmados antes; o processador grava a resposta automática e a transição
+  de estado juntas, e só então chama o canal. Nos fluxos interativos continua
+  valendo a transação definida por quem chamou.
 - **O disparador não conhece `IContextoDoUsuario`.** O tenant vem da conversa. Sem
   isso, o varredor — que roda em serviço de fundo, sem requisição HTTP nem token —
   não conseguiria usá-lo. Pelo mesmo motivo o varredor projeta com
@@ -101,16 +217,39 @@ responsável não escreve.
   `PediuMenu` (que usam `Contains` porque errar ali custa uma mensagem a
   mais). Errar aqui fecharia o atendimento: "assim" contém "sim".
 - **Guardas na fase 1** (perguntar): `Canal == WhatsApp` (protege a base de
-  demonstração), `MensagensNaoLidas == 0` (não pergunta "quer encerrar?"
-  quando o cartório ainda deve resposta) e `UltimaMensagemEm` capturado no
-  `WHERE` do `ExecuteUpdateAsync` (corrida com o webhook — 0 linhas afetadas
-  = o varredor perde a corrida em silêncio, em vez de colidir com o
-  `SaveChanges` do webhook). **Não** olha `PrazoLimite`/SLA — guarda removida
-  em 2026-08-23: como a maioria dos serviços tem SLA cadastrado, a versão
-  original ficava presa pelos dias inteiros do prazo sempre que o cliente
-  escolhia um serviço, e nunca fechava se ele sumisse nesse meio tempo.
-  Encerrar é soft-close (o protocolo não desaparece); só o canal de WhatsApp
-  fecha, não o atendimento offline do ato.
+  demonstração), a **última mensagem do fio não é do cliente** (não pergunta
+  "quer encerrar?" quando o cartório ainda deve resposta) e `UltimaMensagemEm`
+  capturado no `WHERE` do `ExecuteUpdateAsync` (corrida com o webhook — 0
+  linhas afetadas = o varredor perde a corrida em silêncio, em vez de colidir
+  com o `SaveChanges` do webhook). **Não** olha `PrazoLimite`/SLA — guarda
+  removida em 2026-08-23: como a maioria dos serviços tem SLA cadastrado, a
+  versão original ficava presa pelos dias inteiros do prazo sempre que o
+  cliente escolhia um serviço, e nunca fechava se ele sumisse nesse meio
+  tempo. Encerrar é soft-close (o protocolo não desaparece); só o canal de
+  WhatsApp fecha, não o atendimento offline do ato.
+- **A guarda de "devendo resposta" olha o autor da última mensagem, não
+  `MensagensNaoLidas`.** Até 2026-09-03 usava `MensagensNaoLidas == 0`, que
+  mede "nenhum humano abriu no CRM" — não "o cartório não deve resposta". O
+  contador só zera quando um humano abre a conversa, o cliente encerra ou a
+  própria varredura fecha; **a IA responder não zera**. Resultado: toda
+  conversa atendida inteiramente pela IA, sem humano nunca abrir — o caso mais
+  comum num canal com IA na frente — ficava presa para sempre e nunca entrava
+  na varredura. Corrigido com uma subconsulta em `Mensagens` (última
+  `EnviadaEm` da conversa, dentro do lote de 200) comparando `AutorTipo`.
+- **`ConversaService.EncerrarAsync` avisa o cliente desde 2026-09-04 — gatilho
+  próprio (`EncerramentoPeloAtendente`), não `Despedida`.** Era o único dos
+  quatro caminhos de encerramento que fechava em silêncio. Envia **só a
+  mensagem gerada** (`canal.EnviarAsync` por id), nunca
+  `canal.EnviarPendentesAsync`: aquele método drena toda automática parada na
+  conversa, e uma conversa antiga pode ter backlog de semanas (menu de
+  continuação, boas-vindas presas por canal caído) — despejar isso junto da
+  despedida faria o cliente responder a um menu morto e reabrir um
+  atendimento fantasma no exato momento em que este foi fechado.
+  `VarredorDeInatividade` continua drenando a fila de propósito: lá quem
+  dispara é um relógio que só chega à fase 2 depois de a fase 1 já ter
+  perguntado; aqui é uma pessoa que pode encerrar qualquer conversa a
+  qualquer momento. Guardado por `Canal == WhatsApp`, mesmo cuidado da
+  varredura — conversa simulada não gera nada.
 
 ## Fronteiras
 
@@ -120,8 +259,9 @@ mensagem automática são cadastro de `Configuracoes`; lê-las aqui segue essa m
 fronteira.
 
 `INotificadorDeAtendimento` é porta deste slice; o adaptador SignalR vive em
-`Infrastructure/Realtime`. `IVarredorDePrazos` e `IVarredorDeInatividade` são
-chamados por um `BackgroundService` cada, em `Infrastructure/Automacao`, que é só
-relógio e escopo — a regra fica aqui. Os quatro campos de configuração do
+`Infrastructure/Realtime`. `IVarredorDePrazos`, `IVarredorDeInatividade` e
+`IProcessadorDeEntradaWhatsapp` são chamados por hosts em
+`Infrastructure/Automacao`, que contêm apenas relógio, canal local e escopo — a
+regra e o estado durável ficam aqui. Os quatro campos de configuração do
 encerramento automático moram em `Tenant` (módulo `Tenants`); ler esse cadastro
 segue a mesma fronteira de ler `Configuracoes`.

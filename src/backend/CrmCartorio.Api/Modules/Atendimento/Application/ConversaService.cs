@@ -16,6 +16,7 @@ public class ConversaService(
     IGeradorDeProtocolo protocolos,
     INotificadorDeAtendimento notificador,
     IDisparadorDeMensagemAutomatica automaticas,
+    IEnviadorDeCanal canal,
     IFilaDeEnvioDoCanal fila,
     ILogger<ConversaService> log) : IConversaService
 {
@@ -260,6 +261,7 @@ public class ConversaService(
         var conversaAberta = await db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId
                      && c.ClienteId == cliente.Id
+                     && c.Canal == CanalOrigem.Simulado
                      && c.Status == StatusConversa.Ativa)
             .Select(c => c.Protocolo)
             .FirstOrDefaultAsync(ct);
@@ -353,8 +355,23 @@ public class ConversaService(
             conversa.AguardandoTriagem = boasVindas.Count > 0;
         }
 
-        await db.SaveChangesAsync(ct);
-        await transacao.CommitAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await transacao.CommitAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            await transacao.RollbackAsync(CancellationToken.None);
+            var protocoloConcorrente = await ObterProtocoloAtivoAsync(
+                tenantId, cliente.Id, CanalOrigem.Simulado, null, CancellationToken.None);
+            if (protocoloConcorrente is not null)
+            {
+                throw AtendimentoServiceException.ClienteJaTemConversaAtiva(protocoloConcorrente);
+            }
+
+            throw;
+        }
 
         var resumo = await ObterResumoAsync(conversa.Id, ct);
         await notificador.ConversaAtualizadaAsync(tenantId, resumo, ct);
@@ -382,6 +399,7 @@ public class ConversaService(
                      && c.Status == StatusConversa.Ativa)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.AtendenteId, atendenteId)
+                .SetProperty(c => c.EmAtendimentoHumano, true)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         if (afetadas == 0)
@@ -460,6 +478,13 @@ public class ConversaService(
         var agora = DateTime.UtcNow;
 
         conversa.AtendenteId = destino.Id;
+
+        // Redundante na pratica — GarantirQuePodeOperarAsync ja exige
+        // AtendenteId != null para chegar aqui, entao EmAtendimentoHumano ja
+        // teria de ser true. Setado explicitamente mesmo assim: defensivo, e
+        // deixa a intencao clara para quem ler este metodo sem o contexto do
+        // BUG-ATD-01.
+        conversa.EmAtendimentoHumano = true;
 
         var texto = string.IsNullOrWhiteSpace(request.Observacao)
             ? $"Conversa transferida por {ctx.Nome} para {destino.Nome}."
@@ -675,11 +700,38 @@ public class ConversaService(
         // resolver aqui.
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
 
+        // Ciclo automatico nao pode vazar para o proximo. Mesmo reset que
+        // AplicadorDePosAtendimento.EncerrarPeloCliente ja faz quando quem
+        // encerra e o proprio cliente pelo menu — ate agora so aquele caminho
+        // fazia isso (o comentario "SE MEXER AQUI, MEXA LA" la avisava
+        // exatamente sobre esta divergencia). Sem isto, uma conversa reaberta
+        // mais tarde podia herdar, por exemplo, AguardandoRespostaInteligente
+        // ligada de um ciclo que ja tinha acabado.
+        conversa.EmAtendimentoHumano = false;
+        conversa.AguardandoTriagem = false;
+        conversa.AguardandoEscolhaDeServico = false;
+        conversa.AguardandoRespostaInteligente = false;
+        conversa.AguardandoMenuDeContinuacao = false;
+        conversa.AguardandoNome = false;
+        conversa.TentativasRespostaInteligente = 0;
+
         var texto = conversa.MotivoEncerramento is null
             ? $"Atendimento encerrado por {ctx.Nome}."
             : $"Atendimento encerrado por {ctx.Nome}. Motivo: {conversa.MotivoEncerramento}";
 
         db.Mensagens.Add(MensagemDeSistema(id, conversa.TenantId, texto, agora));
+
+        // O cliente precisa saber que o atendimento fechou — ate 2026-09-04 este
+        // era o UNICO dos quatro caminhos de encerramento que ficava em silencio
+        // (os outros disparam Despedida ou EncerramentoPorInatividade). Guarda por
+        // canal e obrigatoria: o gate de canal do enviador fica na SAIDA, nao no
+        // enfileiramento (EnviadorPeloWhatsApp), entao sem isto uma conversa da
+        // base de demonstracao acrescentaria ao fio uma automatica eternamente
+        // Pendente a cada encerramento pelo painel — mesmo cuidado documentado em
+        // VarredorDeInatividade sobre nao desmontar a base que o cartório parceiro usa.
+        var geradas = conversa.Canal == CanalOrigem.WhatsApp
+            ? await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.EncerramentoPeloAtendente, ct: ct)
+            : [];
 
         await db.SaveChangesAsync(ct);
 
@@ -687,6 +739,27 @@ public class ConversaService(
 
         var resumo = await ObterResumoAsync(id, ct);
         await notificador.ConversaEncerradaAsync(conversa.TenantId, resumo, ct);
+
+        // Envia SO a(s) mensagem(ns) que acabamos de gerar — nunca
+        // EnviarPendentesAsync. Aquele metodo drena TODA automatica parada da
+        // conversa (menu de continuacao, boas-vindas presas por canal caido ou
+        // numero fora da allowlist), e uma conversa antiga pode ter esse backlog
+        // ha semanas. Despejar isso junto da despedida faria o cliente responder
+        // a um menu morto, reabrindo um atendimento fantasma no exato momento em
+        // que este foi fechado. Diverge de proposito de VarredorDeInatividade
+        // (que drena a fila): la quem dispara e um relogio; aqui e uma pessoa que
+        // nao faz ideia do que esta parado na fila.
+        foreach (var gerada in geradas)
+        {
+            try
+            {
+                await canal.EnviarAsync(gerada.Id, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Conversa {ConversaId} encerrada, mas o aviso ao cliente falhou.", id);
+            }
+        }
 
         return resumo;
     }
@@ -698,6 +771,13 @@ public class ConversaService(
         if (conversa.Status == StatusConversa.Ativa)
         {
             throw AtendimentoServiceException.ConversaJaAtiva();
+        }
+
+        var conversaAberta = await ObterProtocoloAtivoAsync(
+            conversa.TenantId, conversa.ClienteId, conversa.Canal, conversa.Id, ct);
+        if (conversaAberta is not null)
+        {
+            throw AtendimentoServiceException.ClienteJaTemConversaAtiva(conversaAberta);
         }
 
         var agora = DateTime.UtcNow;
@@ -724,10 +804,28 @@ public class ConversaService(
         // conversa reaparecer na fila sem ninguem responsavel por ela.
         conversa.AtendenteId = ctx.AtendenteId;
 
+        // Reabrir e um atendente assumindo, na pratica — o bot nao pode
+        // responder por cima de quem acabou de reabrir a conversa na mao.
+        conversa.EmAtendimentoHumano = true;
+
         db.Mensagens.Add(MensagemDeSistema(
             id, conversa.TenantId, $"Atendimento reaberto por {ctx.Nome}.", agora));
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbUpdateConcurrencyException)
+        {
+            var protocoloConcorrente = await ObterProtocoloAtivoAsync(
+                conversa.TenantId, conversa.ClienteId, conversa.Canal, null, CancellationToken.None);
+            if (protocoloConcorrente is not null)
+            {
+                throw AtendimentoServiceException.ClienteJaTemConversaAtiva(protocoloConcorrente);
+            }
+
+            throw;
+        }
 
         var resumo = await ObterResumoAsync(id, ct);
         await notificador.ConversaReabertaAsync(conversa.TenantId, resumo, ct);
@@ -784,6 +882,22 @@ public class ConversaService(
         await db.Conversas.FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
         ?? throw AtendimentoServiceException.ConversaNaoEncontrada();
 
+    private async Task<string?> ObterProtocoloAtivoAsync(
+        Guid tenantId,
+        Guid clienteId,
+        CanalOrigem canal,
+        Guid? excluirConversaId,
+        CancellationToken ct) =>
+        await db.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId
+                     && c.ClienteId == clienteId
+                     && c.Canal == canal
+                     && c.Status == StatusConversa.Ativa
+                     && (excluirConversaId == null || c.Id != excluirConversaId))
+            .OrderBy(c => c.IniciadaEm)
+            .Select(c => c.Protocolo)
+            .FirstOrDefaultAsync(ct);
+
     private static void GarantirAtiva(Conversa conversa)
     {
         if (conversa.Status != StatusConversa.Ativa)
@@ -830,6 +944,30 @@ public class ConversaService(
         // Ja e minha: dois cliques no mesmo botao nao viram erro na cara do usuario.
         if (atual.AtendenteId == ctx.AtendenteId)
         {
+            // O estado suportado e: conversa ativa atribuida a um atendente esta
+            // em atendimento humano. Nao foi encontrado fluxo de UI/API que crie
+            // a combinacao oposta, mas uma linha inconsistente nao pode fazer o
+            // caminho idempotente confirmar a atribuicao e deixar a automacao
+            // conversacional ligada. Repara somente essa invariante, sem gerar
+            // outra mensagem de sistema de "Conversa assumida".
+            var reparadas = await db.Conversas
+                .Where(c => c.Id == id
+                         && c.TenantId == ctx.TenantId
+                         && c.Status == StatusConversa.Ativa
+                         && c.AtendenteId == ctx.AtendenteId
+                         && !c.EmAtendimentoHumano)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(c => c.EmAtendimentoHumano, true)
+                    .SetProperty(c => c.AtualizadoEm, DateTime.UtcNow), ct);
+
+            if (reparadas == 1)
+            {
+                log.LogWarning(
+                    "Inconsistencia reparada na conversa {ConversaId}: atribuida a {AtendenteId}, ativa e fora do atendimento humano.",
+                    id,
+                    ctx.AtendenteId);
+            }
+
             return await ObterResumoAsync(id, ct);
         }
 

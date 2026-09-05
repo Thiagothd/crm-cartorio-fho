@@ -2,7 +2,15 @@ namespace CrmCartorio.Api.Modules.Usuarios.Application;
 
 public interface IAutenticacaoService
 {
-    Task<LoginResponse> AutenticarAsync(LoginRequest request, CancellationToken ct = default);
+    /// <summary>
+    /// Etapa 1. Devolve sessao completa quando MFA nao entra no caminho, ou um
+    /// desafio quando entra — ver <see cref="LoginEtapa1Response.RequerMfa"/>.
+    /// Nunca as duas coisas.
+    /// </summary>
+    Task<LoginEtapa1Response> AutenticarAsync(LoginRequest request, CancellationToken ct = default);
+
+    /// <summary>Etapa 2 — conclui um login que abriu desafio de segundo fator.</summary>
+    Task<LoginResponse> ConcluirLoginMfaAsync(ConcluirLoginMfaRequest request, CancellationToken ct = default);
 
     /// <summary>Dados do atendente autenticado na requisicao atual.</summary>
     Task<LoginResponse> ObterSessaoAsync(CancellationToken ct = default);

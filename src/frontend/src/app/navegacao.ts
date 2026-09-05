@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   BarChart3,
+  BookOpen,
   Bot,
   Building2,
   GitBranch,
@@ -11,6 +12,7 @@ import {
   Palette,
   Plug,
   Scale,
+  ShieldCheck,
   TimerOff,
   UserRound,
   Users,
@@ -166,6 +168,18 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         carregar: pagina(() => import('@/pages/pagina-ia'), 'PaginaIa'),
       }),
       item({
+        rotulo: 'Conhecimento da IA',
+        rota: '/automacao/conhecimento-ia',
+        icone: BookOpen,
+        permissao: 'gestao',
+        grupoPai: 'Automação',
+        descricao: 'Conteúdo aprovado, por serviço/tema, com vigência e histórico',
+        carregar: pagina(
+          () => import('@/pages/pagina-conhecimento-de-ia'),
+          'PaginaConhecimentoDeIa',
+        ),
+      }),
+      item({
         rotulo: 'Encerramento automático',
         rota: '/automacao/encerramento',
         icone: TimerOff,
@@ -238,6 +252,20 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
             carregar: pagina(() => import('@/pages/pagina-whatsapp'), 'PaginaWhatsApp'),
           }),
         ],
+      }),
+    ],
+  },
+  {
+    titulo: 'Conta',
+    entradas: [
+      item({
+        rotulo: 'Segurança',
+        rota: '/seguranca',
+        icone: ShieldCheck,
+        // Qualquer autenticado gerencia o PRÓPRIO MFA — não é ação de gestão.
+        permissao: 'autenticado',
+        descricao: 'Verificação em duas etapas da sua conta',
+        carregar: pagina(() => import('@/pages/pagina-seguranca'), 'PaginaSeguranca'),
       }),
     ],
   },

@@ -1,91 +1,255 @@
-import { useQuery } from '@tanstack/react-query'
-import { iaApi } from '@/lib/api/endpoints'
+import { RefreshCw } from 'lucide-react'
+import { usarSituacaoDaIa } from '@/features/ia/consultas'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Painel } from '@/components/ui/painel'
+import { CartaoDeIndicador } from '@/features/indicadores/cartao-de-indicador'
+import { BarrasHorizontais } from '@/components/graficos/barras-horizontais'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { Button } from '@/components/ui/button'
+import { formatarNumero, formatarPercentual, formatarReais, descreverDistanciaDePrazo } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
-import { formatarNumero, formatarPercentual } from '@/lib/formatacao'
+import type { EstadoDoProvedorDeIa, StatusDoProvedorDeIa } from '@/lib/api/tipos'
+
+const ROTULO_DO_STATUS: Record<StatusDoProvedorDeIa, string> = {
+  Disponivel: 'Disponível',
+  Contingencia: 'Em contingência',
+  SemChave: 'Sem chave configurada',
+  TetoDiarioAtingido: 'Teto diário atingido',
+}
+
+const BADGE_DO_STATUS: Record<StatusDoProvedorDeIa, 'success' | 'warning' | 'outline'> = {
+  Disponivel: 'success',
+  Contingencia: 'warning',
+  SemChave: 'outline',
+  TetoDiarioAtingido: 'warning',
+}
 
 /**
- * v1 deliberadamente simples: status, disponibilidade e consumo do dia.
- * Configuração de prompt, modelo e teto fica no `appsettings` do servidor —
- * fora desta tela de propósito: é regra de segurança, não redação, e o
- * AGENTS.md pede exatamente isso ("não criar configuração profunda da IA
- * sem necessidade").
+ * Cartão de estado de um provedor — não usa `Badge variant="destructive"`
+ * (bordô) de propósito: um provedor em contingência é o sistema se defendendo
+ * como projetado, não uma ruptura. Bordô fica reservado para o que é falha de
+ * verdade (DESIGN.md 2.1 — mesmo raciocínio do card "Saúde da operação").
  */
+function CartaoDoProvedor({ papel, provedor }: { papel: string; provedor: EstadoDoProvedorDeIa }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-card border border-linha bg-branco p-4 shadow-card">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-tinta-fraca">{papel}</p>
+          <p className="truncate text-[15px] font-bold text-tinta">{provedor.nome}</p>
+          <p className="text-xs text-tinta-media">Modelo {provedor.modelo}</p>
+        </div>
+        <Badge variant={BADGE_DO_STATUS[provedor.status]} className="shrink-0">
+          {ROTULO_DO_STATUS[provedor.status]}
+        </Badge>
+      </div>
+
+      {provedor.motivo ? <p className="text-xs text-tinta-fraca">{provedor.motivo}</p> : null}
+      {provedor.voltaATentarEm ? (
+        <p className="text-xs text-tinta-fraca">
+          Nova tentativa: {descreverDistanciaDePrazo(provedor.voltaATentarEm)}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function BarraDeTeto({ usado, limite }: { usado: number; limite: number }) {
+  const percentual = Math.min(100, (usado / Math.max(1, limite)) * 100)
+
+  return (
+    <div className="h-1.5 overflow-hidden rounded-full bg-superficie">
+      <div
+        className={cn(
+          'h-full rounded-full transition-[width] duration-[var(--duracao-padrao)]',
+          usado >= limite ? 'bg-selo' : 'bg-verde',
+        )}
+        style={{ width: `${percentual}%` }}
+      />
+    </div>
+  )
+}
+
 export function PaginaIa() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['ia-situacao'],
-    queryFn: () => iaApi.situacao(),
-    staleTime: 30_000,
-  })
+  const { data, isLoading, isError, refetch, isFetching } = usarSituacaoDaIa()
 
   return (
     <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-2xl flex-col gap-4">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4">
         <p className="text-sm text-tinta-media">
-          A Resposta Inteligente responde só com o que está cadastrado no catálogo de
-          serviços e nas respostas rápidas — nunca inventa prazo, valor ou documento. Só
-          escala para um atendente quando o cliente pede explicitamente.
+          A Resposta Inteligente responde só com o que está cadastrado no catálogo de serviços e nas respostas
+          rápidas — nunca inventa prazo, valor ou documento. Gemini é o provedor principal (gratuito dentro da
+          franquia); o Haiku assume automaticamente quando necessário, sem o cliente perceber.
         </p>
 
         {isLoading ? (
-          <div className="flex flex-col gap-3">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-28 w-full" />
+          <div className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Skeleton className="h-28 w-full" />
+              <Skeleton className="h-28 w-full" />
+            </div>
+            <Skeleton className="h-44 w-full" />
+            <div className="grid gap-4 md:grid-cols-2">
+              <Skeleton className="h-52 w-full" />
+              <Skeleton className="h-52 w-full" />
+            </div>
           </div>
         ) : isError || !data ? (
-          <EstadoDaInterface tipo="erro" descricao="Não foi possível carregar a situação da IA." />
+          <EstadoDaInterface
+            tipo="erro"
+            descricao="Não foi possível carregar a situação da IA."
+            acao={
+              <Button size="sm" onClick={() => void refetch()}>
+                <RefreshCw />
+                Tentar de novo
+              </Button>
+            }
+          />
+        ) : !data.habilitada ? (
+          <EstadoDaInterface
+            tipo="vazio"
+            titulo="Resposta Inteligente desligada"
+            descricao="Ative RespostaInteligente:Habilitada na configuração do servidor para usar este painel."
+          />
         ) : (
-          <>
-            <Card>
-              <CardHeader className="flex-row items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="font-titulo text-base">Status</CardTitle>
-                  <CardDescription>Modelo {data.modelo}</CardDescription>
-                </div>
-                <Badge variant={data.estaConfigurada ? 'success' : 'outline'}>
-                  {data.estaConfigurada ? 'Ativa' : data.habilitada ? 'Sem chave configurada' : 'Desligada'}
-                </Badge>
-              </CardHeader>
-            </Card>
+          <div className="grade-com-vida flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <CartaoDoProvedor papel="IA principal" provedor={data.gemini} />
+              <CartaoDoProvedor papel="IA de contingência" provedor={data.anthropic} />
+            </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-titulo text-base">Consumo de hoje</CardTitle>
-                <CardDescription>
-                  Teto de custo, não de qualidade — estourado, o atendimento humano assume o
-                  resto do dia. Reinicia à meia-noite UTC.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-titulo text-3xl text-tinta">{formatarNumero(data.usadoHoje)}</span>
-                  <span className="text-sm text-tinta-media">
-                    de {formatarNumero(data.limiteDiario)} respostas
-                  </span>
-                </div>
+            <Painel
+              titulo="Hoje"
+              acao={isFetching ? <RefreshCw className="size-3.5 animate-spin text-tinta-fraca" aria-hidden /> : null}
+            >
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <CartaoDeIndicador rotulo="Chamadas de IA" valor={formatarNumero(data.hoje.totalDeChamadas)} />
+                <CartaoDeIndicador
+                  rotulo="Pelo Gemini"
+                  valor={formatarNumero(data.hoje.atendidasPeloGemini)}
+                  cor="verde"
+                />
+                <CartaoDeIndicador
+                  rotulo="Caídas no Haiku"
+                  valor={formatarNumero(data.hoje.caidasNoHaiku)}
+                  cor={data.hoje.caidasNoHaiku > 0 ? 'ambar' : 'tinta'}
+                />
+                <CartaoDeIndicador rotulo="% gratuito" valor={formatarPercentual(data.hoje.percentualGratuito)} />
+                <CartaoDeIndicador
+                  rotulo="Custo do Haiku"
+                  valor={formatarReais(data.hoje.custoEstimadoHaikuReais)}
+                  detalhe="estimativa"
+                />
+                <CartaoDeIndicador rotulo="Tokens (Gemini)" valor={formatarNumero(data.hoje.tokensDoGemini)} />
+              </div>
 
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-superficie">
-                  <div
-                    className={cn(
-                      'h-full rounded-full transition-[width] duration-[var(--duracao-padrao)]',
-                      data.usadoHoje >= data.limiteDiario ? 'bg-selo' : 'bg-verde',
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:gap-6">
+                <div className="flex-1">
+                  <div className="mb-1 flex items-center justify-between text-xs text-tinta-media">
+                    <span>Teto geral (qualquer provedor)</span>
+                    <span className="font-medium text-tinta">
+                      {data.usadoHojeGeral} de {data.limiteDiario}
+                    </span>
+                  </div>
+                  <BarraDeTeto usado={data.usadoHojeGeral} limite={data.limiteDiario} />
+                </div>
+                <div className="flex-1">
+                  <div className="mb-1 flex items-center justify-between text-xs text-tinta-media">
+                    <span>Teto do Haiku (custo)</span>
+                    <span className="font-medium text-tinta">
+                      {data.usadoHojeHaiku} de {data.limiteDiarioHaiku}
+                    </span>
+                  </div>
+                  <BarraDeTeto usado={data.usadoHojeHaiku} limite={data.limiteDiarioHaiku} />
+                </div>
+              </div>
+            </Painel>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Painel titulo="Franquia do Gemini" descricao="Estimativa local — não é uma leitura oficial do Google.">
+                {data.franquia.limitesCadastrados ? (
+                  <div className="flex flex-col gap-3">
+                    {(
+                      [
+                        ['Por dia (RPD)', data.franquia.requisicoesHoje, data.franquia.limiteRpd],
+                        ['Por minuto (RPM)', data.franquia.requisicoesNaJanela, data.franquia.limiteRpm],
+                        ['Tokens por minuto (TPM)', data.franquia.tokensNaJanela, data.franquia.limiteTpm],
+                      ] as const
+                    ).map(([rotulo, usado, limite]) =>
+                      limite ? (
+                        <div key={rotulo}>
+                          <div className="mb-1 flex items-center justify-between text-xs text-tinta-media">
+                            <span>{rotulo}</span>
+                            <span className="font-medium text-tinta">
+                              {formatarNumero(usado)} de {formatarNumero(limite)}
+                            </span>
+                          </div>
+                          <BarraDeTeto usado={usado} limite={limite} />
+                        </div>
+                      ) : null,
                     )}
-                    style={{
-                      width: `${Math.min(100, (data.usadoHoje / Math.max(1, data.limiteDiario)) * 100)}%`,
-                    }}
-                  />
-                </div>
+                    <p className="text-xs text-tinta-fraca">
+                      Margem de segurança configurada: {data.franquia.percentualDeSeguranca}%.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-tinta-media">
+                      Franquia não cadastrada — o sistema opera por reação: um 429 real do Gemini abre a
+                      contingência, sem estimar percentual de uma cota desconhecida.
+                    </p>
+                    <p className="text-xs text-tinta-fraca">
+                      Consumo observado hoje: {formatarNumero(data.franquia.requisicoesHoje)} requisições.
+                      {data.franquia.sugestaoDeLimiteRpd
+                        ? ` Sugestão de teto diário, a partir do último 429 de cota observado: ${formatarNumero(data.franquia.sugestaoDeLimiteRpd)}.`
+                        : ''}
+                    </p>
+                  </div>
+                )}
+              </Painel>
 
-                <p className="mt-2 text-xs text-tinta-media">
-                  {formatarPercentual(Math.min(100, (data.usadoHoje / Math.max(1, data.limiteDiario)) * 100))}{' '}
-                  do teto diário
-                </p>
-              </CardContent>
-            </Card>
-          </>
+              <Painel titulo="Motivos de fallback para o Haiku">
+                {Object.values(data.motivosDeFallback).every((valor) => valor === 0) ? (
+                  <p className="text-sm text-tinta-media">Nenhum fallback no período — o Gemini respondeu tudo.</p>
+                ) : (
+                  <BarrasHorizontais
+                    itens={[
+                      { id: 'quota', rotulo: 'Quota esgotada', valor: data.motivosDeFallback.quota },
+                      { id: 'rate-limit', rotulo: 'Rate limit', valor: data.motivosDeFallback.rateLimit },
+                      {
+                        id: 'indisponibilidade',
+                        rotulo: 'Indisponibilidade',
+                        valor: data.motivosDeFallback.indisponibilidade,
+                      },
+                      { id: 'configuracao', rotulo: 'Erro de configuração', valor: data.motivosDeFallback.configuracao },
+                      { id: 'outros', rotulo: 'Outros', valor: data.motivosDeFallback.outros },
+                    ].filter((item) => item.valor > 0)}
+                  />
+                )}
+              </Painel>
+            </div>
+
+            <Painel titulo="Economia estimada" descricao="Comparado a responder 100% pelo Haiku no mesmo período.">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <CartaoDeIndicador rotulo="Custo real (Haiku)" valor={formatarReais(data.economia.custoRealHaikuReais)} />
+                <CartaoDeIndicador
+                  rotulo="Se fosse 100% Haiku"
+                  valor={formatarReais(data.economia.custoSeFosseTudoHaikuReais)}
+                />
+                <CartaoDeIndicador
+                  rotulo="Economia estimada"
+                  valor={formatarReais(data.economia.economiaEstimadaReais)}
+                  cor="verde"
+                />
+                <CartaoDeIndicador
+                  rotulo="% de economia"
+                  valor={formatarPercentual(data.economia.percentualDeEconomia)}
+                  cor="verde"
+                />
+              </div>
+            </Painel>
+          </div>
         )}
       </div>
     </div>

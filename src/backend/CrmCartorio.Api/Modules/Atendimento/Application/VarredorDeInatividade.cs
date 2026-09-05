@@ -135,10 +135,23 @@ public class VarredorDeInatividade(
                      // cartório parceiro usa para ver o produto teria se desmontado sozinha.
                      && c.Canal == CanalOrigem.WhatsApp
 
-                     // O cartorio esta devendo resposta. Perguntar "quer encerrar?"
-                     // para quem escreveu e nunca foi atendido e o pior uso possivel
-                     // do canal.
-                     && c.MensagensNaoLidas == 0)
+                     // O cartorio esta devendo resposta quando a ULTIMA mensagem do fio
+                     // foi do cliente. MensagensNaoLidas mede "nenhum humano abriu no
+                     // CRM", nao "o cartorio nao respondeu" — so zera quando um humano
+                     // abre a conversa, o cliente encerra ou esta propria varredura
+                     // fecha (NUNCA quando a IA responde). Consequencia: toda conversa
+                     // atendida so pela IA, sem humano nunca abrir — o caso mais comum
+                     // num canal com IA na frente — ficava com o contador positivo para
+                     // sempre e nunca entrava aqui. Confirmado em producao em
+                     // 2026-09-03: cliente reabria a conversa velha ja passada da
+                     // triagem em vez de cair no menu de boas-vindas. Perguntar "quer
+                     // encerrar?" para quem escreveu por ultimo e nunca foi atendido e
+                     // o pior uso possivel do canal.
+                     && db.Mensagens
+                            .Where(m => m.ConversaId == c.Id)
+                            .OrderByDescending(m => m.EnviadaEm)
+                            .Select(m => m.AutorTipo)
+                            .FirstOrDefault() != AutorTipo.Cliente)
             .OrderBy(c => c.UltimaMensagemEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);
@@ -229,7 +242,17 @@ public class VarredorDeInatividade(
             .Where(c => c.TenantId == configuracao.TenantId
                      && c.Status == StatusConversa.Ativa
                      && c.PerguntaDeEncerramentoEnviadaEm != null
-                     && c.PerguntaDeEncerramentoEnviadaEm < limite)
+                     && c.PerguntaDeEncerramentoEnviadaEm < limite
+
+                     // BUG-ATD-01: a Fase 1 (pergunta) continua saindo mesmo
+                     // com atendente na conversa — decisao separada,
+                     // registrada em REQUISITOS.md SS5.8, nao mexida aqui. Mas
+                     // a Fase 2 (encerrar sozinha por silencio) nao pode
+                     // fechar uma conversa que um humano e responsavel por
+                     // ela agora — nem quem assumiu, nem quem esta na fila
+                     // humana depois de liberada (LiberarAsync nao desliga
+                     // EmAtendimentoHumano de proposito).
+                     && !c.EmAtendimentoHumano)
             .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);
@@ -257,6 +280,16 @@ public class VarredorDeInatividade(
     /// <see cref="Conversa"/> carrega <see cref="Conversa.RowVersion"/> — a varredura
     /// roda fora de requisicao HTTP e nao pode disputar o token com quem esta
     /// atendendo. SE MEXER LA, MEXA AQUI.
+    ///
+    /// <b>Divergencia deliberada, desde 2026-09-04:</b> este caminho dispara
+    /// <see cref="GatilhoDeMensagem.EncerramentoPorInatividade"/> e drena a fila
+    /// inteira com <c>EnviarPendentesAsync</c> — correto aqui, porque quem
+    /// dispara e um relogio e so chega a este ponto depois de a Fase 1 ja ter
+    /// perguntado. <see cref="Atendimento.Application.ConversaService.EncerrarAsync"/>
+    /// dispara <see cref="GatilhoDeMensagem.EncerramentoPeloAtendente"/> e envia
+    /// SO a mensagem gerada — la quem aciona e uma pessoa, que pode encerrar
+    /// qualquer conversa a qualquer momento, inclusive uma com backlog parado ha
+    /// semanas; drenar a fila naquele caminho reabriria atendimento fantasma.
     /// </remarks>
     private async Task<bool> EncerrarUmaAsync(Conversa conversa, DateTime agora, CancellationToken ct)
     {

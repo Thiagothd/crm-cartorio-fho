@@ -139,6 +139,11 @@ export function formatarHoraDoDia(hora: number): string {
   return `${hora}h`
 }
 
+/** Valor em reais, pt-BR: 12.5 -> "R$ 12,50". Usado só para estimativa de custo — nunca fatura de verdade. */
+export function formatarReais(valor: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
+}
+
 /** 5538999000045 -> (38) 99912-0045. Numero nao brasileiro sai como veio. */
 export function formatarTelefone(e164: string) {
   const digitos = e164.replace(/\D/g, '')
