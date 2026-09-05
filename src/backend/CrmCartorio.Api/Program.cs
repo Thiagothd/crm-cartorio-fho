@@ -181,6 +181,13 @@ builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
 builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
+
+// Fila em memoria para o envio pendente nao bloquear a acao do atendente (ex.:
+// mudar etapa) esperando a chamada de rede ao gateway. Singleton unico: quem
+// escreve (ConversaService, via IFilaDeEnvioDoCanal) e quem le
+// (HospedeDaFilaDeEnvioDoCanal, pelo tipo concreto) precisam do mesmo Channel.
+builder.Services.AddSingleton<FilaDeEnvioDoCanal>();
+builder.Services.AddSingleton<IFilaDeEnvioDoCanal>(sp => sp.GetRequiredService<FilaDeEnvioDoCanal>());
 builder.Services.AddHttpClient();
 
 // Mesmo ajuste de pool de conexao aplicado ao ProvedorGemini (ver comentario
@@ -311,6 +318,13 @@ builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
 // ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
 // boas-vindas, sem triagem. Ver IVarredorDeInatividade.
 builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
+
+// Drena a fila acima em segundo plano — ver FilaDeEnvioDoCanal e
+// HospedeDaFilaDeEnvioDoCanal para o porque de existir. Complementar ao
+// processamento de ENTRADA abaixo: aquele resolve o webhook (durável em SQL
+// Server); este resolve o envio disparado por uma AÇÃO DO ATENDENTE (ex.:
+// mudar etapa), que nunca passa pelo webhook.
+builder.Services.AddHostedService<HospedeDaFilaDeEnvioDoCanal>();
 
 // O webhook confirma depois do commit curto; automacao/IA/saida sao retomadas
 // por workers coordenados no SQL Server, inclusive apos reciclagem do IIS.
