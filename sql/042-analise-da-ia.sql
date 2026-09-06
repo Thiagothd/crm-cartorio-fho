@@ -157,8 +157,9 @@ IF COL_LENGTH(N'dbo.ChamadasDeIa', N'MotivoDaNaoResposta') IS NULL
     -- 0 NaoClassificado, 1 PrecoNaoCadastrado, 2 PrazoNaoCadastrado,
     -- 3 DocumentoNaoCadastrado, 4 ServicoForaDoCatalogo,
     -- 5 OrientacaoJuridicaEspecifica, 6 ForaDoEscopoDaServentia,
-    -- 7 PerguntaAmbigua, 8 Outro. So preenchido quando Sucesso=1 e
-    -- PodeResponder=0 — ver CK_ChamadasDeIa_MotivoDaNaoResposta abaixo.
+    -- 7 PerguntaAmbigua, 8 Outro. Preenchido pelo codigo SO quando Sucesso=1 e
+    -- PodeResponder=0 — o banco so garante a faixa (CK_ChamadasDeIa_MotivoDaNaoResposta
+    -- abaixo), nao a correlacao com Sucesso/PodeResponder (ver o comentario da constraint).
     ALTER TABLE dbo.ChamadasDeIa ADD MotivoDaNaoResposta TINYINT NULL;
 GO
 
@@ -226,22 +227,26 @@ GO
    So podem ser adicionados DEPOIS do backfill acima, senao a validacao contra
    dado existente (WITH CHECK) falha e a migracao inteira aborta (XACT_ABORT). */
 
+-- Faixa simples, SEM correlacionar com FoiFallback: o binario ANTERIOR a esta
+-- migracao continua gravando ChamadasDeIa (o deploy aplica o schema antes de
+-- trocar o binario) e nao sabe preencher TipoDeFallback de forma coerente com
+-- FoiFallback — ele so conhece o DEFAULT (0). Uma constraint cruzada rejeitaria
+-- toda gravacao de fallback feita pelo binario antigo durante a janela do
+-- deploy. A coerencia (FoiFallback=1 <=> TipoDeFallback BETWEEN 1 AND 5) e
+-- responsabilidade do codigo novo (OrquestradorDeProvedores), nao do banco —
+-- ver deploy/migration-compatibility.json para o registro desta decisao.
 IF OBJECT_ID(N'dbo.CK_ChamadasDeIa_TipoDeFallback', N'C') IS NULL
     ALTER TABLE dbo.ChamadasDeIa WITH CHECK ADD CONSTRAINT CK_ChamadasDeIa_TipoDeFallback
-        CHECK
-        (
-            (FoiFallback = 0 AND TipoDeFallback = 0)
-            OR (FoiFallback = 1 AND TipoDeFallback BETWEEN 1 AND 5)
-        );
+        CHECK (TipoDeFallback BETWEEN 0 AND 5);
 GO
 
+-- Mesmo raciocinio: sem correlacionar com Sucesso/PodeResponder. O binario
+-- anterior nunca preenche esta coluna (fica NULL, o padrao) independente do
+-- valor de PodeResponder — uma constraint cruzada rejeitaria toda gravacao de
+-- "nao sei responder" feita pelo binario antigo durante a janela do deploy.
 IF OBJECT_ID(N'dbo.CK_ChamadasDeIa_MotivoDaNaoResposta', N'C') IS NULL
     ALTER TABLE dbo.ChamadasDeIa WITH CHECK ADD CONSTRAINT CK_ChamadasDeIa_MotivoDaNaoResposta
-        CHECK
-        (
-            (Sucesso = 1 AND PodeResponder = 0 AND MotivoDaNaoResposta BETWEEN 0 AND 8)
-            OR (NOT (Sucesso = 1 AND PodeResponder = 0) AND MotivoDaNaoResposta IS NULL)
-        );
+        CHECK (MotivoDaNaoResposta IS NULL OR MotivoDaNaoResposta BETWEEN 0 AND 8);
 GO
 
 /* --- 4. Indices ----------------------------------------------------------- */
