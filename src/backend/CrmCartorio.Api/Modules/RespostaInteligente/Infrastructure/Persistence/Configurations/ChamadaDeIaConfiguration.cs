@@ -17,17 +17,23 @@ public class ChamadaDeIaConfiguration : IEntityTypeConfiguration<ChamadaDeIa>
                 "CK_ChamadasDeIa_PodeResponder",
                 "([Sucesso] = 1) OR ([Sucesso] = 0 AND [PodeResponder] IS NULL)");
 
-            // FoiFallback=0 nunca tem sub-motivo (NaoEhFallback); FoiFallback=1
-            // sempre tem um dos quatro sub-motivos — nunca o valor genérico 0.
+            // Só a faixa — sem correlacionar com FoiFallback. Um binário anterior
+            // a esta migração continua gravando ChamadasDeIa durante a janela do
+            // deploy (schema muda antes do binário) e nunca preenche esta coluna
+            // fora do default 0; uma constraint cruzada rejeitaria toda gravação
+            // de fallback feita por ele. A coerência (FoiFallback=1 <=>
+            // TipoDeFallback entre 1 e 5) é responsabilidade do orquestrador, não
+            // do banco — ver deploy/migration-compatibility.json.
             t.HasCheckConstraint(
                 "CK_ChamadasDeIa_TipoDeFallback",
-                "([FoiFallback] = 0 AND [TipoDeFallback] = 0) OR ([FoiFallback] = 1 AND [TipoDeFallback] BETWEEN 1 AND 5)");
+                "[TipoDeFallback] BETWEEN 0 AND 5");
 
-            // Categoria de "não soube responder" só existe quando é exatamente
-            // isso que aconteceu — nunca em falha terminal, nunca em resposta entregue.
+            // Mesmo raciocínio: sem correlacionar com Sucesso/PodeResponder. O
+            // binário anterior nunca preenche esta coluna (fica NULL) independente
+            // do valor de PodeResponder.
             t.HasCheckConstraint(
                 "CK_ChamadasDeIa_MotivoDaNaoResposta",
-                "([Sucesso] = 1 AND [PodeResponder] = 0 AND [MotivoDaNaoResposta] BETWEEN 0 AND 8) OR (NOT ([Sucesso] = 1 AND [PodeResponder] = 0) AND [MotivoDaNaoResposta] IS NULL)");
+                "[MotivoDaNaoResposta] IS NULL OR [MotivoDaNaoResposta] BETWEEN 0 AND 8");
         });
 
         builder.HasKey(c => c.Id);
