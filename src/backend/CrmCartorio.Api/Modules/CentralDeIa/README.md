@@ -89,19 +89,52 @@ segredo comprometido de verdade.
 | Peça | Papel |
 | --- | --- |
 | `ICentralDeIaAutenticador` / `CentralDeIaAutenticador` | Confere o segredo, emite o token via `IGeradorDeTokenDaCentralDeIa` |
-| `ISituacaoGlobalDaIa` / `SituacaoGlobalDaIaService` | Único serviço do sistema que lê `ChamadasDeIa` sem filtro de `TenantId` — deliberado, ver comentário na classe |
+| `IObservabilidadeDaIa` / `ObservabilidadeDaIaService` | Único serviço do sistema que lê `ChamadasDeIa` sem filtro de `TenantId` — deliberado, ver comentário na classe. Sucessor de `SituacaoGlobalDaIaService` (Etapa C da reformulação de IA) |
 | `CentralDeIaServiceException` | Só para segredo inválido |
 | `Infrastructure/Identity/OpcoesDaCentralDeIa` | Segredo + expiração |
 | `Infrastructure/Identity/ClaimsDaCentralDeIa` | Nome da claim própria |
 | `Infrastructure/Identity/IGeradorDeTokenDaCentralDeIa` / `GeradorDeTokenDaCentralDeIa` | Emite o JWT com a claim própria |
-| `Controllers/CentralDeIaController` | `POST /entrar` (anônimo, rate limit) e `GET /situacao` (policy `CentralDeIa`) |
+| `Controllers/CentralDeIaController` | `POST /entrar` (anônimo, rate limit) e `GET /observabilidade`, `/tenants`, `/historico` (policy `CentralDeIa`) |
+
+## Observabilidade (Etapa C)
+
+Três endpoints, todos sob os mesmos filtros globais (`FiltroDeObservabilidadeDaIa`:
+período, tenant, provedor, modelo, resultado, tipo de fallback, tipo de falha,
+código HTTP):
+
+| Endpoint | Devolve |
+| --- | --- |
+| `GET /observabilidade` | Saúde agora (por provedor, sempre "hoje" local — independente do filtro de período), KPIs do período (incl. p50/p95/p99 de latência via histograma), linha do tempo, histograma de latência, erros por categoria, fallbacks por tipo, distribuição por modelo, top 8 tenants por custo |
+| `GET /tenants` | Tabela de tenants ordenável (`OrdenarTenantsPor`), buscável por nome, paginada — o drill-down |
+| `GET /historico` | Uma linha por tentativa, paginada; buscar por `RodadaId` traz as duas tentativas de uma mesma pergunta lado a lado |
+
+**Percentis de latência:** nunca `PERCENTILE_CONT` (exigiria `FromSqlRaw`, que
+escaparia de `verificar-traducao.cs`). Em vez disso, histograma em SQL com
+balde de `LarguraDoBaldeDeLatenciaMs` (250ms — `GroupBy` por divisão inteira),
+percentil interpolado sobre o acumulado em memória. Precisão ±125ms, declarada
+no próprio contrato para a tela nunca fingir milissegundo exato.
+
+**Agregação:** contagem/soma/histograma sempre em `GROUP BY` traduzido — nunca
+materializa a tabela inteira. A única exceção é a linha do tempo
+(`MontarLinhaDoTempoAsync`), que precisa de bucket por dia/hora LOCAL (mesmo
+motivo de `DiaLocal`/`AnaliseDaIa`) — SQL não sabe fazer esse corte sem uma
+coluna de fuso dedicada, então ali uma projeção estreita vai para memória e o
+bucket é feito em C#. A ordenação/paginação da tabela de tenants também
+acontece em memória, sobre o resultado JÁ agregado por `GROUP BY` — o número
+de tenants é sempre pequeno (dezenas, não milhões), então isso nunca é o
+gargalo.
+
+**Nunca projetado** (ver a nota de privacidade em `ChamadaDeIa`): `ConversaId`,
+`MensagemId`, `MotivoDoFallback` (texto livre). `verificar-observabilidade-da-ia.cs`
+tem um cenário por reflexão que falha se algum desses campos for adicionado a
+`LinhaDoHistoricoResponse` no futuro.
 
 ## Fronteiras
 
 Lê `ChamadasDeIa` (entidade de `Modules/RespostaInteligente/Domain/Entities`) e
 `Tenants` direto pelo `DbContext` — permitido, é um banco só (CLAUDE.md 7.1).
-Reaproveita `MotivosDeFallbackResponse` e `DisjuntorDoGemini`/`FingerprintDeChave`
-de `Modules/RespostaInteligente` da mesma forma: leitura de tipo/serviço
+Reaproveita `DisjuntorDoGemini`/`FingerprintDeChave`/`OpcoesDaIA` de
+`Modules/RespostaInteligente` da mesma forma: leitura de tipo/serviço
 transversal de cota, nunca chamando o `Application` interno daquele módulo por
 uma porta que ele não publica. Não referencia `Modules/Usuarios` nem
 `IContextoDoUsuario` — é exatamente o ponto deste módulo existir separado.
