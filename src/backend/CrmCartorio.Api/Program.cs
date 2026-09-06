@@ -290,6 +290,7 @@ builder.Services.AddScoped<IOrquestradorDeProvedores, OrquestradorDeProvedores>(
 
 builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
 builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
+builder.Services.AddScoped<IAnaliseDaIa, AnaliseDaIa>();
 builder.Services.AddScoped<IConhecimentoDeIaService, ConhecimentoDeIaService>();
 
 // Central de IA privada do desenvolvedor — identidade propria, fora do modelo

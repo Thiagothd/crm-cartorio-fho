@@ -891,6 +891,31 @@ Checar("ChamadasDeIa: ranking de tenants por tentativas, ordenado e paginado (a 
         .Take(20)
         .ToQueryString());
 
+// --- 16. Analise da IA (Etapa B) — AnaliseDaIa.cs, producao real -----------
+
+Checar("AnaliseDaIa: agregados por RodadaId (Guid? nulavel como chave, 4 contagens condicionais)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa)
+        .GroupBy(c => c.RodadaId)
+        .Select(g => new
+        {
+            RodadaId = g.Key,
+            Tentativas = g.Count(),
+            Entregues = g.Count(c => c.Sucesso && c.PodeResponder == true),
+            NaoSoube = g.Count(c => c.Sucesso && c.PodeResponder == false),
+            Falhas = g.Count(c => !c.Sucesso)
+        })
+        .ToQueryString());
+
+Checar("AnaliseDaIa: lacunas de catalogo (chave composta: enum nulavel convertido + Guid nulavel)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa && c.PodeResponder == false)
+        .GroupBy(c => new { c.MotivoDaNaoResposta, c.TipoServicoId })
+        .Select(g => new { g.Key.MotivoDaNaoResposta, g.Key.TipoServicoId, Total = g.Count() })
+        .OrderByDescending(g => g.Total)
+        .Take(10)
+        .ToQueryString());
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

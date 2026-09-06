@@ -1019,3 +1019,75 @@ export interface SituacaoDaIa {
   periodoDe: string
   periodoAte: string
 }
+
+// --- Análise da IA (Etapa B — /automacao/ia do gestor) ----------------------
+
+export interface PeriodoDaAnaliseDeIa {
+  de: string
+  ate: string
+  granularidade: 'hora' | 'dia'
+}
+
+/** `status`: `Atendendo` | `Contingencia` | `Desligada` — nunca nome de provedor. */
+export interface SituacaoAgoraDaIa {
+  status: 'Atendendo' | 'Contingencia' | 'Desligada'
+  detalhe: string | null
+}
+
+export interface ValorEntregueDaIa {
+  /** `null` quando o período começa antes de `rodadasMedidasDesde` — a tela mostra "—", nunca um número sub-contado. */
+  perguntasAtendidas: number | null
+  perguntasAtendidasDeltaPercentual: number | null
+  taxaDeResolucao: number
+  taxaDeResolucaoDeltaPontos: number | null
+  naoSoubeResponder: number
+  naoSoubeResponderDeltaPercentual: number | null
+  tempoTipicoDeRespostaSegundos: number | null
+  tempoTipicoDeRespostaDeltaPercentual: number | null
+}
+
+export interface PontoDeVolumeDeIa {
+  inicio: string
+  entregues: number
+  naoSoubeResponder: number
+  falhas: number
+}
+
+export interface ResultadoDasTentativasDeIa {
+  entregues: number
+  naoSoubeResponder: number
+  falhas: number
+}
+
+export interface AssuntoMaisPerguntado {
+  tipoServicoId: string | null
+  nome: string
+  total: number
+  percentual: number
+}
+
+export interface LacunaDeCatalogo {
+  categoria: string
+  tipoServicoId: string | null
+  servicoNome: string
+  total: number
+}
+
+/** `severidade`: `atencao` | `informativo` — só para o ícone; o texto já carrega o número. */
+export interface InsightDaIa {
+  severidade: 'atencao' | 'informativo'
+  texto: string
+}
+
+export interface AnaliseDaIa {
+  periodo: PeriodoDaAnaliseDeIa
+  situacaoAgora: SituacaoAgoraDaIa
+  valorEntregue: ValorEntregueDaIa
+  volumeAoLongoDoTempo: PontoDeVolumeDeIa[]
+  resultadoDasTentativas: ResultadoDasTentativasDeIa
+  assuntosMaisPerguntados: AssuntoMaisPerguntado[]
+  horariosDeMaiorUso: number[]
+  lacunasDeCatalogo: LacunaDeCatalogo[]
+  insights: InsightDaIa[]
+  rodadasMedidasDesde: string | null
+}

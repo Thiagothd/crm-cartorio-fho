@@ -6,7 +6,6 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
-using CrmCartorio.Api.Modules.Indicadores.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;

@@ -1,6 +1,7 @@
 import { api, montarQuery } from './cliente-http'
 import type {
   AlertaOperacional,
+  AnaliseDaIa,
   AnalisarImportacaoResponse,
   AparenciaDaConversa,
   Atendente,
@@ -487,6 +488,9 @@ export const iaApi = {
   /** `de`/`ate` omitidos caem no dia UTC corrente — o mesmo recorte de sempre. */
   situacao: (filtro?: { de?: string; ate?: string }) =>
     api.get<SituacaoDaIa>(`/api/ia/situacao${montarQuery({ ...filtro })}`),
+  /** A tela do gestor (`/automacao/ia`). `de`/`ate` omitidos caem nos últimos 7 dias. */
+  analise: (filtro?: { de?: string; ate?: string }) =>
+    api.get<AnaliseDaIa>(`/api/ia/analise${montarQuery({ ...filtro })}`),
 }
 
 // Atendentes ----------------------------------------------------------------
