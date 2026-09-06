@@ -1,8 +1,11 @@
-namespace CrmCartorio.Api.Modules.Indicadores.Domain;
+namespace CrmCartorio.Api.Domain.Common;
 
 /// <summary>
-/// Resolve o intervalo [De, Ate) pedido pela Visão Geral e pelos Relatórios,
-/// sempre em UTC, e decide a granularidade do gráfico de fluxo.
+/// Resolve o intervalo [De, Ate) pedido pela Visão Geral, pelos Relatórios e pela
+/// Análise da IA, sempre em UTC, e decide a granularidade do gráfico de fluxo.
+/// Vive em <c>Domain/Common</c> pelo mesmo motivo de <see cref="DiaLocal"/>: mais
+/// de um slice precisa do MESMO corte de período — se cada consumidor resolvesse
+/// o próprio, o "hoje" de um painel não bateria com o de outro.
 /// </summary>
 /// <remarks>
 /// Período "Hoje" mostraria um único ponto se o gráfico continuasse agrupando

@@ -124,6 +124,34 @@ export function formatarDuracaoMinutos(minutos: number | null): string | null {
   return horasRestantes === 0 ? `${dias}d` : `${dias}d ${horasRestantes}h`
 }
 
+/**
+ * Duração curta em segundos, para latência de IA (1,4s a ~20s) — faixa boa
+ * demais para `formatarDuracaoMinutos`, que arredonda pro minuto inteiro e
+ * mostraria "0 min" para qualquer resposta abaixo de 30s.
+ */
+export function formatarSegundos(segundos: number | null): string | null {
+  if (segundos === null || !Number.isFinite(segundos)) {
+    return null
+  }
+
+  return `${segundos.toFixed(1).replace('.', ',')}s`
+}
+
+/**
+ * Variação percentual com sinal explícito, para cards de delta:
+ * 12.3 -> "+12,3%", -8 -> "-8,0%", 0 -> "0,0%". `null` quando não há base de
+ * comparação (ver `DeltaPercentual` no backend) — a tela mostra "novo", nunca
+ * inventa um percentual sobre zero.
+ */
+export function formatarDelta(valor: number | null): string | null {
+  if (valor === null || !Number.isFinite(valor)) {
+    return null
+  }
+
+  const sinal = valor > 0 ? '+' : ''
+  return `${sinal}${valor.toFixed(1).replace('.', ',')}%`
+}
+
 /** Número inteiro com separador de milhar em pt-BR: 1234 -> "1.234". */
 export function formatarNumero(valor: number): string {
   return new Intl.NumberFormat('pt-BR').format(valor)
