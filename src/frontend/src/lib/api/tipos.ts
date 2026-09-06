@@ -990,6 +990,10 @@ export interface MotivosDeFallback {
   indisponibilidade: number
   configuracao: number
   outros: number
+  /** Gemini foi discado e falhou, e o Haiku assumiu — soma dos 5 campos acima. */
+  fallbackExecutado: number
+  /** Gemini nunca foi discado (desligado, disjuntor aberto, margem de cota) e o Haiku respondeu sozinho. */
+  fallbackPreventivo: number
 }
 
 export interface EconomiaDaIa {

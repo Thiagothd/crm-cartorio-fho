@@ -25,7 +25,7 @@ public class RespostaInteligenteService(
         Guid tenantId,
         IReadOnlyList<TrocaAnterior> historico,
         string mensagemDoCliente,
-        Guid? conversaId = null,
+        ContextoDaChamada? contexto = null,
         CancellationToken ct = default)
     {
         if (tenantId == Guid.Empty)
@@ -40,10 +40,10 @@ public class RespostaInteligenteService(
 
         try
         {
-            var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, ct);
-            var pedido = new PedidoDeIa(contexto, historico, mensagemDoCliente);
+            var contextoDoGrounding = await MontadorDeContexto.MontarAsync(db, tenantId, ct);
+            var pedido = new PedidoDeIa(contextoDoGrounding, historico, mensagemDoCliente);
 
-            return await orquestrador.ResponderAsync(tenantId, conversaId, pedido, ct);
+            return await orquestrador.ResponderAsync(tenantId, contexto, pedido, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

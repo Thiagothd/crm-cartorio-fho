@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
@@ -24,7 +25,10 @@ public class SituacaoGlobalDaIaService(
     public async Task<SituacaoGlobalDaIaResponse> ObterAsync(DateTime? de, DateTime? ate, CancellationToken ct = default)
     {
         var valor = opcoes.Value;
-        var inicioDoDiaUtc = DateTime.UtcNow.Date;
+        // Meia-noite no fuso da serventia — mesmo motivo de SituacaoDaIa.cs. A
+        // Central roda num servidor só (America/Sao_Paulo), então não há um
+        // "fuso da serventia" diferente por tenant ainda (isso é Fase 3).
+        var inicioDoDiaUtc = DiaLocal.InicioDoDia(DateTime.UtcNow);
         var periodoDe = de ?? inicioDoDiaUtc;
         var periodoAte = ate ?? DateTime.UtcNow;
 
@@ -38,6 +42,7 @@ public class SituacaoGlobalDaIaService(
                 c.TenantId,
                 c.Provedor,
                 c.Sucesso,
+                c.TipoDeFallback,
                 c.TipoDeFalha,
                 c.CustoEstimadoUsd,
             })
@@ -57,6 +62,17 @@ public class SituacaoGlobalDaIaService(
                 // recorte de SituacaoDaIa.ObterAsync.
                 var falhasDoGemini = grupo.Where(c => !c.Sucesso && c.Provedor == ProvedorDeIa.Gemini).ToList();
                 var custoUsd = sucessos.Sum(c => c.CustoEstimadoUsd ?? 0m);
+
+                // TipoDeFallback, nao "!Sucesso && Provedor==Gemini" — mesmo
+                // motivo de SituacaoDaIa.cs: o Gemini pode ter sido pulado sem
+                // nunca ser discado, e falhasDoGemini fica vazio mesmo com
+                // fallback tendo acontecido.
+                var fallbackExecutado = grupo.Count(c => c.TipoDeFallback == TipoDeFallbackDeIa.Executado);
+                var fallbackPreventivo = grupo.Count(c =>
+                    c.TipoDeFallback is TipoDeFallbackDeIa.PreventivoDesligado
+                        or TipoDeFallbackDeIa.PreventivoDisjuntor
+                        or TipoDeFallbackDeIa.PreventivoMargemDeCota
+                        or TipoDeFallbackDeIa.Indeterminado);
 
                 var nome = nomesDosTenants.TryGetValue(grupo.Key, out var tenant)
                     ? tenant.NomeFantasia ?? tenant.RazaoSocial
@@ -78,7 +94,9 @@ public class SituacaoGlobalDaIaService(
                         Indisponibilidade: falhasDoGemini.Count(c =>
                             c.TipoDeFalha is TipoDeFalhaDeIa.Indisponibilidade or TipoDeFalhaDeIa.Timeout or TipoDeFalhaDeIa.Rede),
                         Configuracao: falhasDoGemini.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.Configuracao),
-                        Outros: falhasDoGemini.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.RespostaInvalida)));
+                        Outros: falhasDoGemini.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.RespostaInvalida),
+                        FallbackExecutado: fallbackExecutado,
+                        FallbackPreventivo: fallbackPreventivo));
             })
             .OrderByDescending(item => item.TotalDeChamadas)
             .ToList();

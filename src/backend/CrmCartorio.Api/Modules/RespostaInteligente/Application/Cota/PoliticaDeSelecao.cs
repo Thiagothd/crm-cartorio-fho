@@ -1,13 +1,23 @@
+using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Enums;
+
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 
+/// <param name="TipoSePulou">
+/// Só significativo quando <see cref="TentarOGemini"/> é false — qual dos três
+/// motivos preventivos levou a pular o Gemini. Estruturado, não derivado de
+/// <see cref="MotivoParaPular"/>: o texto é só para o log e para o campo livre
+/// de <c>ChamadaDeIa.MotivoDoFallback</c>, nunca a fonte de uma categoria
+/// persistida — texto muda de redação, o enum não.
+/// </param>
 public sealed record DecisaoDeSelecao(
-    bool TentarOGemini, string? MotivoParaPular, string? ChaveDeProjeto, bool EhSonda, object? ReservaDeCota = null)
+    bool TentarOGemini, string? MotivoParaPular, string? ChaveDeProjeto, bool EhSonda,
+    object? ReservaDeCota = null, TipoDeFallbackDeIa TipoSePulou = TipoDeFallbackDeIa.NaoEhFallback)
 {
     public static DecisaoDeSelecao TentarGemini(string chaveDeProjeto, bool ehSonda, object? reservaDeCota = null) =>
         new(true, null, chaveDeProjeto, ehSonda, reservaDeCota);
 
-    public static DecisaoDeSelecao PularGemini(string motivo, string? chaveDeProjeto = null) =>
-        new(false, motivo, chaveDeProjeto, false);
+    public static DecisaoDeSelecao PularGemini(string motivo, TipoDeFallbackDeIa tipo, string? chaveDeProjeto = null) =>
+        new(false, motivo, chaveDeProjeto, false, TipoSePulou: tipo);
 }
 
 /// <summary>
@@ -21,7 +31,8 @@ public class PoliticaDeSelecao(ContadorDeCotaDoGemini contador, DisjuntorDoGemin
     {
         if (!opcoesGemini.Habilitado || string.IsNullOrWhiteSpace(opcoesGemini.ApiKey))
         {
-            return DecisaoDeSelecao.PularGemini("Gemini desligado ou sem chave configurada.");
+            return DecisaoDeSelecao.PularGemini(
+                "Gemini desligado ou sem chave configurada.", TipoDeFallbackDeIa.PreventivoDesligado);
         }
 
         var chaveDeProjeto = FingerprintDeChave.Calcular(opcoesGemini.ApiKey);
@@ -33,7 +44,8 @@ public class PoliticaDeSelecao(ContadorDeCotaDoGemini contador, DisjuntorDoGemin
                 ? $" (nova tentativa após {instante:yyyy-MM-dd HH:mm} UTC)"
                 : string.Empty;
 
-            return DecisaoDeSelecao.PularGemini($"Disjuntor do Gemini aberto{quando}.", chaveDeProjeto);
+            return DecisaoDeSelecao.PularGemini(
+                $"Disjuntor do Gemini aberto{quando}.", TipoDeFallbackDeIa.PreventivoDisjuntor, chaveDeProjeto);
         }
 
         // A sonda do meio-aberto pula o controle preventivo de propósito: é uma
@@ -47,7 +59,8 @@ public class PoliticaDeSelecao(ContadorDeCotaDoGemini contador, DisjuntorDoGemin
             if (!decisaoDeCota.Permitido)
             {
                 return DecisaoDeSelecao.PularGemini(
-                    decisaoDeCota.MotivoDoBloqueio ?? "Margem de segurança do Gemini atingida.", chaveDeProjeto);
+                    decisaoDeCota.MotivoDoBloqueio ?? "Margem de segurança do Gemini atingida.",
+                    TipoDeFallbackDeIa.PreventivoMargemDeCota, chaveDeProjeto);
             }
 
             return DecisaoDeSelecao.TentarGemini(chaveDeProjeto, ehSonda, decisaoDeCota.Reserva);

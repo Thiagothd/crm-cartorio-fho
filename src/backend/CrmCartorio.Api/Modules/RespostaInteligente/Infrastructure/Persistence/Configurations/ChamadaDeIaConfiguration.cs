@@ -16,6 +16,18 @@ public class ChamadaDeIaConfiguration : IEntityTypeConfiguration<ChamadaDeIa>
             t.HasCheckConstraint(
                 "CK_ChamadasDeIa_PodeResponder",
                 "([Sucesso] = 1) OR ([Sucesso] = 0 AND [PodeResponder] IS NULL)");
+
+            // FoiFallback=0 nunca tem sub-motivo (NaoEhFallback); FoiFallback=1
+            // sempre tem um dos quatro sub-motivos — nunca o valor genérico 0.
+            t.HasCheckConstraint(
+                "CK_ChamadasDeIa_TipoDeFallback",
+                "([FoiFallback] = 0 AND [TipoDeFallback] = 0) OR ([FoiFallback] = 1 AND [TipoDeFallback] BETWEEN 1 AND 5)");
+
+            // Categoria de "não soube responder" só existe quando é exatamente
+            // isso que aconteceu — nunca em falha terminal, nunca em resposta entregue.
+            t.HasCheckConstraint(
+                "CK_ChamadasDeIa_MotivoDaNaoResposta",
+                "([Sucesso] = 1 AND [PodeResponder] = 0 AND [MotivoDaNaoResposta] BETWEEN 0 AND 8) OR (NOT ([Sucesso] = 1 AND [PodeResponder] = 0) AND [MotivoDaNaoResposta] IS NULL)");
         });
 
         builder.HasKey(c => c.Id);
@@ -25,6 +37,8 @@ public class ChamadaDeIaConfiguration : IEntityTypeConfiguration<ChamadaDeIa>
         builder.Property(c => c.Modelo).HasMaxLength(60).IsUnicode(false).IsRequired();
         builder.Property(c => c.TipoDeFalha).HasConversion<byte>();
         builder.Property(c => c.MotivoDoFallback).HasMaxLength(200);
+        builder.Property(c => c.TipoDeFallback).HasConversion<byte>();
+        builder.Property(c => c.MotivoDaNaoResposta).HasConversion<byte?>();
         builder.Property(c => c.NivelDeRaciocinio).HasMaxLength(10).IsUnicode(false);
         builder.Property(c => c.CustoEstimadoUsd).HasColumnType("decimal(10,6)");
         builder.Property(c => c.IniciadaEm).HasColumnType("datetime2(3)");
@@ -36,10 +50,20 @@ public class ChamadaDeIaConfiguration : IEntityTypeConfiguration<ChamadaDeIa>
             .HasForeignKey(c => c.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Sem FK para Conversa: uma sonda do disjuntor pode não ter conversa
-        // nenhuma, e a linha de log não pode impedir que uma conversa antiga
-        // circule livremente por rotinas de manutenção.
+        // Sem FK para Conversa, TipoServico, Setor ou Mensagem: uma sonda do
+        // disjuntor pode não ter conversa nenhuma, e a linha de log não pode
+        // impedir que um registro antigo circule livremente por rotinas de
+        // manutenção nem falhar em gravar por causa de uma FK.
+        //
+        // INCLUDE torna esta consulta — a mais usada da tela do cartório —
+        // covering: nenhum key lookup para pegar provedor, sucesso, tokens ou custo.
         builder.HasIndex(c => new { c.TenantId, c.IniciadaEm })
+            .IncludeProperties(c => new
+            {
+                c.Provedor, c.Sucesso, c.PodeResponder, c.TipoDeFalha, c.TipoDeFallback,
+                c.RodadaId, c.TipoServicoId, c.SetorId, c.MotivoDaNaoResposta,
+                c.LatenciaMs, c.CustoEstimadoUsd, c.TokensEntrada, c.TokensSaida, c.TokensPensamento,
+            })
             .HasDatabaseName("IX_ChamadasDeIa_Tenant_Iniciada");
 
         // Hidratação global de RPM/TPM/RPD do Gemini após reciclagem do App Pool —
@@ -52,5 +76,23 @@ public class ChamadaDeIaConfiguration : IEntityTypeConfiguration<ChamadaDeIa>
         // tentativas bem-sucedidas contam para qualquer teto.
         builder.HasIndex(c => new { c.TenantId, c.Provedor, c.Sucesso, c.IniciadaEm })
             .HasDatabaseName("IX_ChamadasDeIa_Tenant_Provedor_Sucesso");
+
+        // A Central de IA filtra só por período, cross-tenant — nenhum dos
+        // índices acima tem IniciadaEm à esquerda sem TenantId/ChaveDeProjeto
+        // na frente, então aquela consulta só resolvia por scan.
+        builder.HasIndex(c => c.IniciadaEm)
+            .IncludeProperties(c => new
+            {
+                c.TenantId, c.Provedor, c.Sucesso, c.PodeResponder, c.TipoDeFalha,
+                c.TipoDeFallback, c.RodadaId, c.LatenciaMs, c.CustoEstimadoUsd,
+            })
+            .HasDatabaseName("IX_ChamadasDeIa_Iniciada");
+
+        // Drill-down "todas as chamadas de IA desta conversa". Filtrado porque a
+        // sonda do disjuntor grava ConversaId nulo.
+        builder.HasIndex(c => c.ConversaId)
+            .IncludeProperties(c => new { c.IniciadaEm, c.Sucesso, c.PodeResponder, c.TipoDeFallback })
+            .HasFilter("[ConversaId] IS NOT NULL")
+            .HasDatabaseName("IX_ChamadasDeIa_Conversa");
     }
 }

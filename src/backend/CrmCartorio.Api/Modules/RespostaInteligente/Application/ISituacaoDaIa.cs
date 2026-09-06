@@ -30,12 +30,26 @@ public record HojeDaIaResponse(
     decimal CustoEstimadoHaikuReais,
     int TokensDoGemini);
 
+/// <param name="FallbackExecutado">
+/// Tentativas em que o Gemini foi discado e falhou, e o Haiku assumiu — a soma
+/// de <see cref="Quota"/> + <see cref="RateLimit"/> + <see cref="Indisponibilidade"/>
+/// + <see cref="Configuracao"/> + <see cref="Outros"/> abaixo.
+/// </param>
+/// <param name="FallbackPreventivo">
+/// Tentativas em que o Gemini NUNCA foi discado (desligado por config, disjuntor
+/// aberto, margem de cota atingida) e o Haiku respondeu sozinho. Sem esta
+/// contagem, uma tela pode mostrar "caídas no Haiku" ao lado de "nenhum
+/// fallback" ao mesmo tempo — os motivos abaixo só cobrem o Gemini que FOI
+/// discado, não o que foi pulado.
+/// </param>
 public record MotivosDeFallbackResponse(
     int Quota,
     int RateLimit,
     int Indisponibilidade,
     int Configuracao,
-    int Outros);
+    int Outros,
+    int FallbackExecutado,
+    int FallbackPreventivo);
 
 public record EconomiaResponse(
     decimal CustoRealHaikuReais,
