@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -111,14 +112,17 @@ public class ContadorDeLimiteDiario(IServiceScopeFactory scopeFactory)
             return existente;
         }
 
-        var estado = new Estado { Dia = DateOnly.FromDateTime(DateTime.UtcNow) };
+        // Dia LOCAL da serventia, nao o dia UTC do servidor — o teto e apresentado
+        // como "por dia" ao cartorio, e precisa virar na meia-noite que o
+        // cartorio reconhece como meia-noite, nao 8 ou 9 horas antes dela (UTC-3).
+        var estado = new Estado { Dia = DateOnly.FromDateTime(DiaLocal.ParaLocal(DateTime.UtcNow)) };
         _porChave[chave] = estado;
 
         try
         {
             using var escopo = scopeFactory.CreateScope();
             var db = escopo.ServiceProvider.GetRequiredService<CrmDbContext>();
-            var inicioDoDia = DateTime.UtcNow.Date;
+            var inicioDoDia = DiaLocal.InicioDoDia(DateTime.UtcNow);
 
             estado.Usado = categoria == CategoriaDeLimiteDiario.Geral
                 ? await db.ChamadasDeIa.AsNoTracking()
@@ -138,7 +142,7 @@ public class ContadorDeLimiteDiario(IServiceScopeFactory scopeFactory)
 
     private static void RenovarDiaSeNecessario(Estado estado)
     {
-        var hoje = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoje = DateOnly.FromDateTime(DiaLocal.ParaLocal(DateTime.UtcNow));
 
         if (estado.Dia != hoje)
         {

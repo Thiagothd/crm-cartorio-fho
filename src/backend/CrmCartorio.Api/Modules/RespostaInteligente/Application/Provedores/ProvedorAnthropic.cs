@@ -55,9 +55,17 @@ public class ProvedorAnthropic(
             {
                 type = "string",
                 description = "Por que não pode responder, quando podeResponder é falso."
+            },
+            categoria = new
+            {
+                type = "string",
+                @enum = Enum.GetNames<MotivoDaNaoRespostaDeIa>(),
+                description =
+                    "Categoria fechada de por que não pode responder. Use NaoClassificado quando " +
+                    "podeResponder for verdadeiro, ou quando nenhuma categoria específica descrever o caso."
             }
         }),
-        ["required"] = JsonSerializer.SerializeToElement(new[] { "podeResponder", "resposta", "motivo" }),
+        ["required"] = JsonSerializer.SerializeToElement(new[] { "podeResponder", "resposta", "motivo", "categoria" }),
         ["additionalProperties"] = JsonSerializer.SerializeToElement(false)
     };
 
@@ -127,7 +135,7 @@ public class ProvedorAnthropic(
                 ?? throw new JsonException("Deserializacao da resposta da IA devolveu nulo.");
 
             return ResultadoDoProvedor.DeSucesso(
-                new RespostaDaIA(lida.PodeResponder, lida.Resposta, lida.Motivo),
+                new RespostaDaIA(lida.PodeResponder, lida.Resposta, lida.Motivo, InterpretarCategoria(lida.Categoria)),
                 tokensEntrada: (int)resposta.Usage.InputTokens,
                 tokensSaida: (int)resposta.Usage.OutputTokens,
                 tokensPensamento: 0, // Haiku 4.5 nao suporta thinking (ver README do modulo)
@@ -204,5 +212,14 @@ public class ProvedorAnthropic(
         }
     }
 
-    private sealed record RespostaWire(bool PodeResponder, string Resposta, string Motivo);
+    private sealed record RespostaWire(bool PodeResponder, string Resposta, string Motivo, string? Categoria);
+
+    // Duplicado identico em ProvedorGemini.cs — mesmo espirito da duplicacao ja
+    // assumida no esquema da resposta (comentario no topo do arquivo): nunca
+    // inventa categoria fora da lista fechada. Enum.TryParse com nome invalido,
+    // vazio ou nulo cai no piso seguro.
+    private static MotivoDaNaoRespostaDeIa InterpretarCategoria(string? valor) =>
+        Enum.TryParse<MotivoDaNaoRespostaDeIa>(valor, ignoreCase: true, out var categoria)
+            ? categoria
+            : MotivoDaNaoRespostaDeIa.NaoClassificado;
 }

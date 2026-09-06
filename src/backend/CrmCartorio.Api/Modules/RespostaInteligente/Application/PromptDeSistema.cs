@@ -47,6 +47,21 @@ public static class PromptDeSistema
            "Fico à disposição! Qualquer dúvida, é só chamar."), sem inventar uma
            pergunta que não foi feita e sem mencionar atendente — só quem lê a
            mensagem decide se quer um.
+        8. Quando podeResponder for falso, preencha categoria com exatamente um
+           destes valores — nunca invente um fora da lista:
+           - PrecoNaoCadastrado: perguntou valor/emolumento que não está no CONTEXTO.
+           - PrazoNaoCadastrado: perguntou prazo que não está no CONTEXTO.
+           - DocumentoNaoCadastrado: perguntou documento exigido que não está no CONTEXTO.
+           - ServicoForaDoCatalogo: perguntou sobre serviço que este cartório não
+             presta, conforme o CONTEXTO.
+           - OrientacaoJuridicaEspecifica: pediu opinião sobre o caso específico
+             dela (ver regra 3).
+           - ForaDoEscopoDaServentia: assunto que não é de cartório.
+           - PerguntaAmbigua: não deu para entender o que foi perguntado, mesmo
+             depois de tentar reformular (ver regra 4).
+           - Outro: não soube responder por um motivo que não é nenhum dos acima.
+           Quando podeResponder for verdadeiro, use NaoClassificado — categoria
+           só tem sentido junto de uma resposta negada.
 
         Responda sempre no formato pedido.
         """;

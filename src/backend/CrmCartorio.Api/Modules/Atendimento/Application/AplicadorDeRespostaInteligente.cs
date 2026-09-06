@@ -58,7 +58,12 @@ public static class AplicadorDeRespostaInteligente
         }
 
         var historico = await MontarHistoricoAsync(db, conversa.Id, mensagemAtualId, ct);
-        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, conversa.Id, ct);
+
+        // Snapshot do INSTANTE da chamada — TipoServicoId/SetorId da conversa
+        // podem mudar depois, e a analise de assunto precisa do que era
+        // verdade quando a pergunta foi feita, nao do estado final.
+        var contexto = new ContextoDaChamada(conversa.Id, mensagemAtualId, conversa.TipoServicoId, conversa.SetorId);
+        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, contexto, ct);
 
         // BUG-ATD-01, corrida B/G do plano: a chamada acima pode levar
         // segundos (rede) — tempo suficiente para um atendente assumir

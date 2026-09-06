@@ -71,9 +71,17 @@ public partial class ProvedorGemini(
             {
                 ["type"] = "string",
                 ["description"] = "Por que não pode responder, quando podeResponder é falso."
+            },
+            ["categoria"] = new Dictionary<string, object>
+            {
+                ["type"] = "string",
+                ["enum"] = Enum.GetNames<MotivoDaNaoRespostaDeIa>(),
+                ["description"] =
+                    "Categoria fechada de por que não pode responder. Use NaoClassificado quando " +
+                    "podeResponder for verdadeiro, ou quando nenhuma categoria específica descrever o caso."
             }
         },
-        ["required"] = new[] { "podeResponder", "resposta", "motivo" },
+        ["required"] = new[] { "podeResponder", "resposta", "motivo", "categoria" },
         ["additionalProperties"] = false
     };
 
@@ -193,7 +201,7 @@ public partial class ProvedorGemini(
             }
 
             return ResultadoDoProvedor.DeSucesso(
-                new RespostaDaIA(lida.PodeResponder, lida.Resposta, lida.Motivo),
+                new RespostaDaIA(lida.PodeResponder, lida.Resposta, lida.Motivo, InterpretarCategoria(lida.Categoria)),
                 tokensEntrada: corpoLido?.Usage?.TotalInputTokens ?? 0,
                 tokensSaida: corpoLido?.Usage?.TotalOutputTokens ?? 0,
                 tokensPensamento: corpoLido?.Usage?.TotalThoughtTokens ?? 0,
@@ -345,7 +353,16 @@ public partial class ProvedorGemini(
         return $"{historico}\nCONTEXTO:\n{pedido.Contexto}\nPERGUNTA DO CLIENTE:\n{pedido.MensagemDoCliente}";
     }
 
-    private sealed record RespostaWire(bool PodeResponder, string Resposta, string Motivo);
+    private sealed record RespostaWire(bool PodeResponder, string Resposta, string Motivo, string? Categoria);
+
+    // Duplicado identico em ProvedorAnthropic.cs — mesmo espirito da duplicacao
+    // ja assumida no esquema da resposta (comentario no topo do arquivo): nunca
+    // inventa categoria fora da lista fechada. Enum.TryParse com nome invalido,
+    // vazio ou nulo cai no piso seguro.
+    private static MotivoDaNaoRespostaDeIa InterpretarCategoria(string? valor) =>
+        Enum.TryParse<MotivoDaNaoRespostaDeIa>(valor, ignoreCase: true, out var categoria)
+            ? categoria
+            : MotivoDaNaoRespostaDeIa.NaoClassificado;
 
     // --- DTOs da Interactions API — nomes de campo em snake_case, como a API exige.
 

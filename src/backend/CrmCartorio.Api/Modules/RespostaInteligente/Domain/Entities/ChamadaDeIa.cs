@@ -18,7 +18,11 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 /// App Pool.
 ///
 /// Nunca grava conteúdo de mensagem, dado do cliente, chave de API ou trecho de
-/// prompt — só metadado técnico da chamada.
+/// prompt — só metadado técnico da chamada. <see cref="MensagemId"/> é a única
+/// exceção parcial a isso: não é conteúdo, mas é um ponteiro PARA conteúdo do
+/// cliente. Por isso a Central de IA (que lê esta tabela sem filtro de tenant)
+/// nunca projeta <see cref="MensagemId"/>, <see cref="ConversaId"/> nem
+/// <see cref="MotivoDoFallback"/> — só os campos estruturados.
 /// </remarks>
 public class ChamadaDeIa : EntidadeBase, IEntidadeDeTenant
 {
@@ -80,4 +84,45 @@ public class ChamadaDeIa : EntidadeBase, IEntidadeDeTenant
 
     /// <summary><c>low</c>/<c>medium</c>/<c>high</c> quando o provedor é o Gemini; nulo para o Anthropic.</summary>
     public string? NivelDeRaciocinio { get; set; }
+
+    /// <summary>
+    /// Distingue fallback executado (Gemini discou e falhou) de preventivo (Gemini
+    /// nem foi discado). Ver <see cref="Enums.TipoDeFallbackDeIa"/> — é o campo que
+    /// corrige a leitura de <see cref="FoiFallback"/> sozinho não dar conta.
+    /// </summary>
+    public required TipoDeFallbackDeIa TipoDeFallback { get; set; }
+
+    /// <summary>
+    /// Mesmo valor nas duas tentativas de uma mesma pergunta do cliente (a que
+    /// falhou e a que resolveu) — permite contar "perguntas", não só "tentativas",
+    /// e medir a latência total que o cliente esperou de verdade. Nula em linha
+    /// gravada antes desta coluna existir.
+    /// </summary>
+    public Guid? RodadaId { get; set; }
+
+    /// <summary>
+    /// Por que a IA não soube responder — categoria fechada devolvida pelo
+    /// próprio modelo. Só preenchida quando <see cref="Sucesso"/> é true e
+    /// <see cref="PodeResponder"/> é false. Nunca o texto livre do modelo — ver
+    /// <see cref="Enums.MotivoDaNaoRespostaDeIa"/> para o porquê.
+    /// </summary>
+    public MotivoDaNaoRespostaDeIa? MotivoDaNaoResposta { get; set; }
+
+    /// <summary>
+    /// Snapshot de <c>Conversa.TipoServicoId</c> no INSTANTE desta chamada — não
+    /// o estado final da conversa, que pode mudar depois. Sem FK, mesmo motivo de
+    /// <see cref="ConversaId"/>. Nula quando a conversa ainda não tinha serviço
+    /// definido, ou em linha anterior a esta coluna.
+    /// </summary>
+    public Guid? TipoServicoId { get; set; }
+
+    /// <summary>Snapshot de <c>Conversa.SetorId</c> no instante desta chamada. Sem FK, mesmo motivo.</summary>
+    public Guid? SetorId { get; set; }
+
+    /// <summary>
+    /// A mensagem do cliente que originou esta chamada. Sem FK. Ver a nota de
+    /// privacidade da classe — é o único campo que aproxima esta linha de
+    /// conteúdo do cliente, e por isso nunca é projetado pela Central de IA.
+    /// </summary>
+    public Guid? MensagemId { get; set; }
 }

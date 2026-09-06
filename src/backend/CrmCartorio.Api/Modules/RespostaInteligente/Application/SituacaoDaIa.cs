@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
@@ -23,7 +24,11 @@ public class SituacaoDaIa(
         }
 
         var valor = opcoes.Value;
-        var inicioDoDiaUtc = DateTime.UtcNow.Date;
+        // Meia-noite no fuso da serventia, nao no fuso UTC do servidor — mesmo
+        // limite que ContadorDeLimiteDiario usa para os dois tetos abaixo. Os
+        // dois precisam mudar juntos: um card "hoje" em UTC ao lado de um teto
+        // "hoje" em fuso local diverge visivelmente entre 21h e meia-noite.
+        var inicioDoDiaUtc = DiaLocal.InicioDoDia(DateTime.UtcNow);
         var periodoDe = de ?? inicioDoDiaUtc;
         var periodoAte = ate ?? DateTime.UtcNow;
 
@@ -43,6 +48,7 @@ public class SituacaoDaIa(
                 c.Provedor,
                 c.Sucesso,
                 c.FoiFallback,
+                c.TipoDeFallback,
                 c.TipoDeFalha,
                 c.TokensEntrada,
                 c.TokensSaida,
@@ -67,6 +73,20 @@ public class SituacaoDaIa(
 
         var falhas = chamadasDoPeriodo.Where(c => !c.Sucesso && c.Provedor == ProvedorDeIa.Gemini).ToList();
 
+        // TipoDeFallback, nao "!Sucesso && Provedor==Gemini": o Gemini pode
+        // nunca ter sido discado (desligado, disjuntor aberto, margem de cota) e
+        // o Haiku responder sozinho — nesse caso nao existe NENHUMA linha de
+        // falha do Gemini para contar em `falhas` acima, mas o fallback
+        // aconteceu. Achado ao vivo: a tela mostrava "Caidas no Haiku: 1" e
+        // "Nenhum fallback no periodo" ao mesmo tempo, porque a primeira frase
+        // contava sucessos do Anthropic e a segunda contava so falhas do Gemini.
+        var fallbackExecutado = chamadasDoPeriodo.Count(c => c.TipoDeFallback == TipoDeFallbackDeIa.Executado);
+        var fallbackPreventivo = chamadasDoPeriodo.Count(c =>
+            c.TipoDeFallback is TipoDeFallbackDeIa.PreventivoDesligado
+                or TipoDeFallbackDeIa.PreventivoDisjuntor
+                or TipoDeFallbackDeIa.PreventivoMargemDeCota
+                or TipoDeFallbackDeIa.Indeterminado);
+
         var hoje = new HojeDaIaResponse(
             TotalDeChamadas: totalDeChamadasBemSucedidas,
             AtendidasPeloGemini: geminiSucessos,
@@ -84,7 +104,9 @@ public class SituacaoDaIa(
             RateLimit: falhas.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.RateLimit),
             Indisponibilidade: falhas.Count(c => c.TipoDeFalha is TipoDeFalhaDeIa.Indisponibilidade or TipoDeFalhaDeIa.Timeout or TipoDeFalhaDeIa.Rede),
             Configuracao: falhas.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.Configuracao),
-            Outros: falhas.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.RespostaInvalida));
+            Outros: falhas.Count(c => c.TipoDeFalha == TipoDeFalhaDeIa.RespostaInvalida),
+            FallbackExecutado: fallbackExecutado,
+            FallbackPreventivo: fallbackPreventivo);
 
         var economia = new EconomiaResponse(
             CustoRealHaikuReais: Math.Round(custoRealHaikuUsd * valor.Anthropic.CotacaoDoDolar, 2),

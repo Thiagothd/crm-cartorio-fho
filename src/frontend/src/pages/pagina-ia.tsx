@@ -210,8 +210,18 @@ export function PaginaIa() {
               </Painel>
 
               <Painel titulo="Motivos de fallback para o Haiku">
-                {Object.values(data.motivosDeFallback).every((valor) => valor === 0) ? (
+                {data.motivosDeFallback.fallbackExecutado === 0 && data.motivosDeFallback.fallbackPreventivo === 0 ? (
                   <p className="text-sm text-tinta-media">Nenhum fallback no período — o Gemini respondeu tudo.</p>
+                ) : data.motivosDeFallback.fallbackExecutado === 0 ? (
+                  // O Gemini nunca foi discado neste período (desligado, disjuntor
+                  // aberto ou margem de cota atingida) — não há falha DELE para
+                  // detalhar, só o fato de o Haiku ter respondido sozinho.
+                  <p className="text-sm text-tinta-media">
+                    O Gemini não foi acionado neste período (desligado, em contingência ou dentro da margem de
+                    segurança da cota) — o Haiku respondeu sozinho{' '}
+                    {formatarNumero(data.motivosDeFallback.fallbackPreventivo)}{' '}
+                    {data.motivosDeFallback.fallbackPreventivo === 1 ? 'vez' : 'vezes'}.
+                  </p>
                 ) : (
                   <BarrasHorizontais
                     itens={[

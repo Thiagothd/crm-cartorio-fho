@@ -601,7 +601,7 @@ file sealed class IaFake(TimeSpan? atraso = null, bool falhar = false) : IRespos
     public int Chamadas => _chamadas;
     public int MaximoSimultaneo => _maximo;
 
-    public async Task<RespostaDaIA> ResponderAsync(Guid tenantId, IReadOnlyList<TrocaAnterior> historico, string mensagemDoCliente, Guid? conversaId = null, CancellationToken ct = default)
+    public async Task<RespostaDaIA> ResponderAsync(Guid tenantId, IReadOnlyList<TrocaAnterior> historico, string mensagemDoCliente, ContextoDaChamada? contexto = null, CancellationToken ct = default)
     {
         Interlocked.Increment(ref _chamadas);
         var atuais = Interlocked.Increment(ref _simultaneas);
@@ -636,7 +636,7 @@ file sealed class IaControlada : IRespostaInteligenteService
         Guid tenantId,
         IReadOnlyList<TrocaAnterior> historico,
         string mensagemDoCliente,
-        Guid? conversaId = null,
+        ContextoDaChamada? contexto = null,
         CancellationToken ct = default)
     {
         Interlocked.Increment(ref _chamadas);

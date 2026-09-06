@@ -3036,7 +3036,7 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
 /// </summary>
 file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
 {
-    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct) =>
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
             "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
 }
@@ -3054,7 +3054,7 @@ file sealed class OrquestradorContador : IOrquestradorDeProvedores
 {
     public int Chamadas { get; private set; }
 
-    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct)
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct)
     {
         Chamadas++;
         return Task.FromResult(new RespostaDaIA(false, "", "OrquestradorContador nao deveria ser chamado em modo humano."));

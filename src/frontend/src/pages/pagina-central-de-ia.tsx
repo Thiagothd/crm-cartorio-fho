@@ -244,7 +244,7 @@ function CartaoDeTenant({ item }: { item: SituacaoPorTenant }) {
         <Metrica rotulo="Custo estimado" valor={formatarReais(item.custoEstimadoReais)} detalhe={`US$ ${item.custoEstimadoUsd.toFixed(4)}`} />
       </div>
 
-      {motivos.quota + motivos.rateLimit + motivos.indisponibilidade + motivos.configuracao + motivos.outros > 0 ? (
+      {motivos.fallbackExecutado + motivos.fallbackPreventivo > 0 ? (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-linha pt-3 text-[11px] text-tinta-media">
           <span>Motivos de fallback:</span>
           {motivos.quota > 0 ? <span>Quota {motivos.quota}</span> : null}
@@ -252,6 +252,13 @@ function CartaoDeTenant({ item }: { item: SituacaoPorTenant }) {
           {motivos.indisponibilidade > 0 ? <span>Indisponibilidade {motivos.indisponibilidade}</span> : null}
           {motivos.configuracao > 0 ? <span>Configuração {motivos.configuracao}</span> : null}
           {motivos.outros > 0 ? <span>Outros {motivos.outros}</span> : null}
+          {/* O Gemini pode nunca ter sido discado (desligado, disjuntor aberto,
+              margem de cota) — nesse caso os 5 motivos acima ficam todos zerados
+              mesmo com fallback tendo acontecido, porque eles só classificam a
+              falha do Gemini que FOI discado. */}
+          {motivos.fallbackPreventivo > 0 ? (
+            <span>Gemini não discado (preventivo) {motivos.fallbackPreventivo}</span>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -777,6 +777,120 @@ Checar("Importacao: telefones do lote ja existentes, ao confirmar (Contains + pr
         .Select(c => c.TelefoneWhatsapp)
         .ToQueryString());
 
+// --- 15. Analise da IA — ChamadasDeIa (migracao 042) ------------------------
+//
+// Ate esta secao, ZERO consultas de ChamadasDeIa passavam por aqui — nem as
+// duas que ja rodam em producao (SituacaoDaIa.cs e SituacaoGlobalDaIaService.cs)
+// nem as que a agregacao nova (Etapas B/C) vai precisar. As de maior risco sao
+// GroupBy por enum NULAVEL convertido (MotivoDaNaoResposta), chave composta
+// com divisao inteira (histograma de latencia) e Distinct().Count() separado
+// do GroupBy(_ => 1) — o caso classico que o EF Core recusa quando embutido
+// junto de outros agregados na mesma projecao.
+
+var periodoDeDaIa = agora.AddDays(-7);
+var periodoAteDaIa = agora;
+
+Checar("ChamadasDeIa: producao SituacaoDaIa.cs (projecao do periodo, por tenant)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .Select(c => new
+        {
+            c.Provedor,
+            c.Sucesso,
+            c.FoiFallback,
+            c.TipoDeFallback,
+            c.TipoDeFalha,
+            c.TokensEntrada,
+            c.TokensSaida,
+            c.TokensPensamento,
+            c.CustoEstimadoUsd
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: producao SituacaoGlobalDaIaService.cs (projecao cross-tenant, sem filtro de TenantId)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .Select(c => new
+        {
+            c.TenantId,
+            c.Provedor,
+            c.Sucesso,
+            c.TipoDeFallback,
+            c.TipoDeFalha,
+            c.CustoEstimadoUsd,
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: contagem condicional de PodeResponder (bool? dentro de agregacao)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa)
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Entregues = g.Count(c => c.PodeResponder == true),
+            NaoSoube = g.Count(c => c.PodeResponder == false),
+            Falhas = g.Count(c => !c.Sucesso),
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: soma de custo com ?? sobre decimal? dentro de Sum", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Sucesso)
+        .GroupBy(_ => 1)
+        .Select(g => new { CustoTotalUsd = g.Sum(c => c.CustoEstimadoUsd ?? 0m) })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: contagem de rodadas distintas (Distinct().Count() fora do GroupBy(_ => 1))", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.RodadaId != null)
+        .Select(c => c.RodadaId!.Value)
+        .Distinct()
+        .ToQueryString());
+
+Checar("ChamadasDeIa: histograma de latencia por provedor (chave composta com divisao inteira)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.Sucesso)
+        .GroupBy(c => new { c.Provedor, Balde = c.LatenciaMs / 250 })
+        .Select(g => new { g.Key.Provedor, g.Key.Balde, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: breakdown por provedor e tipo de falha (dois enums convertidos na chave composta)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => !c.Sucesso)
+        .GroupBy(c => new { c.Provedor, c.TipoDeFalha })
+        .Select(g => new { g.Key.Provedor, g.Key.TipoDeFalha, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: distribuicao por servico (Guid? como chave de agrupamento)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId)
+        .GroupBy(c => c.TipoServicoId)
+        .Select(g => new
+        {
+            TipoServicoId = g.Key,
+            Total = g.Count(),
+            NaoSoube = g.Count(c => c.PodeResponder == false),
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: agrupado por categoria da nao-resposta (enum NULAVEL convertido como chave)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.PodeResponder == false)
+        .GroupBy(c => c.MotivoDaNaoResposta)
+        .Select(g => new { Categoria = g.Key, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: ranking de tenants por tentativas, ordenado e paginado (a consulta da Central)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => c.TenantId)
+        .Select(g => new { TenantId = g.Key, Total = g.Count() })
+        .OrderByDescending(x => x.Total)
+        .ThenBy(x => x.TenantId)
+        .Skip(0)
+        .Take(20)
+        .ToQueryString());
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

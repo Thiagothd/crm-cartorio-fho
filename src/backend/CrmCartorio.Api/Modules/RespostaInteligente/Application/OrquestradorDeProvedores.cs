@@ -9,7 +9,7 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
 
 public interface IOrquestradorDeProvedores
 {
-    Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct);
+    Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct);
 }
 
 /// <summary>
@@ -44,9 +44,14 @@ public class OrquestradorDeProvedores(
     ILogger<OrquestradorDeProvedores> log) : IOrquestradorDeProvedores
 {
     public async Task<RespostaDaIA> ResponderAsync(
-        Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct)
+        Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct)
     {
         var opcoesDaIA = opcoes.Value;
+
+        // Mesmo valor nas duas tentativas desta pergunta (a que falhar e a que
+        // resolver) — é o que permite contar "perguntas" em vez de "tentativas"
+        // e somar a latência total que o cliente esperou de verdade.
+        var rodadaId = Guid.CreateVersion7();
 
         var reservouGeral = await limiteDiario.TentarReservarAsync(
             tenantId, CategoriaDeLimiteDiario.Geral, opcoesDaIA.LimiteDiario, ct);
@@ -81,8 +86,8 @@ public class OrquestradorDeProvedores(
             if (decisao.TentarOGemini)
             {
                 var resultado = await TentarProvedorAsync(
-                    gemini, pedido, tenantId, conversaId, decisao.ChaveDeProjeto,
-                    foiFallback: false, motivoDoFallback: null, ct);
+                    gemini, pedido, tenantId, contexto, rodadaId, decisao.ChaveDeProjeto,
+                    tipoDeFallback: TipoDeFallbackDeIa.NaoEhFallback, motivoDoFallback: null, ct);
 
                 if (resultado.Sucesso)
                 {
@@ -138,8 +143,9 @@ public class OrquestradorDeProvedores(
             }
 
             var resultadoHaiku = await TentarProvedorAsync(
-                anthropic, pedido, tenantId, conversaId, chaveDeProjeto: null,
-                foiFallback: true, motivoDoFallback, ct);
+                anthropic, pedido, tenantId, contexto, rodadaId, chaveDeProjeto: null,
+                tipoDeFallback: decisao.TentarOGemini ? TipoDeFallbackDeIa.Executado : decisao.TipoSePulou,
+                motivoDoFallback, ct);
 
             if (resultadoHaiku.Sucesso)
             {
@@ -188,12 +194,20 @@ public class OrquestradorDeProvedores(
         IProvedorDeIa provedor,
         PedidoDeIa pedido,
         Guid tenantId,
-        Guid? conversaId,
+        ContextoDaChamada? contexto,
+        Guid rodadaId,
         string? chaveDeProjeto,
-        bool foiFallback,
+        TipoDeFallbackDeIa tipoDeFallback,
         string? motivoDoFallback,
         CancellationToken ct)
     {
+        // Capturado ANTES da chamada ao provedor: IniciadaEm precisa marcar o
+        // INICIO da tentativa, nao o fim. Achado ao vivo — o carimbo antigo era
+        // `DateTime.UtcNow` avaliado so depois do await abaixo, entao a coluna
+        // guardava o instante em que a resposta chegou, nao em que a pergunta
+        // comecou a ser processada.
+        var comecouEm = DateTime.UtcNow;
+
         ResultadoDoProvedor resultado;
 
         try
@@ -213,14 +227,24 @@ public class OrquestradorDeProvedores(
             resultado = ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, null, 0, falha.Message);
         }
 
+        var foiFallback = tipoDeFallback != TipoDeFallbackDeIa.NaoEhFallback;
+
+        // Categoria fechada de "por que a IA nao soube" — so significativa
+        // quando a tentativa teve sucesso E o modelo disse que nao sabia.
+        // Nunca inferida de texto: o campo ja vem estruturado do provedor,
+        // com NaoClassificado como piso quando ele nao devolveu nada.
+        var motivoDaNaoResposta = resultado.Sucesso && resultado.Resposta!.PodeResponder == false
+            ? resultado.Resposta!.CategoriaDaNaoResposta
+            : (MotivoDaNaoRespostaDeIa?)null;
+
         var chamada = new ChamadaDeIa
         {
             TenantId = tenantId,
-            ConversaId = conversaId,
+            ConversaId = contexto?.ConversaId,
             ChaveDeProjeto = chaveDeProjeto,
             Provedor = provedor.Identidade,
             Modelo = provedor.Modelo,
-            IniciadaEm = DateTime.UtcNow,
+            IniciadaEm = comecouEm,
             LatenciaMs = resultado.LatenciaMs,
             Sucesso = resultado.Sucesso,
             PodeResponder = resultado.Sucesso ? resultado.Resposta!.PodeResponder : null,
@@ -228,6 +252,12 @@ public class OrquestradorDeProvedores(
             CodigoHttp = resultado.CodigoHttp,
             MotivoDoFallback = foiFallback ? TruncarParaColuna(motivoDoFallback) : null,
             FoiFallback = foiFallback,
+            TipoDeFallback = tipoDeFallback,
+            RodadaId = rodadaId,
+            MotivoDaNaoResposta = motivoDaNaoResposta,
+            TipoServicoId = contexto?.TipoServicoId,
+            SetorId = contexto?.SetorId,
+            MensagemId = contexto?.MensagemId,
             TokensEntrada = resultado.TokensEntrada,
             TokensSaida = resultado.TokensSaida,
             TokensPensamento = resultado.TokensPensamento,

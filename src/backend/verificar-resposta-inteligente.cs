@@ -818,6 +818,254 @@ Console.WriteLine("CENARIO 20 — Haiku sem cota disponivel: Geral devolvido, Ha
 }
 Console.WriteLine();
 
+// ============================================================================
+// CENARIOS 21-30 — migration 042: TipoDeFallback, RodadaId, MotivoDaNaoResposta,
+// ContextoDaChamada (TipoServicoId/SetorId/MensagemId) e IniciadaEm como INICIO
+// da chamada, nao o fim. Cada um prova exatamente um campo novo; os cenarios
+// 1-20 acima continuam provando o comportamento de selecao/cota/disjuntor sem
+// tocar nesses campos.
+// ============================================================================
+
+Console.WriteLine("CENARIO 21 — fallback EXECUTADO: TipoDeFallback e mesma RodadaId nas duas linhas");
+{
+    var (orq, gemini, anthropic, _, _, _, escopos, _) = MontarAmbiente();
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.RateLimit, 429, 80, "429 rate_limit_exceeded"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "resposta do haiku", ""), 10, 10, 0, 50));
+
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    var linhas = await LerChamadasAsync(escopos);
+    var linhaGemini = linhas.Single(l => l.Provedor == ProvedorDeIa.Gemini);
+    var linhaHaiku = linhas.Single(l => l.Provedor == ProvedorDeIa.Anthropic);
+
+    Checar("Linha do Gemini (a que falhou): TipoDeFallback=NaoEhFallback", linhaGemini.TipoDeFallback == TipoDeFallbackDeIa.NaoEhFallback);
+    Checar("Linha do Haiku (a que assumiu): TipoDeFallback=Executado", linhaHaiku.TipoDeFallback == TipoDeFallbackDeIa.Executado);
+    Checar(
+        "Mesma RodadaId nas duas linhas (a mesma pergunta)",
+        linhaGemini.RodadaId != null && linhaGemini.RodadaId == linhaHaiku.RodadaId);
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 22 — Gemini desligado: TipoDeFallback=PreventivoDesligado, nenhuma linha do Gemini");
+{
+    var opcoes = NovasOpcoes();
+    opcoes.Gemini.Habilitado = false;
+    var (orq, gemini, anthropic, _, _, _, escopos, _) = MontarAmbiente(opcoes);
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "resposta do haiku", ""), 10, 10, 0, 50));
+
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    Checar("Gemini NUNCA foi discado", gemini.Chamadas == 0);
+    Checar("Haiku respondeu", anthropic.Chamadas == 1 && resposta.PodeResponder);
+
+    var linhas = await LerChamadasAsync(escopos);
+    Checar("UMA linha so — nao ha linha do Gemini para uma chamada que nunca saiu", linhas.Count == 1);
+    Checar(
+        "A linha e do Haiku, TipoDeFallback=PreventivoDesligado",
+        linhas[0].Provedor == ProvedorDeIa.Anthropic && linhas[0].TipoDeFallback == TipoDeFallbackDeIa.PreventivoDesligado);
+    Checar(
+        "Motivo comeca com 'Gemini desligado'",
+        linhas[0].MotivoDoFallback != null && linhas[0].MotivoDoFallback.StartsWith("Gemini desligado"));
+    Checar(
+        "Nenhuma linha com Provedor=Gemini — o coracao do bug original (Caidas no Haiku vs Nenhum fallback)",
+        !linhas.Any(l => l.Provedor == ProvedorDeIa.Gemini));
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 23 — disjuntor aberto: segunda chamada pula o Gemini preventivamente");
+{
+    var (orq, gemini, anthropic, disjuntor, _, _, escopos, _) = MontarAmbiente();
+
+    // Primeira chamada abre o disjuntor.
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.RateLimit, 429, 80, "429 rate_limit_exceeded"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "primeira", ""), 10, 10, 0, 50));
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    Checar(
+        "Disjuntor abriu apos a primeira falha",
+        disjuntor.Consultar(FingerprintDeChave.Calcular("chave-fake-de-verificacao")).Estado == EstadoDoDisjuntor.Aberto);
+
+    // Segunda chamada, imediatamente depois: cooldown nao venceu ainda -> o
+    // Gemini e pulado sem ser discado, nao por ter falhado de novo.
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "segunda", ""), 10, 10, 0, 50));
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    Checar("Gemini NAO foi discado na segunda chamada (disjuntor aberto)", gemini.Chamadas == 1);
+
+    var linhaDaSegunda = (await LerChamadasAsync(escopos)).Last();
+    Checar(
+        "Segunda chamada: linha do Haiku com TipoDeFallback=PreventivoDisjuntor",
+        linhaDaSegunda.Provedor == ProvedorDeIa.Anthropic && linhaDaSegunda.TipoDeFallback == TipoDeFallbackDeIa.PreventivoDisjuntor);
+    Checar(
+        "Motivo comeca com 'Disjuntor'",
+        linhaDaSegunda.MotivoDoFallback != null && linhaDaSegunda.MotivoDoFallback.StartsWith("Disjuntor"));
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 24 — margem de cota atingida: TipoDeFallback=PreventivoMargemDeCota");
+{
+    // RPD=10, margem=80% -> bloqueia a partir da 9a reserva (8 ja usadas) — mesma
+    // configuracao do CENARIO 2, so acrescentando as asserções dos campos novos.
+    var opcoes = NovasOpcoes(limiteRpd: 10, percentualDeSeguranca: 80);
+    var (orq, gemini, anthropic, _, _, _, escopos, _) = MontarAmbiente(opcoes);
+
+    for (var i = 0; i < 8; i++)
+    {
+        gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, $"resposta {i}", ""), 10, 10, 0, 50));
+        await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    }
+
+    anthropic.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "resposta do haiku", ""), 10, 10, 0, 50));
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    var linhaDoHaiku = (await LerChamadasAsync(escopos)).Single(l => l.Provedor == ProvedorDeIa.Anthropic);
+    Checar("TipoDeFallback=PreventivoMargemDeCota", linhaDoHaiku.TipoDeFallback == TipoDeFallbackDeIa.PreventivoMargemDeCota);
+    Checar(
+        "Motivo comeca com 'Margem de seguranca'",
+        linhaDoHaiku.MotivoDoFallback != null && linhaDoHaiku.MotivoDoFallback.StartsWith("Margem de seguran"));
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 25 — Gemini responde direto: TipoDeFallback=NaoEhFallback, RodadaId preenchida");
+{
+    var (orq, gemini, _, _, _, _, escopos, _) = MontarAmbiente();
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "Atendemos das 8h as 17h.", ""), 100, 40, 0, 250));
+
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+
+    var linha = (await LerChamadasAsync(escopos)).Single();
+    Checar("TipoDeFallback=NaoEhFallback numa resposta direta do Gemini", linha.TipoDeFallback == TipoDeFallbackDeIa.NaoEhFallback);
+    Checar("RodadaId preenchida mesmo numa unica tentativa (sem fallback)", linha.RodadaId != null);
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 26 — categoria da nao-resposta: so persistida quando podeResponder=false");
+{
+    // Limites CADASTRADOS (RPD/RPM/TPM > 0): desliga o freio local de descoberta
+    // (CENARIO 13 ja prova que ele bloqueia chamadas consecutivas sem 12s de
+    // espaco quando a franquia nao esta cadastrada) — aqui o que se quer testar
+    // e' a categoria da nao-resposta em tres chamadas seguidas, nao o freio.
+    var opcoes = NovasOpcoes(limiteRpd: 1000, limiteRpm: 1000, limiteTpm: 1_000_000);
+    var (orq, gemini, _, _, _, _, escopos, _) = MontarAmbiente(opcoes);
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(
+        new RespostaDaIA(false, "", "Pergunta sobre preco de escritura de doacao.", MotivoDaNaoRespostaDeIa.PrecoNaoCadastrado),
+        30, 15, 0, 90));
+
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido("quanto custa uma doacao?"), CancellationToken.None);
+    Checar("Resposta negativa (nao sabe)", !resposta.PodeResponder);
+
+    var primeiraLinha = (await LerChamadasAsync(escopos)).Single();
+    Checar(
+        "Sucesso=true, PodeResponder=false, categoria persistida",
+        primeiraLinha.Sucesso && primeiraLinha.PodeResponder == false
+            && primeiraLinha.MotivoDaNaoResposta == MotivoDaNaoRespostaDeIa.PrecoNaoCadastrado);
+
+    // Segunda chamada: agora sabe responder -> categoria fica nula, nunca "zero" disfarcado.
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "R$ 250,00.", ""), 20, 10, 0, 60));
+    await orq.ResponderAsync(tenantId, null, NovoPedido("quanto custa uma doacao?"), CancellationToken.None);
+
+    var linhaDeSucesso = (await LerChamadasAsync(escopos)).Last();
+    Checar(
+        "Categoria fica NULA quando podeResponder=true",
+        linhaDeSucesso.PodeResponder == true && linhaDeSucesso.MotivoDaNaoResposta == null);
+
+    // Terceira chamada: provedor fake construido SEM categoria explicita (usa o
+    // default do record) -> cai no piso seguro, nunca fica nulo por omissao.
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(false, "", "sem categoria enviada"), 10, 5, 0, 40));
+    await orq.ResponderAsync(tenantId, null, NovoPedido("pergunta sem categoria"), CancellationToken.None);
+
+    var linhaSemCategoria = (await LerChamadasAsync(escopos)).Last();
+    Checar(
+        "Sem categoria explicita cai em NaoClassificado (nunca nulo quando podeResponder=false)",
+        linhaSemCategoria.PodeResponder == false && linhaSemCategoria.MotivoDaNaoResposta == MotivoDaNaoRespostaDeIa.NaoClassificado);
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 27 — ContextoDaChamada completo chega identico na linha gravada");
+{
+    var (orq, gemini, _, _, _, _, escopos, _) = MontarAmbiente();
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "ok", ""), 10, 10, 0, 40));
+
+    var conversaId = Guid.NewGuid();
+    var mensagemId = Guid.NewGuid();
+    var tipoServicoId = Guid.NewGuid();
+    var setorId = Guid.NewGuid();
+    var contexto = new ContextoDaChamada(conversaId, mensagemId, tipoServicoId, setorId);
+
+    await orq.ResponderAsync(tenantId, contexto, NovoPedido(), CancellationToken.None);
+
+    var linha = (await LerChamadasAsync(escopos)).Single();
+    Checar("ConversaId chega identico", linha.ConversaId == conversaId);
+    Checar("MensagemId chega identico", linha.MensagemId == mensagemId);
+    Checar("TipoServicoId chega identico (snapshot do instante da chamada)", linha.TipoServicoId == tipoServicoId);
+    Checar("SetorId chega identico (snapshot do instante da chamada)", linha.SetorId == setorId);
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 28 — ContextoDaChamada nulo: as quatro colunas ficam nulas, nada quebra");
+{
+    var (orq, gemini, _, _, _, _, escopos, _) = MontarAmbiente();
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "ok", ""), 10, 10, 0, 40));
+
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    Checar("Resposta normal, sem contexto (ex.: chamada do painel de teste)", resposta.PodeResponder);
+
+    var linha = (await LerChamadasAsync(escopos)).Single();
+    Checar("ConversaId nulo", linha.ConversaId == null);
+    Checar("MensagemId nulo", linha.MensagemId == null);
+    Checar("TipoServicoId nulo", linha.TipoServicoId == null);
+    Checar("SetorId nulo", linha.SetorId == null);
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 29 — IniciadaEm marca o INICIO da chamada, nao o fim");
+{
+    var (orq, gemini, _, _, _, _, escopos, _) = MontarAmbiente();
+    var atraso = TimeSpan.FromMilliseconds(300);
+    gemini.EnfileirarComAtraso(
+        atraso, ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, "ok", ""), 10, 10, 0, (int)atraso.TotalMilliseconds));
+
+    var antes = DateTime.UtcNow;
+    await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    var depois = DateTime.UtcNow;
+
+    Checar(
+        "Pre-condicao do cenario: a chamada realmente levou o atraso configurado",
+        depois - antes >= atraso, $"decorrido={(depois - antes).TotalMilliseconds}ms");
+
+    var linha = (await LerChamadasAsync(escopos)).Single();
+    Checar(
+        "IniciadaEm cai perto de ANTES (inicio) — nao mais no antigo 'depois' (fim)",
+        linha.IniciadaEm >= antes.AddMilliseconds(-50) && linha.IniciadaEm <= antes.AddMilliseconds(150),
+        $"antes={antes:O} iniciadaEm={linha.IniciadaEm:O} depois={depois:O}");
+    Checar(
+        "IniciadaEm fica ANTES de (depois - metade do atraso) — prova que nao esta grudado no fim",
+        linha.IniciadaEm < depois - TimeSpan.FromMilliseconds(atraso.TotalMilliseconds / 2));
+}
+Console.WriteLine();
+
+Console.WriteLine("CENARIO 30 — os dois provedores falham: RodadaId igual, TipoDeFallback correto em cada linha");
+{
+    var (orq, gemini, anthropic, _, _, _, escopos, _) = MontarAmbiente();
+    gemini.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 100, "erro interno"));
+    anthropic.Enfileirar(ResultadoDoProvedor.DeFalha(TipoDeFalhaDeIa.Indisponibilidade, 500, 100, "erro interno tambem"));
+
+    var resposta = await orq.ResponderAsync(tenantId, null, NovoPedido(), CancellationToken.None);
+    Checar("Resposta final negativa", !resposta.PodeResponder);
+
+    var linhas = await LerChamadasAsync(escopos);
+    Checar("Duas linhas, nenhuma com Sucesso=true", linhas.Count == 2 && linhas.All(l => !l.Sucesso));
+
+    var linhaGemini = linhas.Single(l => l.Provedor == ProvedorDeIa.Gemini);
+    var linhaHaiku = linhas.Single(l => l.Provedor == ProvedorDeIa.Anthropic);
+    Checar(
+        "Mesma RodadaId nas duas linhas, mesmo as duas tendo falhado",
+        linhaGemini.RodadaId != null && linhaGemini.RodadaId == linhaHaiku.RodadaId);
+    Checar("Linha do Gemini: TipoDeFallback=NaoEhFallback (e a tentativa principal, falhou ou nao)", linhaGemini.TipoDeFallback == TipoDeFallbackDeIa.NaoEhFallback);
+    Checar("Linha do Haiku: TipoDeFallback=Executado (o Gemini FOI discado antes)", linhaHaiku.TipoDeFallback == TipoDeFallbackDeIa.Executado);
+}
+Console.WriteLine();
+
 Console.WriteLine(falhas == 0 ? "TODOS OS CENARIOS PASSARAM." : $"{falhas} CENARIO(S) COM FALHA.");
 return falhas == 0 ? 0 : 1;
 
@@ -836,6 +1084,18 @@ file sealed class ProvedorFake(ProvedorDeIa identidade, string modelo) : IProved
     public int Chamadas { get; private set; }
 
     public void Enfileirar(ResultadoDoProvedor resultado) => _fila.Enqueue(_ => resultado);
+
+    /// <summary>
+    /// Enfileira um resultado com atraso REAL (<see cref="Thread.Sleep"/>) antes de
+    /// devolver — usado só pelo CENARIO 29 para provar que <c>IniciadaEm</c> marca
+    /// o INÍCIO da chamada, não o fim. Os demais cenários não precisam de tempo
+    /// real nenhum (por isso <see cref="Enfileirar"/> devolve instantâneo).
+    /// </summary>
+    public void EnfileirarComAtraso(TimeSpan atraso, ResultadoDoProvedor resultado) => _fila.Enqueue(_ =>
+    {
+        Thread.Sleep(atraso);
+        return resultado;
+    });
 
     /// <summary>
     /// Simula o request HTTP real sendo abortado (gateway do WhatsApp desiste, ou

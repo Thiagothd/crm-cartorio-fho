@@ -846,7 +846,7 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
 /// <summary>Nunca deveria ser chamado — Habilitada=false aqui. Ver o mesmo comentario em verificar-automacao.cs.</summary>
 file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
 {
-    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, Guid? conversaId, PedidoDeIa pedido, CancellationToken ct) =>
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
             "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
 }
@@ -865,7 +865,7 @@ file sealed class RespostaInteligenteAtrasada(TaskCompletionSource sinalDeEntrad
         Guid tenantId,
         IReadOnlyList<TrocaAnterior> historico,
         string mensagemDoCliente,
-        Guid? conversaId = null,
+        ContextoDaChamada? contexto = null,
         CancellationToken ct = default)
     {
         sinalDeEntrada.TrySetResult();
