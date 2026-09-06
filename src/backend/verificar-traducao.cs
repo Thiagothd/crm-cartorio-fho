@@ -807,20 +807,6 @@ Checar("ChamadasDeIa: producao SituacaoDaIa.cs (projecao do periodo, por tenant)
         })
         .ToQueryString());
 
-Checar("ChamadasDeIa: producao SituacaoGlobalDaIaService.cs (projecao cross-tenant, sem filtro de TenantId)", () =>
-    db.ChamadasDeIa.AsNoTracking()
-        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
-        .Select(c => new
-        {
-            c.TenantId,
-            c.Provedor,
-            c.Sucesso,
-            c.TipoDeFallback,
-            c.TipoDeFalha,
-            c.CustoEstimadoUsd,
-        })
-        .ToQueryString());
-
 Checar("ChamadasDeIa: contagem condicional de PodeResponder (bool? dentro de agregacao)", () =>
     db.ChamadasDeIa.AsNoTracking()
         .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa)
@@ -914,6 +900,50 @@ Checar("AnaliseDaIa: lacunas de catalogo (chave composta: enum nulavel convertid
         .Select(g => new { g.Key.MotivoDaNaoResposta, g.Key.TipoServicoId, Total = g.Count() })
         .OrderByDescending(g => g.Total)
         .Take(10)
+        .ToQueryString());
+
+// --- 17. Central de IA (Etapa C) — ObservabilidadeDaIaService.cs, producao real
+
+Checar("ObservabilidadeDaIa: distribuicao por modelo (chave composta enum + string)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => new { c.Provedor, c.Modelo })
+        .Select(g => new { g.Key.Provedor, g.Key.Modelo, Total = g.Count(), Custo = g.Sum(c => c.CustoEstimadoUsd ?? 0m) })
+        .ToQueryString());
+
+Checar("ObservabilidadeDaIa: media condicional (Average com Where dentro do grupo, ao lado de Count/Sum)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => c.TenantId)
+        .Select(g => new
+        {
+            TenantId = g.Key,
+            Tentativas = g.Count(),
+            Falhas = g.Count(c => !c.Sucesso),
+            CustoEstimadoUsd = g.Sum(c => c.CustoEstimadoUsd ?? 0m),
+            LatenciaMediaMs = g.Where(c => c.Sucesso).Average(c => (double?)c.LatenciaMs),
+        })
+        .ToQueryString());
+
+Checar("ObservabilidadeDaIa: busca de tenant por nome (Like sobre coluna nulavel) alimentando Contains em ChamadasDeIa", () =>
+{
+    var idsQueBatemNaBusca = db.Tenants.AsNoTracking()
+        .Where(t => EF.Functions.Like(t.NomeFantasia, "%gameleiras%") || EF.Functions.Like(t.RazaoSocial, "%gameleiras%"))
+        .Select(t => t.Id);
+
+    return idsQueBatemNaBusca.ToQueryString() + "\n---\n" +
+        db.ChamadasDeIa.AsNoTracking()
+            .Where(c => idsQueBatemNaBusca.Contains(c.TenantId))
+            .ToQueryString();
+});
+
+Checar("ObservabilidadeDaIa: historico paginado (OrderByDescending por coluna + ThenBy Id, Skip/Take)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .OrderByDescending(c => c.IniciadaEm)
+        .ThenBy(c => c.Id)
+        .Skip(0)
+        .Take(20)
         .ToQueryString());
 
 Console.WriteLine();

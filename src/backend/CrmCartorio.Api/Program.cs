@@ -297,7 +297,7 @@ builder.Services.AddScoped<IConhecimentoDeIaService, ConhecimentoDeIaService>();
 // Atendente/Tenant. Ver Modules/CentralDeIa/README.md.
 builder.Services.AddScoped<IGeradorDeTokenDaCentralDeIa, GeradorDeTokenDaCentralDeIa>();
 builder.Services.AddScoped<ICentralDeIaAutenticador, CentralDeIaAutenticador>();
-builder.Services.AddScoped<ISituacaoGlobalDaIa, SituacaoGlobalDaIaService>();
+builder.Services.AddScoped<IObservabilidadeDaIa, ObservabilidadeDaIaService>();
 
 // Visão Geral, Indicadores e Relatórios, alertas do sino — só consulta, lê o
 // DbContext direto (permitido; chamar o Service de outro slice não seria).

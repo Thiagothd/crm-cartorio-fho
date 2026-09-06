@@ -10,7 +10,6 @@
  * token nenhum — essas duas seguem seguras para importar.
  */
 import { baseDaApi, montarQuery } from './cliente-http'
-import type { MotivosDeFallback } from './tipos'
 
 const CHAVE_DO_TOKEN_DA_CENTRAL = 'crm-cartorio.central-ia.token'
 
@@ -102,35 +101,246 @@ export async function entrar(segredo: string): Promise<EntrarNaCentralDeIaRespos
   return resposta
 }
 
-export type StatusDoDisjuntorDoGemini = 'Disponivel' | 'Contingencia' | 'SemChave'
+// ---------------------------------------------------------------------------
+// Observabilidade (Etapa C) — filtros globais compartilhados pelos 3 endpoints.
+// ---------------------------------------------------------------------------
 
-export interface EstadoGlobalDoGemini {
-  status: StatusDoDisjuntorDoGemini
-  voltaATentarEm: string | null
-  motivo: string | null
+export type ProvedorDeIa = 'Gemini' | 'Anthropic'
+export type ResultadoDaChamadaDeIa = 'Entregue' | 'NaoSoubeResponder' | 'Falha'
+export type TipoDeFallbackDeIa =
+  | 'NaoEhFallback'
+  | 'Executado'
+  | 'PreventivoDesligado'
+  | 'PreventivoDisjuntor'
+  | 'PreventivoMargemDeCota'
+  | 'Indeterminado'
+export type TipoDeFalhaDeIa =
+  | 'Nenhuma'
+  | 'RateLimit'
+  | 'QuotaEsgotada'
+  | 'Indisponibilidade'
+  | 'Timeout'
+  | 'Rede'
+  | 'Configuracao'
+  | 'RespostaInvalida'
+
+export interface FiltroDeObservabilidade {
+  de: string
+  ate: string
+  tenantId?: string
+  provedor?: ProvedorDeIa
+  modelo?: string
+  resultado?: ResultadoDaChamadaDeIa
+  tipoDeFallback?: TipoDeFallbackDeIa
+  tipoDeFalha?: TipoDeFalhaDeIa
+  codigoHttp?: number
 }
 
-export interface SituacaoPorTenant {
-  tenantId: string
-  nomeTenant: string
-  totalDeChamadas: number
-  sucessos: number
+export interface SaudeDoProvedor {
+  provedor: ProvedorDeIa
+  configurado: boolean
+  modelo: string | null
+  ultimaChamadaEm: string | null
+  ultimaChamadaComSucessoEm: string | null
+  ultimoErroTipo: string | null
+  ultimoErroCodigoHttp: number | null
+  ultimoErroEm: string | null
+  total429Hoje: number
+  ultimo429Em: string | null
+  latenciaMediaMsHoje: number | null
+  taxaDeSucessoHoje: number | null
+  estadoDoCircuito: 'Fechado' | 'Aberto' | 'MeioAberto' | 'SemChave' | 'NaoSeAplica'
+  circuitoVoltaATentarEm: string | null
+  fallbacksOriginadosHoje: number
+  tokensEntradaHoje: number
+  tokensSaidaHoje: number
+  custoEstimadoUsdHoje: number | null
+  limiteRpdInformado: number | null
+  requisicoesHoje: number
+}
+
+export interface SaudeAgora {
+  gemini: SaudeDoProvedor
+  anthropic: SaudeDoProvedor
+}
+
+export interface KpisDaObservabilidade {
+  tentativas: number
+  rodadas: number
+  entregues: number
+  naoSoubeResponder: number
   falhas: number
-  atendidasPeloGemini: number
-  atendidasPeloHaiku: number
+  taxaDeSucesso: number
+  taxaDeFalha: number
+  fallbackExecutado: number
+  fallbackPreventivoDesligado: number
+  fallbackPreventivoDisjuntor: number
+  fallbackPreventivoMargemDeCota: number
+  tokensEntrada: number
+  tokensSaida: number
+  tokensPensamento: number
+  custoEstimadoUsdTotal: number
+  custoEstimadoReaisTotal: number
+  custoMedioUsdPorRodada: number | null
+  tenantsAtivos: number
+  total429: number
+  totalTimeouts: number
+  larguraDoBaldeDeLatenciaMs: number
+  p50LatenciaMs: number | null
+  p95LatenciaMs: number | null
+  p99LatenciaMs: number | null
+}
+
+export interface PontoDaLinhaDoTempo {
+  inicio: string
+  tentativasGemini: number
+  tentativasAnthropic: number
+  entregues: number
+  naoSoubeResponder: number
+  falhas: number
+  fallbackExecutado: number
+  custoEstimadoUsd: number
+  tokensEntrada: number
+  tokensSaida: number
+}
+
+export interface BaldeDeLatencia {
+  inicioMs: number
+  total: number
+}
+
+export interface HistogramaDeLatencia {
+  provedor: string
+  larguraDoBaldeMs: number
+  baldes: BaldeDeLatencia[]
+}
+
+export interface ErroPorCategoria {
+  provedor: string
+  tipoDeFalha: string
+  total: number
+}
+
+export interface FallbackPorTipo {
+  tipo: string
+  total: number
+}
+
+export interface DistribuicaoPorModelo {
+  provedor: string
+  modelo: string
+  total: number
+  custoEstimadoUsd: number
+}
+
+export interface TenantDaObservabilidade {
+  tenantId: string
+  nome: string
+  tentativas: number
+  falhas: number
+  fallbackExecutado: number
   custoEstimadoUsd: number
   custoEstimadoReais: number
-  motivosDeFallback: MotivosDeFallback
+  latenciaMediaMs: number | null
 }
 
-export interface SituacaoGlobalDaIa {
-  gemini: EstadoGlobalDoGemini
-  porTenant: SituacaoPorTenant[]
+export interface ObservabilidadeDaIa {
   periodoDe: string
   periodoAte: string
+  saudeAgora: SaudeAgora
+  kpis: KpisDaObservabilidade
+  linhaDoTempo: PontoDaLinhaDoTempo[]
+  histogramaDeLatencia: HistogramaDeLatencia[]
+  errosPorCategoria: ErroPorCategoria[]
+  fallbacksPorTipo: FallbackPorTipo[]
+  distribuicaoPorModelo: DistribuicaoPorModelo[]
+  topTenantsPorCusto: TenantDaObservabilidade[]
 }
 
-/** `GET /api/central-ia/situacao`. `de`/`ate` omitidos caem no dia UTC corrente. */
-export function situacao(de?: string, ate?: string): Promise<SituacaoGlobalDaIa> {
-  return requisitar<SituacaoGlobalDaIa>(`/api/central-ia/situacao${montarQuery({ de, ate })}`)
+export interface PaginaDeTenants {
+  itens: TenantDaObservabilidade[]
+  total: number
+  pagina: number
+  tamanhoDaPagina: number
+}
+
+export type OrdenarTenantsPor = 'Tentativas' | 'Custo' | 'Falhas' | 'FallbackExecutado' | 'Latencia'
+
+export interface LinhaDoHistorico {
+  id: string
+  iniciadaEmUtc: string
+  tenantId: string
+  tenantNome: string
+  provedor: string
+  modelo: string
+  resultado: string
+  tipoDeFallback: string
+  tipoDeFalha: string
+  codigoHttp: number | null
+  latenciaMs: number
+  tokensEntrada: number
+  tokensSaida: number
+  custoEstimadoUsd: number | null
+  rodadaId: string | null
+}
+
+export interface PaginaDeHistorico {
+  itens: LinhaDoHistorico[]
+  total: number
+  pagina: number
+  tamanhoDaPagina: number
+}
+
+function paramsDoFiltro(filtro: FiltroDeObservabilidade) {
+  return {
+    de: filtro.de,
+    ate: filtro.ate,
+    tenantId: filtro.tenantId,
+    provedor: filtro.provedor,
+    modelo: filtro.modelo,
+    resultado: filtro.resultado,
+    tipoDeFallback: filtro.tipoDeFallback,
+    tipoDeFalha: filtro.tipoDeFalha,
+    codigoHttp: filtro.codigoHttp,
+  }
+}
+
+/** `GET /api/central-ia/observabilidade`. */
+export function observabilidade(filtro: FiltroDeObservabilidade): Promise<ObservabilidadeDaIa> {
+  return requisitar<ObservabilidadeDaIa>(`/api/central-ia/observabilidade${montarQuery(paramsDoFiltro(filtro))}`)
+}
+
+/** `GET /api/central-ia/tenants` — tabela ordenável, buscável, paginada (o drill-down). */
+export function tenants(
+  filtro: FiltroDeObservabilidade,
+  opcoes: { busca?: string; ordenarPor?: OrdenarTenantsPor; decrescente?: boolean; pagina?: number; tamanhoDaPagina?: number } = {},
+): Promise<PaginaDeTenants> {
+  return requisitar<PaginaDeTenants>(
+    `/api/central-ia/tenants${montarQuery({
+      ...paramsDoFiltro(filtro),
+      busca: opcoes.busca,
+      ordenarPor: opcoes.ordenarPor,
+      // `montarQuery` descarta `false` (trata como "ausente") — aqui `false` é um
+      // valor válido (ordem ascendente), então vira string explícita para não
+      // ser removido do querystring e a ordenação não voltar ao padrão do backend.
+      decrescente: opcoes.decrescente === undefined ? undefined : String(opcoes.decrescente),
+      pagina: opcoes.pagina,
+      tamanhoDaPagina: opcoes.tamanhoDaPagina,
+    })}`,
+  )
+}
+
+/** `GET /api/central-ia/historico` — uma linha por tentativa, paginada. `rodadaId` traz as duas tentativas de uma pergunta lado a lado. */
+export function historico(
+  filtro: FiltroDeObservabilidade,
+  opcoes: { rodadaId?: string; pagina?: number; tamanhoDaPagina?: number } = {},
+): Promise<PaginaDeHistorico> {
+  return requisitar<PaginaDeHistorico>(
+    `/api/central-ia/historico${montarQuery({
+      ...paramsDoFiltro(filtro),
+      rodadaId: opcoes.rodadaId,
+      pagina: opcoes.pagina,
+      tamanhoDaPagina: opcoes.tamanhoDaPagina,
+    })}`,
+  )
 }

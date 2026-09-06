@@ -1,5 +1,7 @@
+using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.CentralDeIa.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -14,8 +16,11 @@ namespace CrmCartorio.Api.Controllers;
 [Route("api/central-ia")]
 public class CentralDeIaController(
     ICentralDeIaAutenticador autenticador,
-    ISituacaoGlobalDaIa situacao) : ControllerBase
+    IObservabilidadeDaIa observabilidade) : ControllerBase
 {
+    private const int TamanhoDaPaginaPadrao = 20;
+    private const int TamanhoDaPaginaMaximo = 100;
+
     /// <summary>
     /// Único endpoint anônimo do módulo. Confere o segredo compartilhado
     /// (<c>CentralDeIa:Chave</c>) em tempo fixo e, se bater, emite um JWT com a
@@ -29,14 +34,88 @@ public class CentralDeIaController(
         Ok(await autenticador.EntrarAsync(requisicao.Segredo, ct));
 
     /// <summary>
-    /// <paramref name="de"/>/<paramref name="ate"/> omitidos caem no dia UTC
-    /// corrente — mesmo recorte de <c>GET /api/ia/situacao</c>. Exige a policy
-    /// <c>CentralDeIa</c> (claim <c>central_ia_operador=true</c>), nunca a
-    /// policy padrão de Atendente.
+    /// Saúde agora, KPIs, linha do tempo, histograma de latência, erros,
+    /// fallbacks, distribuição por modelo e o top 8 de tenants por custo —
+    /// tudo sob os mesmos filtros globais. <paramref name="de"/>/<paramref name="ate"/>
+    /// omitidos caem nos últimos 7 dias (mesmo padrão de <c>GET /api/ia/analise</c>).
     /// </summary>
     [Authorize(Policy = "CentralDeIa")]
-    [HttpGet("situacao")]
-    public async Task<ActionResult<SituacaoGlobalDaIaResponse>> Situacao(
-        [FromQuery] DateTime? de, [FromQuery] DateTime? ate, CancellationToken ct) =>
-        Ok(await situacao.ObterAsync(de, ate, ct));
+    [HttpGet("observabilidade")]
+    public async Task<ActionResult<ObservabilidadeDaIaResponse>> Observabilidade(
+        [FromQuery] DateTime? de,
+        [FromQuery] DateTime? ate,
+        [FromQuery] Guid? tenantId,
+        [FromQuery] ProvedorDeIa? provedor,
+        [FromQuery] string? modelo,
+        [FromQuery] ResultadoDaChamadaDeIa? resultado,
+        [FromQuery] TipoDeFallbackDeIa? tipoDeFallback,
+        [FromQuery] TipoDeFalhaDeIa? tipoDeFalha,
+        [FromQuery] int? codigoHttp,
+        CancellationToken ct) =>
+        Ok(await observabilidade.ObterAsync(MontarFiltro(de, ate, tenantId, provedor, modelo, resultado, tipoDeFallback, tipoDeFalha, codigoHttp), ct));
+
+    /// <summary>Tabela de tenants ordenável, buscável por nome e paginada — o drill-down de C.5.</summary>
+    [Authorize(Policy = "CentralDeIa")]
+    [HttpGet("tenants")]
+    public async Task<ActionResult<PaginaDeTenantsResponse>> Tenants(
+        [FromQuery] DateTime? de,
+        [FromQuery] DateTime? ate,
+        [FromQuery] Guid? tenantId,
+        [FromQuery] ProvedorDeIa? provedor,
+        [FromQuery] string? modelo,
+        [FromQuery] ResultadoDaChamadaDeIa? resultado,
+        [FromQuery] TipoDeFallbackDeIa? tipoDeFallback,
+        [FromQuery] TipoDeFalhaDeIa? tipoDeFalha,
+        [FromQuery] int? codigoHttp,
+        [FromQuery] string? busca,
+        [FromQuery] OrdenarTenantsPor ordenarPor = OrdenarTenantsPor.Tentativas,
+        [FromQuery] bool decrescente = true,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamanhoDaPagina = TamanhoDaPaginaPadrao,
+        CancellationToken ct = default) =>
+        Ok(await observabilidade.ObterTenantsAsync(
+            MontarFiltro(de, ate, tenantId, provedor, modelo, resultado, tipoDeFallback, tipoDeFalha, codigoHttp),
+            busca,
+            ordenarPor,
+            decrescente,
+            pagina,
+            Math.Clamp(tamanhoDaPagina, 1, TamanhoDaPaginaMaximo),
+            ct));
+
+    /// <summary>
+    /// Histórico paginado, uma linha por tentativa — a investigação de C.6.
+    /// Buscar por <paramref name="rodadaId"/> traz as duas tentativas da mesma
+    /// pergunta lado a lado, quando houve fallback.
+    /// </summary>
+    [Authorize(Policy = "CentralDeIa")]
+    [HttpGet("historico")]
+    public async Task<ActionResult<PaginaDeHistoricoResponse>> Historico(
+        [FromQuery] DateTime? de,
+        [FromQuery] DateTime? ate,
+        [FromQuery] Guid? tenantId,
+        [FromQuery] ProvedorDeIa? provedor,
+        [FromQuery] string? modelo,
+        [FromQuery] ResultadoDaChamadaDeIa? resultado,
+        [FromQuery] TipoDeFallbackDeIa? tipoDeFallback,
+        [FromQuery] TipoDeFalhaDeIa? tipoDeFalha,
+        [FromQuery] int? codigoHttp,
+        [FromQuery] Guid? rodadaId,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamanhoDaPagina = TamanhoDaPaginaPadrao,
+        CancellationToken ct = default) =>
+        Ok(await observabilidade.ObterHistoricoAsync(
+            MontarFiltro(de, ate, tenantId, provedor, modelo, resultado, tipoDeFallback, tipoDeFalha, codigoHttp),
+            rodadaId,
+            pagina,
+            Math.Clamp(tamanhoDaPagina, 1, TamanhoDaPaginaMaximo),
+            ct));
+
+    private static FiltroDeObservabilidadeDaIa MontarFiltro(
+        DateTime? de, DateTime? ate, Guid? tenantId, ProvedorDeIa? provedor, string? modelo,
+        ResultadoDaChamadaDeIa? resultado, TipoDeFallbackDeIa? tipoDeFallback, TipoDeFalhaDeIa? tipoDeFalha, int? codigoHttp)
+    {
+        var (periodoDe, periodoAte, _) = PeriodoDeAnalise.Resolver(de, ate, DateTime.UtcNow);
+        return new FiltroDeObservabilidadeDaIa(
+            periodoDe, periodoAte, tenantId, provedor, modelo, resultado, tipoDeFallback, tipoDeFalha, codigoHttp);
+    }
 }
