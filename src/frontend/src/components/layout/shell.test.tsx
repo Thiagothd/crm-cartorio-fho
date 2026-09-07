@@ -1,5 +1,5 @@
 import { Inbox } from 'lucide-react'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Shell, EstadoVazio } from '@/components/layout/shell'
 import { renderizarComProvedores } from '@/test/utils'
@@ -85,5 +85,63 @@ describe('Shell', () => {
 
     expect(screen.getByText('Nada por aqui')).toBeInTheDocument()
     expect(screen.getByText('Sem registros.')).toBeInTheDocument()
+  })
+
+  // A partir daqui: cobertura do push. `--largura-do-rail` é a ÚNICA fonte de
+  // largura para o espaçador em fluxo do rail (`rail-de-navegacao.tsx`) e para
+  // o `<aside>` — provar que a var muda ao clicar prova que a coluna
+  // reservada muda, sem precisar medir geometria (jsdom não faz layout).
+
+  it('a moldura publica a largura do rail recolhida por padrão', () => {
+    localStorage.clear()
+    const { container } = renderizarComProvedores(
+      <Shell>
+        <p>Conteúdo</p>
+      </Shell>,
+    )
+
+    expect(container.firstElementChild).toHaveClass(
+      'md:[--largura-do-rail:var(--largura-do-rail-recolhido)]',
+    )
+  })
+
+  it('fixar o menu troca a largura publicada pela moldura', () => {
+    localStorage.clear()
+    const { container } = renderizarComProvedores(
+      <Shell>
+        <p>Conteúdo</p>
+      </Shell>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fixar menu aberto' }))
+
+    expect(container.firstElementChild).toHaveClass(
+      'md:[--largura-do-rail:var(--largura-do-rail-expandido)]',
+    )
+    expect(localStorage.getItem('crm-cartorio.menu-fixado')).toBe('true')
+  })
+
+  it('a var vale 0 abaixo de md, sem prefixo', () => {
+    const { container } = renderizarComProvedores(
+      <Shell>
+        <p>Conteúdo</p>
+      </Shell>,
+    )
+
+    expect(container.firstElementChild).toHaveClass('[--largura-do-rail:0px]')
+  })
+
+  it('Ctrl+B fixa/desafixa o menu', () => {
+    localStorage.clear()
+    renderizarComProvedores(
+      <Shell>
+        <p>Conteúdo</p>
+      </Shell>,
+    )
+
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+
+    expect(localStorage.getItem('crm-cartorio.menu-fixado')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Recolher menu' })).toBeInTheDocument()
   })
 })

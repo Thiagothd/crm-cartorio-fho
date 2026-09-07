@@ -67,6 +67,15 @@
     --borda: 1px;
     --alvo-toque: 2.75rem;
 
+    /* --- moldura: rail de navegacao ---
+       Espelham as classes w-16/w-64 do rail e as constantes
+       LARGURA_DO_RAIL_* de contexto-do-rail.tsx — a mesma medida em tres
+       lugares, nunca calculada a partir de um so. Consumidas por valor
+       arbitrario (w-[var(--largura-do-rail,4rem)]), nao por @theme inline:
+       aquele bloco e para utilitarios de classe, nao para valor cru. */
+    --largura-do-rail-recolhido: 4rem;   /* 64px */
+    --largura-do-rail-expandido: 16rem;  /* 256px */
+
     /* --- Fase 3.1: superficie elevada (shell/Visao Geral/Indicadores) ---
        O conceito "papel nunca flutua" (DESIGN.md 4) foi suspenso por decisao
        explicita do usuario em 2026-08-21 para esta area — as referencias
