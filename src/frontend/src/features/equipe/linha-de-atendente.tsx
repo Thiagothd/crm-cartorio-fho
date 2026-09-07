@@ -5,15 +5,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatarDataHora } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
-import { ROTULO_DO_MODELO } from './modelos-de-permissao'
 import type { Atendente } from '@/lib/api/tipos'
 
 /**
  * Uma linha da lista de Equipe — cartão elevado (Fase 3.1, painel de
  * administração), não tabela. Três linhas de informação, igual ao que a
- * ficha de cliente já faz: identidade, contato/cargo, e por último o status
- * do modelo de permissão (texto, não ação) junto com setor e último acesso —
- * abrir a personalização é um ícone junto dos outros, não o próprio status.
+ * ficha de cliente já faz: identidade, contato/cargo, e por último setor e
+ * último acesso. O modelo de permissão não aparece aqui — só na própria tela
+ * de permissões, aberta pelo ícone de engrenagem.
  */
 export function LinhaDeAtendente({
   atendente,
@@ -55,9 +54,6 @@ export function LinhaDeAtendente({
         </p>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-tinta-fraca">
-          <span className="rounded-full border border-linha-forte bg-superficie px-2 py-0.5 font-medium text-tinta-media">
-            {atendente.modelo ? ROTULO_DO_MODELO[atendente.modelo] : 'Personalizado'}
-          </span>
           {atendente.setorPadraoNome ? <span>{atendente.setorPadraoNome}</span> : null}
           <span>{atendente.ultimoAcessoEm ? `Acesso em ${formatarDataHora(atendente.ultimoAcessoEm)}` : 'Nunca acessou'}</span>
         </div>
