@@ -52,7 +52,10 @@ export function PainelLateralDaConversa({
   return (
     <aside
       aria-label={titulo}
-      className="fixed inset-0 z-30 flex flex-col overflow-hidden border-linha bg-superficie md:static md:z-auto md:w-64 md:shrink-0 md:border-l xl:w-72"
+      // Fase 3.2 (secao 16): anima-esmaecer e' seguro aqui porque o painel
+      // realmente monta/desmonta a cada abrir/fechar (ao contrario do wrapper
+      // do fio, que so' monta uma vez por sessao de conversa).
+      className="anima-esmaecer fixed inset-0 z-30 flex flex-col overflow-hidden border-linha bg-superficie md:static md:z-auto md:w-64 md:shrink-0 md:border-l xl:w-72"
     >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-linha px-4 py-3">
         <div className="min-w-0">

@@ -151,7 +151,11 @@ export function CabecalhoDaConversa({
               Nunca quebra — o nome do cliente é quem cede, truncando com
               reticências antes que a linha precise de uma segunda altura. */}
           <div className="flex flex-nowrap items-center gap-x-2 overflow-hidden">
-            <h2 className="min-w-0 shrink truncate font-titulo text-base leading-tight text-tinta">
+            {/* Fase 3.2 (secao 16): Inter bold no lugar da Spectral — a
+                "manchete" da 3.1, nao mais o titulo serifado. A Spectral
+                continua no selo e na linha de autoria do fio (10.4),
+                intocados. */}
+            <h2 className="min-w-0 shrink truncate text-[15px] font-semibold leading-tight tracking-tight text-tinta">
               {nomeExibido}
             </h2>
 
@@ -319,7 +323,7 @@ export function CabecalhoDaConversa({
         <Button
           variant={painelAtivo === 'historico' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className="hidden md:inline-flex"
+          className="hidden rounded-full md:inline-flex"
           aria-pressed={painelAtivo === 'historico'}
           onClick={() => aoAlternarPainel('historico')}
           title="Histórico de etapas"
@@ -335,7 +339,7 @@ export function CabecalhoDaConversa({
         <Button
           variant={painelAtivo === 'midias' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className="hidden @2xl:inline-flex"
+          className="hidden rounded-full @2xl:inline-flex"
           aria-pressed={painelAtivo === 'midias'}
           onClick={() => aoAlternarPainel('midias')}
           title="Mídias e arquivos"
@@ -346,7 +350,7 @@ export function CabecalhoDaConversa({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="size-9 md:size-8">
+            <Button variant="ghost" size="icon-sm" className="size-9 rounded-full md:size-8">
               <MoreVertical />
               <span className="sr-only">Ações</span>
             </Button>
@@ -568,7 +572,11 @@ function PilulaDeSelecao({
            36px/14px assim que a tela passava de 768px, truncando cedo demais
            ("Atendimen...") dentro do mesmo max-w-[13rem]. */
         className={cn(
-          'h-auto w-auto min-w-[4.5rem] max-w-[13rem] gap-1 rounded-md border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta md:h-auto md:text-[11px] [&>svg]:size-3 [&>svg]:opacity-60',
+          // Fase 3.2: rounded-full no lugar de rounded-md. O par md:h-auto/
+          // md:text-[11px] continua EXATAMENTE como estava (ver comentario
+          // acima) — nao e redundancia, e o que impede a pilula de virar
+          // select de 36px a partir de 768px.
+          'h-auto w-auto min-w-[4.5rem] max-w-[13rem] gap-1 rounded-full border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta transition-colors duration-[var(--duracao-rapida)] hover:bg-papel md:h-auto md:text-[11px] [&>svg]:size-3 [&>svg]:opacity-60',
           flexivel ? 'shrink' : 'shrink-0',
         )}
       >
