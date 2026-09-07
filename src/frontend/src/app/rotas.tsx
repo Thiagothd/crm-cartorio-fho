@@ -4,7 +4,7 @@ import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { Shell } from '@/components/layout/shell'
 import { Button } from '@/components/ui/button'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
-import { todosOsItens, type PerfilNecessario } from '@/app/navegacao'
+import { todosOsItens, type PermissaoNecessaria } from '@/app/navegacao'
 
 const PaginaLogin = lazy(() =>
   import('@/pages/pagina-login').then((modulo) => ({ default: modulo.PaginaLogin })),
@@ -41,8 +41,25 @@ const componentesPorRota = new Map(todosOsItens().map((item) => [item.rota, lazy
  * duas verdades, e a que ficasse esquecida seria a que abre a tela para quem
  * não devia.
  */
-const permissaoDeIndicadores: PerfilNecessario =
-  todosOsItens().find((item) => item.rota === '/indicadores')?.permissao ?? 'gestao'
+const permissaoDeIndicadores: PermissaoNecessaria =
+  todosOsItens().find((item) => item.rota === '/indicadores')?.permissao ?? 'relatorios.ver'
+
+/**
+ * `/equipe/:id/permissoes` é tela de detalhe fora do menu, mesmo padrão de
+ * `/indicadores/:secao`: a permissão é a MESMA que protege `/equipe`, mas a
+ * meta-permissão (`equipe.permissoes`) é conferida DENTRO da própria página
+ * — ver `pagina-permissoes-do-atendente.tsx`. Só ter `equipe.ver` abre a
+ * tela em modo leitura; editar exige `equipe.permissoes`, e isso o backend
+ * decide de verdade a cada chamada.
+ */
+const permissaoDeEquipe: PermissaoNecessaria =
+  todosOsItens().find((item) => item.rota === '/equipe')?.permissao ?? 'equipe.ver'
+
+const PaginaPermissoesDoAtendente = lazy(() =>
+  import('@/pages/pagina-permissoes-do-atendente').then((modulo) => ({
+    default: modulo.PaginaPermissoesDoAtendente,
+  })),
+)
 
 function Carregando({ pagina = false }: { pagina?: boolean }) {
   return (
@@ -118,17 +135,11 @@ function ExigePermissao({
   permissao,
   children,
 }: {
-  permissao: PerfilNecessario
+  permissao: PermissaoNecessaria
   children: ReactNode
 }) {
-  const { podeGerirCadastros, podeGerirAtendentes } = usarAutenticacao()
-
-  const permitido =
-    permissao === 'administrador'
-      ? podeGerirAtendentes
-      : permissao === 'gestao'
-        ? podeGerirCadastros
-        : true
+  const { pode } = usarAutenticacao()
+  const permitido = permissao === 'autenticado' || pode(permissao)
 
   return <ExigeAutenticacao>{permitido ? children : <Navigate to="/" replace />}</ExigeAutenticacao>
 }
@@ -218,6 +229,17 @@ export function Rotas() {
             <ExigePermissao permissao={permissaoDeIndicadores}>
               <PaginaSobDemanda>
                 <PaginaIndicadores />
+              </PaginaSobDemanda>
+            </ExigePermissao>
+          }
+        />
+
+        <Route
+          path="/equipe/:id/permissoes"
+          element={
+            <ExigePermissao permissao={permissaoDeEquipe}>
+              <PaginaSobDemanda>
+                <PaginaPermissoesDoAtendente />
               </PaginaSobDemanda>
             </ExigePermissao>
           }

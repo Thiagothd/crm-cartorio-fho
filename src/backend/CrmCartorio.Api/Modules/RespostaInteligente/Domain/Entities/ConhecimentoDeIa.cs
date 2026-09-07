@@ -11,7 +11,7 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 /// atalho de digitação do atendente e só de raspão alimenta a IA — este cadastro
 /// existe para governar o que a IA sabe: quem criou, quem editou por último, em
 /// que versão está, e por quanto tempo vale. A IA nunca escreve aqui; só um
-/// atendente com permissão de gerir cadastros (<c>PodeGerirCadastros</c>) pode.
+/// atendente com <c>PermissaoDoSistema.IaConhecimentoEditar</c> pode.
 ///
 /// Cada edição preserva o estado anterior em
 /// <see cref="HistoricoDeConhecimentoDeIa"/> antes de sobrescrever — ver

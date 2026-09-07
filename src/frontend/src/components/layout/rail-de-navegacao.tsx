@@ -205,7 +205,7 @@ function SubmenuDoRail({
  * este painel não).
  */
 export function RailDeNavegacao() {
-  const { podeGerirCadastros, podeGerirAtendentes } = usarAutenticacao()
+  const { pode } = usarAutenticacao()
   const location = useLocation()
 
   const [fixado, alternarFixado] = usarPreferenciaLocal('crm-cartorio.menu-fixado', false)
@@ -215,7 +215,7 @@ export function RailDeNavegacao() {
   const { aberto, aoEntrar, aoSair, aoFocarDentro, aoDesfocarFora, abrirAgora, fecharAgora } = usarIntencaoDeHover()
   const expandido = fixadoEfetivo || aberto
 
-  const grupos = navegacaoVisivel({ podeGerirCadastros, podeGerirAtendentes })
+  const grupos = navegacaoVisivel(pode)
   const [submenuAberto, setSubmenuAberto] = useState<string | null>(null)
 
   useEffect(() => {

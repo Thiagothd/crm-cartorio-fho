@@ -6,6 +6,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -151,6 +152,8 @@ public partial class ClienteService(
 
     public async Task<ClienteResponse> CriarAsync(DadosDeCliente dados, CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.ClientesCadastrar);
+
         var limpos = Validar(dados);
 
         await GarantirTelefoneLivreAsync(limpos.TelefoneWhatsapp, null, ct);
@@ -178,6 +181,8 @@ public partial class ClienteService(
         DadosDeCliente dados,
         CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.ClientesEditar);
+
         var cliente = await db.Clientes
             .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
             ?? throw ClientesServiceException.NaoEncontrado();
@@ -203,7 +208,7 @@ public partial class ClienteService(
     /// </summary>
     public async Task ExcluirAsync(Guid id, CancellationToken ct = default)
     {
-        GarantirPermissao();
+        GarantirPermissao(PermissaoDoSistema.ClientesExcluir);
 
         var cliente = await db.Clientes
             .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
@@ -330,9 +335,9 @@ public partial class ClienteService(
         return null;
     }
 
-    private void GarantirPermissao()
+    private void GarantirPermissao(PermissaoDoSistema permissao)
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(permissao))
         {
             throw ClientesServiceException.SemPermissao();
         }

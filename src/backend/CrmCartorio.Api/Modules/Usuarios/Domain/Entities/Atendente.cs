@@ -144,13 +144,24 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// </summary>
     public bool RematriculaObrigatoriaAposEmergencia { get; set; }
 
-    public bool PodeGerirCadastros =>
-        Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    // ------------------------------------------------- Permissoes granulares
 
-    public bool PodeGerirAtendentes =>
-        Perfil is PerfilDeAtendente.Administrador;
+    /// <summary>
+    /// Lista de <see cref="PermissaoDoSistema"/> com pipe de cerca
+    /// (<c>|atendimento.ver|clientes.ver|</c>) — ver
+    /// <see cref="Usuarios.Domain.CatalogoDePermissoes"/> para serializacao.
+    /// <b>NULL significa "siga a Classe da conta" (<see cref="Perfil"/>)</b> —
+    /// e por isso uma linha existente antes desta coluna nascer, ou inserida
+    /// por um binario que nao a conhece, continua se comportando exatamente
+    /// como hoje: nada muda por construcao, sem backfill nenhum.
+    /// </summary>
+    public string? Permissoes { get; set; }
 
-    /// <summary>Transferir ou encerrar conversa de terceiro exige supervisao.</summary>
-    public bool PodeOperarConversaDeTerceiro =>
-        Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    /// <summary>
+    /// So o ROTULO do ultimo preset aplicado — nunca a verdade (que e sempre
+    /// <see cref="Permissoes"/>). Permite a tela dizer "Supervisao + 2
+    /// ajustes" e a definicao de um modelo evoluir numa release futura sem
+    /// alterar silenciosamente o que alguem ja cadastrado pode fazer.
+    /// </summary>
+    public ModeloDePermissao? ModeloDePermissao { get; set; }
 }

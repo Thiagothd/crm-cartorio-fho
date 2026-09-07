@@ -6,6 +6,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Application;
+using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.AspNetCore.Http;
@@ -506,7 +507,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("1. JWT valido + versao correta -> autorizado",
-            await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, LerVersaoDaClaim(token1)));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(token1)) is not null);
     }
 
     // ------------------------------------------------------------- cenario 2
@@ -526,7 +527,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("2. JWT antigo apos troca da propria senha -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDaTroca));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaTroca) is null);
     }
 
     // ------------------------------------------------------------- cenario 3
@@ -546,7 +547,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("3. JWT antigo apos redefinicao pelo administrador -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDoAdmin));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDoAdmin) is null);
     }
 
     // ------------------------------------------------------------- cenario 4
@@ -566,7 +567,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("4. JWT antigo apos alteracao de Perfil -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDoPerfil));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDoPerfil) is null);
     }
 
     // ------------------------------------------------------------- cenario 5
@@ -586,7 +587,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("5. JWT antigo apos desativacao -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDaDesativacao));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
     }
 
     // ------------------------------------------------------------- cenario 6
@@ -594,7 +595,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("6. Atendente inexistente -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(Guid.NewGuid(), tenantId, 1));
+            await NovoValidador(db).CarregarSessaoAsync(Guid.NewGuid(), tenantId, 1) is null);
     }
 
     // ------------------------------------------------------------- cenario 7
@@ -603,7 +604,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("7. Tenant da claim incompativel -> nao autorizado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, Guid.NewGuid(), estadoAtualParaTenant.TokenVersion));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, Guid.NewGuid(), estadoAtualParaTenant.TokenVersion) is null);
     }
 
     // ------------------------------------------------------------- cenario 8
@@ -620,7 +621,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("8a. Reativado: token de antes da desativacao continua invalido",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDaDesativacao));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
     }
 
     var versaoAposReativar = (await Ler(atendenteId)).TokenVersion;
@@ -638,7 +639,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("8c. Login novo apos reativacao funciona e emite versao atual",
-            await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)) is not null);
     }
 
     // ------------------------------------------------------------- cenario 9
@@ -681,7 +682,7 @@ try
     // NAO e um teste de handshake SignalR real (nao sobe Kestrel nem cliente
     // SignalR). SessaoAtivaHandler (policy padrao, controllers) e
     // AtendimentoHub.OnConnectedAsync chamam, por leitura de codigo, este
-    // MESMO ValidadorDeSessao.SessaoValidaAsync — o que este cenario prova e
+    // MESMO ValidadorDeSessao.CarregarSessaoAsync — o que este cenario prova e
     // so que o validador compartilhado recusa corretamente um TokenVersion
     // revogado; nao prova a fiacao REST/SignalR em si, nem o comportamento do
     // handshake HTTP/WebSocket. O handshake SignalR end-to-end (negotiate +
@@ -691,7 +692,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("10. Validador compartilhado por REST/SignalR recusa TokenVersion revogado",
-            !await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, versaoAntesDaDesativacao));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
     }
 
     // ------------------------------------------------------------- cenario 11
@@ -699,7 +700,7 @@ try
     await using (var db = new CrmDbContext(opcoes))
     {
         Checar("11. Token valido continua funcionando normalmente",
-            await NovoValidador(db).SessaoValidaAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)));
+            await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)) is not null);
     }
 
     // ------------------------------------------------------------- cenario 12
@@ -1850,7 +1851,7 @@ try
         await using (var db = new CrmDbContext(opcoes))
         {
             Checar("52e. sessao ANTIGA do outro administrador (TokenVersion velha) nao vale mais",
-                !await NovoValidador(db).SessaoValidaAsync(outroAdmin.Id, tenantIsolado, tokenVersionOutroAntes));
+                await NovoValidador(db).CarregarSessaoAsync(outroAdmin.Id, tenantIsolado, tokenVersionOutroAntes) is null);
         }
 
         // ------------------------------------------------------------ cenario 53
@@ -2803,7 +2804,7 @@ try
         await using (var db = new CrmDbContext(opcoes))
         {
             Checar("61d. JWT emitido antes da promocao por Cargo deixa de ser valido",
-                !await NovoValidador(db).SessaoValidaAsync(idD, tenantIsolado61, versaoAntesD));
+                await NovoValidador(db).CarregarSessaoAsync(idD, tenantIsolado61, versaoAntesD) is null);
         }
 
         // 61e — com politica obrigatoria ligada, promover por Cargo para
@@ -2913,7 +2914,7 @@ try
         await using (var db = new CrmDbContext(opcoes))
         {
             Checar("61e. sessao antiga (de antes da promocao por Cargo) nao vale mais",
-                !await NovoValidador(db).SessaoValidaAsync(idE, tenantIsolado61e, versaoAntesDaPromocaoE));
+                await NovoValidador(db).CarregarSessaoAsync(idE, tenantIsolado61e, versaoAntesDaPromocaoE) is null);
         }
 
         await using (var db = new CrmDbContext(opcoes))
@@ -4349,14 +4350,14 @@ try
             inconsistencias66g == 0);
 
         // 66h — nenhum JWT emitido ANTES da revogacao consegue completar a
-        // cerimonia depois: tanto a sessao (SessaoValidaAsync) quanto o
+        // cerimonia depois: tanto a sessao (CarregarSessaoAsync) quanto o
         // porteiro de MFA (ConfirmarAsync, ja provado em 66a) recusam,
         // independentemente — duas camadas, nao uma so. Reusa o JWT
         // capturado ANTES da troca de senha em 66a.
         await using (var db = new CrmDbContext(opcoes))
         {
             Checar("66h. JWT emitido ANTES da revogacao (66a) tambem nao vale mais (camada de sessao, independente do gate de MFA)",
-                !await NovoValidador(db).SessaoValidaAsync(idA, tenantId, versaoAntesDaRevogacaoA));
+                await NovoValidador(db).CarregarSessaoAsync(idA, tenantId, versaoAntesDaRevogacaoA) is null);
         }
     }
 
@@ -5571,7 +5572,7 @@ try
         await using (var db = new CrmDbContext(opcoes))
         {
             Checar("73-3. JWT/sessao emitido ANTES do break-glass fica invalido",
-                !await NovoValidador(db).SessaoValidaAsync(titularPreso73.Id, tenantIsolado73, versaoAntigaTitular73));
+                await NovoValidador(db).CarregarSessaoAsync(titularPreso73.Id, tenantIsolado73, versaoAntigaTitular73) is null);
         }
 
         // 4 — artefatos antigos (o desafio de 2o fator aberto antes) nao
@@ -7384,6 +7385,401 @@ try
             return cifra.Decifrar(segredoCifrado!, tenantIsolado81, id);
         }
     }
+
+    // =====================================================================
+    // Permissoes granulares (Equipe — permissoes granulares + redesenho)
+    // =====================================================================
+
+    // ------------------------------------------------------------ cenario 82
+    // A fundacao: NULL segue a Classe da conta, explicito vence a classe,
+    // efeito imediato sem revogar a sessao, chave desconhecida ignorada em
+    // silencio, fail-closed com holder vazio, isolamento de tenant.
+
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 82 — permissoes granulares: a fundacao.");
+
+        var (idAtend82, _) = await NovaContaPrivilegiada("82 Atendente", PerfilDeAtendente.Atendente);
+        var (idSup82, _) = await NovaContaPrivilegiada("82 Supervisor", PerfilDeAtendente.Supervisor);
+        var (idAdm82, _) = await NovaContaPrivilegiada("82 Administrador", PerfilDeAtendente.Administrador);
+
+        async Task<bool> PodeAsync82(Guid id, PermissaoDoSistema permissao)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == id);
+            var conjunto = atendente.Permissoes is null
+                ? CatalogoDePermissoes.ConjuntoDaClasse(atendente.Perfil)
+                : CatalogoDePermissoes.Desserializar(atendente.Permissoes);
+            return conjunto.Contains(permissao);
+        }
+
+        Checar("82-1a. Atendente com Permissoes=NULL tem exatamente o preset Balcao (abre novo, mas nao reabre)",
+            await PodeAsync82(idAtend82, PermissaoDoSistema.AtendimentoAbrirNovo)
+            && !await PodeAsync82(idAtend82, PermissaoDoSistema.AtendimentoReabrir));
+        Checar("82-1b. Supervisor com Permissoes=NULL tem o preset Supervisao (reabrir incluso)",
+            await PodeAsync82(idSup82, PermissaoDoSistema.AtendimentoReabrir));
+        Checar("82-1c. Administrador com Permissoes=NULL tem tudo, exceto simular_cliente",
+            await PodeAsync82(idAdm82, PermissaoDoSistema.EquipePermissoes)
+            && !await PodeAsync82(idAdm82, PermissaoDoSistema.AtendimentoSimularCliente));
+
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await db.Atendentes.Where(a => a.Id == idAtend82).ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Permissoes, CatalogoDePermissoes.Serializar([PermissaoDoSistema.EquipeVer])));
+        }
+        Checar("82-2a. Permissoes explicito ganha EquipeVer, fora do preset Balcao",
+            await PodeAsync82(idAtend82, PermissaoDoSistema.EquipeVer));
+        Checar("82-2b. e PERDE o que o preset Balcao dava (o explicito e total, nao um adicional)",
+            !await PodeAsync82(idAtend82, PermissaoDoSistema.AtendimentoAbrirNovo));
+
+        // Efeito imediato: grava a permissao nova e confere que o MESMO token
+        // (nao revogado, TokenVersion intocada) ja enxerga o conjunto novo na
+        // proxima leitura via CarregarSessaoAsync.
+        var estadoAntes82 = await Ler(idAtend82);
+        var (token82, _) = tokens.Gerar(estadoAntes82);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            await db.Atendentes.Where(a => a.Id == idAtend82).ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Permissoes, CatalogoDePermissoes.Serializar([PermissaoDoSistema.RelatoriosVer])));
+        }
+        var estadoDepois82 = await Ler(idAtend82);
+        Checar("82-3a. TokenVersion nao muda so por trocar Permissoes",
+            estadoDepois82.TokenVersion == estadoAntes82.TokenVersion);
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var sessao82 = await NovoValidador(db).CarregarSessaoAsync(idAtend82, tenantId, LerVersaoDaClaim(token82));
+            Checar("82-3b. o MESMO token antigo (nao revogado) ja enxerga o conjunto NOVO, sem novo login",
+                sessao82 is not null
+                && sessao82.Permissoes.Contains(PermissaoDoSistema.RelatoriosVer)
+                && !sessao82.Permissoes.Contains(PermissaoDoSistema.EquipeVer));
+        }
+
+        var conjuntoComLixo82 = CatalogoDePermissoes.Desserializar("|atendimento.ver|isto_nao_existe|clientes.ver|");
+        Checar("82-4. chave desconhecida e ignorada em silencio (nunca lanca), as validas continuam",
+            conjuntoComLixo82.Count == 2
+            && conjuntoComLixo82.Contains(PermissaoDoSistema.AtendimentoVer)
+            && conjuntoComLixo82.Contains(PermissaoDoSistema.ClientesVer));
+
+        var holderVazio82 = new PermissoesDaRequisicao();
+        Checar("82-5. PermissoesDaRequisicao nao-definido nega QUALQUER permissao — fail-closed",
+            !holderVazio82.Definido && !holderVazio82.Pode(PermissaoDoSistema.AtendimentoVer));
+
+        Guid tenantIsolado82;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE] Tenant isolado — permissoes (cenario 82)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado82 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado82);
+
+        Guid idOutroTenant82;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado82,
+                Nome = "[TESTE] 82 outro tenant",
+                Email = $"teste-82-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Atendente,
+                Permissoes = CatalogoDePermissoes.Serializar([PermissaoDoSistema.EquipePermissoes]),
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            idOutroTenant82 = conta.Id;
+            ids.Add(conta.Id);
+        }
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var sessaoDoTenantErrado82 = await NovoValidador(db).CarregarSessaoAsync(idOutroTenant82, tenantId, 0);
+            Checar("82-6. atendente de outro tenant, consultado com o TenantId errado, nao acha ninguem -> sessao nula",
+                sessaoDoTenantErrado82 is null);
+        }
+    }
+
+    // ------------------------------------------------------------ cenario 83
+    // A meta-permissao equipe.permissoes: as travas de DefinirPermissoesAsync.
+
+    {
+        Console.WriteLine();
+        Console.WriteLine("Cenario 83 — equipe.permissoes: as travas.");
+
+        Guid tenantIsolado83;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE] Tenant isolado — travas de equipe.permissoes (cenario 83)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado83 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado83);
+
+        async Task<Guid> ContaNoIsolado83(
+            string rotulo, PerfilDeAtendente perfil,
+            CargoNaServentia cargo = CargoNaServentia.NaoInformado,
+            IReadOnlySet<PermissaoDoSistema>? permissoes = null)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado83,
+                Nome = $"[TESTE] 83 {rotulo}",
+                Email = $"teste-83-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = perfil,
+                Cargo = cargo,
+                Permissoes = permissoes is null ? null : CatalogoDePermissoes.Serializar(permissoes),
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            return conta.Id;
+        }
+
+        IAtendenteService ServicoComo83(
+            CrmDbContext db, Guid atorId, PerfilDeAtendente perfilDoAtor,
+            IReadOnlySet<PermissaoDoSistema>? permissoesDoAtor = null) =>
+            new AtendenteService(db, new ContextoFixo(tenantIsolado83, atorId, "Ator83", perfilDoAtor, permissoesDoAtor), hash);
+
+        async Task<string?> CodigoDoErro83(Func<Task> acao)
+        {
+            try
+            {
+                await acao();
+                return null;
+            }
+            catch (UsuariosServiceException ex)
+            {
+                return ex.Codigo;
+            }
+        }
+
+        var todasMenosSimular83 = CatalogoDePermissoes.ConjuntoDoModelo(ModeloDePermissao.Administracao);
+        var semEquipePermissoes83 = todasMenosSimular83.Where(p => p != PermissaoDoSistema.EquipePermissoes).ToHashSet();
+
+        // 83-1: ator sem equipe.permissoes -> 403 (trave 0)
+        {
+            var idAtorSemPermissao83 = await ContaNoIsolado83(
+                "ator sem equipe.permissoes", PerfilDeAtendente.Administrador, permissoes: semEquipePermissoes83);
+            var idAlvo83a = await ContaNoIsolado83("alvo 83-1", PerfilDeAtendente.Atendente);
+
+            await using var db = new CrmDbContext(opcoes);
+            var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAtorSemPermissao83, PerfilDeAtendente.Administrador, semEquipePermissoes83)
+                .DefinirPermissoesAsync(idAlvo83a, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            Checar("83-1. ator sem equipe.permissoes -> sem_permissao", codigo == "sem_permissao");
+        }
+
+        // 83-2: ninguem edita as proprias permissoes (trave a)
+        {
+            var idSelf83 = await ContaNoIsolado83("edita a si mesmo", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
+
+            await using var db = new CrmDbContext(opcoes);
+            var codigo = await CodigoDoErro83(() => ServicoComo83(db, idSelf83, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                .DefinirPermissoesAsync(idSelf83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            Checar("83-2. ninguem edita as proprias permissoes -> nao_pode_editar_as_proprias_permissoes",
+                codigo == "nao_pode_editar_as_proprias_permissoes");
+        }
+
+        // 83-3: anti-escalada — nao concede o que nao tem, e o banco NAO muda
+        {
+            var permissoesLimitadas83 = new HashSet<PermissaoDoSistema>
+            {
+                PermissaoDoSistema.EquipePermissoes, PermissaoDoSistema.EquipeVer, PermissaoDoSistema.ClientesVer,
+            };
+            var idAtorLimitado83 = await ContaNoIsolado83("ator com poucas permissoes", PerfilDeAtendente.Administrador, permissoes: permissoesLimitadas83);
+            var idAlvo83c = await ContaNoIsolado83("alvo 83-3", PerfilDeAtendente.Atendente);
+
+            await using var db = new CrmDbContext(opcoes);
+            var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAtorLimitado83, PerfilDeAtendente.Administrador, permissoesLimitadas83)
+                .DefinirPermissoesAsync(idAlvo83c, new DefinirPermissoesRequest(null, ["clientes.ver", "whatsapp.parear"]), null));
+
+            Checar("83-3a. conceder o que o ator nao tem -> nao_pode_conceder_o_que_nao_tem",
+                codigo == "nao_pode_conceder_o_que_nao_tem");
+
+            var alvoDepois83c = await Ler(idAlvo83c);
+            Checar("83-3b. o banco NAO mudou (a tentativa recusada nao deixou rastro)",
+                alvoDepois83c.Permissoes is null);
+        }
+
+        // 83-4: sobra pelo menos um administrador ativo (trave c, caso simples)
+        {
+            var idUnicoAdmin83 = await ContaNoIsolado83("unico com equipe.permissoes", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
+
+            await using var db = new CrmDbContext(opcoes);
+            var codigo = await CodigoDoErro83(() => ServicoComo83(db, idUnicoAdmin83, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                .DefinirPermissoesAsync(idUnicoAdmin83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            // Nao pode editar as proprias (83-2) impede testar diretamente
+            // "o unico se tira a si mesmo" — o caso real e um OUTRO ator
+            // tirando do unico administrador restante.
+            _ = codigo;
+
+            var idOutroAtor83d = await ContaNoIsolado83("outro ator, sem contar como admin", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
+            await using var db2 = new CrmDbContext(opcoes);
+            var codigo2 = await CodigoDoErro83(() => ServicoComo83(db2, idOutroAtor83d, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                .DefinirPermissoesAsync(idUnicoAdmin83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            // idOutroAtor83d TAMBEM tem equipe.permissoes, entao ele proprio
+            // sustenta a invariante — o alvo perde sem problema.
+            Checar("83-4a. com outro administrador ativo presente, o alvo perde equipe.permissoes normalmente",
+                codigo2 is null);
+
+            var alvoFinal83d = await Ler(idUnicoAdmin83);
+            Checar("83-4b. o alvo de fato perdeu equipe.permissoes",
+                !CatalogoDePermissoes.Desserializar(alvoFinal83d.Permissoes).Contains(PermissaoDoSistema.EquipePermissoes));
+
+            // NAO existe um "83-4c" sincrono testando "tirar do ULTIMO que
+            // tem" com um terceiro ator: quem executa DefinirPermissoesAsync
+            // PRECISA ter equipe.permissoes (trave 0) e e sempre DIFERENTE do
+            // alvo (trave a) — entao o proprio ator, sozinho, ja sustenta a
+            // invariante em qualquer chamada isolada, nao-concorrente. A
+            // trave (c) so tem como ser alcancada de verdade sob CORRIDA —
+            // dois atores tirando a permissao um do outro ao mesmo tempo,
+            // cada um "gastando" o proprio saldo de administrador no exato
+            // instante em que teria sustentado o do outro. E o cenario 83-5,
+            // logo abaixo.
+        }
+
+        // 83-5: a MESMA trava sob corrida — dois administradores tentam tirar
+        // a permissao um do outro ao mesmo tempo (cada um e o unico "outro"
+        // administrador aos olhos do outro no instante da leitura).
+        //
+        // TENANT PROPRIO, isolado dos demais sub-cenarios de 83: qualquer
+        // OUTRO administrador presente no mesmo tenant sustentaria a
+        // invariante para os dois lados ao mesmo tempo e mascararia a
+        // corrida — o teste so vale alguma coisa com EXATAMENTE dois
+        // administradores no tenant inteiro.
+        {
+            Guid tenantIsolado83e;
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                var tenant = new Tenant
+                {
+                    RazaoSocial = "[TESTE] Tenant isolado — corrida do ultimo administrador (cenario 83-5)",
+                    Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+                };
+                db.Tenants.Add(tenant);
+                await db.SaveChangesAsync();
+                tenantIsolado83e = tenant.Id;
+            }
+            tenantIdsDeTeste.Add(tenantIsolado83e);
+
+            async Task<Guid> ContaNoIsolado83e(string rotulo)
+            {
+                await using var db = new CrmDbContext(opcoes);
+                var conta = new Atendente
+                {
+                    TenantId = tenantIsolado83e,
+                    Nome = $"[TESTE] 83-5 {rotulo}",
+                    Email = $"teste-83-5-{Guid.NewGuid():N}@teste.local",
+                    SenhaHash = hash.Gerar(SenhaBoa),
+                    Perfil = PerfilDeAtendente.Administrador,
+                    Permissoes = CatalogoDePermissoes.Serializar(todasMenosSimular83),
+                    Ativo = true
+                };
+                db.Atendentes.Add(conta);
+                await db.SaveChangesAsync();
+                ids.Add(conta.Id);
+                return conta.Id;
+            }
+
+            var idParA83 = await ContaNoIsolado83e("par A (corrida)");
+            var idParB83 = await ContaNoIsolado83e("par B (corrida)");
+
+            async Task<bool> TentarTirarDoOutro83(Guid atorId, Guid alvoId)
+            {
+                await using var db = new CrmDbContext(opcoes);
+                var ctxAtor = new ContextoFixo(tenantIsolado83e, atorId, "Ator83-5", PerfilDeAtendente.Administrador, todasMenosSimular83);
+                var codigo = await CodigoDoErro83(() => new AtendenteService(db, ctxAtor, hash)
+                    .DefinirPermissoesAsync(alvoId, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+                return codigo is null;
+            }
+
+            var tarefaAB = TentarTirarDoOutro83(idParA83, idParB83);
+            var tarefaBA = TentarTirarDoOutro83(idParB83, idParA83);
+            await Task.WhenAll(tarefaAB, tarefaBA);
+
+            var estadoFinalA83 = await Ler(idParA83);
+            var estadoFinalB83 = await Ler(idParB83);
+            var aIntacto = CatalogoDePermissoes.Desserializar(estadoFinalA83.Permissoes).Contains(PermissaoDoSistema.EquipePermissoes);
+            var bIntacto = CatalogoDePermissoes.Desserializar(estadoFinalB83.Permissoes).Contains(PermissaoDoSistema.EquipePermissoes);
+
+            Checar($"83-5. corrida A<->B tirando equipe.permissoes um do outro, TENANT SO COM OS DOIS: NUNCA os dois perdem ao mesmo tempo " +
+                   $"(A intacto={aIntacto}, B intacto={bIntacto}, AB venceu={await tarefaAB}, BA venceu={await tarefaBA})",
+                aIntacto ^ bIntacto);
+        }
+
+        // 83-6: Titular protegido — Administrador nao-Titular nao altera
+        // permissao de um Titular (espelha MfaService.GarantirTitularProtegido).
+        {
+            var idTitular83 = await ContaNoIsolado83("Titular", PerfilDeAtendente.Administrador, CargoNaServentia.Titular, todasMenosSimular83);
+            var idAdminComum83 = await ContaNoIsolado83("Administrador comum (nao-Titular)", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
+
+            await using var db = new CrmDbContext(opcoes);
+            var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAdminComum83, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                .DefinirPermissoesAsync(idTitular83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            Checar("83-6a. Administrador nao-Titular nao altera permissao de Titular -> apenas_titular_altera_permissao_de_titular",
+                codigo == "apenas_titular_altera_permissao_de_titular");
+
+            var idOutroTitular83 = await ContaNoIsolado83("outro Titular", PerfilDeAtendente.Administrador, CargoNaServentia.Titular, todasMenosSimular83);
+            await using var db2 = new CrmDbContext(opcoes);
+            var codigo2 = await CodigoDoErro83(() => ServicoComo83(db2, idOutroTitular83, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                .DefinirPermissoesAsync(idTitular83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
+
+            Checar("83-6b. mas OUTRO Titular pode alterar a permissao de um Titular",
+                codigo2 is null);
+        }
+
+        // 83-7/83-8: TokenVersion nao sobe ao salvar permissao (efeito
+        // imediato, sem derrubar sessao), e o EventoDeSeguranca e gravado
+        // sem as chaves no Motivo.
+        {
+            var idAtor83g = await ContaNoIsolado83("ator 83-7/8", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
+            var idAlvo83g = await ContaNoIsolado83("alvo 83-7/8", PerfilDeAtendente.Atendente);
+            var estadoAntes83g = await Ler(idAlvo83g);
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                await ServicoComo83(db, idAtor83g, PerfilDeAtendente.Administrador, todasMenosSimular83)
+                    .DefinirPermissoesAsync(idAlvo83g, new DefinirPermissoesRequest(ModeloDePermissao.Catalogo,
+                        [.. CatalogoDePermissoes.ConjuntoDoModelo(ModeloDePermissao.Catalogo).Select(p => CatalogoDePermissoes.Descrever(p).ChaveTexto)]),
+                        "203.0.113.83");
+            }
+
+            var estadoDepois83g = await Ler(idAlvo83g);
+            Checar("83-7. TokenVersion nao sobe ao salvar permissao (efeito ja e imediato via CarregarSessaoAsync)",
+                estadoDepois83g.TokenVersion == estadoAntes83g.TokenVersion);
+            Checar("83-7b. ModeloDePermissao gravado como rotulo do preset aplicado",
+                estadoDepois83g.ModeloDePermissao == ModeloDePermissao.Catalogo);
+
+            await using var dbEvento = new CrmDbContext(opcoes);
+            var evento83g = await dbEvento.EventosDeSeguranca.AsNoTracking()
+                .Where(e => e.AtendenteId == idAlvo83g && e.Tipo == TipoDeEventoDeSeguranca.PermissoesAlteradas)
+                .SingleAsync();
+
+            Checar("83-8a. EventoDeSeguranca(PermissoesAlteradas) registrado com o ator correto",
+                evento83g.AtorAtendenteId == idAtor83g);
+            Checar("83-8b. Motivo nunca carrega as chaves concedidas (so o fato, nunca a lista)",
+                evento83g.Motivo is null);
+            Checar("83-8c. IP registrado",
+                evento83g.IpDeOrigem == "203.0.113.83");
+        }
+    }
 }
 finally
 {
@@ -7521,8 +7917,20 @@ file sealed class InterceptorDeFalhaDeEvento(TipoDeEventoDeSeguranca tipoParaFal
         new(SavingChanges(eventData, result));
 }
 
-/// <summary>Identidade fixa, no lugar das claims do token — mesmo padrao de verificar-concorrencia.cs.</summary>
-file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, PerfilDeAtendente perfil)
+/// <summary>
+/// Identidade fixa, no lugar das claims do token — mesmo padrao de
+/// verificar-concorrencia.cs. <paramref name="permissoes"/> omitido deriva o
+/// conjunto do Perfil (CatalogoDePermissoes.ConjuntoDaClasse), o mesmo
+/// fallback que ValidadorDeSessao usa quando Atendente.Permissoes e NULL —
+/// cenario passa um conjunto explicito so quando precisa simular
+/// personalizacao.
+/// </summary>
+file sealed class ContextoFixo(
+    Guid tenantId,
+    Guid atendenteId,
+    string nome,
+    PerfilDeAtendente perfil,
+    IReadOnlySet<PermissaoDoSistema>? permissoes = null)
     : IContextoDoUsuario
 {
     public bool Autenticado => true;
@@ -7531,11 +7939,6 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public string Nome => nome;
     public PerfilDeAtendente Perfil => perfil;
 
-    public bool PodeGerirCadastros =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
-
-    public bool PodeGerirAtendentes => perfil is PerfilDeAtendente.Administrador;
-
-    public bool PodeOperarConversaDeTerceiro =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    public bool Pode(PermissaoDoSistema permissao) =>
+        (permissoes ?? CatalogoDePermissoes.ConjuntoDaClasse(perfil)).Contains(permissao);
 }

@@ -4,6 +4,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Servicos.Application;
@@ -181,7 +182,7 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
 
     private void GarantirPermissao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.ServicosEditar))
         {
             throw ServicosServiceException.SemPermissao();
         }

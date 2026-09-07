@@ -22,7 +22,13 @@ public class SessaoAtivaRequirement : IAuthorizationRequirement;
 /// framework — permissao fina e sempre checada dentro do service, com
 /// <see cref="IContextoDoUsuario"/>).
 /// </summary>
-public class SessaoAtivaHandler(IValidadorDeSessao validador)
+/// <remarks>
+/// Ao suceder, deposita o conjunto de permissões já resolvido em
+/// <see cref="PermissoesDaRequisicao"/> — é o único lugar do pipeline HTTP
+/// que preenche esse holder, então <c>ContextoDoUsuario.Pode</c> nunca faz
+/// uma segunda consulta ao banco.
+/// </remarks>
+public class SessaoAtivaHandler(IValidadorDeSessao validador, PermissoesDaRequisicao permissoes)
     : AuthorizationHandler<SessaoAtivaRequirement>
 {
     protected override async Task HandleRequirementAsync(
@@ -49,10 +55,11 @@ public class SessaoAtivaHandler(IValidadorDeSessao validador)
             return;
         }
 
-        var valida = await validador.SessaoValidaAsync(atendenteId, tenantId, tokenVersion);
+        var sessao = await validador.CarregarSessaoAsync(atendenteId, tenantId, tokenVersion);
 
-        if (valida)
+        if (sessao is not null)
         {
+            permissoes.Definir(sessao.Permissoes);
             context.Succeed(requirement);
         }
     }

@@ -14,8 +14,7 @@ vi.mock('@/lib/auth/usar-autenticacao', () => ({
     },
     tenant: { nomeFantasia: 'Cartório de Teste', razaoSocial: 'Cartório de Teste Ltda.' },
     sair: vi.fn(),
-    podeGerirCadastros: true,
-    podeGerirAtendentes: true,
+    pode: () => true,
   }),
 }))
 

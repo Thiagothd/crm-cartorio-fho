@@ -1014,6 +1014,47 @@ Checar("ObservabilidadeDaIa: historico paginado (OrderByDescending por coluna + 
         .Take(20)
         .ToQueryString());
 
+// Permissoes granulares (Equipe — permissoes granulares + redesenho).
+
+Checar("Permissoes granulares: projecao de CarregarSessaoAsync (SEC-01 + resolucao de permissoes no mesmo round-trip)", () =>
+    db.Atendentes.AsNoTracking()
+        .Where(a => a.Id == atendenteId && a.TenantId == tenantId)
+        .Select(a => new { a.Ativo, a.TokenVersion, a.Perfil, a.Permissoes })
+        .ToQueryString());
+
+Checar("Permissoes granulares: projecao de ListarAsync com Permissoes/ModeloDePermissao/MfaAtivo", () =>
+    db.Atendentes.AsNoTracking()
+        .Where(a => a.TenantId == tenantId && a.Ativo)
+        .OrderBy(a => a.Nome)
+        .Select(a => new
+        {
+            a.Id,
+            a.Nome,
+            a.Email,
+            a.Perfil,
+            a.Cargo,
+            a.SetorPadraoId,
+            SetorPadraoNome = db.Setores
+                .Where(s => s.Id == a.SetorPadraoId)
+                .Select(s => s.Nome)
+                .FirstOrDefault(),
+            a.Ativo,
+            a.UltimoAcessoEm,
+            a.MfaAtivo,
+            a.ModeloDePermissao,
+        })
+        .ToQueryString());
+
+// A invariante do ultimo administrador (AtendenteService.DefinirPermissoesAsync)
+// NAO passa por aqui de proposito: virou SqlQuery<Guid> com WITH (UPDLOCK,
+// HOLDLOCK) dentro de uma transacao explicita, nao um EXISTS aninhado em LINQ
+// — o EXISTS que excluia so o proprio alvo nao travava a linha do outro lado
+// de uma troca cruzada (A tira de B ao mesmo tempo que B tira de A), e as
+// duas chamadas passavam, zerando quem tem equipe.permissoes no tenant
+// inteiro (provado ao vivo pelo cenario 83-5 de verificar-autenticacao.cs).
+// Raw SQL com table hint nao e "traducao de LINQ" — nada aqui exercitaria o
+// tradutor; a garantia mora no verificador de autenticacao, sob corrida real.
+
 Console.WriteLine();
 Console.WriteLine(falhas == 0
     ? "Todas as consultas traduziram para SQL."

@@ -2,6 +2,7 @@ using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Tenants.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Tenants.Application;
@@ -25,7 +26,7 @@ public class TenantService(CrmDbContext db, IContextoDoUsuario ctx) : ITenantSer
     {
         // Mesma exigencia dos demais cadastros da tela de Configuracoes: e a cara
         // do cartorio para todo mundo, nao preferencia de quem esta logado.
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.AparenciaEditar))
         {
             throw new TenantsServiceException(
                 "sem_permissao", "Seu perfil nao permite alterar a aparencia.", 403);
@@ -153,7 +154,7 @@ public class TenantService(CrmDbContext db, IContextoDoUsuario ctx) : ITenantSer
 
     private void GarantirGestao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.AutomacaoEncerramentoEditar))
         {
             throw new TenantsServiceException(
                 "sem_permissao",

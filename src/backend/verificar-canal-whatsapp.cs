@@ -1253,9 +1253,7 @@ file sealed class ContextoFake(Guid tenantId) : IContextoDoUsuario
     public Guid AtendenteId => Guid.Empty;
     public string Nome => "Verificador";
     public PerfilDeAtendente Perfil => PerfilDeAtendente.Administrador;
-    public bool PodeGerirCadastros => true;
-    public bool PodeGerirAtendentes => true;
-    public bool PodeOperarConversaDeTerceiro => true;
+    public bool Pode(PermissaoDoSistema permissao) => true;
 }
 
 file sealed class HttpClientFactoryFake : IHttpClientFactory

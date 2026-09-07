@@ -21,6 +21,11 @@ public class AtendentesController(IAtendenteService servico, IMfaService mfa, IC
         CancellationToken ct = default) =>
         Ok(await servico.ListarAsync(incluirInativos, ct));
 
+    /// <summary>Projecao minima para o seletor "transferir para" do balcao — qualquer autenticado, sem exigir <c>equipe.ver</c>.</summary>
+    [HttpGet("opcoes")]
+    public async Task<ActionResult<IReadOnlyList<AtendenteOpcaoResponse>>> Opcoes(CancellationToken ct) =>
+        Ok(await servico.ListarOpcoesAsync(ct));
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<AtendenteResponse>> Obter(Guid id, CancellationToken ct) =>
         Ok(await servico.ObterAsync(id, ct));
@@ -48,6 +53,22 @@ public class AtendentesController(IAtendenteService servico, IMfaService mfa, IC
         CancellationToken ct)
     {
         await servico.RedefinirSenhaAsync(id, request, ct);
+        return NoContent();
+    }
+
+    // ------------------------------------------------- Permissoes granulares
+
+    [HttpGet("{id:guid}/permissoes")]
+    public async Task<ActionResult<PermissoesDoAtendenteResponse>> ObterPermissoes(
+        Guid id, CancellationToken ct) =>
+        Ok(await servico.ObterPermissoesAsync(id, ct));
+
+    [HttpPut("{id:guid}/permissoes")]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.NomeGestao)]
+    public async Task<IActionResult> DefinirPermissoes(
+        Guid id, [FromBody] DefinirPermissoesRequest request, CancellationToken ct)
+    {
+        await servico.DefinirPermissoesAsync(id, request, Ip, ct);
         return NoContent();
     }
 

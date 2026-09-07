@@ -59,7 +59,8 @@ export function PaginaInbox() {
   const navegar = useNavigate()
   const location = useLocation()
 
-  const { atendente, tenant, podeOperarConversaDeTerceiro } = usarAutenticacao()
+  const { atendente, tenant, pode } = usarAutenticacao()
+  const podeOperarConversaDeTerceiro = pode('atendimento.mexer_no_de_terceiro')
   const invalidar = usarInvalidarAtendimento()
 
   // Mesma regra do backend ao resolver {NomeCartorio}: fantasia, e a razão social

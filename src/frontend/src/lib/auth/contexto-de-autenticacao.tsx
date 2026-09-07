@@ -2,7 +2,7 @@ import { createContext, useCallback, useEffect, useMemo, useState, type ReactNod
 import { autenticacaoApi } from '@/lib/api/endpoints'
 import { gravarToken, lerToken, limparToken } from '@/lib/api/cliente-http'
 import { limparCacheDeAnexos } from '@/features/atendimento/cache-de-anexos'
-import type { Atendente, DesafioMfa, Sessao, Tenant } from '@/lib/api/tipos'
+import type { Atendente, ChaveDePermissao, DesafioMfa, Sessao, Tenant } from '@/lib/api/tipos'
 
 /**
  * SEC-03 — a etapa 1 pode terminar de dois jeitos: sessão completa (conta sem
@@ -31,8 +31,23 @@ export interface EstadoDeAutenticacao {
    */
   aplicarNovaSessao: (sessao: Sessao) => void
   sair: () => void
+  /**
+   * A checagem granular — mesmo vocabulário do backend
+   * (`Modules/Usuarios/Domain/CatalogoDePermissoes.cs`). Fail-closed: sem
+   * sessão, nega tudo.
+   */
+  pode: (chave: ChaveDePermissao) => boolean
+  /**
+   * @deprecated Legado — mantido só para os testes existentes não
+   * precisarem migrar todos de uma vez. Prefira `pode(chave)`. Equivalem a
+   * `pode('equipe.editar')`/`pode('equipe.cadastrar')`/`pode('atendimento.mexer_no_de_terceiro')`
+   * hoje, mas não são a MESMA checagem que o backend faz endpoint a
+   * endpoint — cada tela deveria migrar para a chave certa dela.
+   */
   podeGerirCadastros: boolean
+  /** @deprecated Legado — ver `podeGerirCadastros`. */
   podeGerirAtendentes: boolean
+  /** @deprecated Legado — ver `podeGerirCadastros`. */
   podeOperarConversaDeTerceiro: boolean
 }
 
@@ -70,6 +85,37 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
     return () => {
       ativo = false
     }
+  }, [])
+
+  // Permissoes granulares: o backend resolve o conjunto a cada request (SEC-01
+  // já paga esse round-trip), mas o TOKEN não é revogado quando alguém só
+  // muda o que outro atendente acessa (de propósito — ver
+  // Modules/Usuarios/README.md, "Permissões granulares"). Sem isto, o MENU
+  // ficaria com o conjunto antigo até o JWT expirar (até 8h) ou até a
+  // próxima ação que force um refetch. Refazer a sessão quando a aba volta a
+  // ficar visível é o mesmo compromisso que o backend já assume: o menu pode
+  // ficar desatualizado por um instante, o backend nunca fica — cada
+  // endpoint confere de novo, sempre.
+  useEffect(() => {
+    function aoFicarVisivel() {
+      if (document.visibilityState !== 'visible' || !lerToken()) return
+
+      autenticacaoApi
+        .sessao()
+        .then((sessao) => {
+          setAtendente(sessao.atendente)
+          setTenant(sessao.tenant)
+        })
+        .catch(() => {
+          // Sessão realmente inválida (token revogado, conta desativada):
+          // deixa a próxima chamada autenticada normal descobrir isso e
+          // redirecionar — não é papel deste refresh silencioso derrubar o
+          // usuário no meio de outra aba.
+        })
+    }
+
+    document.addEventListener('visibilitychange', aoFicarVisivel)
+    return () => document.removeEventListener('visibilitychange', aoFicarVisivel)
   }, [])
 
   const aplicarSessao = useCallback((sessao: Sessao) => {
@@ -123,6 +169,7 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
 
   const valor = useMemo<EstadoDeAutenticacao>(() => {
     const perfil = atendente?.perfil
+    const permissoes = atendente?.permissoes
 
     return {
       carregando,
@@ -132,6 +179,11 @@ export function ProvedorDeAutenticacao({ children }: { children: ReactNode }) {
       concluirLoginComMfa,
       aplicarNovaSessao: aplicarSessao,
       sair,
+      pode: (chave) => permissoes?.includes(chave) ?? false,
+      // Legado: continuam derivadas da Classe da conta, não do conjunto
+      // granular — é o que preserva o comportamento de hoje para as telas
+      // que ainda não migraram (nenhuma conta perde nem ganha acesso só por
+      // este arquivo mudar).
       podeGerirCadastros: perfil === 'Supervisor' || perfil === 'Administrador',
       podeGerirAtendentes: perfil === 'Administrador',
       podeOperarConversaDeTerceiro: perfil === 'Supervisor' || perfil === 'Administrador',

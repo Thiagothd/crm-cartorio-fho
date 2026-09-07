@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Configuracoes.Application;
@@ -108,7 +109,7 @@ public class MensagemAutomaticaService(CrmDbContext db, IContextoDoUsuario ctx) 
 
     private void GarantirPermissao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.AutomacaoMensagensEditar))
         {
             throw ConfiguracoesServiceException.SemPermissao();
         }

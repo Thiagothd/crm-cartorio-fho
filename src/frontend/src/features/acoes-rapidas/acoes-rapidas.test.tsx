@@ -18,8 +18,17 @@ const buscaGlobalMock = vi.mocked(usarBuscaGlobal)
 
 const CONTADORES_VAZIOS: ContadoresDeAcoes = { fila: null, aguardando: null, minhas: null }
 
-function perfil(podeGerirCadastros: boolean, podeGerirAtendentes: boolean) {
-  return { podeGerirCadastros, podeGerirAtendentes } as ReturnType<typeof usarAutenticacao>
+/**
+ * `gestao` cobre Respostas rápidas + Indicadores (`automacao.respostas.ver`,
+ * `relatorios.ver`); `administrador` acrescenta o Canal WhatsApp
+ * (`whatsapp.ver`) — mesma progressão de antes, em chave de permissão.
+ */
+function perfil(gestao: boolean, administrador: boolean) {
+  const chaves = [
+    ...(gestao ? ['automacao.respostas.ver', 'relatorios.ver'] : []),
+    ...(administrador ? ['whatsapp.ver'] : []),
+  ]
+  return { pode: (chave: string) => chaves.includes(chave) } as ReturnType<typeof usarAutenticacao>
 }
 
 function renderizar(props: Partial<Parameters<typeof AcoesRapidas>[0]> = {}) {

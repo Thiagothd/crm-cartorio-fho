@@ -19,9 +19,10 @@ public interface IContextoDoUsuario
 
     PerfilDeAtendente Perfil { get; }
 
-    bool PodeGerirCadastros { get; }
-
-    bool PodeGerirAtendentes { get; }
-
-    bool PodeOperarConversaDeTerceiro { get; }
+    /// <summary>
+    /// A checagem granular — ver <c>Modules/Usuarios/Domain/CatalogoDePermissoes</c>.
+    /// Fail-closed: não autenticado, ou sessão sem permissões resolvidas,
+    /// devolve <c>false</c> para qualquer <see cref="PermissaoDoSistema"/>.
+    /// </summary>
+    bool Pode(PermissaoDoSistema permissao);
 }

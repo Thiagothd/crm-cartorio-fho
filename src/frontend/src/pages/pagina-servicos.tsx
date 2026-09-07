@@ -23,7 +23,8 @@ function normalizar(texto: string) {
 }
 
 export function PaginaServicos() {
-  const { podeGerirCadastros } = usarAutenticacao()
+  const { pode } = usarAutenticacao()
+  const podeGerirCadastros = pode('servicos.editar')
   const [emEdicao, setEmEdicao] = useState<TipoServico | null>(null)
   const [dialogoAberto, setDialogoAberto] = useState(false)
   const [incluirInativos, setIncluirInativos] = useState(true)

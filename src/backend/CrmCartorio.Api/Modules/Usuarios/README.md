@@ -5,17 +5,108 @@ Atendentes (funcionários da serventia) e autenticação.
 `Atendente` **não** é `Cliente`. Cliente é o contato do WhatsApp e nunca acessa o
 sistema.
 
-## Perfis
+## Classe da conta
 
-| Perfil | Pode |
+`PerfilDeAtendente` (`Atendente`/`Supervisor`/`Administrador`) — chamado de
+"Perfil de acesso" na tela até 2026-09-08 — **não é mais o que decide o que o
+atendente acessa**. Isso passou para as permissões granulares (seção
+abaixo). A Classe da conta continua existindo porque é **outra coisa,
+igualmente real**: a fronteira de segurança do SEC-03.
+
+| Classe | O que ela decide |
 | --- | --- |
-| `Atendente` | Assumir conversa livre, responder a sua, liberar a sua, mover etapa/setor da sua, encerrar a sua |
-| `Supervisor` | Tudo acima + transferir conversa de terceiro + reabrir + gerir cadastros |
-| `Administrador` | Tudo acima + gerir atendentes |
+| `Atendente` | Preset inicial no cadastro (Balcão) — nada além disso |
+| `Supervisor` | Preset inicial no cadastro (Supervisão) — nada além disso |
+| `Administrador` | Preset inicial (Administração) **+** sujeita a conta a `Tenant.MfaObrigatorioParaAdministradores` (SEC-03) |
 
-Aguarda validação do cartório parceiro (`docs/REQUISITOS.md`, seção 5, pendência 7). É o
-único item da lista de pendências que exigiria mexer em código se a resposta dele
-pedir permissão mais fina.
+`Cargo == Titular` carrega a mesma fronteira de segurança que
+`Perfil == Administrador`, independente da Classe — ver SEC-03 abaixo. A
+pendência antiga de "permissão mais fina" (`docs/REQUISITOS.md`, seção 5.5,
+item 13) foi resolvida pelas permissões granulares: já não é preciso mexer em
+código para dar a alguém acesso a uma tela sem dar às outras.
+
+## Permissões granulares
+
+Desde 2026-09-08, o que cada atendente acessa é decidido por
+`Atendente.Permissoes` — uma lista de chaves (`"|atendimento.ver|clientes.ver|"`,
+pipe de cerca nas duas pontas) resolvida por
+`Modules/Usuarios/Domain/CatalogoDePermissoes.cs`, o catálogo único de ~49
+chaves (rótulo, descrição, bloco e se é "tela") e dos 6 modelos prontos
+(Recepção, Balcão, Catálogo, Supervisão, Administração, Auditoria).
+
+**`NULL` significa "segue a Classe da conta"** — é o padrão de toda linha
+existente e de toda conta nova, por construção: a migração (`sql/043`) não fez
+nenhum UPDATE de backfill, e `ConjuntoDaClasse(Perfil)` deriva exatamente o
+preset equivalente ao comportamento de três níveis de antes (Atendente→Balcão,
+Supervisor→Supervisão, Administrador→Administração). Ninguém muda de
+comportamento no dia em que o binário novo sobe.
+
+**Por que coluna escalar (`NVARCHAR(4000)`), não tabela filha:**
+`ValidadorDeSessao.CarregarSessaoAsync` já faz uma consulta ao banco em TODA
+requisição autenticada, para o SEC-01 (revogação de sessão). As permissões
+saem da MESMA consulta — zero custo extra por requisição. Uma tabela filha
+viraria um segundo round-trip (ou um JOIN de dezenas de linhas) para servir um
+dado que só é lido como conjunto inteiro, e quebraria a invariante atômica do
+"último administrador" (abaixo), que precisa ser uma única instrução.
+
+**Por que texto com pipe de cerca, não bitmask:** o catálogo já nasce com ~49
+chaves; um bitmask de 64 bits fica sem margem na primeira ampliação, e a
+posição do bit vira contrato não escrito — reordenar o enum corromperia
+permissão de todo mundo, sem CHECK capaz de proteger disso. O pipe nas duas
+pontas faz `Permissoes LIKE '%|chave|%'` ser teste de contenção correto em
+SQL, sem casar `equipe.ver` dentro de `equipe.ver_algo`.
+
+**Como chega ao código:** `IContextoDoUsuario.Pode(PermissaoDoSistema)` é a
+única checagem nova. As três flags legadas (`PodeGerirCadastros`,
+`PodeGerirAtendentes`, `PodeOperarConversaDeTerceiro`) foram removidas depois
+que o último call site migrou — se você está lendo isto num checkout onde
+elas ainda existem, é sinal de que a Etapa 4 do plano de migração não
+terminou nalgum módulo.
+
+**A meta-permissão (`equipe.permissoes`)** decide quem pode ajustar o que
+outro atendente acessa (`AtendenteService.DefinirPermissoesAsync`). Seis
+travas, nesta ordem:
+
+1. O ator precisa ter `equipe.permissoes`.
+2. Ninguém edita as próprias permissões — sem isto, a permissão sozinha já
+   bastaria para qualquer um virar administrador.
+3. Anti-escalada: o ator só repassa o que ele mesmo tem (`IsSubsetOf`),
+   inclusive `equipe.permissoes` em si.
+4. **Sobra pelo menos um administrador ativo.** Isto é o único ponto em que a
+   trava precisa de mais que uma checagem simples — ver o parágrafo de
+   corrida abaixo.
+5. Titular protegido — espelha `MfaService.GarantirTitularProtegido`: só um
+   Administrador que também seja Titular altera a permissão de outro Titular.
+6. `EventoDeSeguranca(PermissoesAlteradas)` gravado — o FATO, nunca as
+   chaves concedidas (`Motivo` fica sempre nulo aqui).
+
+**A corrida do último administrador, e por que virou transação explícita com
+`UPDLOCK`/`HOLDLOCK`:** a primeira versão desta trava era um `EXISTS`
+aninhado dentro do `WHERE` do próprio `ExecuteUpdateAsync` — e ela tinha um
+furo real, encontrado pelo cenário 83-5 de `verificar-autenticacao.cs`: como
+o `EXISTS` só olha "existe OUTRO ativo com a permissão, diferente do alvo",
+duas chamadas concorrentes trocando a permissão uma da outra (A tira de B
+enquanto B tira de A) cada uma lê a outra ainda intacta e AS DUAS passam —
+zerando quem tem `equipe.permissoes` no tenant inteiro. A correção trava, com
+`UPDLOCK`+`HOLDLOCK` dentro de uma transação explícita, TODOS os
+administradores ativos do tenant (o alvo incluso, não só "os outros"),
+sempre na mesma ordem (`ORDER BY Id`) — duas chamadas competindo pelo mesmo
+conjunto na mesma ordem serializam por bloqueio comum, sem depender de
+deadlock para se resolver.
+
+**Por que `TokenVersion` deliberadamente NÃO sobe ao salvar permissão** —
+diferente de toda outra mutação de segurança neste módulo (troca de senha,
+troca de Perfil, ativar/desativar): as permissões já saem do banco a cada
+requisição, via a mesma consulta do SEC-01. Subir a versão aqui só derrubaria
+a pessoa do meio de um atendimento — dano real, ganho zero, porque o efeito
+já é imediato sem isso. Continua subindo quando `AtualizarAsync` muda a
+Classe da conta ou cruza a fronteira `Cargo == Titular` — são endpoints
+separados de propósito.
+
+`ModeloDePermissao` (a coluna, não o enum de catálogo) guarda só o RÓTULO do
+último preset aplicado — nunca a verdade, que é sempre `Permissoes`. Se o
+modelo fosse a fonte de verdade, mudar a definição de "Supervisão" numa
+release futura alteraria em silêncio o que meia dúzia de pessoas pode fazer.
 
 ## Senha
 
@@ -146,6 +237,18 @@ sinal de enumeração, não o elimina.
 Login em duas etapas (RFC 6238) para `Administrador` e para quem tem
 `CargoNaServentia.Titular`. Login normal (etapa 1) continua idêntico para
 quem não tem MFA — a mudança é aditiva.
+
+**"Conta privilegiada" continua sendo `Perfil == Administrador || Cargo ==
+Titular` — deliberadamente NÃO reescrito em termos de permissão granular.**
+As permissões (seção acima) decidem o que a pessoa ACESSA; esta checagem
+decide uma coisa diferente, quem PRECISA de MFA obrigatório e quem o
+Titular protege. Se fosse reescrita como `ctx.Pode(...)`, tirar uma
+permissão de alguém na tela de Equipe o removeria do MFA obrigatório sem
+ninguém perceber — uma queda de segurança disparada por uma ação de UI que
+não tem nada a ver com autenticação. As duas checagens vivem separadas de
+propósito, e sempre vão precisar ser mantidas em sincronia manualmente
+quando `CargoNaServentia` ou a política de MFA mudarem — nunca automatize
+uma a partir da outra.
 
 **Divisão de responsabilidade:** `AutenticacaoService` é o LOGIN (etapas 1 e
 2, sempre lendo estado, nunca gerindo o segredo); `MfaService` é a GESTÃO da

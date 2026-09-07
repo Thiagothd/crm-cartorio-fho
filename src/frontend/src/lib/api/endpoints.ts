@@ -38,6 +38,8 @@ import type {
   PaginadoDeClientes,
   Painel,
   PerfilDeAtendente,
+  ModeloDePermissao,
+  PermissoesDoAtendente,
   RegenerarCodigosResposta,
   RegrasDoCanal,
   Relatorio,
@@ -499,6 +501,8 @@ export const atendentesApi = {
   listar: (incluirInativos = false) =>
     api.get<Atendente[]>(`/api/atendentes${montarQuery({ incluirInativos })}`),
 
+  obter: (id: string) => api.get<Atendente>(`/api/atendentes/${id}`),
+
   criar: (dados: {
     nome: string
     email: string
@@ -530,4 +534,15 @@ export const atendentesApi = {
   /** SEC-03 — reset administrativo: remove o MFA do alvo, sobe TokenVersion. Alvo Titular exige ator Titular. */
   resetarMfa: (id: string, senhaDoAtor: string, codigoDoAtor: string, motivo: string) =>
     api.post<void>(`/api/atendentes/${id}/mfa/reset`, { senhaDoAtor, codigoDoAtor, motivo }),
+
+  /** Permissões granulares: o conjunto efetivo do alvo, o catálogo inteiro e os 6 modelos prontos. */
+  obterPermissoes: (id: string) => api.get<PermissoesDoAtendente>(`/api/atendentes/${id}/permissoes`),
+
+  /**
+   * A meta-permissão. `equipe.permissoes` decide quem chega aqui — o backend
+   * aplica as travas de verdade (não editar a si mesmo, não conceder o que
+   * não tem, sobra um administrador, Titular protegido).
+   */
+  definirPermissoes: (id: string, dados: { modelo: ModeloDePermissao | null; chaves: string[] }) =>
+    api.put<void>(`/api/atendentes/${id}/permissoes`, dados),
 }

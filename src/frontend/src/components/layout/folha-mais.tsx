@@ -13,9 +13,9 @@ import { cn } from '@/lib/utils'
  * componente arriscaria uma perder para a outra sem previsibilidade.
  */
 export function FolhaMais({ aberta, aoFechar }: { aberta: boolean; aoFechar: () => void }) {
-  const { atendente, tenant, sair, podeGerirCadastros, podeGerirAtendentes } = usarAutenticacao()
+  const { atendente, tenant, sair, pode } = usarAutenticacao()
   const navegar = useNavigate()
-  const grupos = navegacaoVisivel({ podeGerirCadastros, podeGerirAtendentes })
+  const grupos = navegacaoVisivel(pode)
 
   return (
     <DialogPrimitive.Root

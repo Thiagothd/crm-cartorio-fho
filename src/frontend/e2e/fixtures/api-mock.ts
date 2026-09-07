@@ -13,18 +13,60 @@ const tenant = {
   whatsappConfigurado: false,
 }
 
+/**
+ * Espelho dos 3 presets herdados (Balcão/Supervisão/Administração) de
+ * `CatalogoDePermissoes.cs` — o backend real deriva exatamente este conjunto
+ * quando `Atendente.Permissoes` é `NULL` (Classe da conta sem personalização).
+ * Os testes de E2E escritos contra o sistema de 3 perfis continuam valendo
+ * porque o comportamento de cada perfil "sem ajuste" não mudou; só a forma de
+ * representá-lo no token/sessão passou a ser um conjunto de chaves, não mais
+ * o `perfil` sozinho.
+ */
+const PERMISSOES_BALCAO = [
+  'atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'atendimento.mover', 'atendimento.transferir',
+  'clientes.ver', 'atendimento.abrir_novo', 'atendimento.vincular_servico', 'atendimento.encerrar',
+  'clientes.cadastrar', 'clientes.editar',
+]
+const PERMISSOES_SUPERVISAO = [
+  ...PERMISSOES_BALCAO,
+  'servicos.ver', 'servicos.editar', 'etapas.ver', 'etapas.editar', 'setores.ver', 'setores.editar',
+  'automacao.mensagens.ver', 'automacao.mensagens.editar', 'automacao.respostas.ver', 'automacao.respostas.editar',
+  'automacao.encerramento.ver', 'automacao.encerramento.editar', 'ia.ver', 'ia.conhecimento.ver', 'ia.conhecimento.editar',
+  'aparencia.ver', 'aparencia.editar',
+  'atendimento.reabrir', 'atendimento.mexer_no_de_terceiro', 'clientes.excluir', 'clientes.importar_agenda',
+  'relatorios.ver', 'relatorios.equipe', 'relatorios.saude_ia',
+]
+/** Tudo, exceto `atendimento.simular_cliente` — de propósito, ver o enum no backend. */
+const PERMISSOES_ADMINISTRACAO = [
+  'atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'atendimento.abrir_novo', 'atendimento.mover',
+  'atendimento.vincular_servico', 'atendimento.encerrar', 'atendimento.reabrir', 'atendimento.transferir', 'atendimento.mexer_no_de_terceiro',
+  'clientes.ver', 'clientes.cadastrar', 'clientes.editar', 'clientes.excluir', 'clientes.importar_agenda',
+  'servicos.ver', 'servicos.editar', 'etapas.ver', 'etapas.editar', 'setores.ver', 'setores.editar',
+  'automacao.mensagens.ver', 'automacao.mensagens.editar', 'automacao.respostas.ver', 'automacao.respostas.editar',
+  'automacao.encerramento.ver', 'automacao.encerramento.editar', 'ia.ver', 'ia.conhecimento.ver', 'ia.conhecimento.editar',
+  'relatorios.ver', 'relatorios.equipe', 'relatorios.saude_ia', 'relatorios.saude_whatsapp',
+  'whatsapp.ver', 'whatsapp.parear', 'whatsapp.regras', 'whatsapp.testar_envio',
+  'aparencia.ver', 'aparencia.editar', 'serventia.editar',
+  'equipe.ver', 'equipe.cadastrar', 'equipe.editar', 'equipe.redefinir_senha', 'equipe.permissoes', 'equipe.mfa_administrar',
+  'seguranca.eventos.ver',
+]
+
 const usuarios = {
   Atendente: {
     id: 'atendente-e2e', nome: 'Ana Atendente', email: 'atendente@teste.local', perfil: 'Atendente' as Perfil,
     cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
   },
   Supervisor: {
     id: 'supervisor-e2e', nome: 'Sofia Supervisora', email: 'supervisor@teste.local', perfil: 'Supervisor' as Perfil,
     cargo: 'Substituto', cargoDescrito: 'Substituto', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    mfaAtivo: false, modelo: null, permissoes: PERMISSOES_SUPERVISAO,
   },
   Administrador: {
     id: 'admin-e2e', nome: 'Alice Administradora', email: 'admin@teste.local', perfil: 'Administrador' as Perfil,
     cargo: 'Titular', cargoDescrito: 'Titular', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    // Titular é conta privilegiada (SEC-03) — com MFA ativo, não sobra "Sem 2 etapas" perdido no meio dos testes de E2E.
+    mfaAtivo: true, modelo: null, permissoes: PERMISSOES_ADMINISTRACAO,
   },
 }
 
