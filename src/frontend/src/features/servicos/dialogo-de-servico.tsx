@@ -85,6 +85,7 @@ export function DialogoDeServico({
   }, [aberto, servico])
 
   async function salvar() {
+    if (salvando) return
     setSalvando(true)
 
     try {
@@ -92,7 +93,7 @@ export function DialogoDeServico({
         nome,
         codigo: codigo.trim() || null,
         categoria,
-        descricao: null,
+        descricao: servico?.descricao ?? null,
         ativo,
         setorId: setorId === SEM_SETOR ? null : setorId,
         documentosNecessarios: documentosNecessarios.trim() || null,
@@ -122,8 +123,8 @@ export function DialogoDeServico({
   }
 
   return (
-    <Dialog open={aberto} onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent>
+    <Dialog open={aberto} onOpenChange={(v) => !v && !salvando && aoFechar()}>
+      <DialogContent className="max-w-3xl" mostrarFechar={!salvando} onEscapeKeyDown={(e) => { if (salvando) e.preventDefault() }} onInteractOutside={(e) => { if (salvando) e.preventDefault() }}>
         <DialogHeader>
           <DialogTitle>{servico ? 'Editar serviço' : 'Novo serviço'}</DialogTitle>
           <DialogDescription>
@@ -132,11 +133,15 @@ export function DialogoDeServico({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <form onSubmit={(e) => { e.preventDefault(); void salvar() }}>
+        <fieldset disabled={salvando} className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <h3 className="text-sm font-semibold text-tinta">Cadastro e documentos</h3>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="servico-nome">Nome</Label>
             <Input
               id="servico-nome"
+              required
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder="Ex.: Certidão de nascimento"
@@ -145,9 +150,9 @@ export function DialogoDeServico({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label>Categoria</Label>
+              <Label htmlFor="servico-categoria">Categoria</Label>
               <Select value={categoria} onValueChange={(v) => setCategoria(v as CategoriaServico)}>
-                <SelectTrigger>
+                <SelectTrigger id="servico-categoria">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -172,9 +177,9 @@ export function DialogoDeServico({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label>Setor no menu de atendimento</Label>
+            <Label htmlFor="servico-setor">Setor no menu de atendimento</Label>
             <Select value={setorId} onValueChange={setSetorId}>
-              <SelectTrigger>
+              <SelectTrigger id="servico-setor">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -215,7 +220,10 @@ export function DialogoDeServico({
             </p>
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 rounded-card bg-superficie p-4">
+          <h3 className="text-sm font-semibold text-tinta">Prazo e disponibilidade</h3>
+          <div className="flex items-center justify-between gap-3">
             <div>
               <Label htmlFor="tem-prazo">Controlar prazo (SLA)</Label>
               <p className="text-xs text-tinta-media">
@@ -226,7 +234,7 @@ export function DialogoDeServico({
           </div>
 
           {temPrazo ? (
-            <div className="flex flex-col gap-3 rounded-md border border-linha p-3">
+            <div className="flex flex-col gap-3 border-t border-linha pt-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="prazo-horas">Prazo em horas</Label>
@@ -234,6 +242,8 @@ export function DialogoDeServico({
                     id="prazo-horas"
                     type="number"
                     min={1}
+                    required
+                    step={1}
                     value={prazoHoras}
                     onChange={(e) => setPrazoHoras(e.target.value)}
                   />
@@ -247,6 +257,8 @@ export function DialogoDeServico({
                     type="number"
                     min={1}
                     max={99}
+                    required
+                    step={1}
                     value={percentualAlerta}
                     onChange={(e) => setPercentualAlerta(e.target.value)}
                   />
@@ -268,21 +280,24 @@ export function DialogoDeServico({
           ) : null}
 
           {servico ? (
-            <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">
-              <Label htmlFor="servico-ativo">Serviço ativo</Label>
+            <div className="flex items-center justify-between gap-3 border-t border-linha pt-3">
+              <div><Label htmlFor="servico-ativo">Serviço ativo</Label><p className="mt-1 text-xs text-tinta-media">Desativar mantém os atendimentos já registrados.</p></div>
               <Switch id="servico-ativo" checked={ativo} onCheckedChange={setAtivo} />
             </div>
           ) : null}
+          {servico ? <p className="text-xs leading-relaxed text-tinta-media">Alterar este prazo não recalcula os prazos dos atendimentos já vinculados.</p> : null}
         </div>
+        </fieldset>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={aoFechar}>
+        <DialogFooter className="mt-5 border-t border-linha pt-4">
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>
             Cancelar
           </Button>
-          <Button onClick={() => void salvar()} disabled={salvando}>
-            Salvar
+          <Button type="submit" disabled={salvando}>
+            {salvando ? 'Salvando…' : 'Salvar'}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
