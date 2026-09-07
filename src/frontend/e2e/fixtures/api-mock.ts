@@ -153,7 +153,7 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
 
     if (path === '/api/setores' && metodo === 'GET') return json(route, estado.setores)
     if (path === '/api/etapas' && metodo === 'GET') return json(route, estado.etapas)
-    if (path === '/api/tipos-servico' && metodo === 'GET') return json(route, estado.servicos)
+    if (path === '/api/tipos-servico' && metodo === 'GET') return json(route, estado.servicos.filter((s) => url.searchParams.get('incluirInativos') === 'true' || s.ativo))
     if (path === '/api/atendentes' && metodo === 'GET') return json(route, estado.atendentes)
     if (path === '/api/respostas-rapidas' && metodo === 'GET') return json(route, estado.respostasRapidas)
     if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
@@ -217,8 +217,14 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
       const semDocumento = url.searchParams.get('semDocumento') === 'true'
       const semEndereco = url.searchParams.get('semEndereco') === 'true'
       let itens = estado.clientes.filter((c) => !busca || `${c.nome} ${c.telefoneWhatsapp}`.toLowerCase().includes(busca))
+      if (url.searchParams.get('incluirInativos') !== 'true') itens = itens.filter((c) => c.ativo)
       if (semDocumento) itens = itens.filter((c) => !c.documento)
-      if (semEndereco) itens = itens.filter((c) => !c.cep)
+      if (semEndereco) itens = itens.filter((c) => !c.logradouro || !c.numero || !c.cidade || !c.uf)
+      if (url.searchParams.get('comConversaAtiva') === 'true') itens = itens.filter((c) => c.temConversaAtiva)
+      for (const campo of ['tipo', 'estadoCivil', 'cidade']) {
+        const valor = url.searchParams.get(campo)
+        if (valor) itens = itens.filter((c) => c[campo] === valor)
+      }
       return json(route, { itens, total: itens.length, pagina: 1, tamanho: 100 })
     }
     if (path === '/api/clientes' && metodo === 'POST') {
@@ -234,9 +240,10 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
       Object.assign(alvo, corpoJson(route)); return json(route, alvo)
     }
     if (cliente && metodo === 'DELETE') {
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
       const indice = estado.clientes.findIndex((c) => c.id === cliente[1])
       if (indice < 0) return problema(route, 404, 'cliente_nao_encontrado', 'Cliente não encontrado.')
-      if (estado.clientes[indice].temConversaAtiva) return problema(route, 409, 'cliente_possui_atendimento', 'Cliente possui atendimento vinculado.')
+      if (estado.clientes[indice].totalConversas > 0) return problema(route, 409, 'cliente_tem_historico', 'Este cliente tem atendimento registrado e não pode ser excluído. Desative o cadastro em vez de excluir.')
       estado.clientes.splice(indice, 1); return route.fulfill({ status: 204 })
     }
 
@@ -270,7 +277,19 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
       const corpo = corpoJson(route); const novo = { id: `etapa-${estado.etapas.length + 1}`, conversasAtivas: 0, ...corpo }; estado.etapas.push(novo); return json(route, novo, 201)
     }
     if (path === '/api/tipos-servico' && metodo === 'POST') {
-      const corpo = corpoJson(route); const novo = { id: `servico-${estado.servicos.length + 1}`, conversasAtivas: 0, categoriaDescrita: corpo.categoria, setorNome: estado.setores.find((s) => s.id === corpo.setorId)?.nome ?? null, prazo: corpo.prazoHoras ? { id: `prazo-${Date.now()}`, prazoHoras: corpo.prazoHoras, percentualAlerta: corpo.percentualAlerta ?? 80, apenasDiasUteis: corpo.apenasDiasUteis ?? true, prazoDescrito: `${corpo.prazoHoras}h` } : null, ...corpo }; estado.servicos.push(novo); return json(route, novo, 201)
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
+      const corpo = corpoJson(route)
+      const novo = { ...corpo, id: `servico-${estado.servicos.length + 1}`, conversasAtivas: 0, categoriaDescrita: corpo.categoria, setorNome: estado.setores.find((s) => s.id === corpo.setorId)?.nome ?? null, prazo: corpo.prazo ? { ...corpo.prazo, id: 'prazo-novo', prazoDescrito: `${corpo.prazo.prazoHoras} horas` } : null }
+      estado.servicos.push(novo); return json(route, novo, 201)
+    }
+    const servico = path.match(/^\/api\/tipos-servico\/([^/]+)$/)
+    if (servico && metodo === 'PUT') {
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
+      const alvo = estado.servicos.find((s) => s.id === servico[1])
+      if (!alvo) return problema(route, 404, 'servico_nao_encontrado', 'Serviço não encontrado.')
+      const corpo = corpoJson(route)
+      Object.assign(alvo, corpo, { categoriaDescrita: corpo.categoria, setorNome: estado.setores.find((s) => s.id === corpo.setorId)?.nome ?? null, prazo: corpo.prazo ? { ...corpo.prazo, id: 'prazo-editado', prazoDescrito: `${corpo.prazo.prazoHoras} horas` } : null })
+      return json(route, alvo)
     }
 
     return problema(route, 501, 'mock_nao_implementado', `Endpoint E2E não implementado: ${metodo} ${path}`)
