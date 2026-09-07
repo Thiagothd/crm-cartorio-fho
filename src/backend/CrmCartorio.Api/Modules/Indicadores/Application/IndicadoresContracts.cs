@@ -9,7 +9,15 @@ public record FiltroDeIndicadores(DateTime? De, DateTime? Ate, string? Escopo);
 public record PeriodoResponse(DateTime De, DateTime Ate, string Granularidade);
 
 /// <summary>O instante presente — não muda com o período escolhido.</summary>
-public record IndicadoresAgoraResponse(int Ativas, int NaFila, int EmAlerta, int Atrasadas);
+/// <remarks>
+/// <c>AguardandoResposta</c> é a única das cinco que não fala de prazo: são as
+/// conversas ativas em que a ÚLTIMA mensagem real do fio é do cliente, ou seja, o
+/// cartório está devendo resposta agora. Regra em
+/// <see cref="Atendimento.Domain.AguardandoRespostaDoCartorio"/>, a mesma que o
+/// filtro da inbox usa — o card e a lista que ele abre não podem discordar.
+/// Segue o escopo "minhas" como Ativas/EmAlerta/Atrasadas; só NaFila é global.
+/// </remarks>
+public record IndicadoresAgoraResponse(int Ativas, int NaFila, int EmAlerta, int Atrasadas, int AguardandoResposta);
 
 /// <summary>
 /// A mediana é a métrica honesta no volume de um cartório — um único caso

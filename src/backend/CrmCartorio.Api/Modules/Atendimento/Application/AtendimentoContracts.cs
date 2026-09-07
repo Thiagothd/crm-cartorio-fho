@@ -95,6 +95,15 @@ public record FiltroDeConversas
     /// </summary>
     public bool ApenasEncerradasHoje { get; init; }
 
+    /// <summary>
+    /// Conversas em que a ULTIMA mensagem real do fio e do cliente — o cartorio
+    /// esta devendo resposta. Existe para que o card "Aguardando resposta" da Visao
+    /// Geral possa virar lista sem que a conta e a lista discordem: os dois lados
+    /// leem AguardandoRespostaDoCartorio.Expressao. Mesma razao de
+    /// <see cref="ApenasEncerradasHoje"/>.
+    /// </summary>
+    public bool ApenasAguardandoResposta { get; init; }
+
     public SituacaoPrazo? SituacaoPrazo { get; init; }
     public string? Busca { get; init; }
     public int Pagina { get; init; } = 1;
@@ -212,6 +221,7 @@ public record ContagemPorChaveResponse(Guid? Id, string Nome, string? Cor, int T
 public record PainelResumoResponse(
     int TotalAtivas,
     int NaFila,
+    int AguardandoResposta,
     int MinhasConversas,
     int EncerradasHoje,
     int EmAlerta,

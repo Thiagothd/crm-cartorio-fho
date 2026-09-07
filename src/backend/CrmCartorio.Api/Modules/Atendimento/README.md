@@ -236,6 +236,22 @@ claim WA-OUT-01; a resposta automática é persistida antes do envio.
   comum num canal com IA na frente — ficava presa para sempre e nunca entrava
   na varredura. Corrigido com uma subconsulta em `Mensagens` (última
   `EnviadaEm` da conversa, dentro do lote de 200) comparando `AutorTipo`.
+- **A mesma regra ganhou versão compartilhada em `Domain/AguardandoRespostaDoCartorio.cs`**,
+  usada pelo contador "Aguardando resposta" da Visão Geral, pelo filtro
+  `ApenasAguardandoResposta` da inbox e pelo painel de resumo — para que o
+  número do card e a lista que ele abre nunca discordem (ver módulo
+  Indicadores). Essa versão vai **mais longe** que o predicado da fase 1
+  acima em dois pontos: (1) filtra anotação interna do fio (`AutorTipo.Sistema`
+  sem `EhAutomatica` — "Conversa assumida por X", "Serviço definido como Y"),
+  senão um atendente que assume sem responder faz o cliente sumir do
+  contador; (2) desempata por `Id` (Guid v7) quando nota interna e mensagem
+  automática saem no mesmo instante. **A fase 1 acima ainda não foi migrada
+  para essa expressão** — continua com o predicado antigo, sem os dois
+  refinamentos, então tem o mesmo gap: cliente escreve, atendente assume sem
+  responder, e depois de `MinutosParaPerguntarEncerramento` a fase 1 pergunta
+  "ainda está aí?" para quem está esperando resposta. Migrar é decisão de
+  produto separada (muda comportamento de automação no ar) — feita em branch
+  própria, não nesta.
 - **`ConversaService.EncerrarAsync` avisa o cliente desde 2026-09-04 — gatilho
   próprio (`EncerramentoPeloAtendente`), não `Despedida`.** Era o único dos
   quatro caminhos de encerramento que fechava em silêncio. Envia **só a

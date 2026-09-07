@@ -112,8 +112,9 @@ export function PaginaInbox() {
     const situacaoPrazo = (parametros.get('situacao') as SituacaoPrazo | null) ?? undefined
     const escopo = (parametros.get('escopo') as FiltrosVisiveis['escopo'] | null) ?? undefined
     const status = (parametros.get('status') as StatusConversa | null) ?? undefined
+    const aguardando = parametros.get('aguardando') === '1'
 
-    if (!etapaId && !setorId && !situacaoPrazo && !escopo && !status) return
+    if (!etapaId && !setorId && !situacaoPrazo && !escopo && !status && !aguardando) return
 
     setFiltros({
       ...FILTROS_INICIAIS,
@@ -122,6 +123,7 @@ export function PaginaInbox() {
       ...(situacaoPrazo ? { situacaoPrazo } : {}),
       ...(escopo ? { escopo } : {}),
       ...(status ? { status } : {}),
+      ...(aguardando ? { apenasAguardandoResposta: true } : {}),
     })
 
     // Limpa a query string depois de consumida: sem isso, voltar a esta

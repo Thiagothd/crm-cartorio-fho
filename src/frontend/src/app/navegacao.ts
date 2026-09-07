@@ -271,12 +271,16 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
   },
 ]
 
-interface PerfilParaVisibilidade {
+export interface PerfilParaVisibilidade {
   podeGerirCadastros: boolean
   podeGerirAtendentes: boolean
 }
 
-function permitido(permissao: PerfilNecessario, perfil: PerfilParaVisibilidade): boolean {
+/**
+ * Regra de visibilidade por permissão — exportada para não ser duplicada por
+ * quem monta navegação própria fora do menu (ex.: `features/acoes-rapidas`).
+ */
+export function podeVer(permissao: PerfilNecessario, perfil: PerfilParaVisibilidade): boolean {
   if (permissao === 'administrador') return perfil.podeGerirAtendentes
   if (permissao === 'gestao') return perfil.podeGerirCadastros
   return true
@@ -293,11 +297,11 @@ export function navegacaoVisivel(perfil: PerfilParaVisibilidade): GrupoDeNavegac
     entradas: grupo.entradas
       .map((entrada) =>
         entrada.tipo === 'submenu'
-          ? { ...entrada, itens: entrada.itens.filter((filho) => permitido(filho.permissao, perfil)) }
+          ? { ...entrada, itens: entrada.itens.filter((filho) => podeVer(filho.permissao, perfil)) }
           : entrada,
       )
       .filter((entrada) =>
-        entrada.tipo === 'submenu' ? entrada.itens.length > 0 : permitido(entrada.permissao, perfil),
+        entrada.tipo === 'submenu' ? entrada.itens.length > 0 : podeVer(entrada.permissao, perfil),
       ),
   })).filter((grupo) => grupo.entradas.length > 0)
 }
