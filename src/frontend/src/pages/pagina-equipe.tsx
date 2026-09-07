@@ -28,7 +28,9 @@ export function PaginaEquipe() {
           }}
         >
           <Plus aria-hidden="true" />
-          Novo<span className="hidden lg:inline"> atendente</span>
+          <span>
+            Novo<span className="hidden lg:inline"> Atendente</span>
+          </span>
         </Button>
       </AcoesDaPagina>
 

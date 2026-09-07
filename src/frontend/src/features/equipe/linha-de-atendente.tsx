@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { KeyRound, Pencil, ShieldAlert } from 'lucide-react'
+import { KeyRound, Pencil, Settings2, ShieldAlert } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,9 +11,9 @@ import type { Atendente } from '@/lib/api/tipos'
 /**
  * Uma linha da lista de Equipe — cartão elevado (Fase 3.1, painel de
  * administração), não tabela. Três linhas de informação, igual ao que a
- * ficha de cliente já faz: identidade, contato/cargo, e por último o chip do
- * modelo de permissão (clicável — leva direto para `/equipe/:id/permissoes`)
- * junto com setor e último acesso.
+ * ficha de cliente já faz: identidade, contato/cargo, e por último o status
+ * do modelo de permissão (texto, não ação) junto com setor e último acesso —
+ * abrir a personalização é um ícone junto dos outros, não o próprio status.
  */
 export function LinhaDeAtendente({
   atendente,
@@ -55,13 +55,9 @@ export function LinhaDeAtendente({
         </p>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-tinta-fraca">
-          <button
-            type="button"
-            onClick={() => navegar(`/equipe/${atendente.id}/permissoes`)}
-            className="rounded-full border border-linha-forte bg-superficie px-2 py-0.5 font-medium text-tinta-media transition-colors hover:border-tinta hover:text-tinta"
-          >
+          <span className="rounded-full border border-linha-forte bg-superficie px-2 py-0.5 font-medium text-tinta-media">
             {atendente.modelo ? ROTULO_DO_MODELO[atendente.modelo] : 'Personalizado'}
-          </button>
+          </span>
           {atendente.setorPadraoNome ? <span>{atendente.setorPadraoNome}</span> : null}
           <span>{atendente.ultimoAcessoEm ? `Acesso em ${formatarDataHora(atendente.ultimoAcessoEm)}` : 'Nunca acessou'}</span>
         </div>
@@ -75,6 +71,14 @@ export function LinhaDeAtendente({
         ) : null}
         <Button variant="ghost" size="icon-sm" title="Redefinir senha" onClick={aoRedefinirSenha}>
           <KeyRound />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Permissões"
+          onClick={() => navegar(`/equipe/${atendente.id}/permissoes`)}
+        >
+          <Settings2 />
         </Button>
         <Button variant="ghost" size="icon-sm" title="Editar" onClick={aoEditar}>
           <Pencil />
