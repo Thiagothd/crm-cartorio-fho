@@ -138,7 +138,12 @@ export function DialogoNovaConversa({
     <Dialog open={aberto} onOpenChange={definirAberto}>
       {controlado ? null : (
         <DialogTrigger asChild>
-          <Button size="sm">
+          {/* Fase 3.2 (docs/DESIGN.md, secao 16.5): desceu de bordo (default)
+              para outline em 2026-09-06. Com o badge de nao lidas virando
+              solido em bordo (item-de-conversa.tsx), o orcamento de 3 por tela
+              (2.1) passa a marcar so o que exige acao — o que chegou sem
+              resposta, e Enviar — nao mais a criacao manual de atendimento. */}
+          <Button size="sm" variant="outline">
             <Plus />
             Novo atendimento
           </Button>

@@ -72,11 +72,20 @@
        explicita do usuario em 2026-08-21 para esta area — as referencias
        (Vercel/Linear/Attio) usam sombra sutil e raio maior para dar
        profundidade real, nao decorativa. Ficam como tokens PROPRIOS, nao
-       reaproveitados pelos componentes antigos (Atendimento, Clientes,
-       Servicos), que continuam planos. */
+       reaproveitados pelos componentes antigos de Clientes/Servicos, que
+       continuam planos. Atendimento ganhou a Fase 3.2 (secao 16) em
+       2026-09-06 e usa --raio-card/--sombra-card em pontos pontuais (o
+       cartao "Escolha uma conversa", o separador de dia) — nunca em linha de
+       lista, campo ou balao, que tem raio proprio abaixo. */
     --raio-card: 14px;
     --sombra-card: 0 1px 2px rgba(11, 11, 15, 0.04), 0 4px 16px -4px rgba(11, 11, 15, 0.08);
     --sombra-card-hover: 0 2px 4px rgba(11, 11, 15, 0.05), 0 12px 28px -8px rgba(11, 11, 15, 0.14);
+
+    /* --- Fase 3.2 (secao 16): raio do balao de mensagem e do campo de
+       escrita da caixa de envio. Nao reaproveita --raio (6px, datado demais)
+       nem --raio-card (14px, comprime balao curto e amarraria o fio a
+       familia ELEVADA, que ele nunca usa — balao nunca leva shadow-card). */
+    --raio-balao: 12px;
 
     /* Movimento funcional e curto. A preferencia do sistema operacional pode
        desliga-lo no bloco `prefers-reduced-motion` ao fim deste arquivo. */
@@ -184,6 +193,9 @@
   --radius-card: var(--raio-card);
   --shadow-card: var(--sombra-card);
   --shadow-card-hover: var(--sombra-card-hover);
+
+  /* Fase 3.2 (secao 16) — raio do balao de mensagem e da caixa de envio. */
+  --radius-balao: var(--raio-balao);
 }
 
 @layer base {

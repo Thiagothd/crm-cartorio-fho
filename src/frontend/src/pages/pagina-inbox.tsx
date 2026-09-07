@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Inbox, MessagesSquare, RefreshCw, TriangleAlert } from 'lucide-react'
+import { Inbox, RefreshCw, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { EstadoVazio } from '@/components/layout/shell'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,7 @@ import {
   type FiltrosVisiveis,
 } from '@/features/atendimento/filtros-da-inbox'
 import { ItemDeConversa } from '@/features/atendimento/item-de-conversa'
+import { EstadoSemConversa } from '@/features/atendimento/estado-sem-conversa'
 import { TrilhoDeConversas } from '@/features/atendimento/trilho-de-conversas'
 import { ResumoDoPainelAtendimento } from '@/features/atendimento/resumo-do-painel'
 import type { IndicadorDoPainel } from '@/features/atendimento/resumo-do-painel'
@@ -219,6 +220,14 @@ export function PaginaInbox() {
     [etapas],
   )
 
+  // Para a tela vazia "Escolha uma conversa" (EstadoSemConversa): a primeira
+  // da fila na MESMA lista já carregada — sem consulta própria, e sem gerar
+  // uma segunda fonte de verdade sobre quem está na fila.
+  const primeiraDaFilaId = useMemo(
+    () => lista?.itens.find((item) => item.atendenteId === null)?.id ?? null,
+    [lista],
+  )
+
   // Abrir a conversa zera o contador de não lidas. Uma ref evita repetir a
   // chamada a cada re-render enquanto a mesma conversa estiver aberta.
   const ultimaMarcada = useRef<string | null>(null)
@@ -388,11 +397,13 @@ export function PaginaInbox() {
 
   return (
     <>
-      {/* No celular, com a conversa aberta, o painel de indicadores não diz
-          nada que a conversa não diga — e come espaço do fio. Some, e volta
-          ao fechar a conversa. O cabeçalho global já cuida de si mesmo (ver
+      {/* Fase 3.2 (docs/DESIGN.md, secao 16): com uma conversa aberta, o painel
+          de indicadores some em QUALQUER largura — nao so no celular. Os
+          mesmos numeros passam a viver em EstadoSemConversa, entao nada se
+          perde; o que se ganha e' ~30px de fio de volta em todo desktop,
+          nao so no celular. O cabeçalho global já cuida de si mesmo (ver
           `Shell`); esta classe é só sobre o painel de indicadores. */}
-      {resumo ? (
+      {resumo && !selecionadaId ? (
         <ResumoDoPainelAtendimento
           resumo={resumo}
           etapaSelecionada={filtros.etapaId}
@@ -403,11 +414,14 @@ export function PaginaInbox() {
           }
           recolhido={painelRecolhido}
           aoAlternarRecolhido={alternarPainel}
-          className={selecionadaId ? 'hidden md:flex' : undefined}
         />
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      {/* Fase 3.2 (docs/DESIGN.md, secao 16): md:gap-2 md:p-2 abrem o vao bege
+          entre as duas colunas, que viram cartoes flutuantes a partir de md.
+          Custa 16px verticais no desktop e 0 no celular (sem p-2 abaixo de
+          md) — a conta do orcamento vertical fecha na propria secao 16. */}
+      <div className="flex min-h-0 flex-1 md:gap-2 md:p-2">
         {/* So a LARGURA muda ao recolher. shrink-0 e overflow-hidden continuam
             aqui, e o irmao continua com min-w-0 flex-1 — e essa combinacao que
             segura a rolagem interna das duas colunas.
@@ -419,7 +433,7 @@ export function PaginaInbox() {
             `display`, a lista continua montada e volta onde estava. */}
         <section
           className={cn(
-            'flex-col overflow-hidden border-r border-linha',
+            'flex-col overflow-hidden border-r border-linha bg-branco md:rounded-card md:border md:shadow-card',
             selecionadaId ? 'hidden' : 'flex w-full',
             'md:flex md:w-auto md:shrink-0',
             listaRecolhidaEfetiva ? 'md:w-14' : 'md:w-[360px]',
@@ -441,9 +455,12 @@ export function PaginaInbox() {
               aoCriarConversa={selecionar}
             />
 
-            <div className="flex-1 overflow-y-auto">
+            {/* Fase 3.2: gap-1 p-2 separam os cartoes de linha (item-de-conversa.tsx)
+                — a antiga border-b some junto, porque o espaco agora e' quem
+                divide as linhas, nao mais um traco. */}
+            <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
               {carregandoLista ? (
-                <div className="flex flex-col gap-3 p-3">
+                <div className="flex flex-col gap-1">
                   {[0, 1, 2, 3, 4].map((i) => (
                     <Skeleton key={i} className="h-20 w-full" />
                   ))}
@@ -499,15 +516,16 @@ export function PaginaInbox() {
             mesmo que um celular de 430px, e a tela grande regrediria junto. */}
         <section
           className={cn(
-            '@container min-w-0 flex-1 flex-col overflow-hidden',
+            '@container min-w-0 flex-1 flex-col overflow-hidden bg-branco md:rounded-card md:border md:border-linha md:shadow-card',
             selecionadaId ? 'flex' : 'hidden md:flex',
           )}
         >
           {!selecionadaId ? (
-            <EstadoVazio
-              icone={MessagesSquare}
-              titulo="Escolha uma conversa"
-              descricao="Selecione um atendimento à esquerda para ver o histórico e responder."
+            <EstadoSemConversa
+              resumo={resumo}
+              primeiraDaFilaId={primeiraDaFilaId}
+              aoAbrirPrimeiraDaFila={selecionar}
+              aoCriarConversa={selecionar}
             />
           ) : erroDoDetalhe ? (
             /* Sem este ramo, falha ao carregar o detalhe caía no skeleton abaixo
@@ -599,7 +617,13 @@ export function PaginaInbox() {
                 {/* min-h-0 também aqui: sem ele, o overflow-y-auto do fio não tem
                     limite para respeitar e a coluna cresce além da tela em vez de
                     rolar por dentro. */}
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-superficie">
+                {/* Fase 3.2 (secao 16): so' opacidade, na MONTAGEM deste
+                    ramo (abrir a primeira conversa da sessao / voltar do
+                    estado vazio) — nunca ao trocar de conversa ja aberta,
+                    porque este <div> nao remonta entre uma e outra (nao tem
+                    key por selecionadaId, de proposito: e o que preserva o
+                    scroll do fio — ver fio-de-mensagens.tsx). */}
+                <div className="anima-esmaecer flex min-h-0 min-w-0 flex-1 flex-col bg-branco">
                   {modoSelecao ? (
                     <BarraDeSelecao
                       total={selecionadas.size}

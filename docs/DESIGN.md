@@ -1093,13 +1093,20 @@ Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está 
 | Visão Geral (`/`) | **Fase 3.1** |
 | Indicadores e Relatórios (`/indicadores/*`) | **Fase 3.1** |
 | Componentes compartilhados de `components/ui/` | **Fase 3.1** |
-| Inbox, fio de mensagens, conversa | Fase 1 — seções 1 a 12, **intactas** |
+| Inbox, fio de mensagens, conversa | **Fase 3.2 — ver seção 16** (era Fase 1 até 2026-09-06) |
 | Clientes, Serviços, telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
 
 A fronteira não é capricho: as telas operacionais são onde o atendente passa o
 dia, foram medidas em monitor de 1366×768 (7.1, 10.8) e a densidade delas é
 resultado de trabalho de ajuste que elevação e raio maior desfariam. Painel é
 tela de leitura; balcão é tela de trabalho.
+
+> **Revisto em 2026-09-06 (seção 16).** O argumento acima continua correto
+> quanto ao CUSTO — elevação com respiro e raio de cartão realmente desfariam
+> a densidade do balcão. O que ele errou foi tratar "moderno" e "denso" como
+> opostos. A seção 16 mantém a densidade medida (7.1 intacto) e moderniza pelas
+> alavancas que custam zero pixel vertical: contraste entre planos, raio, forma
+> de borda, tipografia e movimento.
 
 **O que continua valendo em toda parte, sem exceção:** a paleta da seção 2, o
 teto de 3 bordôs (2.1), as cores de etapa (2.2), o mapeamento de significado
@@ -1171,3 +1178,102 @@ pílulas segmentadas de filtro.
 Do que **não** veio: o fundo escuro, a paleta fria, o glow neon e o tipo de
 letra dessas telas. A paleta de papel e tinta da seção 2 é o que diferencia o
 produto de "SaaS genérico" — e é argumento comercial (seção 1), não gosto.
+
+## 16. Fase 3.2 — a Bancada (o balcão)
+
+**Decisão do Thiago, 2026-09-06.** A tela de Atendimento foi revista e
+recusada: *"esse visual está com aquele visual do arquivo md design ainda, e
+não está me agradando"*. A direção pedida foi a mesma da Fase 3.1, agora para a
+tela onde o atendente passa o dia: *"queria ver algo que eu abrisse e chamasse
+atenção por ser bonita, coisa inovadora, moderno, mas mantendo ainda mais ou
+menos os padrões"*. Pedido explícito de seguir a linguagem que já existe, não
+inventar uma terceira: *"use o design do visão geral"*.
+
+Junto veio o limite, e ele é a parte mais importante desta seção: *"O tamanho
+da tela das conversas foi uma coisa que eu demorei muito para ajustar...
+quando vai para algum monitor pequeno ela ficava pequena demais dentro da
+conversa"*.
+
+### 16.1 A regra que governa tudo aqui: orçamento vertical
+
+Nenhuma mudança visual no balcão pode reduzir a altura útil do fio. A conta de
+7.1 (1366×768) é contrato, não histórico — e desde 2026-09-06 ela **melhorou**,
+não só se manteve: a faixa de indicadores saiu da tela com conversa aberta (os
+mesmos números foram para dentro do cartão "Escolha uma conversa", que nunca
+compete com o fio por espaço) e os filtros avançados saíram da barra para o
+diálogo que já existia, devolvendo altura à lista. Medido em 1366×768: de
+~520px de fio antes desta entrega para ~539px depois, com o mesmo número de
+mensagens à vista ou mais.
+
+Toda alteração é classificada antes de ser feita:
+
+| Custo 0px — autorizado | Custo > 0px — proibido no balcão |
+| --- | --- |
+| Contraste entre planos (`bg-branco`/`bg-papel`) | Padding e gap dentro do fio ou da linha de lista |
+| Raio (`rounded-full`, `rounded-balao`) | Barra, faixa ou linha nova sempre visível |
+| Contraste e cor de borda | Fonte de corpo maior que a tabela de 7.1 |
+| Cor de estado (badge sólido vs. diluído) | Elevação que exige respiro em volta |
+| Peso e tracking de tipografia | |
+| Movimento por opacity/transform | |
+
+Medição de referência: altura do scroller do fio e número de mensagens
+visíveis em 1366×768, com o documento inteiro em 0px de rolagem.
+
+### 16.2 A ideia: o painel sobe, o balcão afunda
+
+A Fase 3.1 deu profundidade para cima ao painel — cartão elevado sobre `papel`.
+O balcão recebe profundidade para dentro: lista, cabeçalho e caixa de envio em
+`bg-branco` (o cromo onde se opera, agora em cartões flutuantes com
+`rounded-card`/`shadow-card` a partir de `md`) e o fio em `bg-papel` (o vão
+onde se lê a conversa, cercado de branco dos dois lados). É o mesmo recurso da
+3.1 com o sinal trocado, custa 0px, e é mais fiel ao "papel não flutua" da
+seção 4 do que a própria Fase 3.1 chegou a ser — nada no balcão flutua sobre o
+conteúdo; o que flutua é a MOLDURA em volta de dois vãos de leitura.
+
+No celular a moldura não existe (a coluna única já ocupa a tela inteira,
+como sempre foi) — o custo dos 16px de `md:gap-2 md:p-2` é zero abaixo de
+`md`, e o layout do celular é pixel-idêntico ao de antes desta entrega.
+
+### 16.3 Token novo
+
+| Token | Valor | Uso |
+| --- | --- | --- |
+| `--raio-balao` | `12px` | Balão do fio e campo de escrita da caixa de envio. Não é `--raio-card` (14px): balão não pertence à família elevada e 14px comprime mensagem curta. |
+
+**Armadilha registrada, para não repetir:** `--raio-card` e `--raio-balao` são
+valores de raio fora da escala nativa do Tailwind, e o `tailwind-merge` do
+projeto (`lib/utils.ts`) não os reconhecia como parte do grupo "raio de
+borda" — sobrescrever o raio de um componente base (ex.: `<Textarea
+className="rounded-balao">`) deixava as duas classes coexistindo no HTML
+final, e quem vencia era a ordem do CSS compilado, não a ordem do `cn(...)`.
+Corrigido registrando os dois tokens em `extendTailwindMerge` — sem isso, todo
+uso futuro de `rounded-card`/`rounded-balao` por cima de um componente com
+raio próprio (`Input`, `Textarea`, `Select`, `Button`) fica sujeito à mesma
+sorte de posição no arquivo gerado.
+
+### 16.4 O que continua proibido no balcão
+
+- **`shadow-card` em linha de lista, campo ou botão de barra.** As únicas duas
+  elevações do balcão são o cartão do estado vazio "Escolha uma conversa"
+  (nunca coexiste com o fio) e a pílula do separador de dia no fio (flutua
+  sobre o vão, não é o balão em si).
+- **`shadow-card` no balão de mensagem.** Ele recebeu raio novo
+  (`rounded-balao` + canto de cauda), nunca elevação — é conteúdo que rola e
+  se repete dezenas de vezes por tela, não um cartão.
+- **Animar largura de coluna que tenha o fio rolando dentro.** A exceção de
+  14.2 é só do rail, que não tem scroller dentro.
+- **Animar balão individualmente.** O fio re-renderiza a cada mensagem
+  recebida (tempo real); animar por balão faria o histórico inteiro "pular" a
+  cada atualização.
+- **Alterar qualquer valor da tabela de 7.1** (gap, padding do balão, tamanho
+  de corpo, altura de imagem).
+- Tudo o que 15.4 já proíbe (tema escuro, cor fora de token, emoji, teto de
+  bordô) vale igual aqui.
+
+### 16.5 Orçamento de bordô no balcão
+
+Com a conversa aberta, o bordô fica reservado a **mensagens não lidas** (badge
+sólido na lista, antes diluído) e **Enviar** (agora com o gradiente autorizado
+em 15.3, `from-selo to-selo/90`). *"+ Novo atendimento"* desceu de `default`
+para `outline` em 2026-09-06 — o botão de criação manual de atendimento não
+disputa mais atenção com o que já chegou e não foi lido.

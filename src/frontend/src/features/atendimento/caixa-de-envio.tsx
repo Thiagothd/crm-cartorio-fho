@@ -313,7 +313,11 @@ export function CaixaDeEnvio({
           placeholder="Escreva a resposta… (Enter envia, / abre as respostas rápidas)"
           rows={2}
           maxLength={4000}
-          className="max-h-40 min-h-[42px] resize-none"
+          // Fase 3.2: o wrapper da conversa virou bg-branco (secao 16) — o
+          // Textarea padrao tambem e bg-card (branco) e sumiria encaixado
+          // nele sem este override local. rounded-balao (12px) substitui o
+          // rounded-md (6px) padrao, mesmo raio do balao do fio.
+          className="max-h-40 min-h-[42px] resize-none rounded-balao bg-superficie focus-visible:bg-branco"
           /* Padrão combobox sem trocar o papel do campo: ele continua sendo a caixa
              de mensagem para o leitor de tela, e a opção ativa é anunciada por
              activedescendant — o foco nunca sai daqui, senão cada seta interromperia
@@ -344,8 +348,9 @@ export function CaixaDeEnvio({
         />
 
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon"
+          className="rounded-full"
           onClick={() => seletorDeArquivo.current?.click()}
           disabled={enviando}
           title="Anexar arquivo"
@@ -365,6 +370,10 @@ export function CaixaDeEnvio({
           onClick={() => void enviar()}
           disabled={enviando || (!texto.trim() && !arquivo)}
           size="icon"
+          // Fase 3.2 (secao 16): rounded-full + gradiente ENTRE OPACIDADES
+          // DO MESMO TOKEN (DESIGN.md 15.3) — o unico tipo de gradiente
+          // autorizado. Nunca de um token para outro.
+          className="rounded-full bg-gradient-to-b from-selo to-selo/90"
           title={
             naFila
               ? 'Enviar — ao enviar, você assume o atendimento'
