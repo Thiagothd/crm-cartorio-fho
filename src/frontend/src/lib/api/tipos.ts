@@ -7,7 +7,14 @@
 
 // Enums ---------------------------------------------------------------------
 
-/** Permissão no sistema — o que a pessoa PODE FAZER aqui dentro. */
+/**
+ * Classe da conta — a exigência de segurança (verificação em duas etapas
+ * obrigatória para Administrador, proteção do Titular). NÃO é o que a pessoa
+ * acessa: isso é `Atendente.permissoes`, ajustável por tela em
+ * `/equipe/:id/permissoes`. As duas coisas coincidem no dia 1 (é o preset que
+ * cada Classe carrega quando ninguém personalizou nada), mas são eixos
+ * independentes — ver Modules/Usuarios/README.md, "Permissões granulares".
+ */
 export type PerfilDeAtendente = 'Atendente' | 'Supervisor' | 'Administrador'
 
 /**
@@ -99,6 +106,81 @@ export type RegimeDeBens =
   | 'SeparacaoObrigatoria'
   | 'ParticipacaoFinalNosAquestos'
 
+// Permissoes granulares -------------------------------------------------------
+
+/**
+ * Espelho de `PermissaoDoSistema`/`CatalogoDePermissoes` do backend (chave de
+ * texto, não o enum). Fonte única de verdade: Modules/Usuarios/Domain/
+ * CatalogoDePermissoes.cs — um item novo lá precisa entrar aqui também.
+ */
+export type ChaveDePermissao =
+  // Atendimento
+  | 'atendimento.ver'
+  | 'atendimento.assumir'
+  | 'atendimento.responder'
+  | 'atendimento.abrir_novo'
+  | 'atendimento.mover'
+  | 'atendimento.vincular_servico'
+  | 'atendimento.encerrar'
+  | 'atendimento.reabrir'
+  | 'atendimento.transferir'
+  | 'atendimento.mexer_no_de_terceiro'
+  | 'atendimento.simular_cliente'
+  // Clientes
+  | 'clientes.ver'
+  | 'clientes.cadastrar'
+  | 'clientes.editar'
+  | 'clientes.excluir'
+  | 'clientes.importar_agenda'
+  // Catálogo e estrutura
+  | 'servicos.ver'
+  | 'servicos.editar'
+  | 'etapas.ver'
+  | 'etapas.editar'
+  | 'setores.ver'
+  | 'setores.editar'
+  // Automação e IA
+  | 'automacao.mensagens.ver'
+  | 'automacao.mensagens.editar'
+  | 'automacao.respostas.ver'
+  | 'automacao.respostas.editar'
+  | 'automacao.encerramento.ver'
+  | 'automacao.encerramento.editar'
+  | 'ia.ver'
+  | 'ia.conhecimento.ver'
+  | 'ia.conhecimento.editar'
+  // Relatórios
+  | 'relatorios.ver'
+  | 'relatorios.equipe'
+  | 'relatorios.saude_ia'
+  | 'relatorios.saude_whatsapp'
+  // WhatsApp
+  | 'whatsapp.ver'
+  | 'whatsapp.parear'
+  | 'whatsapp.regras'
+  | 'whatsapp.testar_envio'
+  // Aparência e serventia
+  | 'aparencia.ver'
+  | 'aparencia.editar'
+  | 'serventia.editar'
+  // Equipe e segurança
+  | 'equipe.ver'
+  | 'equipe.cadastrar'
+  | 'equipe.editar'
+  | 'equipe.redefinir_senha'
+  | 'equipe.permissoes'
+  | 'equipe.mfa_administrar'
+  | 'seguranca.eventos.ver'
+
+/** Espelho de `ModeloDePermissao` — rótulo do último preset aplicado, nunca a verdade (ver `Atendente.permissoes`). */
+export type ModeloDePermissao =
+  | 'Recepcao'
+  | 'Balcao'
+  | 'Catalogo'
+  | 'Supervisao'
+  | 'Administracao'
+  | 'Auditoria'
+
 // Autenticacao --------------------------------------------------------------
 
 export interface Atendente {
@@ -113,6 +195,12 @@ export interface Atendente {
   setorPadraoNome: string | null
   ativo: boolean
   ultimoAcessoEm: string | null
+  /** Verificação em duas etapas confirmada e ativa nesta conta. */
+  mfaAtivo: boolean
+  /** Nulo quando a conta segue a Classe da conta (nunca personalizou permissões). */
+  modelo: ModeloDePermissao | null
+  /** O conjunto EFETIVO de chaves — já resolvido pelo backend (NULL na base vira o preset da Classe). */
+  permissoes: ChaveDePermissao[]
 }
 
 export interface Tenant {
@@ -185,6 +273,34 @@ export interface MfaSituacao {
 export interface TicketDeMfa {
   ticket: string
   expiraEm: string
+}
+
+// Permissoes granulares (tela /equipe/:id/permissoes) ------------------------
+
+export interface PermissaoDoCatalogo {
+  chave: ChaveDePermissao
+  rotulo: string
+  descricao: string
+  bloco: string
+  ehTela: boolean
+}
+
+export interface ModeloDePermissaoCatalogado {
+  modelo: ModeloDePermissao
+  rotulo: string
+  descricao: string
+  chaves: ChaveDePermissao[]
+}
+
+export interface PermissoesDoAtendente {
+  atendenteId: string
+  /** Nulo quando a conta segue a Classe (nunca personalizou). */
+  modelo: ModeloDePermissao | null
+  chaves: ChaveDePermissao[]
+  /** O catálogo inteiro (~49 itens) — igual para todo mundo, vem do backend para nunca duplicar rótulo/descrição aqui. */
+  catalogo: PermissaoDoCatalogo[]
+  /** Os 6 modelos prontos, cada um com o conjunto que aplicam. */
+  modelos: ModeloDePermissaoCatalogado[]
 }
 
 // Atendimento ---------------------------------------------------------------

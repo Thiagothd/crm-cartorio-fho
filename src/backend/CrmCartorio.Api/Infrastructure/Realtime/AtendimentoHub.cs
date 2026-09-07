@@ -58,9 +58,9 @@ public class AtendimentoHub(IValidadorDeSessao validador) : Hub
             return;
         }
 
-        var valida = await validador.SessaoValidaAsync(atendenteId, tenantId, tokenVersion, Context.ConnectionAborted);
+        var sessao = await validador.CarregarSessaoAsync(atendenteId, tenantId, tokenVersion, Context.ConnectionAborted);
 
-        if (!valida)
+        if (sessao is null)
         {
             Context.Abort();
             return;

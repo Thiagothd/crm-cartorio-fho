@@ -6,6 +6,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
@@ -776,6 +777,17 @@ public class ConversaService(
 
     public async Task<ConversaResumoResponse> ReabrirAsync(Guid id, CancellationToken ct = default)
     {
+        // Gate isolado, e nao GarantirQuePodeOperarAsync: aquele exige um
+        // AtendenteId ja atribuido (lanca ConversaSemResponsavel), e uma
+        // conversa encerrada por inatividade ou pelo cliente pode nao ter
+        // nenhum atendente responsavel. Reabrir e o que atribui o responsavel
+        // (linha abaixo, "conversa.AtendenteId = ctx.AtendenteId"); a checagem
+        // de acesso aqui e so a permissao, nunca a posse da conversa.
+        if (!ctx.Pode(PermissaoDoSistema.AtendimentoReabrir))
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+
         var conversa = await CarregarAsync(id, ct);
 
         if (conversa.Status == StatusConversa.Ativa)
@@ -927,7 +939,7 @@ public class ConversaService(
             throw AtendimentoServiceException.ConversaSemResponsavel();
         }
 
-        if (conversa.AtendenteId == ctx.AtendenteId || ctx.PodeOperarConversaDeTerceiro)
+        if (conversa.AtendenteId == ctx.AtendenteId || ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             return;
         }

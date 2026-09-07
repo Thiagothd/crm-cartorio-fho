@@ -33,17 +33,14 @@ export function AcoesRapidas({
   aoAbrirNovoCliente: () => void
   className?: string
 }) {
-  const { podeGerirCadastros, podeGerirAtendentes } = usarAutenticacao()
+  const { pode } = usarAutenticacao()
   const busca = usarBuscaGlobal()
-
-  const perfil = { podeGerirCadastros, podeGerirAtendentes }
 
   // Esconder, nunca desabilitar (mesmo padrão do rail de navegação). O
   // backend continua sendo quem decide de verdade.
   const gestao = useMemo(
-    () => acoesDeGestao().filter((acao) => podeVer(acao.permissao, perfil)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [podeGerirCadastros, podeGerirAtendentes],
+    () => acoesDeGestao().filter((acao) => podeVer(acao.permissao, pode)),
+    [pode],
   )
 
   function comandoDe(acao: Extract<AcaoRapida, { tipo: 'comando' }>) {

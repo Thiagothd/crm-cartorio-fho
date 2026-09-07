@@ -9,6 +9,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -347,7 +348,8 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
         //
         // Tres dos quatro atendentes da base sao Supervisor ou Administrador, e
         // para esses o MensagemService PERMITE escrever em conversa de terceiro
-        // (PodeOperarConversaDeTerceiro) — comportamento desejado, nao furo. Com o
+        // (PermissaoDoSistema.AtendimentoMexerNoDeTerceiro) — comportamento
+        // desejado, nao furo. Com o
         // perfil real, quem lesse a conversa depois de outro ja ter assumido
         // passaria direto pela checagem de responsavel e gravaria, fazendo este
         // teste falhar de forma intermitente conforme o escalonamento do dia.
@@ -769,13 +771,15 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public string Nome => nome;
     public PerfilDeAtendente Perfil => perfil;
 
-    public bool PodeGerirCadastros =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
-
-    public bool PodeGerirAtendentes => perfil is PerfilDeAtendente.Administrador;
-
-    public bool PodeOperarConversaDeTerceiro =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    /// <remarks>
+    /// AtendimentoSimularCliente entra a mais, fora de <see cref="CatalogoDePermissoes.ConjuntoDaClasse"/>
+    /// (excluida de proposito de toda classe): este verificador usa
+    /// <c>MensagemService.SimularRecebimentoAsync</c> como harness para injetar a
+    /// mensagem do cliente sob concorrencia. Nao afeta o gate real.
+    /// </remarks>
+    public bool Pode(PermissaoDoSistema permissao) =>
+        permissao == PermissaoDoSistema.AtendimentoSimularCliente
+        || CatalogoDePermissoes.ConjuntoDaClasse(perfil).Contains(permissao);
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e o banco, nao o hub.</summary>

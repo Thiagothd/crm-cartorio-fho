@@ -196,7 +196,7 @@ Registro de Imóveis foram removidos. Restam três pontos:
 
 | # | Pendência | Está no sistema | Impacto se mudar |
 | --- | --- | --- | --- |
-| 13 | Quem pode transferir conversa de terceiro | Supervisor e Administrador | Ajuste de regra |
+| 13 | ~~Quem pode transferir conversa de terceiro~~ **RESOLVIDO** | `atendimento.mexer_no_de_terceiro` — permissão granular, ajustável por atendente em `/equipe/:id/permissoes` (2026-09-08). Por padrão, os presets Supervisão e Administração continuam com ela, igual ao comportamento de antes | Nenhum — quem já podia continua podendo; agora dá para conceder ou tirar de uma pessoa específica sem mudar a Classe da conta inteira |
 | 14 | ~~**Cargo por atendente**~~ **RESOLVIDO** | `Atendentes.Cargo` é coluna própria, independente de `Perfil`. Valores da Lei 8.935/94: Titular, Substituto, Escrevente autorizado, Escrevente, Auxiliar. Editável na tela de Atendentes | Nenhum — a separação foi feita antes que outras telas passassem a depender do campo fundido |
 
 ### 5.6 Atos possivelmente ausentes do catálogo

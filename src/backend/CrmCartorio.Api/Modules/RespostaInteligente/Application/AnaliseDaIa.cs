@@ -2,6 +2,7 @@ using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
@@ -27,7 +28,7 @@ public class AnaliseDaIa(
 {
     public async Task<AnaliseDaIaResponse> ObterAsync(DateTime? de, DateTime? ate, CancellationToken ct = default)
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.IaVer))
         {
             throw RespostaInteligenteServiceException.SemPermissao();
         }

@@ -5,6 +5,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -249,7 +250,7 @@ public class MensagemService(
         // A trava do lado do envio continua: quem nao e o responsavel nao escreve
         // por cima de quem e. Sem isso, dois atendentes responderiam o mesmo
         // cliente ao mesmo tempo — o erro que este produto existe para eliminar.
-        if (conversa.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
+        if (conversa.AtendenteId != ctx.AtendenteId && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == conversa.AtendenteId)
@@ -330,6 +331,15 @@ public class MensagemService(
         SimularMensagemDeClienteRequest request,
         CancellationToken ct = default)
     {
+        // Ferramenta de demonstracao — forja uma mensagem "do cliente" sem
+        // WhatsApp real por tras. Fora de todos os 6 modelos de permissao de
+        // proposito (Modules/Usuarios/Domain/CatalogoDePermissoes.cs); quem
+        // precisar marca a chave a mao.
+        if (!ctx.Pode(PermissaoDoSistema.AtendimentoSimularCliente))
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+
         var conteudo = request.Conteudo?.Trim();
         if (string.IsNullOrWhiteSpace(conteudo))
         {
@@ -658,7 +668,7 @@ public class MensagemService(
         {
             await conversas.AssumirAsync(destino.Id, ct);
         }
-        else if (destino.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
+        else if (destino.AtendenteId != ctx.AtendenteId && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == destino.AtendenteId)
@@ -778,7 +788,7 @@ public class MensagemService(
 
         if (conversa.AtendenteId is not null
             && conversa.AtendenteId != ctx.AtendenteId
-            && !ctx.PodeOperarConversaDeTerceiro)
+            && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == conversa.AtendenteId)

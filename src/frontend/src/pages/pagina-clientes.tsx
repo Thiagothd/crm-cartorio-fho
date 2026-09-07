@@ -60,7 +60,8 @@ const estadosCivis: { valor: EstadoCivil; rotulo: string }[] = [
 
 export function PaginaClientes() {
   const location = useLocation()
-  const { podeGerirCadastros } = usarAutenticacao()
+  const { pode } = usarAutenticacao()
+  const podeExcluirCliente = pode('clientes.excluir')
   const [abaDaEdicao, setAbaDaEdicao] = useState<'contato' | 'observacoes'>('contato')
   const [filtros, setFiltros] = useState<FiltroDeClientes>({ ordenar: 'nome', tamanho: 100 })
   const [emEdicao, setEmEdicao] = useState<Cliente | null>(null)
@@ -291,7 +292,7 @@ export function PaginaClientes() {
                 descricao={error instanceof ErroDaApi ? error.message : 'Verifique sua conexão e tente novamente.'}
                 acao={<Button variant="outline" onClick={() => void refetch()}>Tentar novamente</Button>} />
             ) : data?.itens.length ? (
-              <ListaDeClientes clientes={data.itens} podeExcluir={podeGerirCadastros} aoEditar={abrirEdicao} aoRemover={setEmExclusao} />
+              <ListaDeClientes clientes={data.itens} podeExcluir={podeExcluirCliente} aoEditar={abrirEdicao} aoRemover={setEmExclusao} />
             ) : (
               <EstadoDaInterface tipo={temFiltro ? 'sem-resultados' : 'vazio'} icone={Users}
                 titulo={temFiltro ? 'Nenhum cliente encontrado' : 'Sua base de clientes começa aqui'}

@@ -114,4 +114,24 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
     public static UsuariosServiceException OperacaoDesatualizada() =>
         new("operacao_desatualizada",
             "O estado da conta mudou durante esta operacao. Recarregue e tente novamente.", 409);
+
+    // ------------------------------------------------- Permissoes granulares
+
+    public static UsuariosServiceException NaoPodeEditarAsPropriasPermissoes() =>
+        new("nao_pode_editar_as_proprias_permissoes",
+            "Voce nao pode editar as proprias permissoes.", 400);
+
+    /// <summary>Anti-escalada: o ator so repassa o que ele mesmo tem.</summary>
+    public static UsuariosServiceException NaoPodeConcederOQueNaoTem() =>
+        new("nao_pode_conceder_o_que_nao_tem",
+            "Voce nao pode conceder uma permissao que voce mesmo nao tem.", 403);
+
+    public static UsuariosServiceException UltimoAdministrador() =>
+        new("ultimo_administrador",
+            "Esta e a unica pessoa com a permissao de gerir acessos. Conceda a outro atendente antes de tirar dela.", 409);
+
+    /// <summary>Mesma protecao de <see cref="ApenasTitularReseteiaTitular"/>, para a tela de permissoes.</summary>
+    public static UsuariosServiceException ApenasTitularAlteraPermissaoDeTitular() =>
+        new("apenas_titular_altera_permissao_de_titular",
+            "So um administrador que tambem seja Titular pode alterar as permissoes de outro Titular.", 403);
 }

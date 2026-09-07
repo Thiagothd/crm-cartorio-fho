@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -18,7 +19,7 @@ public class SituacaoDaIa(
 {
     public async Task<SituacaoDaIaResponse> ObterAsync(DateTime? de, DateTime? ate, CancellationToken ct = default)
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.IaVer))
         {
             throw RespostaInteligenteServiceException.SemPermissao();
         }

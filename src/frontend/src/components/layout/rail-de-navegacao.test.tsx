@@ -14,8 +14,9 @@ vi.mock('@/lib/auth/usar-autenticacao', () => ({
     },
     tenant: { nomeFantasia: 'Cartório de Teste', razaoSocial: 'Cartório de Teste Ltda.' },
     sair: vi.fn(),
-    podeGerirCadastros: true,
-    podeGerirAtendentes: true,
+    // Tudo visível — este teste exercita o rail em si (recolher, hover,
+    // submenu), não a filtragem por permissão.
+    pode: () => true,
   }),
 }))
 

@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Hourglass, Search, UserRound, UserX } from 'lucide-react'
-import { todosOsItens, type PerfilNecessario } from '@/app/navegacao'
+import { todosOsItens, type PermissaoNecessaria } from '@/app/navegacao'
 
 export type ComandoDeAcao = 'abrir-busca'
 export type ChaveDeContador = 'fila' | 'aguardando' | 'minhas'
@@ -11,7 +11,7 @@ interface AcaoBase {
   /** Linha de apoio. Vira `sr-only` quando o número toma o lugar dela. */
   descricao: string
   icone: LucideIcon
-  permissao: PerfilNecessario
+  permissao: PermissaoNecessaria
 }
 
 export interface AcaoQueNavega extends AcaoBase {

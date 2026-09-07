@@ -85,7 +85,7 @@ public class IndicadoresService(
 
         // Só para gestão, e por isso a consulta também só acontece para gestão:
         // atendente comum nem paga a ida ao banco de um painel que não vai ver.
-        var carga = ctx.PodeGerirCadastros
+        var carga = ctx.Pode(PermissaoDoSistema.RelatoriosEquipe)
             ? await MontarCargaDaEquipeAsync(tenantId, ct)
             : null;
 
@@ -637,13 +637,13 @@ public class IndicadoresService(
         // Ninguem tem a permissao ampliada aqui — os mesmos gates do resto do
         // sistema. Quem nao pode ver, recebe o campo nulo, e o frontend nao
         // renderiza a peca (nunca um aviso de "sem permissao" no lugar do card).
-        if (ctx.PodeGerirAtendentes)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp))
         {
             var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
             whatsapp = new SaudeDoWhatsAppResponse(situacao.Habilitado, situacao.Conectado, situacao.Estado);
         }
 
-        if (ctx.PodeGerirCadastros)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeIa))
         {
             // Mesmo calculo que SituacaoDaIa usa para o painel /automacao/ia —
             // antes duplicado em quatro lugares, agora so aqui e la.
@@ -689,7 +689,7 @@ public class IndicadoresService(
 
     private void GarantirGestao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.RelatoriosVer))
         {
             throw IndicadoresServiceException.SemPermissao();
         }
@@ -949,7 +949,7 @@ public class IndicadoresService(
                 $"{c.Protocolo} está na fila sem responsável", c.ClienteNome, c.UltimaMensagemEm, $"/atendimentos/{c.Id}"));
         }
 
-        if (ctx.PodeGerirAtendentes)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp))
         {
             var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
 
@@ -962,7 +962,7 @@ public class IndicadoresService(
             }
         }
 
-        if (ctx.PodeGerirCadastros)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeIa))
         {
             var resumo = await situacaoDaIa.ObterResumoAsync(ct);
 

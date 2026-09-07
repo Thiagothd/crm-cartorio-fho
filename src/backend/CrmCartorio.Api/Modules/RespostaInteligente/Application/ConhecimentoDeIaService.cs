@@ -1,6 +1,7 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
@@ -152,7 +153,7 @@ public class ConhecimentoDeIaService(CrmDbContext db, IContextoDoUsuario ctx) : 
 
     private void GarantirPermissao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.IaConhecimentoEditar))
         {
             throw RespostaInteligenteServiceException.SemPermissaoParaGerirConhecimento();
         }

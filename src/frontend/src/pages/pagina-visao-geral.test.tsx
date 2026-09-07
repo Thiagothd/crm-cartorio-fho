@@ -42,7 +42,8 @@ function config(overrides: {
   autenticacaoMock.mockReturnValue({
     atendente: { perfil: 'Administrador' },
     podeGerirCadastros: true,
-  } as ReturnType<typeof usarAutenticacao>)
+    pode: () => true,
+  } as unknown as ReturnType<typeof usarAutenticacao>)
 
   visaoGeralMock.mockReturnValue({
     data: undefined,

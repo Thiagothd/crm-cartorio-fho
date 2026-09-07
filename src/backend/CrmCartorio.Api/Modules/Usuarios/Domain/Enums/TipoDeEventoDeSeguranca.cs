@@ -28,5 +28,15 @@ public enum TipoDeEventoDeSeguranca : byte
     /// tipo esconderia, de um auditor, quantas vezes uma emergência precisou
     /// de reemissão (sinal de TTL curto demais ou processo lento).
     /// </summary>
-    TicketDeRematriculaReemitido = 11
+    TicketDeRematriculaReemitido = 11,
+
+    /// <summary>
+    /// Permissões granulares: o conjunto de <c>PermissaoDoSistema</c> de
+    /// <see cref="Entities.Atendente.Permissoes"/> foi alterado por outro
+    /// atendente. Registra o FATO (quem mexeu, em quem, quando, de onde) —
+    /// nunca as chaves em si, que não são segredo mas também não são o que
+    /// este log existe para guardar; o estado atual já está na própria
+    /// coluna. Ver Modules/Usuarios/README.md, "Permissões granulares".
+    /// </summary>
+    PermissoesAlteradas = 12
 }

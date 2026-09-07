@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import type { ChaveDePermissao } from '@/lib/api/tipos'
 import {
   BarChart3,
   BookOpen,
@@ -25,14 +26,20 @@ import {
  * leem daqui — nunca existe uma segunda lista de itens de menu duplicada num
  * componente.
  */
-export type PerfilNecessario = 'autenticado' | 'gestao' | 'administrador'
+/**
+ * `'autenticado'` é a única entrada fora do sistema de permissões, de
+ * propósito: Visão Geral (página inicial, todo mundo precisa de uma) e
+ * Segurança (MFA da PRÓPRIA conta — tirar isso impediria alguém de se
+ * proteger). Todo o resto é uma chave granular real.
+ */
+export type PermissaoNecessaria = 'autenticado' | ChaveDePermissao
 
 export interface ItemDeNavegacao {
   tipo: 'item'
   rotulo: string
   rota: string
   icone: LucideIcon
-  permissao: PerfilNecessario
+  permissao: PermissaoNecessaria
   /** Subtítulo do cabeçalho global quando esta rota está ativa. */
   descricao?: string
   /** Rótulo do grupo/pai mostrado como contexto no cabeçalho (ex.: "Automação"). */
@@ -49,7 +56,7 @@ export interface SubmenuDeNavegacao {
   tipo: 'submenu'
   rotulo: string
   icone: LucideIcon
-  permissao: PerfilNecessario
+  permissao: PermissaoNecessaria
   itens: ItemDeNavegacao[]
 }
 
@@ -102,7 +109,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Atendimento',
         rota: '/atendimentos',
         icone: Inbox,
-        permissao: 'autenticado',
+        permissao: 'atendimento.ver',
         descricao: 'Conversas do WhatsApp do cartório',
         carregar: pagina(() => import('@/pages/pagina-inbox'), 'PaginaInbox'),
       }),
@@ -110,7 +117,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Clientes',
         rota: '/clientes',
         icone: Users,
-        permissao: 'autenticado',
+        permissao: 'clientes.ver',
         descricao: 'Contatos e qualificação das partes atendidas',
         carregar: pagina(() => import('@/pages/pagina-clientes'), 'PaginaClientes'),
       }),
@@ -118,7 +125,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Serviços',
         rota: '/servicos',
         icone: Scale,
-        permissao: 'gestao',
+        permissao: 'servicos.ver',
         descricao: 'Catálogo de atos e prazo de cada um',
         carregar: pagina(() => import('@/pages/pagina-servicos'), 'PaginaServicos'),
       }),
@@ -131,7 +138,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Indicadores e Relatórios',
         rota: '/indicadores',
         icone: BarChart3,
-        permissao: 'gestao',
+        permissao: 'relatorios.ver',
         descricao: 'Análise do período — setor, etapa, equipe e automação',
         carregar: pagina(() => import('@/pages/pagina-indicadores'), 'PaginaIndicadores'),
       }),
@@ -144,7 +151,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Mensagens automáticas',
         rota: '/automacao/mensagens',
         icone: MessageSquare,
-        permissao: 'gestao',
+        permissao: 'automacao.mensagens.ver',
         grupoPai: 'Automação',
         descricao: 'Regras de resposta por gatilho',
         carregar: pagina(() => import('@/pages/pagina-mensagens-automaticas'), 'PaginaMensagensAutomaticas'),
@@ -153,7 +160,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Respostas rápidas',
         rota: '/automacao/respostas',
         icone: Zap,
-        permissao: 'gestao',
+        permissao: 'automacao.respostas.ver',
         grupoPai: 'Automação',
         descricao: 'Atalhos de texto para o atendente',
         carregar: pagina(() => import('@/pages/pagina-respostas-rapidas'), 'PaginaRespostasRapidas'),
@@ -162,7 +169,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'IA',
         rota: '/automacao/ia',
         icone: Bot,
-        permissao: 'gestao',
+        permissao: 'ia.ver',
         grupoPai: 'Automação',
         descricao: 'Resposta Inteligente — status e uso do dia',
         carregar: pagina(() => import('@/pages/pagina-ia'), 'PaginaIa'),
@@ -171,7 +178,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Conhecimento da IA',
         rota: '/automacao/conhecimento-ia',
         icone: BookOpen,
-        permissao: 'gestao',
+        permissao: 'ia.conhecimento.ver',
         grupoPai: 'Automação',
         descricao: 'Conteúdo aprovado, por serviço/tema, com vigência e histórico',
         carregar: pagina(
@@ -183,7 +190,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Encerramento automático',
         rota: '/automacao/encerramento',
         icone: TimerOff,
-        permissao: 'gestao',
+        permissao: 'automacao.encerramento.ver',
         grupoPai: 'Automação',
         descricao: 'Tempo até perguntar e até encerrar conversa parada',
         carregar: pagina(
@@ -200,20 +207,22 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Equipe',
         rota: '/equipe',
         icone: UserRound,
-        permissao: 'administrador',
-        descricao: 'Atendentes, perfis e cargos',
+        permissao: 'equipe.ver',
+        descricao: 'Atendentes, cargos e permissões de cada um',
         carregar: pagina(() => import('@/pages/pagina-equipe'), 'PaginaEquipe'),
       }),
       submenu({
         rotulo: 'Estrutura da operação',
         icone: GitBranch,
-        permissao: 'gestao',
+        // Container: visível se QUALQUER filho for — a permissão aqui não é
+        // checada sozinha, é a filtragem de itens em `navegacaoVisivel` que decide.
+        permissao: 'etapas.ver',
         itens: [
           item({
             rotulo: 'Etapas',
             rota: '/estrutura/etapas',
             icone: GitBranch,
-            permissao: 'gestao',
+            permissao: 'etapas.ver',
             grupoPai: 'Estrutura da operação',
             descricao: 'Etapas do funil de atendimento',
             carregar: pagina(() => import('@/pages/pagina-etapas'), 'PaginaEtapas'),
@@ -222,7 +231,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
             rotulo: 'Setores',
             rota: '/estrutura/setores',
             icone: Building2,
-            permissao: 'gestao',
+            permissao: 'setores.ver',
             grupoPai: 'Estrutura da operação',
             descricao: 'Quem atende o quê',
             carregar: pagina(() => import('@/pages/pagina-setores'), 'PaginaSetores'),
@@ -233,20 +242,20 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         rotulo: 'Aparência',
         rota: '/aparencia',
         icone: Palette,
-        permissao: 'gestao',
+        permissao: 'aparencia.ver',
         descricao: 'Textura de fundo do fio de mensagens',
         carregar: pagina(() => import('@/pages/pagina-aparencia'), 'PaginaAparencia'),
       }),
       submenu({
         rotulo: 'Integrações',
         icone: Plug,
-        permissao: 'administrador',
+        permissao: 'whatsapp.ver',
         itens: [
           item({
             rotulo: 'WhatsApp',
             rota: '/integracoes/whatsapp',
             icone: Plug,
-            permissao: 'administrador',
+            permissao: 'whatsapp.ver',
             grupoPai: 'Integrações',
             descricao: 'Pareamento do canal real',
             carregar: pagina(() => import('@/pages/pagina-whatsapp'), 'PaginaWhatsApp'),
@@ -271,37 +280,35 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
   },
 ]
 
-export interface PerfilParaVisibilidade {
-  podeGerirCadastros: boolean
-  podeGerirAtendentes: boolean
-}
+/** Testa uma chave — o mesmo formato de `usarAutenticacao().pode`. */
+export type VerificadorDePermissao = (chave: ChaveDePermissao) => boolean
 
 /**
  * Regra de visibilidade por permissão — exportada para não ser duplicada por
  * quem monta navegação própria fora do menu (ex.: `features/acoes-rapidas`).
  */
-export function podeVer(permissao: PerfilNecessario, perfil: PerfilParaVisibilidade): boolean {
-  if (permissao === 'administrador') return perfil.podeGerirAtendentes
-  if (permissao === 'gestao') return perfil.podeGerirCadastros
-  return true
+export function podeVer(permissao: PermissaoNecessaria, pode: VerificadorDePermissao): boolean {
+  if (permissao === 'autenticado') return true
+  return pode(permissao)
 }
 
 /**
- * A árvore filtrada pelo que este perfil pode ver — nunca amplia permissão,
- * só esconde. O backend continua sendo quem decide de verdade (regra 17 do
- * AGENTS.md): esconder aqui é conforto de navegação, não segurança.
+ * A árvore filtrada pelo que esta conta pode ver — nunca amplia permissão,
+ * só esconde. O backend continua sendo quem decide de verdade em cada
+ * endpoint (`ctx.Pode`): esconder aqui é conforto de navegação, não
+ * segurança.
  */
-export function navegacaoVisivel(perfil: PerfilParaVisibilidade): GrupoDeNavegacao[] {
+export function navegacaoVisivel(pode: VerificadorDePermissao): GrupoDeNavegacao[] {
   return NAVEGACAO.map((grupo) => ({
     ...grupo,
     entradas: grupo.entradas
       .map((entrada) =>
         entrada.tipo === 'submenu'
-          ? { ...entrada, itens: entrada.itens.filter((filho) => podeVer(filho.permissao, perfil)) }
+          ? { ...entrada, itens: entrada.itens.filter((filho) => podeVer(filho.permissao, pode)) }
           : entrada,
       )
       .filter((entrada) =>
-        entrada.tipo === 'submenu' ? entrada.itens.length > 0 : podeVer(entrada.permissao, perfil),
+        entrada.tipo === 'submenu' ? entrada.itens.length > 0 : podeVer(entrada.permissao, pode),
       ),
   })).filter((grupo) => grupo.entradas.length > 0)
 }

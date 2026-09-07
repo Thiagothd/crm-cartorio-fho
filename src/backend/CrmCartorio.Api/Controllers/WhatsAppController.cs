@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -65,7 +66,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<SituacaoDoCanal>> Situacao(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappVer);
 
         return Ok(await pareamento.ConsultarAsync(ctx.TenantId, ct));
     }
@@ -84,7 +85,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<SituacaoDoCanal>> Parear(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappParear);
 
         return Ok(await pareamento.PrepararAsync(ctx.TenantId, UrlBaseParaWebhook(), ct));
     }
@@ -100,7 +101,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<SituacaoDoCanal>> TrocarNumero(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappParear);
 
         return Ok(await pareamento.TrocarNumeroAsync(ctx.TenantId, ctx.AtendenteId, UrlBaseParaWebhook(), ct));
     }
@@ -110,7 +111,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<SituacaoDoCanal>> Desconectar(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappParear);
 
         return Ok(await pareamento.DesconectarAsync(ctx.TenantId, ctx.AtendenteId, ct));
     }
@@ -121,7 +122,7 @@ public class WhatsAppController(
     public async Task<ActionResult<TesteDeEnvioResponse>> TestarEnvio(
         [FromBody] TestarEnvioRequest request, CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappTestarEnvio);
 
         return Ok(await pareamento.TestarEnvioAsync(ctx.TenantId, request.Telefone, ct));
     }
@@ -131,7 +132,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<IReadOnlyList<ConexaoResponse>>> Conexoes(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappVer);
 
         return Ok(await pareamento.HistoricoDeConexoesAsync(ctx.TenantId, ct: ct));
     }
@@ -141,7 +142,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<RegrasDoCanalResponse>> Regras(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappVer);
 
         return Ok(await regras.ObterAsync(ct));
     }
@@ -152,7 +153,7 @@ public class WhatsAppController(
     public async Task<ActionResult<RegrasDoCanalResponse>> DefinirModo(
         [FromBody] DefinirModoRequest request, CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappRegras);
 
         return Ok(await regras.DefinirModoAsync(request, ct));
     }
@@ -163,7 +164,7 @@ public class WhatsAppController(
     public async Task<ActionResult<NumeroDoCanalResponse>> AdicionarNumero(
         [FromBody] AdicionarNumeroRequest request, CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappRegras);
 
         return Ok(await regras.AdicionarAsync(request, ct));
     }
@@ -173,7 +174,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<IActionResult> RemoverNumero(Guid id, CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappRegras);
 
         await regras.RemoverAsync(id, ct);
 
@@ -185,7 +186,7 @@ public class WhatsAppController(
     [Authorize]
     public async Task<ActionResult<DescartesResponse>> Descartes(CancellationToken ct)
     {
-        GarantirAdministrador();
+        Garantir(PermissaoDoSistema.WhatsappVer);
 
         return Ok(await regras.DescartesRecentesAsync(ct));
     }
@@ -195,9 +196,9 @@ public class WhatsAppController(
     /// fala com ele — e decisao de quem responde pela serventia. Um escrevente
     /// nao mexe em nada disto.
     /// </remarks>
-    private void GarantirAdministrador()
+    private void Garantir(PermissaoDoSistema permissao)
     {
-        if (!ctx.PodeGerirAtendentes)
+        if (!ctx.Pode(permissao))
         {
             throw CanalWhatsAppServiceException.WebhookNaoAutorizado();
         }

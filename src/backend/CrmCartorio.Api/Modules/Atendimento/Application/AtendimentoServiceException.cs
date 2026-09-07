@@ -38,6 +38,9 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
         new("nao_eh_o_responsavel",
             $"Esta conversa esta em atendimento por {responsavel}.", 403);
 
+    public static AtendimentoServiceException SemPermissao() =>
+        new("sem_permissao", "Voce nao tem permissao para esta acao.", 403);
+
     public static AtendimentoServiceException MensagemVazia() =>
         new("mensagem_vazia", "A mensagem nao pode ser vazia.", 400);
 

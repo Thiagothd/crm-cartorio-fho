@@ -346,16 +346,14 @@ Console.WriteLine();
 Console.WriteLine(falhas == 0 ? "TODOS OS CENARIOS PASSARAM." : $"{falhas} CENARIO(S) COM FALHA.");
 return falhas == 0 ? 0 : 1;
 
-file sealed class ContextoFixo(Guid tenantId, bool podeGerirCadastros = true) : IContextoDoUsuario
+file sealed class ContextoFixo(Guid tenantId) : IContextoDoUsuario
 {
     public bool Autenticado => true;
     public Guid TenantId => tenantId;
     public Guid AtendenteId => Guid.NewGuid();
     public string Nome => "Verificador";
     public PerfilDeAtendente Perfil => PerfilDeAtendente.Administrador;
-    public bool PodeGerirCadastros => podeGerirCadastros;
-    public bool PodeGerirAtendentes => true;
-    public bool PodeOperarConversaDeTerceiro => true;
+    public bool Pode(PermissaoDoSistema permissao) => true;
 }
 
 /// <summary>

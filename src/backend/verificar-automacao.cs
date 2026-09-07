@@ -14,6 +14,7 @@ using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
+using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -2929,13 +2930,18 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public string Nome => nome;
     public PerfilDeAtendente Perfil => perfil;
 
-    public bool PodeGerirCadastros =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
-
-    public bool PodeGerirAtendentes => perfil is PerfilDeAtendente.Administrador;
-
-    public bool PodeOperarConversaDeTerceiro =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    /// <remarks>
+    /// AtendimentoSimularCliente entra a mais, fora de <see cref="CatalogoDePermissoes.ConjuntoDaClasse"/>
+    /// (que a exclui de proposito de toda classe — Modules/Usuarios/Domain/CatalogoDePermissoes.cs):
+    /// este verificador usa <c>MensagemService.SimularRecebimentoAsync</c> como
+    /// harness para injetar a "mensagem do cliente" que decola triagem, pedido de
+    /// nome e resposta inteligente — o equivalente de teste a um administrador que
+    /// marcou a chave a mao. Nao afeta o gate real, que continua fechado para toda
+    /// conta nova.
+    /// </remarks>
+    public bool Pode(PermissaoDoSistema permissao) =>
+        permissao == PermissaoDoSistema.AtendimentoSimularCliente
+        || CatalogoDePermissoes.ConjuntoDaClasse(perfil).Contains(permissao);
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e a automacao, nao o hub.</summary>

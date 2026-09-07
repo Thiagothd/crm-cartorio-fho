@@ -1094,6 +1094,7 @@ Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está 
 | Indicadores e Relatórios (`/indicadores/*`) | **Fase 3.1** |
 | Componentes compartilhados de `components/ui/` | **Fase 3.1** |
 | Inbox, fio de mensagens, conversa | **Fase 3.2 — ver seção 16** (era Fase 1 até 2026-09-06) |
+| Equipe e permissões (`/equipe`, `/equipe/:id/permissoes`) | **Fase 3.1 — ver seção 17** (era Fase 1 até 2026-09-08) |
 | Clientes, Serviços, telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
 
 A fronteira não é capricho: as telas operacionais são onde o atendente passa o
@@ -1277,3 +1278,39 @@ sólido na lista, antes diluído) e **Enviar** (agora com o gradiente autorizado
 em 15.3, `from-selo to-selo/90`). *"+ Novo atendimento"* desceu de `default`
 para `outline` em 2026-09-06 — o botão de criação manual de atendimento não
 disputa mais atenção com o que já chegou e não foi lido.
+
+## 17. Fase 3.3 — as telas de administração
+
+**Revisto em 2026-09-08.** Equipe (`/equipe`) e a tela nova de permissões
+(`/equipe/:id/permissoes`) migraram de Fase 1 para **Fase 3.1** — são telas de
+gestão esporádica, lidas em monitor grande pelo dono/administrador, não o
+balcão de trabalho contínuo que a seção 16 protege. O orçamento vertical de
+16.1 não se aplica aqui: nenhuma delas tem um fio de mensagens rolando por
+baixo, e o mesmo tratamento de Visão Geral/Indicadores (`rounded-card`,
+`shadow-card`, `grade-com-vida`, `hover:-translate-y-0.5`, `font-dado` nos
+números) se aplica sem ressalva.
+
+### 17.1 Tela de detalhe fora do menu
+
+`/equipe/:id/permissoes` segue o mesmo padrão já estabelecido por
+`/indicadores/:secao` (seção 14.7): rota própria, fora de `app/navegacao.ts`
+(não é item de rail nem de folha "Mais" — chega-se a ela clicando no chip do
+modelo de permissão, na linha do atendente), com a permissão de acesso lida
+da MESMA entrada que protege a tela-mãe (`equipe.ver`) para nunca haver duas
+verdades. F5 preserva a tela, e o link é compartilhável.
+
+### 17.2 Orçamento de bordô
+
+Três usos, e só três: o botão **"Novo atendente"** (`from-selo to-selo/90`,
+mesmo gradiente autorizado em 15.3), o número do cartão **"Sem 2 etapas"**
+quando maior que zero (a etiqueta correspondente na linha do atendente reusa
+o mesmo tom), e o botão **"Resetar MFA"** dentro do diálogo de segurança — que
+nunca coexiste na tela com os outros dois, por estar num diálogo modal.
+
+### 17.3 Permissão que esmaece, não desaparece
+
+Na tela de permissões, desmarcar a tela de um bloco (a chave `*.ver`) esmaece
+— `opacity-45`, não `hidden` — as demais ações daquele bloco, com a nota "Sem
+acesso à tela, esta ação não faz efeito". Esconder o item removeria a
+possibilidade de ver (e desfazer) uma combinação que já existia; esmaecer
+avisa sem apagar o estado.

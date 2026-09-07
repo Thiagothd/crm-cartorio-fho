@@ -142,8 +142,11 @@ builder.Services.AddScoped<ICookieDeDispositivoConfiavel, CookieDeDispositivoCon
 // SEC-01: revogacao de sessao. ValidadorDeSessao confere Ativo/TokenVersion no
 // banco; SessaoAtivaHandler acopla essa checagem a policy padrao de
 // autorizacao (registrada mais abaixo), cobrindo controllers e o Hub do
-// SignalR com o mesmo componente.
+// SignalR com o mesmo componente. O mesmo round-trip agora tambem resolve as
+// permissoes granulares e deposita em PermissoesDaRequisicao — ContextoDoUsuario
+// le de la, nunca faz consulta propria.
 builder.Services.AddScoped<IValidadorDeSessao, ValidadorDeSessao>();
+builder.Services.AddScoped<PermissoesDaRequisicao>();
 builder.Services.AddScoped<IAuthorizationHandler, SessaoAtivaHandler>();
 
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();

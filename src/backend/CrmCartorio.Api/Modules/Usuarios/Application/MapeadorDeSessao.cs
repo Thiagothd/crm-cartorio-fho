@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,7 +34,10 @@ public static class MapeadorDeSessao
             atendente.SetorPadraoId,
             setor,
             atendente.Ativo,
-            atendente.UltimoAcessoEm);
+            atendente.UltimoAcessoEm,
+            atendente.MfaAtivo,
+            atendente.ModeloDePermissao,
+            CatalogoDePermissoes.ChavesEfetivas(atendente.Permissoes, atendente.Perfil));
     }
 
     public static async Task<TenantResponse> ObterTenantAsync(CrmDbContext db, Guid tenantId, CancellationToken ct)

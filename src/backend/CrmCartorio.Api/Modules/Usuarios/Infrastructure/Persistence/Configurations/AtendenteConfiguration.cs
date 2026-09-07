@@ -39,13 +39,17 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.MfaBloqueadoAte).HasColumnType("datetime2(3)");
         builder.Property(a => a.RematriculaObrigatoriaAposEmergencia).HasDefaultValue(false);
 
+        // Permissoes granulares — NULL e o valor de "segue a Classe da
+        // conta" (ver o XML doc da entidade). Sem HasDefaultValue: o default
+        // de uma coluna NULLABLE sem DEFAULT explicito ja e NULL, e e assim
+        // que uma linha inserida por um binario anterior a esta coluna
+        // continua se comportando identico a hoje.
+        builder.Property(a => a.Permissoes).HasMaxLength(4000);
+        builder.Property(a => a.ModeloDePermissao).HasConversion<byte?>();
+
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.AtualizadoEm).HasColumnType("datetime2(3)");
-
-        builder.Ignore(a => a.PodeGerirCadastros);
-        builder.Ignore(a => a.PodeGerirAtendentes);
-        builder.Ignore(a => a.PodeOperarConversaDeTerceiro);
 
         // Relacionamentos declarados SEM propriedade de navegacao: o EF precisa
         // conhecer a dependencia para ordenar os INSERTs e nao violar as FKs do

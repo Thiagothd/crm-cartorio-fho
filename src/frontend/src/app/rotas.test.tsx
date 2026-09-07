@@ -3,11 +3,17 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Rotas } from '@/app/rotas'
 
+// Qualquer conta real sempre tem PELO MENOS o preset Balcão (nunca um
+// conjunto vazio — Permissoes=NULL sempre deriva da Classe). O mock reflete
+// isso: "autenticado, sem nada especial" já enxerga Atendimento e Clientes.
+const PERMISSOES_BALCAO = ['atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'clientes.ver']
+const PERMISSOES_GESTAO = [...PERMISSOES_BALCAO, 'servicos.ver', 'relatorios.ver', 'etapas.ver', 'setores.ver']
+const PERMISSOES_ADMINISTRADOR = [...PERMISSOES_GESTAO, 'equipe.ver', 'whatsapp.ver']
+
 let autenticacao = {
   atendente: null as null | { id: string },
   carregando: false,
-  podeGerirCadastros: false,
-  podeGerirAtendentes: false,
+  pode: (chave: string) => PERMISSOES_BALCAO.includes(chave),
 }
 
 vi.mock('@/lib/auth/usar-autenticacao', () => ({
@@ -44,8 +50,7 @@ describe('Rotas', () => {
     autenticacao = {
       atendente: null,
       carregando: false,
-      podeGerirCadastros: false,
-      podeGerirAtendentes: false,
+      pode: (chave: string) => PERMISSOES_BALCAO.includes(chave),
     }
   })
 
@@ -79,8 +84,7 @@ describe('Rotas', () => {
     autenticacao = {
       atendente: { id: 'gestor-1' },
       carregando: false,
-      podeGerirCadastros: true,
-      podeGerirAtendentes: false,
+      pode: (chave: string) => PERMISSOES_GESTAO.includes(chave),
     }
     window.history.pushState({}, '', '/servicos')
     render(<Rotas />)
@@ -93,8 +97,7 @@ describe('Rotas', () => {
     autenticacao = {
       atendente: { id: 'gestor-1' },
       carregando: false,
-      podeGerirCadastros: true,
-      podeGerirAtendentes: false,
+      pode: (chave: string) => PERMISSOES_GESTAO.includes(chave),
     }
     window.history.pushState({}, '', '/equipe')
     render(<Rotas />)
@@ -106,8 +109,7 @@ describe('Rotas', () => {
     autenticacao = {
       atendente: { id: 'admin-1' },
       carregando: false,
-      podeGerirCadastros: true,
-      podeGerirAtendentes: true,
+      pode: (chave: string) => PERMISSOES_ADMINISTRADOR.includes(chave),
     }
     window.history.pushState({}, '', '/equipe')
     render(<Rotas />)
@@ -136,8 +138,7 @@ describe('Rotas', () => {
     autenticacao = {
       atendente: { id: 'gestor-1' },
       carregando: false,
-      podeGerirCadastros: true,
-      podeGerirAtendentes: false,
+      pode: (chave: string) => PERMISSOES_GESTAO.includes(chave),
     }
     window.history.pushState({}, '', '/configuracoes')
     render(<Rotas />)
