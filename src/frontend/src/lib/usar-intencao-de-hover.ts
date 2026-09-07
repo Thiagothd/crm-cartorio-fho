@@ -13,8 +13,8 @@ const ATRASO_PARA_FECHAR = 320
  * resultado era exatamente a sensação de coisa brusca e mecânica. 160ms
  * absorve a passagem acidental e ainda fica dentro da janela em que o
  * movimento é percebido como resposta, não como espera. Somado à transição de
- * largura de 220ms do próprio painel, a abertura tem um começo e um fim
- * visíveis em vez de aparecer inteira de um quadro para o outro.
+ * largura do próprio painel, a abertura tem um começo e um fim visíveis em vez
+ * de aparecer inteira de um quadro para o outro.
  *
  * Fechar é sempre mais lento que abrir (320ms), para quem move o mouse em
  * direção ao painel não ver ele sumir no meio do caminho. Cada evento cancela

@@ -4,9 +4,7 @@ import { ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { navegacaoVisivel, type EntradaDeNavegacao, type ItemDeNavegacao } from '@/app/navegacao'
 import { cn } from '@/lib/utils'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
-import { usarAbaixoDe } from '@/lib/usar-abaixo-de'
-import { usarPreferenciaLocal } from '@/lib/usar-preferencia-local'
-import { usarIntencaoDeHover } from '@/lib/usar-intencao-de-hover'
+import { usarRail } from './contexto-do-rail'
 
 function ehAtivo(pathname: string, rota: string) {
   return pathname === rota || pathname.startsWith(`${rota}/`)
@@ -14,25 +12,23 @@ function ehAtivo(pathname: string, rota: string) {
 
 /*
  * NÃO existe tooltip neste arquivo, e a ausência é deliberada — removida em
- * 2026-08-21 por ser defeituosa por construção, não por estar mal configurada.
- *
- * O que acontecia: o rail abre no hover em 160ms, e o tooltip só valeria com o
- * rail FECHADO. Ou seja, a única janela em que ele podia aparecer eram esses
+ * 2026-08-21 por ser defeituosa por construção. O rail abre no hover em
+ * 160ms, então a única janela em que o tooltip podia aparecer eram esses
  * 160ms antes do painel abrir e mostrar o rótulo de verdade. Resultado: com o
  * atraso normal de 500ms ele nunca aparecia, e com o `skipDelayDuration` de
  * 300ms do TooltipProvider (que torna o segundo tooltip instantâneo) ele
  * piscava e sumia.
  *
  * Pior: ele FICAVA PRESO na tela. O componente alternava entre controlado
- * (`open={false}`, com o rail aberto) e não controlado (`open={undefined}`, com
- * o rail fechado). Voltar para não controlado restaura o estado interno do
- * Radix, que ainda era "aberto" — então o balão reaparecia sobre o rail fechado
- * e só saía com um clique em outro lugar.
+ * (`open={false}`, com o rail aberto) e não controlado (`open={undefined}`,
+ * com o rail fechado). Voltar para não controlado restaura o estado interno
+ * do Radix, que ainda era "aberto" — então o balão reaparecia sobre o rail
+ * fechado e só saía com um clique em outro lugar.
  *
- * Não há perda de acessibilidade: o nome acessível de cada item vem do `<span>`
- * do rótulo, que continua no DOM (`opacity-0`, nunca `display:none`, justamente
- * para leitor de tela continuar lendo), e os botões só-ícone têm `aria-label`.
- * O tooltip nunca foi o nome acessível — era só descrição.
+ * Não há perda de acessibilidade: o nome acessível de cada item vem do
+ * `<span>` do rótulo, que continua no DOM (`opacity-0`, nunca `display:none`,
+ * justamente para leitor de tela continuar lendo), e os botões só-ícone têm
+ * `aria-label`. O tooltip nunca foi o nome acessível — era só descrição.
  */
 
 /**
@@ -197,23 +193,20 @@ function SubmenuDoRail({
 }
 
 /**
- * Navigation rail com abertura por hover-com-intenção. Fechado, é uma coluna
- * de 64px em fluxo, só ícones — os itens não recalculam a largura de nada.
- * Aberto (hover, foco, ou fixado), o painel de 256px é OVERLAY sobre o
- * conteúdo: não empurra nada, então não anima largura de coluna nenhuma —
- * exceção deliberada a DESIGN.md §10.3/10.7 (aquelas colunas ficam em fluxo;
- * este painel não).
+ * Navigation rail com abertura por hover-com-intenção, foco de teclado, ou
+ * fixado por clique — os três resultam no MESMO `expandido`, e os três
+ * EMPURRAM o conteúdo igual: a largura publicada pelo `Shell`
+ * (`--largura-do-rail`, em `contexto-do-rail.tsx`) segue `expandido` inteiro,
+ * não só o estado fixado. Sair com o mouse devolve a largura ao conteúdo do
+ * mesmo jeito que desafixar devolveria — não há mais um modo "hover cobre,
+ * fixado empurra".
  */
 export function RailDeNavegacao() {
   const { pode } = usarAutenticacao()
   const location = useLocation()
 
-  const [fixado, alternarFixado] = usarPreferenciaLocal('crm-cartorio.menu-fixado', false)
-  const estreito = usarAbaixoDe(1280)
-  const fixadoEfetivo = fixado && !estreito
-
-  const { aberto, aoEntrar, aoSair, aoFocarDentro, aoDesfocarFora, abrirAgora, fecharAgora } = usarIntencaoDeHover()
-  const expandido = fixadoEfetivo || aberto
+  const { expandido, fixado, alternarFixado, expandir, fecharAgora, aoEntrar, aoSair, aoFocarDentro, aoDesfocarFora } =
+    usarRail()
 
   const grupos = navegacaoVisivel(pode)
   const [submenuAberto, setSubmenuAberto] = useState<string | null>(null)
@@ -231,14 +224,15 @@ export function RailDeNavegacao() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  // Escolher um destino RECOLHE o painel na hora. Sem isto ele ficava aberto
-  // sobre a página nova até o ponteiro sair da área do rail — e como o ponteiro
-  // continua exatamente onde clicou, "sair" podia significar não sair nunca,
-  // até um clique em qualquer outro lugar da tela.
+  // Escolher um destino RECOLHE o painel na hora, se ele estiver aberto por
+  // hover/foco (transitório). Sem isto ele ficava aberto sobre a página nova
+  // até o ponteiro sair da área do rail — e como o ponteiro continua
+  // exatamente onde clicou, "sair" podia significar não sair nunca, até um
+  // clique em qualquer outro lugar da tela.
   //
   // `fecharAgora` cancela o temporizador pendente e zera a trava de foco, então
   // não sobra nada agendado para reabrir. Fixado não é afetado: `expandido` é
-  // `fixadoEfetivo || aberto`, e só o `aberto` é zerado aqui.
+  // `fixado || aberto`, e só o `aberto` (transitório) é zerado aqui.
   //
   // Fica no efeito de rota, não num `onClick` dos itens, porque a navegação
   // também acontece por submenu, por atalho de teclado e pelo histórico do
@@ -249,12 +243,7 @@ export function RailDeNavegacao() {
   }, [location.pathname])
 
   return (
-    <div
-      className={cn(
-        'relative hidden shrink-0 transition-[width] duration-[220ms] ease-out md:block',
-        fixadoEfetivo ? 'w-64' : 'w-16',
-      )}
-    >
+    <div className="relative hidden w-[var(--largura-do-rail,4rem)] shrink-0 transition-[width] duration-[var(--duracao-padrao)] ease-out md:block">
       {/* Fecha ao tocar fora, só em ponteiro grosso (touch) — `pointer-coarse:`.
           Em mouse, sair da área já fecha por `aoSair`; deixar isto capturando
           clique em QUALQUER ponteiro roubaria clique do conteúdo principal
@@ -262,8 +251,8 @@ export function RailDeNavegacao() {
           direto para um botão próximo perderia o clique). Em tablet e
           notebook touchscreen sem mouse (768–1279px), `pointerenter`/
           `pointerleave` sozinhos não garantem fechar, e o painel ficaria preso
-          cobrindo o conteúdo até o usuário descobrir como sair. */}
-      {expandido && !fixadoEfetivo ? (
+          empurrando o conteúdo até o usuário descobrir como sair. */}
+      {expandido && !fixado ? (
         <button
           type="button"
           tabIndex={-1}
@@ -273,14 +262,14 @@ export function RailDeNavegacao() {
         />
       ) : null}
 
-      {/* SEMPRE `absolute`, com a largura em transição — não mais alternando
-          entre estático e absoluto conforme o estado. `position` não é
-          animável, então a versão anterior trocava de layout de um quadro para
-          o outro e o painel simplesmente APARECIA inteiro: era daí que vinha a
-          sensação de coisa brusca e mecânica. Absoluto fixo deixa `width` ser a
-          única coisa que muda, e `width` transiciona. O container externo
-          continua reservando 64px (ou 256px fixado) no fluxo, então o conteúdo
-          da página nunca reflui durante a animação. */}
+      {/* SEMPRE `absolute`, com a largura em transição — `position` não é
+          animável, então alternar entre estático e absoluto conforme o estado
+          faria o painel APARECER inteiro de um quadro para o outro. Absoluto
+          fixo deixa `width` ser a única coisa que muda, e `width` transiciona.
+          O espaçador ao lado (a `<div>` externa) reserva a MESMA largura no
+          fluxo — lida da var `--largura-do-rail`, publicada pelo `Shell` a
+          partir deste mesmo `expandido` — então o conteúdo da página empurra
+          em sincronia com esta animação, nunca fica coberto por ela. */}
       <aside
         aria-label="Menu principal"
         role="navigation"
@@ -294,12 +283,8 @@ export function RailDeNavegacao() {
         }}
         className={cn(
           'absolute inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]',
-          'transition-[width,box-shadow] duration-[220ms] ease-out',
+          'w-[var(--largura-do-rail,4rem)] transition-[width] duration-[var(--duracao-padrao)] ease-out',
           '[--cor-foco:var(--cor-linha)]', // o outline padrao (tinta-media) nao contrasta sobre bg-tinta
-          expandido ? 'w-64' : 'w-16',
-          // Sombra só quando é overlay de verdade: fixado, o painel ocupa a
-          // própria coluna no fluxo e não tem nada por baixo para sombrear.
-          expandido && !fixadoEfetivo && 'shadow-[8px_0_32px_-12px_rgba(11,11,15,.45)]',
         )}
       >
         {/* Sem bloco de marca aqui: a logo subiu para o cabeçalho branco
@@ -359,7 +344,7 @@ export function RailDeNavegacao() {
                       aberto={submenuAberto === entrada.rotulo}
                       pathname={location.pathname}
                       aoAlternar={() => {
-                        if (!expandido) abrirAgora()
+                        if (!expandido) expandir()
                         setSubmenuAberto((atual) => (atual === entrada.rotulo ? null : entrada.rotulo))
                       }}
                     />
@@ -377,13 +362,20 @@ export function RailDeNavegacao() {
         {/* UM botão só, não dois trocados por `expandido`: alternar dois
             elementos na mesma posição faz o React desmontar e remontar o
             botão a cada abertura do rail. Aqui o rótulo só esmaece, como nos
-            itens, e o `aria-label` cobre o estado fechado. */}
+            itens.
+            Nome acessível é o `<span>` visível — não `aria-label`. O
+            `aria-label` antigo ('Fixar o menu aberto') divergia do texto
+            visível ('Fixar menu aberto', sem o "o"), o que falha WCAG 2.5.3
+            (Label in Name): comando de voz por "clique em Fixar menu aberto"
+            não encontraria o botão. Sem `aria-pressed`: o rótulo textual já
+            diz o estado ("Recolher menu" vs "Fixar menu aberto"), e duplicar
+            isso em `aria-pressed` arriscaria as duas fontes divergirem. */}
         <div className="border-t border-linha-forte/35 p-2">
           <button
             type="button"
             onClick={alternarFixado}
-            aria-pressed={fixado}
-            aria-label={fixado ? 'Recolher menu' : 'Fixar o menu aberto'}
+            title={`${fixado ? 'Recolher' : 'Fixar'} o menu (Ctrl+B)`}
+            aria-keyshortcuts="Control+B"
             className="flex h-10 w-full items-center rounded-lg border-l-2 border-transparent text-xs text-linha transition-colors duration-200 hover:bg-branco/[0.07] hover:text-branco"
           >
             {/* Mesmo chip de 32px dos itens de navegação, para o ícone cair na

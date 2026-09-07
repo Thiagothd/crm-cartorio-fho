@@ -16,7 +16,11 @@ export function ListaDeClientes({ clientes, podeExcluir, aoEditar, aoRemover }: 
   aoRemover: (cliente: Cliente) => void
 }) {
   return (
-    <div role="list" aria-label="Clientes cadastrados" className="grid gap-3 p-3 sm:grid-cols-2 md:gap-4 md:p-4 xl:grid-cols-3">
+    // Container query (`@lg`/`@4xl`), não breakpoint de tela: quem aperta esta
+    // grade é o rail empurrando o conteúdo, não o tamanho do aparelho — mesmo
+    // limiar do esqueleto de carregamento em `pagina-clientes.tsx`, para o
+    // número de colunas não mudar entre o skeleton e o conteúdo real.
+    <div role="list" aria-label="Clientes cadastrados" className="grid gap-3 p-3 @lg:grid-cols-2 md:gap-4 md:p-4 @4xl:grid-cols-3">
       {clientes.map((cliente) => {
         const nome = nomeDeExibicao(cliente.nome, cliente.telefoneWhatsapp, cliente.nomePendente)
         const temHistorico = cliente.totalConversas > 0 || cliente.temConversaAtiva

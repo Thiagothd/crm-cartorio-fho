@@ -3,7 +3,8 @@
 > **Status:** Fase 1 aprovada. Shell global, navegação e Visão Geral entregues
 > na Fase 3 (seção 14). **Fase 3.1 (2026-08-21) redirecionou a linguagem visual
 > do painel — ver seção 15 antes de aplicar as seções 1 a 4.**
-> **Última atualização:** 2026-08-21
+> **Última atualização:** 2026-09-07 (14.2: rail passa a expandir por clique e
+> empurrar o conteúdo; ver também 10.7 e 12.4)
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -522,8 +523,18 @@ Recolher é **só largura**: não muda filtro, não muda rota, não desmonta a
 consulta da lista e não mexe na conversa aberta. Mesma regra da 10.3. A escolha
 fica no `localStorage` (`crm-cartorio.lista-recolhida`), padrão **aberta**.
 
-Sem animação de largura, como no menu principal: animar uma coluna que tem fio
-rolando dentro rende repaint torto, não sofisticação.
+**Sem animação de largura** — diferente do menu principal (14.2) desde
+2026-09: animar uma coluna que tem fio rolando dentro rende repaint torto, não
+sofisticação. O menu principal passou a animar porque o gatilho dele virou
+clique raro e deliberado; esta lista continua sem animar porque ela está
+*dentro* da tela que rola, e recolhe também automaticamente conforme a
+largura disponível (abaixo, `estreitoParaLista`) — não só por escolha manual.
+
+Abaixo de **960px de largura disponível para o fio** (`usarConteudoAbaixoDe`,
+`lib/usar-conteudo-abaixo-de.ts`) a lista recolhe sozinha, mesmo sem o
+atendente ter pedido. Este número é sobre largura **útil**, não de janela: com
+o menu principal empurrando o conteúdo (14.2), a mesma janela pode sobrar
+menos coluna aqui, e o corte acompanha isso — não um valor fixo de viewport.
 
 ### 10.8 Cabeçalho da conversa em uma linha
 
@@ -555,13 +566,23 @@ inbox, é sempre a mesma:
 1. **Trunca** o que tem o valor inteiro em outro lugar — nome de quem atende
    (fica no `title`), nome de etapa e de setor (ficam na lista e no seletor).
 2. **Esconde** o telefone quando a coluna fica menor que 42rem. É
-   `@container`, não breakpoint de tela: quem aperta essa linha é o painel de
-   histórico abrindo ao lado, com a janela do mesmo tamanho.
+   `@container`, não breakpoint de tela: quem aperta essa linha não é só o
+   painel de histórico abrindo ao lado — é a largura que sobra depois da
+   lista de conversas (10.7) e do menu principal empurrando o conteúdo
+   (14.2), com a janela do mesmo tamanho.
 3. **Nunca sai o protocolo.** É o identificador que o cliente repete ao telefone
    e que o atendente procura na lista.
 
 "Atendido por Fulano" virou **cadeado + nome**, o mesmo tratamento que a linha da
 inbox já usava — mesma informação, ~70px a menos de linha.
+
+**"Assumir" e "Histórico" saem da linha por container query (`@xl`, 36rem),
+não breakpoint de tela** (2026-09) — cada um reaparece como item do menu ⋮
+logo abaixo, no MESMO limiar do lado que sai da linha: os dois lados desse
+par têm que casar, senão a ação aparece duas vezes ou nenhuma. O botão de
+"Mídias" já era assim desde antes (`@2xl`) e não mudou. "Voltar"/avatar
+continuam por breakpoint de viewport (`md`) — são sobre ROTA/dispositivo (uma
+coluna só no celular), não sobre a largura da coluna da conversa.
 
 Onde o container **não** tem altura fixa — painel de histórico, funil, telas de
 configuração — `flex-wrap` continua certo e não foi mexido. A regra é sobre faixa
@@ -742,6 +763,28 @@ nunca guarda informação indispensável. Abre por mouse e foco de teclado.
 
 As larguras de referência para revisão são 360px, 768px, 1024px e 1440px. Não
 são quatro layouts separados: são pontos de inspeção do mesmo fluxo responsivo.
+**Desde 2026-09 (menu que empurra, 14.2), cruzar cada uma com o rail recolhido
+E expandido** — a mesma janela sobra até 192px a menos de largura útil quando
+o menu está aberto, e esse cruzamento é o que revela o pior caso (768px de
+janela com o menu aberto dá 512px de conteúdo).
+
+**Critério para decidir breakpoint de viewport (`md`/`lg`/`xl`) versus
+container query (`@md`/`@lg`/`@xl`):** é sobre DISPOSITIVO — dedo grosso,
+aparelho de mão, "aqui só cabe uma coluna e a navegação é por rota" — continua
+viewport. É sobre CABE OU NÃO CABE — quantas colunas numa grade, esconder
+metadado de tabela, virar rolagem, coluna em fluxo vs. sobreposta — vira
+container query do container mais próximo que descreve esse espaço (`@container`
+local da página, ou `@container/conteudo` do shell quando não há um mais
+específico). Não é conversão mecânica: com o rail fechado o container tem
+`viewport − 64px`, então mapear `md`(768) para `@3xl`(768 do container) desloca
+o limiar em termos de janela para 832px — a faixa entre os dois perde o que
+antes aparecia ali. Cada conversão leva a conta ao lado, no comentário.
+
+As tabelas de `/clientes`, `/servicos` e da gestão de atendentes usam o
+terceiro degrau (rolagem horizontal interna, `overflow-x-auto` + `min-w` na
+`<table>`) desde 2026-09 — antes usavam `overflow-hidden`, que **recortava**
+em vez de rolar, contrariando esta seção. Colunas ocultáveis (`hidden` /
+`table-cell`) viram `@3xl/conteudo:table-cell` nessas telas.
 
 ---
 
@@ -835,40 +878,61 @@ valendo sem excepção.
 "Mais" leem dali — nunca existe uma segunda árvore de menu escrita à mão num
 componente. Mudar o menu é editar esse arquivo, não quatro.
 
-### 14.2 Rail de navegação — exceção deliberada ao "sem animação de largura"
+### 14.2 Rail de navegação — expande por clique e empurra o conteúdo
+
+> **Mudou em 2026-09** (`202609-CRM-AJUSTE-menu-empurra-conteudo`): o rail
+> deixou de abrir por hover e de sobrepor o conteúdo. As duas mudanças são a
+> mesma decisão — sem hover não sobra instante nenhum em que "cobrir em vez de
+> empurrar" evitasse reflow acidental, porque não há mais abertura acidental.
 
 O rail (`components/layout/rail-de-navegacao.tsx`) é a mesma "lombada do
 livro" da seção 10.3 — única grande superfície escura, item ativo em `branco`
 com texto `selo` contando para o limite de 3 ocorrências de bordô. O que muda:
 
-- **Fechado, 64px, só ícones.** Abre por hover com intenção (**160ms** para
-  abrir, **320ms** para fechar — cada evento cancela o timer contrário) e por
-  foco de teclado, que TRAVA o painel aberto enquanto o foco estiver dentro.
-  Os 90ms originais abriam o painel com o ponteiro só atravessando a borda, e o
-  resultado era sensação de coisa brusca; 160ms absorve a passagem acidental e
-  ainda fica dentro da janela em que o movimento se lê como resposta.
-- **Escolher um destino recolhe o painel na hora.** Fica num efeito sobre
-  `location.pathname`, não num `onClick` dos itens: a navegação também acontece
-  por submenu, por teclado e pelo histórico do navegador, e o `onClick` cobriria
-  só um dos caminhos.
-- **O painel aberto (256px) é OVERLAY sobre o conteúdo**, não uma coluna em
-  fluxo — por isso ele **pode** animar largura, ao contrário das colunas das
-  seções 10.3 e 10.7 (lista de conversas, menu antigo), que continuam sem
-  animação porque são colunas em fluxo e reflow no meio de uma tela com fio de
-  mensagens rolando fica torto. Aqui não há reflow: o rail expandido cobre o
-  conteúdo, e os ícones da faixa de 64px não se movem 1 pixel.
-- **Fixar aberto** é um botão de 24px no rodapé do painel, sem hambúrguer.
-  Preferência em `localStorage` (`crm-cartorio.menu-fixado`), ignorada abaixo
-  de 1280px pela mesma razão do menu antigo (a lista de 360px não cabe do
-  lado de um rail de 256px fixo).
-- **Não existe tooltip no rail**, e a ausência é deliberada — removida em
-  2026-08-21 por ser defeituosa por construção. O rail abre no hover em 160ms,
-  então a única janela em que o tooltip podia aparecer eram esses 160ms antes de
-  o painel mostrar o rótulo de verdade: com o atraso de 500ms do
-  `TooltipProvider` ele nunca aparecia, e com o `skipDelayDuration` de 300ms
-  piscava. Pior, ele **ficava preso** na tela, porque o componente alternava
-  entre controlado (`open={false}`) e não controlado (`open={undefined}`), e
-  voltar para não controlado restaura o estado interno do Radix.
+- **Fechado, 64px, só ícones. Expande SÓ por clique**, no controle do rodapé
+  do painel — não existe mais hover-intent. A preferência persiste em
+  `localStorage` e vale em qualquer largura onde o rail existe (`md` para
+  cima, ≥768px); não há mais gate de 1280px.
+- **Escolher um destino NÃO recolhe o painel.** Antes disso acontecia num
+  efeito sobre `location.pathname`, para o hover não ficar preso aberto sobre
+  a página nova. Sem hover, expandir é escolha deliberada e persistida do
+  atendente — recolher a cada navegação destruiria essa escolha a cada
+  clique, que é o oposto do que o clique pediu.
+- **O painel expandido (256px) EMPURRA o conteúdo — não é mais overlay.** A
+  largura reservada pelo espaçador em fluxo e a largura do `<aside>` vêm da
+  MESMA custom property, `--largura-do-rail`, publicada pelo `Shell`
+  (`components/layout/shell.tsx`) a partir do contexto do rail
+  (`contexto-do-rail.tsx`) — os dois elementos não podem dessincronizar
+  porque leem o mesmo valor. A área de conteúdo carrega `@container/conteudo`
+  para reagir à largura que sobra (seção 12.4, e as telas que dependem disso).
+  Isto alinha o rail com as colunas das seções 10.3 e 10.7 — nenhuma delas é
+  mais exceção à regra de "coluna em fluxo não anima largura sozinha sem
+  cuidado": a transição continua existindo (`--duracao-padrao`, 180ms), mas o
+  gatilho agora é clique raro e deliberado, não hover contínuo — o custo de
+  reflow que a versão anterior evitava de propósito deixou de se repetir a
+  cada passagem do mouse.
+- **Regressão de acessibilidade e mitigação.** Sem hover, tabular por dez
+  ícones de 16px sem rótulo nenhum é navegar às cegas — problema do usuário
+  **vidente** de teclado (quem usa leitor de tela continua OK: o rótulo nunca
+  sai do DOM, ver abaixo). Mitigação: foco de teclado dentro do rail expande o
+  `<aside>` num **overlay transitório**, com sombra — o espaçador em fluxo NÃO
+  muda, ninguém é empurrado, e a expansão desfaz assim que o foco sai. Não
+  persiste e não contradiz a decisão acima, que é sobre o estado escolhido
+  pelo clique. Atalho de teclado **Ctrl/Cmd+B** alterna o estado persistido de
+  qualquer lugar da tela.
+- **O botão do rodapé é o único controle de expansão.** 40px de altura por
+  48px úteis (a "célula" de 24px do texto original descrevia o ícone, não o
+  alvo). Nome acessível é o `<span>` de texto visível ("Expandir menu" /
+  "Recolher menu"), **sem** `aria-label`, `aria-pressed` nem `aria-expanded`:
+  nada some do DOM quando ele é acionado (os rótulos do rail continuam em
+  `opacity-0`, legíveis por leitor de tela), então nenhum dos três atributos
+  descreveria a ação sem prometer algo que não acontece. `title` traz o
+  atalho para quem passa o mouse.
+- **Não existe tooltip no rail**, e a ausência continua deliberada — removida
+  em 2026-08-21 por ser defeituosa por construção (o Radix alternava entre
+  controlado e não controlado e o balão ficava preso na tela). Sem hover, não
+  sobra nenhuma janela em que um tooltip precisaria aparecer sozinho: quem
+  quer o nome de um ícone clica e o vê por extenso, com o resto do menu.
 - **`className` do `NavLink` nunca é função.** A regra nasceu do `Slot` do Radix
   estringificando a função ao mesclar classes; o tooltip saiu, a forma fica —
   o estado ativo é calculado fora (`pathname` comparado à rota) e passado como
@@ -1172,9 +1236,10 @@ velocidade), **Attio** (estrutura de CRM, organização dos módulos) e **Vercel
 (gráficos, indicadores, leitura operacional). O pedido foi textual: *"não quero
 que copie nada, pegue referências"*.
 
-Do que veio: hover-intent no menu com transição de largura, cartão elevado com
-raio maior, número de indicador grande e bold, realce de coluna no gráfico,
-pílulas segmentadas de filtro.
+Do que veio: hover-intent no menu com transição de largura (o hover saiu em
+2026-09, ver 14.2 — a transição de largura ficou, mas por clique), cartão
+elevado com raio maior, número de indicador grande e bold, realce de coluna no
+gráfico, pílulas segmentadas de filtro.
 
 Do que **não** veio: o fundo escuro, a paleta fria, o glow neon e o tipo de
 letra dessas telas. A paleta de papel e tinta da seção 2 é o que diferencia o

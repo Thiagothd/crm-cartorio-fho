@@ -18,7 +18,7 @@ export function AbaAtendentes({ de, ate, ativa }: { de: string; ate: string; ati
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 @xl:grid-cols-2 @5xl:grid-cols-4">
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />
@@ -48,7 +48,14 @@ export function AbaAtendentes({ de, ate, ativa }: { de: string; ate: string; ati
 
   return (
     <div className="grade-com-vida flex flex-col gap-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Container query (`@xl`/`@5xl`), não breakpoint de tela: quem
+          aperta esta grade e a largura que sobra do container `@container`
+          de pagina-indicadores.tsx, apos o padding e o `max-w-6xl` — o rail
+          empurrando o conteudo muda isso sem a janela mudar de tamanho.
+          `@xl`(576) e conversao exata de `sm:`(640) menos o padding; `@5xl`
+          (1024) fica abaixo de `@6xl` para nao regredir a 2 colunas num
+          monitor de 1440px com o rail aberto (1184-48=1136px de conteudo). */}
+      <div className="grid gap-4 @xl:grid-cols-2 @5xl:grid-cols-4">
         <CartaoDeIndicador
           rotulo="Atendentes ativos"
           valor={formatarNumero(data.totalDeAtendentes)}
