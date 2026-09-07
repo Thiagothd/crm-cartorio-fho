@@ -6,6 +6,7 @@ import { CabecalhoGlobal } from './cabecalho-global'
 import { NavegacaoInferior } from './navegacao-inferior'
 import { FolhaMais } from './folha-mais'
 import { ContextoDoContainerDeAcoes } from './contexto-de-acoes-da-pagina'
+import { ProvedorDaBuscaGlobal } from './contexto-de-busca-global'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 
 /** `/atendimentos/:id` — a conversa já tem cabeçalho e navegação próprios. */
@@ -95,21 +96,23 @@ export function Shell({ children }: { children: ReactNode }) {
     // bloco container que faltava, e o recorte que já existia passa a valer.
     // Sem z-index: `relative` sozinho não cria contexto de empilhamento, então
     // nada muda de ordem.
-    <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-papel">
-      <RailDeNavegacao />
+    <ProvedorDaBuscaGlobal>
+      <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-papel">
+        <RailDeNavegacao />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <CabecalhoGlobal ocultoNoCelular={emConversa} aoRegistrarContainerDeAcoes={setContainerDeAcoes} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <CabecalhoGlobal ocultoNoCelular={emConversa} aoRegistrarContainerDeAcoes={setContainerDeAcoes} />
 
-        <ContextoDoContainerDeAcoes.Provider value={containerDeAcoes}>
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
-        </ContextoDoContainerDeAcoes.Provider>
+          <ContextoDoContainerDeAcoes.Provider value={containerDeAcoes}>
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
+          </ContextoDoContainerDeAcoes.Provider>
 
-        {!emConversa ? <NavegacaoInferior aoAbrirMais={() => setFolhaMaisAberta(true)} /> : null}
+          {!emConversa ? <NavegacaoInferior aoAbrirMais={() => setFolhaMaisAberta(true)} /> : null}
+        </div>
+
+        <FolhaMais aberta={folhaMaisAberta} aoFechar={() => setFolhaMaisAberta(false)} />
       </div>
-
-      <FolhaMais aberta={folhaMaisAberta} aoFechar={() => setFolhaMaisAberta(false)} />
-    </div>
+    </ProvedorDaBuscaGlobal>
   )
 }
 

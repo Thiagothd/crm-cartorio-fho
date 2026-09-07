@@ -28,6 +28,7 @@ export interface FiltrosVisiveis {
   etapaId?: string
   situacaoPrazo?: SituacaoPrazo
   apenasEncerradasHoje?: boolean
+  apenasAguardandoResposta?: boolean
   escopo: 'todas' | 'minhas' | 'fila'
   busca: string
 }
@@ -41,6 +42,7 @@ export function filtrosParaConsulta(filtros: FiltrosVisiveis): FiltroDeConversas
     apenasMinhas: filtros.escopo === 'minhas',
     apenasNaFila: filtros.escopo === 'fila',
     apenasEncerradasHoje: filtros.apenasEncerradasHoje,
+    apenasAguardandoResposta: filtros.apenasAguardandoResposta,
     busca: filtros.busca.trim() || undefined,
     tamanho: 60,
   }
@@ -62,7 +64,8 @@ export function temFiltroAplicado(filtros: FiltrosVisiveis) {
     Boolean(filtros.setorId) ||
     Boolean(filtros.etapaId) ||
     Boolean(filtros.situacaoPrazo) ||
-    Boolean(filtros.apenasEncerradasHoje)
+    Boolean(filtros.apenasEncerradasHoje) ||
+    Boolean(filtros.apenasAguardandoResposta)
   )
 }
 

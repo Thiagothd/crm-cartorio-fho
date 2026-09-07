@@ -97,6 +97,27 @@ Checar("Filtro: EmDia", () =>
                  && (c.PrazoAlertaEm == null || agora < c.PrazoAlertaEm))
         .ToQueryString());
 
+// A regra de "o cartorio esta devendo resposta" entra na inbox como Expression
+// compartilhada, nao como lambda reescrita — se ela deixar de traduzir, o card da
+// Visao Geral e a lista que ele abre caem juntos.
+Checar("Filtro: aguardando resposta (Expression compartilhada, APPLY no WHERE)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens))
+        .ToQueryString());
+
+// O caso real da inbox: o APPLY do filtro CONVIVENDO com os oito da projecao,
+// com ordenacao e paginacao por cima. E' a combinacao, nao o filtro sozinho,
+// que estoura em execucao.
+Checar("Inbox: aguardando resposta + projecao completa + paginacao", () =>
+    ProjecaoDeConversa
+        .De(db, db.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+            .Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens))
+            .OrderByDescending(c => c.UltimaMensagemEm))
+        .Skip(0).Take(60)
+        .ToQueryString());
+
 // 3. Busca textual da inbox — Any() cruzando com Clientes.
 Checar("Filtro: busca textual", () =>
     db.Conversas.AsNoTracking()
@@ -436,6 +457,53 @@ Checar("Indicadores: bloco AGORA (GroupBy constante, 4 Count com predicado)", ()
         {
             Ativas = g.Count(c => escopo == null || c.AtendenteId == escopo),
             NaFila = g.Count(c => c.AtendenteId == null),
+            EmAlerta = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora <= c.PrazoLimite
+                && c.PrazoAlertaEm != null
+                && agora >= c.PrazoAlertaEm),
+            Atrasadas = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora > c.PrazoLimite)
+        })
+        .ToQueryString();
+});
+
+// O bloco AGORA com a quinta contagem. Dois pontos delicados no mesmo lugar: o
+// `GroupBy(_ => 1)` (ver acima) e a subconsulta correlacionada da bandeira de
+// "aguardando resposta", que sai na PROJECAO de proposito — dentro de
+// `g.Count(...)` seria subconsulta no argumento de um agregado, que o EF recusa
+// com frequencia. Esta e a unica copia do corpo de
+// AguardandoRespostaDoCartorio.Expressao no sistema: se as duas divergirem, o
+// card e a lista passam a mentir um sobre o outro.
+Checar("Indicadores: bloco AGORA com 5 contagens (bandeira por APPLY + GroupBy constante)", () =>
+{
+    Guid? escopo = null;
+
+    return db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Select(c => new
+        {
+            c.AtendenteId,
+            c.PrazoLimite,
+            c.PrazoAlertaEm,
+            AguardandoResposta = db.Mensagens
+                .Where(m => m.ConversaId == c.Id
+                         && (m.AutorTipo != AutorTipo.Sistema || m.EhAutomatica))
+                .OrderByDescending(m => m.EnviadaEm)
+                .ThenByDescending(m => m.Id)
+                .Select(m => m.AutorTipo)
+                .FirstOrDefault() == AutorTipo.Cliente
+        })
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Ativas = g.Count(c => escopo == null || c.AtendenteId == escopo),
+            NaFila = g.Count(c => c.AtendenteId == null),
+            AguardandoResposta = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo) && c.AguardandoResposta),
             EmAlerta = g.Count(c =>
                 (escopo == null || c.AtendenteId == escopo)
                 && c.PrazoLimite != null

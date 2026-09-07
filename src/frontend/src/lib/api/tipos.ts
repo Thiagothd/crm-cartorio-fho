@@ -316,6 +316,7 @@ export interface ContagemPorChave {
 export interface ResumoDoPainel {
   totalAtivas: number
   naFila: number
+  aguardandoResposta: number
   minhasConversas: number
   encerradasHoje: number
   emAlerta: number
@@ -333,6 +334,7 @@ export interface FiltroDeConversas {
   apenasNaFila?: boolean
   apenasMinhas?: boolean
   apenasEncerradasHoje?: boolean
+  apenasAguardandoResposta?: boolean
   situacaoPrazo?: SituacaoPrazo
   busca?: string
   pagina?: number
@@ -702,6 +704,7 @@ export interface IndicadoresAgora {
   naFila: number
   emAlerta: number
   atrasadas: number
+  aguardandoResposta: number
 }
 
 export interface IndicadoresDoPeriodo {

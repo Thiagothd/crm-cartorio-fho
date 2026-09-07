@@ -66,6 +66,14 @@ public class ConversaService(
             consulta = consulta.Where(c => c.AtendenteId == null);
         }
 
+        if (filtro.ApenasAguardandoResposta)
+        {
+            // Mesma expressao que o card "Aguardando resposta" da Visao Geral e o
+            // painel de resumo contam. Regra unica, nunca reescrita aqui — ver
+            // AguardandoRespostaDoCartorio.
+            consulta = consulta.Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens));
+        }
+
         if (filtro.ApenasEncerradasHoje)
         {
             // Mesmo limite de dia que ResumoDoPainelAsync usa para contar, de modo
@@ -173,6 +181,8 @@ public class ConversaService(
 
         var totalAtivas = await ativas.CountAsync(ct);
         var naFila = await ativas.CountAsync(c => c.AtendenteId == null, ct);
+        var aguardandoResposta = await ativas.CountAsync(
+            AguardandoRespostaDoCartorio.Expressao(db.Mensagens), ct);
         var minhas = await ativas.CountAsync(c => c.AtendenteId == eu, ct);
 
         var encerradasHoje = await db.Conversas.AsNoTracking()
@@ -242,7 +252,7 @@ public class ConversaService(
         }
 
         return new PainelResumoResponse(
-            totalAtivas, naFila, minhas, encerradasHoje, emAlerta, atrasadas, porEtapa, porSetor);
+            totalAtivas, naFila, aguardandoResposta, minhas, encerradasHoje, emAlerta, atrasadas, porEtapa, porSetor);
     }
 
     // ----------------------------------------------------------------- escrita

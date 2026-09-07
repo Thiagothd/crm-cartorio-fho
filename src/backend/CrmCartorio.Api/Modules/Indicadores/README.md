@@ -41,6 +41,25 @@ essa leitura em memória barata.
 Qualquer perfil pode pedir os dois — não é gate de permissão, é preferência de
 tela. A fila (`AtendenteId IS NULL`) nunca é filtrada por escopo: não existe
 "minha fila", fila é por definição o que ainda não tem responsável.
+`AguardandoResposta` segue o escopo como `Ativas`/`EmAlerta`/`Atrasadas` — só
+`NaFila` é global.
+
+## "Aguardando resposta" não é "não lida"
+
+O bloco AGORA tem uma quinta contagem: conversas ativas em que a **última
+mensagem real do fio** é do cliente — o cartório está devendo resposta agora.
+A regra vive em `Modules/Atendimento/Domain/AguardandoRespostaDoCartorio.cs` e
+é a mesma usada pelo filtro da inbox (`ApenasAguardandoResposta`) e pelo painel
+de resumo, para que o card da Visão Geral e a lista que ele abre nunca
+discordem.
+
+Deliberadamente **não** usa `Conversa.MensagensNaoLidas` — aquele contador mede
+"nenhum humano abriu no CRM" e nunca zera quando só a IA responde (bug de
+produção confirmado em 2026-09-03, ver `Modules/Atendimento/README.md`).
+Também não é gateada por `EmAtendimentoHumano` nem pelas flags `Aguardando*`
+do bot: o estado é transitório por construção, e se ele persiste é porque a
+automação decidiu não responder ou falhou — os dois casos são exatamente o
+que este contador existe para mostrar.
 
 ## Saúde da operação nunca amplia permissão
 

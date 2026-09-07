@@ -117,17 +117,45 @@ public class IndicadoresService(
         var ativas = db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa);
 
-        // Uma varredura das conversas ativas responde as quatro contagens. O escopo
+        // Uma varredura das conversas ativas responde as cinco contagens. O escopo
         // "minhas" entra como predicado de cada contagem, e nao como filtro da
         // consulta, porque a fila e' sempre global: nao existe "minha fila" — fila
         // e', por definicao, o que ainda nao tem responsavel.
+        //
+        // A bandeira de "aguardando resposta" sai na PROJECAO, antes do agrupamento,
+        // e nao dentro de `g.Count(...)`: subconsulta correlacionada no argumento de
+        // um agregado e' o padrao que o tradutor do EF mais recusa. Aqui ela vira um
+        // OUTER APPLY na tabela derivada e o GroupBy agrega uma coluna comum.
+        //
+        // O corpo da bandeira e' o mesmo de AguardandoRespostaDoCartorio.Expressao —
+        // a unica copia dele no sistema, e ela existe porque `g.Count()` recebe
+        // Func<>, nao Expression<>, e nao ha como injetar a expressao compartilhada
+        // dentro de uma arvore sem LINQKit. Mexeu la, mexe aqui: o verificador de
+        // traducao checa as duas formas lado a lado.
         var contagens = await ativas
+            .Select(c => new
+            {
+                c.AtendenteId,
+                c.PrazoLimite,
+                c.PrazoAlertaEm,
+                AguardandoResposta = db.Mensagens
+                    .Where(m => m.ConversaId == c.Id
+                             && (m.AutorTipo != AutorTipo.Sistema || m.EhAutomatica))
+                    .OrderByDescending(m => m.EnviadaEm)
+                    .ThenByDescending(m => m.Id)
+                    .Select(m => m.AutorTipo)
+                    .FirstOrDefault() == AutorTipo.Cliente
+            })
             .GroupBy(_ => 1)
             .Select(g => new
             {
                 Ativas = g.Count(c => apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId),
 
                 NaFila = g.Count(c => c.AtendenteId == null),
+
+                AguardandoResposta = g.Count(c =>
+                    (apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId)
+                    && c.AguardandoResposta),
 
                 EmAlerta = g.Count(c =>
                     (apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId)
@@ -146,9 +174,10 @@ public class IndicadoresService(
         // Serventia sem nenhuma conversa ativa nao devolve linha de agrupamento —
         // e' zero legitimo, nao ausencia de dado.
         return contagens is null
-            ? new IndicadoresAgoraResponse(0, 0, 0, 0)
+            ? new IndicadoresAgoraResponse(0, 0, 0, 0, 0)
             : new IndicadoresAgoraResponse(
-                contagens.Ativas, contagens.NaFila, contagens.EmAlerta, contagens.Atrasadas);
+                contagens.Ativas, contagens.NaFila, contagens.EmAlerta,
+                contagens.Atrasadas, contagens.AguardandoResposta);
     }
 
     /// <summary>
