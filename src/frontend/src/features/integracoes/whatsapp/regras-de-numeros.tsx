@@ -4,6 +4,7 @@ import { Check, Info, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { Painel } from '@/components/ui/painel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { whatsappApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
@@ -81,20 +82,24 @@ export function RegrasDeNumeros() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
+      <Painel titulo="Quem pode falar com este número">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      </Painel>
     )
   }
 
   if (isError || !data) {
     return (
-      <EstadoDaInterface
-        tipo="erro"
-        titulo="Não foi possível carregar as regras do canal"
-        descricao="Tente novamente em instantes."
-      />
+      <Painel titulo="Quem pode falar com este número">
+        <EstadoDaInterface
+          tipo="erro"
+          titulo="Não foi possível carregar as regras do canal"
+          descricao="Tente novamente em instantes."
+        />
+      </Painel>
     )
   }
 
@@ -108,15 +113,12 @@ export function RegrasDeNumeros() {
   const lista = tipoDaLista === 'Liberado' ? data.liberados : tipoDaLista === 'Bloqueado' ? data.bloqueados : []
 
   return (
-    <div className="flex flex-col gap-4 rounded-md border border-linha bg-branco p-4">
-      <div>
-        <h2 className="font-titulo text-base text-tinta">Quem pode falar com este número</h2>
-        <p className="mt-1 text-sm text-tinta-media">
-          A regra vale para os dois sentidos: número fora dela não entra, e o painel não consegue
-          enviar mensagem para ele.
-        </p>
-      </div>
-
+    <Painel
+      titulo="Quem pode falar com este número"
+      descricao="A regra vale para os dois sentidos: número fora dela não entra, e o painel não consegue enviar mensagem para ele."
+      className="flex flex-col"
+    >
+      <div className="flex flex-col gap-4">
       {data.origem === 'Appsettings' ? (
         <p className="flex items-start gap-2 rounded-md border border-linha bg-superficie px-3 py-2 text-xs text-tinta-media">
           <Info className="mt-0.5 size-3.5 shrink-0 text-tinta-fraca" />
@@ -217,6 +219,7 @@ export function RegrasDeNumeros() {
           )}
         </div>
       ) : null}
+      </div>
 
       <DialogoDeNumero
         tipo={tipoDaLista}
@@ -224,6 +227,6 @@ export function RegrasDeNumeros() {
         aoFechar={() => setDialogoAberto(false)}
         aoSalvar={recarregar}
       />
-    </div>
+    </Painel>
   )
 }

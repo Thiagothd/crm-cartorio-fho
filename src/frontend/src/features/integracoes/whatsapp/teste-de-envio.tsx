@@ -4,6 +4,7 @@ import { Check, Loader2, Send, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Painel } from '@/components/ui/painel'
 import { whatsappApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { mascararTelefone, somenteDigitos } from '@/lib/mascaras'
@@ -45,15 +46,10 @@ export function TesteDeEnvio() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-linha bg-branco p-4">
-      <div>
-        <h2 className="font-titulo text-base text-tinta">Testar envio</h2>
-        <p className="mt-1 text-sm text-tinta-media">
-          Manda uma mensagem de teste para um número, sem criar conversa nem protocolo — só para
-          confirmar que o canal está funcionando.
-        </p>
-      </div>
-
+    <Painel
+      titulo="Testar envio"
+      descricao="Manda uma mensagem de teste para um número, sem criar conversa nem protocolo — só para confirmar que o canal está funcionando."
+    >
       <div className="flex flex-col gap-1.5 sm:max-w-xs">
         <Label htmlFor="teste-telefone">Telefone</Label>
         <div className="flex gap-2">
@@ -81,8 +77,9 @@ export function TesteDeEnvio() {
 
       {resultado ? (
         <p
+          role="status"
           className={cn(
-            'flex items-start gap-2 text-sm',
+            'mt-3 flex items-start gap-2 text-sm',
             resultado.enviado ? 'text-verde' : 'text-ambar',
           )}
         >
@@ -96,6 +93,6 @@ export function TesteDeEnvio() {
             : (resultado.motivo ?? 'Não foi possível enviar.')}
         </p>
       ) : null}
-    </div>
+    </Painel>
   )
 }

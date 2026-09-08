@@ -25,6 +25,7 @@ import { respostasRapidasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { cn } from '@/lib/utils'
 import { MARCADORES } from '@/features/atendimento/placeholders'
+import { normalizarTexto as normalizar } from './normalizar-texto'
 import type { RespostaRapida } from '@/lib/api/tipos'
 
 /** Mesmo limite da coluna, igual ao da mensagem automática. */
@@ -40,13 +41,6 @@ const PILULAS: { chave: Filtro; rotulo: string }[] = [
   { chave: 'ativas', rotulo: 'Ativas' },
   { chave: 'desativadas', rotulo: 'Desativadas' },
 ]
-
-function normalizar(texto: string) {
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
 
 function marcadoresUsados(conteudo: string): string[] {
   return [...new Set(conteudo.match(MARCADOR) ?? [])]

@@ -3,8 +3,9 @@
 > **Status:** Fase 1 aprovada. Shell global, navegação e Visão Geral entregues
 > na Fase 3 (seção 14). **Fase 3.1 (2026-08-21) redirecionou a linguagem visual
 > do painel — ver seção 15 antes de aplicar as seções 1 a 4.**
-> **Última atualização:** 2026-09-07 (17.4: Automação > Mensagens migra para
-> Fase 3.1 — largura cheia, caminho automático em trilhas e `tom` do Switch)
+> **Última atualização:** 2026-09-08 (17.5: Etapas, Setores, WhatsApp e
+> Conhecimento da IA migram para Fase 3.1; correção da tabela 15.1 — Clientes e
+> Serviços já haviam migrado em 2026-09-07)
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -1194,7 +1195,9 @@ Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está 
 | Inbox, fio de mensagens, conversa | **Fase 3.2 — ver seção 16** (era Fase 1 até 2026-09-06) |
 | Equipe e permissões (`/equipe`, `/equipe/:id/permissoes`) | **Fase 3.1 — ver seção 17** (era Fase 1 até 2026-09-08) |
 | Automação > Mensagens (`/automacao/mensagens/*`) | **Fase 3.1 — ver 17.4** (era Fase 1 até 2026-09-07) |
-| Clientes, Serviços, demais telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
+| Clientes (`/clientes`) e Serviços (`/servicos`) | **Fase 3.1** (era Fase 1 até 2026-09-07 — ver `docs/AJUSTE-CLIENTES-VISUAL-EXCLUSAO.md` e `docs/AJUSTE-SERVICOS-VISUAL.md`) |
+| Estrutura da operação (`/estrutura/etapas`, `/estrutura/setores`), WhatsApp (`/integracoes/whatsapp`) e Conhecimento da IA (`/automacao/ia/conhecimento`) | **Fase 3.1 — ver 17.5** (era Fase 1 até 2026-09-08) |
+| Aparência, Segurança e o restante das telas de conta | Fase 1 — seções 1 a 12, **intactas** |
 
 A fronteira não é capricho: as telas operacionais são onde o atendente passa o
 dia, foram medidas em monitor de 1366×768 (7.1, 10.8) e a densidade delas é
@@ -1535,3 +1538,98 @@ escrever" (filtro de visualização, não configuração).
 neutro — nenhum dos dois é erro: sem o texto, o sistema continua funcionando, só
 fica em silêncio naquele momento. Com 20+ cartões na tela, qualquer acento
 semântico ali viraria parede.
+
+### 17.5 Estrutura da operação, WhatsApp e Conhecimento da IA
+
+**Decisão do Thiago, 2026-09-08.** *"quero que deixar as seguintes tela no mesmo
+estilo: Etapa, setores, whatsapp e conhecimento da IA"* — as quatro últimas
+telas de gestão que ainda estavam em Fase 1 passam para **Fase 3.1**, pelo mesmo
+argumento de 17 e 17.4: são telas de configuração esporádica, lidas em monitor
+grande, sem fio de mensagens rolando por baixo, então o orçamento vertical de
+16.1 não se aplica.
+
+Tudo o que 15.3 autoriza vale aqui — `rounded-card`, `shadow-card`,
+`grade-com-vida`, `hover:-translate-y-0.5`, `font-dado` nos números — e tudo o
+que 15.4 proíbe continua proibido.
+
+#### A moldura não é a mesma para todas, e isso é critério
+
+| Tela | Teto | Por quê |
+| --- | --- | --- |
+| Etapas, Setores, WhatsApp | `max-w-[1600px]` | São listas e cadastro, como Equipe, Clientes, Serviços e Mensagens |
+| Conhecimento da IA | `max-w-6xl` (1152px) | Divide a moldura com a aba **Situação**, que é PAINEL de gráficos — família de Visão Geral e Indicadores, que medem 1152px |
+
+Mensagens subiu para 1600px (17.4) por conta do conteúdo — o caminho automático
+passa de 20 pontos —, não por regra geral. Em `/automacao/ia` subir o teto
+deixaria o painel de gráficos mais largo que os painéis irmãos e faria a barra
+de abas mudar de largura entre as duas seções. As quatro ganharam `@container`
+local (12.4).
+
+#### Ordem é significado: `<ol>`, e as setas ficam visíveis
+
+Etapas e Setores viraram **coluna única de linha-cartão**, não grade que reflui.
+No funil, "para cima" quer dizer "antes no atendimento"; numa grade de duas
+colunas isso deixa de ser verdade na quebra de linha. As duas listas são `<ol>`
+— a ordem é lida junto com o nome por quem usa leitor de tela.
+
+Pelo mesmo motivo, **as setas de reordenar não somem no hover**, diferente das
+ações de linha da Equipe (17): reordenar é a ação principal desta tela, não uma
+ação secundária. Setor não tem endpoint de reordenação — a ordem dele se ajusta
+pelo campo do cadastro, e a linha traz só o lápis.
+
+O marcador da esquerda de Etapas é a **mini-pílula preenchida de 2.2**, com o
+trio fundo/tinta/borda da própria etapa carregando a posição no funil. Em
+Setores ele é neutro: cor de etapa não aparece em listagem que não é de etapa.
+
+#### WhatsApp: o que a largura devolvida comprou
+
+Era uma coluna de `max-w-2xl` (**672px**) com cinco blocos empilhados — numa
+tela de 1440px sobravam ~770px vazios. Agora:
+
+- **duas colunas** a partir de `@4xl` — à esquerda o CANAL (conexão e quem pode
+  falar com ele, o que se vem configurar), à direita a PROVA (teste de envio e o
+  que o filtro barrou, o que se lê para conferir). A esquerda é mais larga
+  (`1.35fr`) porque leva a única tabela com ação de linha;
+- **o histórico de conexões ocupa a largura inteira**, fora das duas colunas:
+  são quatro colunas de data e número, e na coluna estreita cada linha quebrava
+  em três. Rolar na horizontal para ler data é pior que usar a largura que já
+  estava sobrando;
+- os cinco blocos deixaram de remontar à mão `rounded-md border bg-branco p-4` +
+  `<h2>` e passaram a usar o componente `Painel`, que já é o cartão de 15.2.
+
+**O QR não mudou de tamanho nem de fundo.** Ele é leitura por câmera: `bg-white`
+fixo, contraste alto, e a textura de papel por trás atrapalharia. Nada da
+máquina de estado do pareamento (poll de 5s, contagem do bloqueio de 30s da
+Meta, QR que vive fora do cache) foi tocado — a mudança é de moldura.
+
+#### Conhecimento da IA: a vigência é o dado que faltava
+
+A tabela virou **grade de cartões**, pela razão já registrada em 17.4: o dado
+principal é um parágrafo de até 2000 caracteres. Na tabela antiga ele não tinha
+nem coluna — só aparecia no celular, cortado em duas linhas.
+
+A tela ganhou a distinção que o cadastro sempre teve e a interface não mostrava:
+**"em uso pela IA" não é "cadastrado"**. `MontadorDeContexto` lê apenas o que
+está ativo E dentro da janela de vigência, então um cadastro pode estar salvo,
+correto e mudo. O indicador "Em uso" conta o primeiro conjunto, "Fora de
+vigência" conta o segundo (em `ambar`, nunca bordô — é silêncio deliberado ou
+esquecimento, não erro), e o filtro repete os mesmos dois nomes.
+
+A busca varre o CONTEÚDO, não só o título: quem abre esta tela lembra do que
+escreveu, não de como nomeou o cadastro.
+
+#### Orçamento de bordô
+
+Duas ocorrências em cada uma, dentro do teto de 2.1: o item ativo do rail e a
+ação primária no cabeçalho global (`Nova Etapa`, `Novo Setor`, `Novo
+Conhecimento`). WhatsApp não tem ação primária no cabeçalho — a segunda
+ocorrência lá é **Desconectar**, que é `destructive`, e `--cor-erro` é o próprio
+`--cor-selo`. Nenhum indicador gasta bordô em nenhuma das quatro.
+
+#### O que estas quatro telas ganharam além do visual
+
+Os três estados que faltavam nas quatro: **carregando com a forma do elemento
+final** (não um bloco genérico), **erro com "Tentar de novo"** — antes a consulta
+falhava e a lista simplesmente sumia — e **vazio com a ação de criar o
+primeiro**. E a recusa do servidor passou a cair no diálogo (11.5), não num
+toast que some antes de a pessoa ler.

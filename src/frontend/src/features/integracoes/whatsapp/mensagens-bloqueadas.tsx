@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { Painel } from '@/components/ui/painel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { whatsappApi } from '@/lib/api/endpoints'
 import { formatarDataHora, formatarTelefone } from '@/lib/formatacao'
@@ -18,14 +19,10 @@ export function MensagensBloqueadas() {
   })
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-linha bg-branco p-4">
-      <div>
-        <h2 className="font-titulo text-base text-tinta">Mensagens bloqueadas</h2>
-        <p className="mt-1 text-sm text-tinta-media">
-          Quem tentou falar com o canal e foi descartado pela regra de números acima.
-        </p>
-      </div>
-
+    <Painel
+      titulo="Mensagens bloqueadas"
+      descricao="Quem tentou falar com o canal e foi descartado pela regra de números."
+    >
       {isLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : isError || !data ? (
@@ -35,9 +32,11 @@ export function MensagensBloqueadas() {
           descricao="Tente novamente em instantes."
         />
       ) : (
-        <>
+        <div className="flex flex-col gap-3">
           <p className="text-sm text-tinta">
-            <span className="font-titulo text-2xl text-tinta">{data.totalHoje}</span>{' '}
+            <span className="font-dado text-2xl font-bold tracking-tight text-tinta">
+              {data.totalHoje}
+            </span>{' '}
             <span className="text-tinta-media">
               {data.totalHoje === 1 ? 'mensagem bloqueada' : 'mensagens bloqueadas'} nas últimas 24h
             </span>
@@ -62,8 +61,8 @@ export function MensagensBloqueadas() {
               ))}
             </ul>
           )}
-        </>
+        </div>
       )}
-    </div>
+    </Painel>
   )
 }

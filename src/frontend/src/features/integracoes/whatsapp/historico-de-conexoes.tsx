@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { Painel } from '@/components/ui/painel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { whatsappApi } from '@/lib/api/endpoints'
 import { formatarDataHora, formatarTelefone } from '@/lib/formatacao'
@@ -20,14 +21,10 @@ export function HistoricoDeConexoes() {
   })
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-linha bg-branco p-4">
-      <div>
-        <h2 className="font-titulo text-base text-tinta">Histórico de conexões</h2>
-        <p className="mt-1 text-sm text-tinta-media">
-          Quando cada número conectou, quando caiu, e por quê.
-        </p>
-      </div>
-
+    <Painel
+      titulo="Histórico de conexões"
+      descricao="Quando cada número conectou, quando caiu, e por quê."
+    >
       {isLoading ? (
         <Skeleton className="h-32 w-full" />
       ) : isError || !data ? (
@@ -78,6 +75,6 @@ export function HistoricoDeConexoes() {
           </table>
         </div>
       )}
-    </div>
+    </Painel>
   )
 }

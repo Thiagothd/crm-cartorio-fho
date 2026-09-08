@@ -63,8 +63,14 @@ export function PaginaIa() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-6">
+      {/* Teto de `max-w-6xl` de propósito, diferente de Equipe/Mensagens
+          (1600px): metade desta tela é PAINEL de leitura (Situação, com
+          gráficos), e ela pertence à mesma família de Visão Geral e
+          Indicadores — que medem 1152px. O `@container` local é o que deixa a
+          grade de Conhecimento medir a largura que sobra depois do padding e
+          do teto, e não a do shell (DESIGN.md 12.4). */}
+      <div className="@container mx-auto flex max-w-6xl flex-col gap-4">
         <AbasDeSecao
           base="/automacao/ia"
           secoes={SECOES}
