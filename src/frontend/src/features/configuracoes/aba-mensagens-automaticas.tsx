@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 // MessageSquarePlus, e nao um icone de robo: a interface e livro de registro, nao
 // painel de SaaS (DESIGN.md, secao 1). O icone diz "falta cadastrar mensagem", que
 // e o que o estado vazio significa.
-import { MessageSquarePlus, Pencil, Plus } from 'lucide-react'
+import { LayoutGrid, List, MessageSquarePlus, Plus, Search } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 import {
   Select,
   SelectContent,
@@ -26,11 +28,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { AcoesDaPagina } from '@/components/layout/contexto-de-acoes-da-pagina'
 import { EstadoVazio } from '@/components/layout/shell'
 import { etapasApi, mensagensAutomaticasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { usarPreferenciaDeTexto } from '@/lib/usar-preferencia-local'
+import { cn } from '@/lib/utils'
 import { MARCADORES } from '@/features/atendimento/placeholders'
 import { FluxoDeMensagens } from './fluxo-de-mensagens'
+import { ListaDeMensagensAutomaticas } from './lista-de-mensagens-automaticas'
+import { ResumoDasMensagens } from './resumo-das-mensagens'
+import {
+  contarFluxo,
+  explicacaoDoGatilho,
+  GATILHOS,
+  montarTrilhas,
+} from './topologia-do-fluxo'
 import type { Etapa, GatilhoDeMensagem, MensagemAutomatica } from '@/lib/api/tipos'
 
 /**
@@ -40,100 +53,18 @@ import type { Etapa, GatilhoDeMensagem, MensagemAutomatica } from '@/lib/api/tip
  */
 const LIMITE_DO_TEXTO = 1000
 
-/**
- * Espelho de `GatilhoDeMensagem` no backend. É lista fechada porque cada valor
- * corresponde a um ponto de código que precisa existir para disparar — gatilho novo
- * exige release. O que é cadastro é o TEXTO e QUAL etapa dispara.
- */
-const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: string }[] = [
-  {
-    valor: 'PedidoDeNome',
-    rotulo: 'Contato sem nome no WhatsApp',
-    explicacao:
-      'Sai antes das boas-vindas, só quando o perfil do contato não traz um nome utilizável (".", emoji, vazio). Depois da resposta, o menu sai já com o nome certo. Não use {NomeCliente} aqui: esta mensagem existe justamente porque ainda não há nome. Sem este texto o sistema manda o menu de sempre.',
-  },
-  {
-    valor: 'NovoAtendimento',
-    rotulo: 'Primeiro contato do cliente',
-    explicacao:
-      'Sai quando a conversa é aberta sem setor definido. Use {MenuSetores} para o cliente escolher o assunto.',
-  },
-  {
-    valor: 'TriagemSemCorrespondencia',
-    rotulo: 'Cliente não escolheu setor no menu',
-    explicacao:
-      'Sai quando a resposta ao menu não corresponde a nenhum setor. Depois disso o atendimento segue com uma pessoa.',
-  },
-  {
-    valor: 'TriagemComCorrespondencia',
-    rotulo: 'Setor reconhecido, falta escolher o serviço',
-    explicacao:
-      'Sai logo depois que o cliente acerta o setor no menu. Use {MenuServicos} para o cliente escolher o serviço específico.',
-  },
-  {
-    valor: 'ServicoEscolhido',
-    rotulo: 'Cliente escolheu o serviço',
-    explicacao:
-      'Sai quando o cliente identifica o serviço no menu de 2º nível. Use {DocumentosNecessarios} e {PrazoServico}.',
-  },
-  {
-    valor: 'MenuDeContinuacao',
-    rotulo: 'Atendimento estruturado terminou',
-    explicacao:
-      'Sai logo depois do checklist de documento, oferecendo continuar, trocar de setor, falar com atendente ou encerrar.',
-  },
-  {
-    valor: 'PedidoDeAtendente',
-    rotulo: 'Pediu atendente no meio do atendimento',
-    explicacao:
-      'Sai quando o cliente pede pessoa/atendente DEPOIS de já identificado — diferente do fallback de primeiro contato.',
-  },
-  {
-    valor: 'Despedida',
-    rotulo: 'Cliente escolheu encerrar',
-    explicacao: 'Sai quando o cliente escolhe "Encerrar atendimento" no menu de continuação.',
-  },
-  {
-    valor: 'EncerramentoPeloAtendente',
-    rotulo: 'Atendente encerrou o atendimento',
-    explicacao:
-      'Sai quando um atendente encerra a conversa pelo painel. Diferente de "Cliente escolheu encerrar": ali quem fechou foi o cliente. Sem este texto o atendimento encerra do mesmo jeito, só sem avisar. O motivo digitado no encerramento NÃO vai para o cliente — fica só no registro interno.',
-  },
-  {
-    valor: 'RespostaSemCorrespondencia',
-    rotulo: 'IA sem resposta específica',
-    explicacao:
-      'Sai quando a IA não encontra resposta no catálogo cadastrado E o cliente não pediu atendente. Nunca promete atendente — convida a pedir um se quiser.',
-  },
-  {
-    valor: 'ConfirmacaoDeEncerramento',
-    rotulo: 'Conversa parada: posso encerrar?',
-    explicacao:
-      'Sai depois do tempo de silêncio configurado em Automação > Encerramento automático. Mantenha o menu numerado no texto: é por "1" e "2" que o sistema entende a resposta.',
-  },
-  {
-    valor: 'EncerramentoPorInatividade',
-    rotulo: 'Encerrado por falta de resposta',
-    explicacao:
-      'Sai quando o cliente não responde à pergunta acima e a conversa encerra sozinha. Sem este texto a conversa encerra do mesmo jeito, só sem avisar.',
-  },
-  {
-    valor: 'EtapaAlterada',
-    rotulo: 'Atendimento muda de etapa',
-    explicacao: 'Sai quando a conversa entra na etapa escolhida abaixo.',
-  },
-  {
-    valor: 'PrazoProximoVencimento',
-    rotulo: 'Prazo perto de vencer',
-    explicacao:
-      'Sai no percentual de alerta já configurado em cada serviço, na tela de Serviços.',
-  },
-  {
-    valor: 'PrazoVencido',
-    rotulo: 'Prazo vencido',
-    explicacao: 'Sai quando o prazo-limite do serviço passa.',
-  },
-]
+const VISOES = ['fluxo', 'lista'] as const
+type Visao = (typeof VISOES)[number]
+
+/** A escolha entre desenho e cadastro é de gosto de quem trabalha, e persiste. */
+const CHAVE_DA_VISAO = 'crm-cartorio.mensagens.visao'
+
+function normalizar(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
 
 export function AbaMensagensAutomaticas() {
   const [emEdicao, setEmEdicao] = useState<MensagemAutomatica | null>(null)
@@ -143,9 +74,13 @@ export function AbaMensagensAutomaticas() {
   } | null>(null)
   const [aberto, setAberto] = useState(false)
 
+  const [visao, definirVisao] = usarPreferenciaDeTexto<Visao>(CHAVE_DA_VISAO, 'fluxo', VISOES)
+  const [somentePendentes, setSomentePendentes] = useState(false)
+  const [busca, setBusca] = useState('')
+
   const clienteDeConsultas = useQueryClient()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['mensagens-automaticas-gestao'],
     queryFn: () => mensagensAutomaticasApi.listar(true),
   })
@@ -154,6 +89,21 @@ export function AbaMensagensAutomaticas() {
     queryKey: ['etapas-gestao'],
     queryFn: () => etapasApi.listar(true),
   })
+
+  const mensagens = useMemo(() => data ?? [], [data])
+  const trilhas = useMemo(() => montarTrilhas(etapas ?? []), [etapas])
+  const contagem = useMemo(() => contarFluxo(trilhas, mensagens), [trilhas, mensagens])
+
+  const filtradas = useMemo(() => {
+    const alvo = normalizar(busca.trim())
+    if (!alvo) return mensagens
+
+    return mensagens.filter((m) =>
+      [m.gatilhoDescrito, m.conteudo, m.etapaAlvoNome ?? ''].some((campo) =>
+        normalizar(campo).includes(alvo),
+      ),
+    )
+  }, [mensagens, busca])
 
   function recarregar() {
     void clienteDeConsultas.invalidateQueries({ queryKey: ['mensagens-automaticas-gestao'] })
@@ -165,107 +115,149 @@ export function AbaMensagensAutomaticas() {
     setAberto(true)
   }
 
-  /** Chamado pelo trilho: edita, se o ponto já tem mensagem, ou abre em modo novo já com o gatilho certo. */
-  function abrirPonto(gatilho: GatilhoDeMensagem, etapaAlvoId: string | null, existente: MensagemAutomatica | null) {
+  /** Chamado pelo fluxo: edita, se o ponto já tem mensagem, ou abre em modo novo já com o gatilho certo. */
+  function abrirPonto(
+    gatilho: GatilhoDeMensagem,
+    etapaAlvoId: string | null,
+    existente: MensagemAutomatica | null,
+  ) {
     setEmEdicao(existente)
     setPreenchimento(existente ? null : { gatilho, etapaAlvoId })
     setAberto(true)
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <p className="max-w-2xl text-sm text-tinta-media">
-          Mensagens que o sistema envia <strong className="text-tinta">sozinho</strong> quando um
-          evento do atendimento acontece. Os textos abaixo são rascunho e aguardam a redação do
-          cartório parceiro.
-        </p>
-
-        <Button size="sm" className="sm:shrink-0" onClick={abrirNova}>
-          <Plus />
-          Nova mensagem
+    <div className="flex flex-col gap-4">
+      {/* A ação primária vai para o cabeçalho global, como em Equipe e
+          Clientes — a tela não desenha o próprio cabeçalho desde a Fase 3. */}
+      <AcoesDaPagina>
+        <Button size="sm" onClick={abrirNova}>
+          <Plus aria-hidden="true" />
+          <span>
+            Nova<span className="hidden lg:inline"> mensagem</span>
+          </span>
         </Button>
-      </div>
+      </AcoesDaPagina>
 
-      <FluxoDeMensagens mensagens={data ?? []} etapas={etapas ?? []} aoClicarPonto={abrirPonto} />
+      <p className="max-w-3xl text-sm text-tinta-media">
+        Mensagens que o sistema envia <strong className="text-tinta">sozinho</strong> quando um
+        evento do atendimento acontece. Cada ponto do caminho abaixo é uma dessas mensagens —
+        clique para escrever ou ajustar o texto.
+      </p>
 
       {isLoading ? (
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : data?.length ? (
-        <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full table-fixed text-sm md:table-auto">
-            <thead className="bg-superficie text-xs text-tinta-media">
-              <tr>
-                <th className="px-3 py-2.5 text-left font-medium md:w-72 md:px-4">Quando dispara</th>
-                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Mensagem</th>
-                <th className="w-14 md:w-10" />
-              </tr>
-            </thead>
-
-            <tbody>
-              {data.map((mensagem) => (
-                <tr key={mensagem.id} className="border-t border-linha align-top hover:bg-superficie">
-                  <td className="px-3 py-3 md:px-4 md:py-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{mensagem.gatilhoDescrito}</span>
-                      {!mensagem.ativo ? <Badge variant="secondary">Inativa</Badge> : null}
-                    </div>
-                    {mensagem.etapaAlvoNome ? (
-                      <p className="mt-0.5 text-xs text-tinta-media">
-                        Etapa: {mensagem.etapaAlvoNome}
-                      </p>
-                    ) : null}
-                    {/* A coluna Mensagem some no celular — o texto volta aqui,
-                        embaixo do gatilho que já identifica a linha. */}
-                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[11px] text-tinta-fraca md:hidden">
-                      {mensagem.conteudo}
-                    </p>
-                  </td>
-
-                  <td className="hidden px-4 py-2.5 md:table-cell">
-                    <p className="line-clamp-2 whitespace-pre-wrap text-xs text-tinta-media">
-                      {mensagem.conteudo}
-                    </p>
-                  </td>
-
-                  <td className="px-1 py-2.5 md:px-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => {
-                        setEmEdicao(mensagem)
-                        setAberto(true)
-                      }}
-                    >
-                      <Pencil />
-                      <span className="sr-only">Editar</span>
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        /* Diferente das abas de setor e etapa, esta pode legitimamente estar vazia:
-           nenhuma mensagem automática é obrigatória. Sem este estado, a tela seria
-           uma tabela só com cabeçalho e ninguém saberia se faltou cadastro ou se
-           falhou o carregamento. */
-        <EstadoVazio
-          icone={MessageSquarePlus}
-          titulo="Nenhuma mensagem automática"
-          descricao="Sem regra cadastrada, o sistema não envia nada sozinho — nenhum evento do atendimento dispara mensagem ao cliente."
+        <CarregandoMensagens />
+      ) : isError ? (
+        <EstadoDaInterface
+          tipo="erro"
+          titulo="Não foi possível carregar as mensagens automáticas"
           acao={
-            <Button size="sm" onClick={abrirNova}>
-              <Plus />
-              Cadastrar a primeira
+            <Button variant="outline" onClick={() => void refetch()}>
+              Tentar de novo
             </Button>
           }
         />
+      ) : (
+        <>
+          <ResumoDasMensagens contagem={contagem} />
+
+          <div className="flex flex-col gap-2.5 @2xl:flex-row @2xl:items-center @2xl:justify-between">
+            <div
+              role="group"
+              aria-label="Como ver as mensagens"
+              className="flex items-center gap-1 self-start rounded-full border border-linha bg-superficie p-1"
+            >
+              <PilulaDeVisao
+                ativa={visao === 'fluxo'}
+                icone={LayoutGrid}
+                rotulo="Caminho"
+                aoClicar={() => definirVisao('fluxo')}
+              />
+              <PilulaDeVisao
+                ativa={visao === 'lista'}
+                icone={List}
+                rotulo="Cadastradas"
+                aoClicar={() => definirVisao('lista')}
+              />
+            </div>
+
+            {visao === 'fluxo' ? (
+              // Com 15 gatilhos fixos mais uma linha por etapa do funil, o
+              // caminho passa de 20 pontos. "Me mostra só o que falta" é a
+              // pergunta que quem abre esta tela faz — e sem isso a resposta
+              // exige varrer a tela inteira com o olho.
+              <div className="flex items-center gap-2.5 self-start @2xl:self-auto">
+                <Label htmlFor="somente-pendentes" className="text-xs font-medium text-tinta-media">
+                  Só o que falta escrever
+                </Label>
+                <Switch
+                  id="somente-pendentes"
+                  tom="tinta"
+                  checked={somentePendentes}
+                  onCheckedChange={setSomentePendentes}
+                />
+              </div>
+            ) : (
+              <div className="relative w-full @2xl:max-w-xs">
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-tinta-fraca"
+                />
+                <Input
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Gatilho, etapa ou texto"
+                  aria-label="Buscar nas mensagens cadastradas"
+                  className="w-full rounded-full bg-superficie pl-9 focus-visible:bg-branco"
+                />
+              </div>
+            )}
+          </div>
+
+          {visao === 'fluxo' ? (
+            <FluxoDeMensagens
+              trilhas={trilhas}
+              mensagens={mensagens}
+              somentePendentes={somentePendentes}
+              aoClicarPonto={abrirPonto}
+            />
+          ) : mensagens.length === 0 ? (
+            /* Diferente das abas de setor e etapa, esta pode legitimamente estar vazia:
+               nenhuma mensagem automática é obrigatória. Sem este estado, a tela seria
+               uma grade vazia e ninguém saberia se faltou cadastro ou se falhou o
+               carregamento. */
+            <EstadoVazio
+              icone={MessageSquarePlus}
+              titulo="Nenhuma mensagem automática"
+              descricao="Sem regra cadastrada, o sistema não envia nada sozinho — nenhum evento do atendimento dispara mensagem ao cliente."
+              acao={
+                <Button size="sm" onClick={abrirNova}>
+                  <Plus />
+                  Cadastrar a primeira
+                </Button>
+              }
+            />
+          ) : filtradas.length === 0 ? (
+            <EstadoDaInterface
+              tipo="sem-resultados"
+              titulo="Nenhuma mensagem com esse termo"
+              acao={
+                <Button variant="outline" onClick={() => setBusca('')}>
+                  Limpar busca
+                </Button>
+              }
+            />
+          ) : (
+            <ListaDeMensagensAutomaticas
+              mensagens={filtradas}
+              aoEditar={(mensagem) => {
+                setEmEdicao(mensagem)
+                setPreenchimento(null)
+                setAberto(true)
+              }}
+            />
+          )}
+        </>
       )}
 
       <DialogoDeMensagemAutomatica
@@ -280,6 +272,52 @@ export function AbaMensagensAutomaticas() {
   )
 }
 
+function PilulaDeVisao({
+  ativa,
+  icone: Icone,
+  rotulo,
+  aoClicar,
+}: {
+  ativa: boolean
+  icone: LucideIcon
+  rotulo: string
+  aoClicar: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={ativa}
+      onClick={aoClicar}
+      className={cn(
+        'flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-all duration-200',
+        ativa ? 'bg-tinta text-branco shadow-card' : 'text-tinta-media hover:bg-branco hover:text-tinta',
+      )}
+    >
+      <Icone className="size-3.5 shrink-0" aria-hidden />
+      {rotulo}
+    </button>
+  )
+}
+
+/** O esqueleto imita a forma final: faixa de números, barra e grade de cartões. */
+function CarregandoMensagens() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[104px] rounded-card" />
+        ))}
+      </div>
+      <Skeleton className="h-11 w-64 rounded-full" />
+      <div className="grid gap-3 @4xl:grid-cols-2">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-52 rounded-card" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function DialogoDeMensagemAutomatica({
   mensagem,
   preenchimento,
@@ -289,7 +327,7 @@ function DialogoDeMensagemAutomatica({
   aoSalvar,
 }: {
   mensagem: MensagemAutomatica | null
-  /** Gatilho (e etapa, se for o caso) já escolhidos ao abrir em modo "nova" a partir do trilho. */
+  /** Gatilho (e etapa, se for o caso) já escolhidos ao abrir em modo "nova" a partir do fluxo. */
   preenchimento: { gatilho: GatilhoDeMensagem; etapaAlvoId: string | null } | null
   etapas: Etapa[]
   aberto: boolean
@@ -304,7 +342,7 @@ function DialogoDeMensagemAutomatica({
   const campo = useRef<HTMLTextAreaElement>(null)
 
   const exigeEtapa = gatilho === 'EtapaAlterada'
-  const explicacao = GATILHOS.find((g) => g.valor === gatilho)?.explicacao
+  const explicacao = explicacaoDoGatilho(gatilho)
 
   useEffect(() => {
     if (!aberto) return
@@ -394,7 +432,11 @@ function DialogoDeMensagemAutomatica({
                 ))}
               </SelectContent>
             </Select>
-            {explicacao ? <p className="text-xs text-tinta-media">{explicacao}</p> : null}
+            {explicacao ? (
+              <p className="rounded-md border border-linha bg-superficie px-3 py-2 text-xs leading-relaxed text-tinta-media">
+                {explicacao}
+              </p>
+            ) : null}
           </div>
 
           {/* Só aparece no gatilho que usa: perguntar a etapa em "prazo vencido"

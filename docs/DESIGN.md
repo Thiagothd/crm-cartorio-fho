@@ -3,8 +3,8 @@
 > **Status:** Fase 1 aprovada. Shell global, navegação e Visão Geral entregues
 > na Fase 3 (seção 14). **Fase 3.1 (2026-08-21) redirecionou a linguagem visual
 > do painel — ver seção 15 antes de aplicar as seções 1 a 4.**
-> **Última atualização:** 2026-09-07 (14.2: rail passa a expandir por clique e
-> empurrar o conteúdo; ver também 10.7 e 12.4)
+> **Última atualização:** 2026-09-07 (17.4: Automação > Mensagens migra para
+> Fase 3.1 — largura cheia, caminho automático em trilhas e `tom` do Switch)
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -1193,7 +1193,8 @@ Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está 
 | Componentes compartilhados de `components/ui/` | **Fase 3.1** |
 | Inbox, fio de mensagens, conversa | **Fase 3.2 — ver seção 16** (era Fase 1 até 2026-09-06) |
 | Equipe e permissões (`/equipe`, `/equipe/:id/permissoes`) | **Fase 3.1 — ver seção 17** (era Fase 1 até 2026-09-08) |
-| Clientes, Serviços, telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
+| Automação > Mensagens (`/automacao/mensagens/*`) | **Fase 3.1 — ver 17.4** (era Fase 1 até 2026-09-07) |
+| Clientes, Serviços, demais telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
 
 A fronteira não é capricho: as telas operacionais são onde o atendente passa o
 dia, foram medidas em monitor de 1366×768 (7.1, 10.8) e a densidade delas é
@@ -1380,7 +1381,7 @@ disputa mais atenção com o que já chegou e não foi lido.
 
 ## 17. Fase 3.3 — as telas de administração
 
-**Revisto em 2026-09-08.** Equipe (`/equipe`) e a tela nova de permissões
+**Revisto em 2026-09-08; ampliado em 2026-09-07 com 17.4 (Mensagens).** Equipe (`/equipe`) e a tela nova de permissões
 (`/equipe/:id/permissoes`) migraram de Fase 1 para **Fase 3.1** — são telas de
 gestão esporádica, lidas em monitor grande pelo dono/administrador, não o
 balcão de trabalho contínuo que a seção 16 protege. O orçamento vertical de
@@ -1413,3 +1414,124 @@ Na tela de permissões, desmarcar a tela de um bloco (a chave `*.ver`) esmaece
 acesso à tela, esta ação não faz efeito". Esconder o item removeria a
 possibilidade de ver (e desfazer) uma combinação que já existia; esmaecer
 avisa sem apagar o estado.
+
+### 17.4 Automação > Mensagens — o caminho desenhado
+
+**Decisão do Thiago, 2026-09-07.** A tela que a consolidação do menu criou
+(`/automacao/mensagens`, com as abas Automáticas, Encerramento e Respostas
+rápidas) foi revista e recusada no visual: *"pegue o design de atendimentos,
+visão geral, equipe"*, *"pode usar a tela inteira, vi que deixou a tela meio que
+centrada"*, e sobre a aba mais crítica: *"as mensagens automáticas... muito
+melhor para visualizar os caminhos sem erros"*. As três abas passam de Fase 1
+para **Fase 3.1**, pelo mesmo argumento de 17: é tela de gestão esporádica, lida
+em monitor grande, sem fio de mensagens rolando por baixo — o orçamento vertical
+de 16.1 não se aplica.
+
+**Teto de 1600px, não `max-w-6xl`.** A página usa a mesma moldura de Equipe
+(`min-h-0 flex-1 overflow-y-auto p-3 md:p-6` + `mx-auto max-w-[1600px]`), com
+`@container` local para as grades medirem a largura que sobra depois do padding
+e do teto — não a do shell direto (12.4). Os 1152px de `max-w-6xl` não eram
+folga: o caminho automático passa de 20 pontos, e naquela largura ele empilhava
+em duas colunas e obrigava a rolar para ver o roteiro inteiro, que é exatamente
+o que a peça existe para mostrar de uma vez.
+
+#### O desenho do caminho: trilhas, não trilho
+
+`features/configuracoes/fluxo-de-mensagens.tsx` era um **trilho horizontal** de
+cartões de 160px com `overflow-x-auto`, e seis desvios empilhados abaixo dele.
+Numa tela de 1440px sobrava metade da largura vazia e, ainda assim, metade dos
+pontos ficava fora do campo de visão. Virou uma grade de **trilhas**: cada ramo
+do caminho é um bloco com título, explicação e os pontos numa grade que reflui.
+**Nenhuma informação depende de rolagem horizontal** — o terceiro degrau de 12.4
+não é usado aqui porque não é preciso.
+
+- **A topologia é dado, não marcação** (`topologia-do-fluxo.ts`). Ela é a fonte
+  única do desenho E da contagem do topo: com duas listas, o número contaria
+  pontos que o desenho não mostra. Continua **fixa** — `GatilhoDeMensagem` é
+  enum e "gatilho novo exige código novo"; diferente do n8n, não se arrasta nem
+  se conecta nada, e o cadastro é o TEXTO de cada ponto.
+- **As etapas do funil são trilha própria**, não a continuação do roteiro. Coladas
+  no fim de "cliente encerrou", como estavam, afirmavam uma sequência que não
+  existe: mudar de etapa é eixo paralelo e pode acontecer a qualquer momento.
+- **Trilha larga vem antes.** As duas que ocupam a linha inteira (roteiro e, com
+  mais de duas etapas, o funil) são as primeiras da lista. Não é só editorial:
+  com uma trilha estreita na frente, a larga não cabe ao lado e a grade abre um
+  buraco de meia largura na primeira linha.
+- **Sem setas entre os cartões; numeração.** Seta em grade que reflui ou aparece
+  no começo de linha (dizendo o oposto do que quer dizer) ou obriga rolagem
+  horizontal para não refluir. O número resolve a ordem em qualquer largura, e
+  ele é a posição na TOPOLOGIA — filtrando por pendências, ver "2" e "4" é a
+  informação certa; renumerar para 1 e 2 esconderia que há pontos no meio.
+- **Ponto sem texto diz a consequência**, nunca só "vazio": "Falta escrever — o
+  cliente fala e não recebe menu nenhum". É o dado que decide se aquilo é
+  pendência de verdade ou silêncio deliberado.
+- **`@container/trilha` nomeado**, e não o container da página: a grade de pontos
+  precisa da largura da própria trilha, que é metade da tela quando ela não é
+  larga.
+
+#### Duas visões, e por que as duas existem
+
+Uma pílula segmentada alterna **Caminho** (o desenho) e **Cadastradas** (a lista),
+com a escolha em `localStorage` (`crm-cartorio.mensagens.visao`, padrão
+Caminho). Não é redundância: o desenho é a **topologia** e a lista é o
+**cadastro**, e elas divergem em dois casos reais — mensagem gravada para uma
+etapa já apagada não aparece em ponto nenhum do caminho, e quem procura "onde
+falei em cartório de notas" busca pelo TEXTO, que o desenho recorta em três
+linhas. Cada visão traz o controle que só faz sentido nela: o Caminho tem
+"Só o que falta escrever" (com 20+ pontos, essa é a pergunta de quem abre a
+tela); a lista tem busca por gatilho, etapa ou texto.
+
+**A lista virou cartão, não tabela** — mesma razão da Equipe em 17: o dado
+principal é um parágrafo, e parágrafo em célula ou vira rolagem horizontal ou
+vira uma linha cortada. Os marcadores que o texto usa (`{NomeCliente}`,
+`{MenuSetores}`) aparecem como fichas em `font-dado` no pé do cartão: ver de
+relance que uma mensagem de boas-vindas **não** usa `{MenuSetores}` é a diferença
+entre um menu que aparece e um que não aparece.
+
+#### Encerramento: a linha do tempo é o uso da largura devolvida
+
+O formulário vivia num `max-w-2xl` sozinho. A largura devolvida virou o painel
+**"Como o cliente vê"** ao lado (`@4xl`, duas colunas; abaixo disso empilha),
+com os quatro passos do ciclo escritos por extenso. Ele **reage a cada tecla** —
+não é ilustração, é o próprio valor configurado traduzido de minuto para
+linguagem ("depois de 20 min", "mais 30 min sem resposta"). Era a pergunta que
+o par de campos numéricos deixava no ar.
+
+O passo "se o cliente responder" é desenhado como **desvio** (fio e marcador
+tracejados): é o ramo em que o resto não acontece.
+
+**"Salvar" só acende com mudança de verdade.** Botão primário sempre ativo num
+formulário intocado é a interação que ensina a ignorar o botão — e gasta uma
+requisição para gravar o que já estava gravado. Ao lado dele, "Há alterações não
+salvas" enquanto houver.
+
+#### Respostas rápidas
+
+Grade de cartões pelo mesmo motivo da lista acima. **O atalho ganhou ficha
+própria** em `font-dado`, ao lado do título: é literal digitado caractere a
+caractere no meio do atendimento (seção 3), e era coluna de tabela que sumia no
+celular — agora é a âncora do cartão em qualquer largura. Filtro por
+Todas/Ativas/Desativadas e busca, no mesmo arranjo de `ListaDeAtendentes`.
+
+A frase de abertura repete que **nada sai daqui sozinho** (10.6). Não é enfeite:
+é a única fronteira do produto que uma tela de "textos prontos" pode borrar.
+
+#### Orçamento de bordô, e o `tom` do switch
+
+A conta destas três abas não fecha sozinha: o item ativo do rail já é uma
+ocorrência (10.3), a ação primária no cabeçalho global é a segunda, e sobra
+**uma**. A aba de Encerramento tem dois switches e o botão Salvar — quatro, se
+todos forem `selo`.
+
+A saída é a que 2.1 já mandava (*"se já são três, a resposta é `tinta` ou
+`linha-forte`"*), agora explícita no componente: `Switch` ganhou
+`tom?: 'selo' | 'tinta'`, padrão `selo`. **O switch que comanda a tela fica em
+`selo`; sub-interruptor dentro do escopo de outro fica em `tinta`** — nunca o
+contrário, que inverteria a hierarquia. Hoje usam `tom="tinta"`: "Só perguntar
+em horário comercial" (dentro de "Encerrar conversas paradas") e "Só o que falta
+escrever" (filtro de visualização, não configuração).
+
+**O desenho do caminho gasta ZERO bordô.** Pendência é `ambar` e desativado é
+neutro — nenhum dos dois é erro: sem o texto, o sistema continua funcionando, só
+fica em silêncio naquele momento. Com 20+ cartões na tela, qualquer acento
+semântico ali viraria parede.

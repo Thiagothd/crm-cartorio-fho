@@ -40,8 +40,15 @@ export function PaginaMensagens() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+    <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-6">
+      {/* Mesma moldura de Equipe e Clientes: teto de 1600px em vez dos 1152 de
+          `max-w-6xl`, e `@container` local para as grades das abas medirem a
+          largura que sobra DEPOIS do padding e do teto — não a do shell.
+          O teto subiu porque o desenho do caminho automático passa de 20
+          pontos: a 1152px ele empilhava em duas colunas e obrigava a rolar
+          para ver o roteiro inteiro, que é justamente o que ele existe para
+          mostrar de uma vez. */}
+      <div className="@container mx-auto flex max-w-[1600px] flex-col gap-4">
         <AbasDeSecao
           base="/automacao/mensagens"
           secoes={SECOES}
