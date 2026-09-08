@@ -100,6 +100,8 @@ export interface EstadoE2E {
   servicos: any[]
   atendentes: any[]
   respostasRapidas: any[]
+  mensagensAutomaticas: any[]
+  encerramento: any
   clientes: any[]
   conversas: any[]
   detalhes: Record<string, any>
@@ -126,6 +128,14 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'rapida-1', atalho: 'docs', titulo: 'Documentos necessários', conteudo: 'Por favor, envie seu documento com foto.', ativo: true },
     { id: 'rapida-2', atalho: 'ola', titulo: 'Saudação', conteudo: 'Olá! Como posso ajudar?', ativo: true },
   ]
+  const mensagensAutomaticas = [
+    { id: 'auto-1', gatilho: 'NovoAtendimento', gatilhoDescrito: 'Primeiro contato do cliente', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ola, {NomeCliente}! Aqui e o {NomeCartorio}. Escolha o assunto:\n{MenuSetores}', ativo: true },
+    { id: 'auto-2', gatilho: 'TriagemComCorrespondencia', gatilhoDescrito: 'Setor reconhecido, falta escolher o servico', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Certo! Qual servico voce precisa?\n{MenuServicos}', ativo: true },
+    { id: 'auto-3', gatilho: 'ServicoEscolhido', gatilhoDescrito: 'Cliente escolheu o servico', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Para este servico voce precisa de:\n{DocumentosNecessarios}\n\nPrazo estimado: {PrazoServico}.', ativo: true },
+    { id: 'auto-4', gatilho: 'EtapaAlterada', gatilhoDescrito: 'Atendimento muda de etapa', etapaAlvoId: 'etapa-final', etapaAlvoNome: 'Concluido', conteudo: 'Seu atendimento {Protocolo} foi concluido. Obrigado!', ativo: false },
+    { id: 'auto-5', gatilho: 'ConfirmacaoDeEncerramento', gatilhoDescrito: 'Conversa parada: posso encerrar?', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ainda precisa de ajuda?\n1 - Sim, continuar\n2 - Nao, pode encerrar', ativo: true },
+  ]
+  const encerramento = { minutosParaPerguntar: 20, minutosParaEncerrar: 30, horaInicial: 8, horaFinal: 18 }
   const clientes = [
     clienteBase('cliente-1', 'Marina Souza', '5511999991111'),
     clienteBase('cliente-2', 'Carlos Lima', '5511999992222'),
@@ -142,7 +152,7 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'msg-1', conversaId: 'conversa-1', autorTipo: 'Cliente', atendenteId: null, atendenteNome: null, conteudo: 'Preciso reconhecer uma firma.', tipo: 'Texto', statusEntrega: 'Lida', ehAutomatica: false, fixada: false, oculta: false, ocultaPorNome: null, encaminhadaDeProtocolo: null, enviadaEm: agora, lidaEm: agora, mensagemRespondidaId: null, respondidaAutor: null, respondidaConteudo: null, arquivoNome: null, arquivoTipoMime: null, arquivoTamanhoBytes: null, geradaPorIa: false },
   ]
   return {
-    perfil, setores, etapas, servicos, atendentes, respostasRapidas, clientes,
+    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento, clientes,
     conversas: [conversa],
     detalhes: { 'conversa-1': { conversa, mensagens, historico: [] } },
     conflitoAoAssumir: false,
@@ -198,6 +208,9 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
     if (path === '/api/tipos-servico' && metodo === 'GET') return json(route, estado.servicos.filter((s) => url.searchParams.get('incluirInativos') === 'true' || s.ativo))
     if (path === '/api/atendentes' && metodo === 'GET') return json(route, estado.atendentes)
     if (path === '/api/respostas-rapidas' && metodo === 'GET') return json(route, estado.respostasRapidas)
+    if (path === '/api/mensagens-automaticas' && metodo === 'GET') return json(route, estado.mensagensAutomaticas.filter((m) => url.searchParams.get('incluirInativas') === 'true' || m.ativo))
+    if (path === '/api/serventia/encerramento-automatico' && metodo === 'GET') return json(route, estado.encerramento)
+    if (path === '/api/serventia/encerramento-automatico' && metodo === 'PUT') { estado.encerramento = corpoJson(route); return json(route, estado.encerramento) }
     if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
 
     if (path === '/api/conversas/resumo' && metodo === 'GET') {
