@@ -51,6 +51,27 @@ const PERMISSOES_ADMINISTRACAO = [
   'seguranca.eventos.ver',
 ]
 
+/**
+ * Catálogo reduzido para a tela `/equipe/:id/permissoes` — não os ~49 itens
+ * reais, só o suficiente para exercitar троca de modelo, marcar/desmarcar e o
+ * esmaecimento de "sem efeito" (17.3): `clientes.cadastrar` depende da tela
+ * `clientes.ver`.
+ */
+const CATALOGO_DE_PERMISSOES = [
+  { chave: 'atendimento.ver', rotulo: 'Abrir a tela de Atendimento', descricao: 'Ver a fila e as conversas.', bloco: 'Atendimento', ehTela: true },
+  { chave: 'atendimento.responder', rotulo: 'Escrever e enviar mensagem', descricao: 'Responder o cliente.', bloco: 'Atendimento', ehTela: false },
+  { chave: 'clientes.ver', rotulo: 'Abrir a tela de Clientes', descricao: 'Ver a lista de clientes.', bloco: 'Clientes', ehTela: true },
+  { chave: 'clientes.cadastrar', rotulo: 'Cadastrar cliente novo', descricao: 'Criar a ficha de um cliente.', bloco: 'Clientes', ehTela: false },
+  { chave: 'equipe.ver', rotulo: 'Abrir a tela de Equipe', descricao: 'Ver a lista de atendentes.', bloco: 'Equipe e segurança', ehTela: true },
+  { chave: 'equipe.permissoes', rotulo: 'Decidir o que cada pessoa acessa', descricao: 'Montar as permissões de outro atendente.', bloco: 'Equipe e segurança', ehTela: false },
+]
+
+const MODELOS_DE_PERMISSAO = [
+  { modelo: 'Balcao', rotulo: 'Balcão', descricao: 'Atende do começo ao fim.', chaves: ['atendimento.ver', 'atendimento.responder', 'clientes.ver'] },
+  { modelo: 'Supervisao', rotulo: 'Supervisão', descricao: 'Toca a equipe do dia.', chaves: ['atendimento.ver', 'atendimento.responder', 'clientes.ver', 'clientes.cadastrar'] },
+  { modelo: 'Administracao', rotulo: 'Administração', descricao: 'Responde pelo sistema.', chaves: CATALOGO_DE_PERMISSOES.map((c) => c.chave) },
+]
+
 const usuarios = {
   Atendente: {
     id: 'atendente-e2e', nome: 'Ana Atendente', email: 'atendente@teste.local', perfil: 'Atendente' as Perfil,
@@ -135,7 +156,30 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
       prazo: { id: 'prazo-1', prazoHoras: 24, percentualAlerta: 80, apenasDiasUteis: true, prazoDescrito: '1 dia útil' }, conversasAtivas: 1,
       setorId: 'setor-notas', setorNome: 'Notas', documentosNecessarios: 'Documento com foto' },
   ]
-  const atendentes = Object.values(usuarios)
+  const atendentes = [
+    ...Object.values(usuarios),
+    {
+      id: 'atendente-sem-historico', nome: 'Bruno SemHistorico', email: 'bruno@teste.local', perfil: 'Atendente' as Perfil,
+      cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: null,
+      mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
+    },
+    {
+      id: 'atendente-com-historico', nome: 'Carla ComHistorico', email: 'carla@teste.local', perfil: 'Atendente' as Perfil,
+      cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: agora,
+      mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
+      // Marcador só do mock: o backend real descobre isso vasculhando Conversas/Mensagens/etc.
+      // (AtendenteService.ExcluirAsync); aqui simulamos o mesmo resultado sem montar essas tabelas.
+      _temHistorico: true,
+    },
+    {
+      // Administrador/Titular que NÃO é quem está logado — só assim o ícone
+      // de Segurança (MFA) aparece numa linha que não é a própria (`podeMfa`
+      // exige Administrador ou Titular; a própria conta logada já é uma).
+      id: 'atendente-privilegiado', nome: 'Diego Diretor', email: 'diego@teste.local', perfil: 'Administrador' as Perfil,
+      cargo: 'Titular', cargoDescrito: 'Titular', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: agora,
+      mfaAtivo: true, modelo: null, permissoes: PERMISSOES_ADMINISTRACAO,
+    },
+  ]
   const respostasRapidas = [
     { id: 'rapida-1', atalho: 'docs', titulo: 'Documentos necessários', conteudo: 'Por favor, envie seu documento com foto.', ativo: true },
     { id: 'rapida-2', atalho: 'ola', titulo: 'Saudação', conteudo: 'Olá! Como posso ajudar?', ativo: true },
@@ -419,13 +463,73 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
     if (path === '/api/indicadores/alertas' && metodo === 'GET') return json(route, [])
 
     if (path === '/api/atendentes' && metodo === 'POST') {
-      const corpo = corpoJson(route); const novo = { ...usuarios.Atendente, ...corpo, id: `atendente-${estado.atendentes.length + 1}`, cargoDescrito: corpo.cargo, setorPadraoNome: null, ativo: true, ultimoAcessoEm: null }
+      const corpo = corpoJson(route) as { email: string }
+      if (estado.atendentes.some((a) => a.email === corpo.email)) {
+        return problema(route, 409, 'email_em_uso', `Já existe um atendente com o e-mail ${corpo.email}.`)
+      }
+      const novo = { ...usuarios.Atendente, ...corpo, id: `atendente-${estado.atendentes.length + 1}`, cargoDescrito: corpo.cargo, setorPadraoNome: null, ativo: true, ultimoAcessoEm: null }
       estado.atendentes.push(novo); return json(route, novo, 201)
     }
     const atendente = path.match(/^\/api\/atendentes\/([^/]+)$/)
     if (atendente && metodo === 'PUT') {
       const alvo = estado.atendentes.find((a) => a.id === atendente[1]); if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
       Object.assign(alvo, corpoJson(route)); return json(route, alvo)
+    }
+    if (atendente && metodo === 'GET') {
+      const alvo = estado.atendentes.find((a) => a.id === atendente[1])
+      return alvo ? json(route, alvo) : problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+    }
+    if (atendente && metodo === 'DELETE') {
+      const alvo = estado.atendentes.find((a) => a.id === atendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      if (alvo.id === usuarios[estado.perfil].id) {
+        return problema(route, 400, 'nao_pode_excluir_a_si_mesmo', 'Você não pode excluir o próprio cadastro.')
+      }
+      if ((alvo as { _temHistorico?: boolean })._temHistorico) {
+        return problema(route, 409, 'nao_pode_excluir_com_historico', 'Este atendente já tem histórico no sistema — desative o acesso em vez de excluir.')
+      }
+      estado.atendentes = estado.atendentes.filter((a) => a.id !== alvo.id)
+      return route.fulfill({ status: 204 })
+    }
+
+    const senha = path.match(/^\/api\/atendentes\/([^/]+)\/senha$/)
+    if (senha && metodo === 'POST') {
+      const alvo = estado.atendentes.find((a) => a.id === senha[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      return route.fulfill({ status: 204 })
+    }
+
+    const permissoesDoAtendente = path.match(/^\/api\/atendentes\/([^/]+)\/permissoes$/)
+    if (permissoesDoAtendente && metodo === 'GET') {
+      const alvo = estado.atendentes.find((a) => a.id === permissoesDoAtendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      return json(route, {
+        atendenteId: alvo.id, modelo: alvo.modelo, chaves: alvo.permissoes,
+        catalogo: CATALOGO_DE_PERMISSOES, modelos: MODELOS_DE_PERMISSAO,
+      })
+    }
+    if (permissoesDoAtendente && metodo === 'PUT') {
+      const alvo = estado.atendentes.find((a) => a.id === permissoesDoAtendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      if (alvo.id === usuarios[estado.perfil].id) {
+        return problema(route, 400, 'nao_pode_editar_as_proprias_permissoes', 'Você não pode editar as próprias permissões.')
+      }
+      const corpo = corpoJson(route) as { modelo: string | null; chaves: string[] }
+      alvo.modelo = corpo.modelo; alvo.permissoes = corpo.chaves
+      return route.fulfill({ status: 204 })
+    }
+
+    const ticketDeMfa = path.match(/^\/api\/atendentes\/([^/]+)\/mfa\/ticket$/)
+    if (ticketDeMfa && metodo === 'POST') {
+      return json(route, { ticket: 'TICKET-E2E-1234-5678', expiraEm: agora })
+    }
+    const resetDeMfa = path.match(/^\/api\/atendentes\/([^/]+)\/mfa\/reset$/)
+    if (resetDeMfa && metodo === 'POST') {
+      const corpo = corpoJson(route) as { motivo?: string }
+      if (!corpo.motivo?.trim()) return problema(route, 400, 'motivo_obrigatorio', 'Informe o motivo desta ação.')
+      const alvo = estado.atendentes.find((a) => a.id === resetDeMfa[1])
+      if (alvo) alvo.mfaAtivo = false
+      return route.fulfill({ status: 204 })
     }
 
     if (path === '/api/setores' && metodo === 'POST') {
