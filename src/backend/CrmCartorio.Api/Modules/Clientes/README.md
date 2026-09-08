@@ -39,10 +39,13 @@ identificação real aparece.
 
 ## Sem exclusão — exceto Cliente sem histórico
 
-Regra do produto inteiro: só `Ativo = false`, nunca `DELETE`. **`Cliente` é a
-única exceção**, decidida pelo Thiago em 2026-08-25 mesmo depois de eu marcar o
+Regra do produto inteiro: só `Ativo = false`, nunca `DELETE`. **`Cliente` é uma
+exceção**, decidida pelo Thiago em 2026-08-25 mesmo depois de eu marcar o
 risco — o caso real era desfazer erro de importação em lote (contato errado
-puxado da agenda do WhatsApp, sem nenhum atendimento ainda).
+puxado da agenda do WhatsApp, sem nenhum atendimento ainda). Desde 2026-09-07,
+`Atendente` tem a mesma exceção pelo mesmo motivo (desfazer cadastro por
+engano) — ver `Modules/Usuarios/Application/AtendenteService.ExcluirAsync` e
+`Modules/Usuarios/README.md`.
 
 `ClienteService.ExcluirAsync` faz a exclusão física de verdade, mas **recusa se
 o cliente tiver qualquer `Conversa` vinculada** — `ClientesServiceException

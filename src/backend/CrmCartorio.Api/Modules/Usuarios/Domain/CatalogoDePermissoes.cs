@@ -134,6 +134,8 @@ public static class CatalogoDePermissoes
             "Alterar nome, e-mail, cargo, setor e ativar/desativar acesso.", "Equipe e segurança"),
         D(PermissaoDoSistema.EquipeRedefinirSenha, "equipe.redefinir_senha", "Redefinir senha de alguém",
             "Redefinir a senha de outro atendente.", "Equipe e segurança"),
+        D(PermissaoDoSistema.EquipeExcluir, "equipe.excluir", "Excluir atendente",
+            "Apagar definitivamente o cadastro de um atendente sem histórico.", "Equipe e segurança"),
         D(PermissaoDoSistema.EquipePermissoes, "equipe.permissoes", "Decidir o que cada pessoa acessa",
             "Montar e ajustar as permissões de outro atendente.", "Equipe e segurança"),
         D(PermissaoDoSistema.EquipeMfaAdministrar, "equipe.mfa_administrar", "Administrar verificação em duas etapas",

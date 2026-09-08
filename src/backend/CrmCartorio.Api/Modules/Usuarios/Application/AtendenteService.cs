@@ -299,6 +299,81 @@ public class AtendenteService(
         }
     }
 
+    /// <summary>
+    /// Exclusao fisica — segundo caso no sistema, depois de
+    /// ClienteService.ExcluirAsync (Modules/Clientes/README.md). Recusa quando
+    /// ha qualquer rastro do atendente em Conversas, Mensagens,
+    /// HistoricoEtapas, canal WhatsApp, conhecimento de IA ou como AUTOR de um
+    /// evento de seguranca sobre outra conta (auditoria de terceiro nao pode
+    /// sumir). Eventos e credenciais de MFA que pertencem so a ESTA conta sao
+    /// limpos antes do Remove — nao contam como "historico" porque desaparecem
+    /// naturalmente com a propria conta. Para quem tem historico, o caminho e
+    /// desativar (<see cref="AtualizarAtendenteRequest.Ativo"/>), nao excluir.
+    /// </summary>
+    public async Task ExcluirAsync(Guid id, CancellationToken ct = default)
+    {
+        GarantirPermissao(PermissaoDoSistema.EquipeExcluir);
+
+        if (id == ctx.AtendenteId)
+        {
+            throw UsuariosServiceException.NaoPodeExcluirASiMesmo();
+        }
+
+        var tenantId = ctx.TenantId;
+
+        var atendente = await db.Atendentes
+            .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        // Mesma invariante de AtualizarAsync (desativar o ultimo administrador)
+        // — excluir e pelo menos tao disruptivo quanto desativar.
+        var chaveDeEquipePermissoes = CatalogoDePermissoes
+            .Descrever(PermissaoDoSistema.EquipePermissoes).ChaveTexto;
+        var marcador = $"|{chaveDeEquipePermissoes}|";
+
+        var souOUltimoAdministrador = (atendente.Permissoes != null
+                ? atendente.Permissoes.Contains(marcador)
+                : atendente.Perfil == PerfilDeAtendente.Administrador)
+            && !await db.Atendentes.AnyAsync(x =>
+                x.TenantId == tenantId && x.Id != id && x.Ativo
+                && (x.Permissoes != null
+                    ? x.Permissoes.Contains(marcador)
+                    : x.Perfil == PerfilDeAtendente.Administrador), ct);
+
+        if (souOUltimoAdministrador)
+        {
+            throw UsuariosServiceException.UltimoAdministrador();
+        }
+
+        var temHistorico =
+            await db.Conversas.AnyAsync(x =>
+                x.AtendenteId == id || x.EncerradaPorAtendenteId == id || x.ReabertaPorAtendenteId == id, ct)
+            || await db.Mensagens.AnyAsync(x =>
+                x.AtendenteId == id || x.FixadaPorAtendenteId == id || x.OcultaPorAtendenteId == id, ct)
+            || await db.HistoricoEtapas.AnyAsync(x => x.AtendenteId == id, ct)
+            || await db.CanalWhatsappNumeros.AnyAsync(x => x.CriadoPorAtendenteId == id, ct)
+            || await db.CanalWhatsappConexoes.AnyAsync(x => x.AtendenteId == id, ct)
+            || await db.ConhecimentosDeIa.AnyAsync(x =>
+                x.CriadoPorAtendenteId == id || x.AtualizadoPorAtendenteId == id, ct)
+            || await db.HistoricoDeConhecimentosDeIa.AnyAsync(x => x.AlteradoPorAtendenteId == id, ct)
+            || await db.EventosDeSeguranca.AnyAsync(x => x.AtorAtendenteId == id, ct);
+
+        if (temHistorico)
+        {
+            throw UsuariosServiceException.NaoPodeExcluirComHistorico();
+        }
+
+        // Limpeza segura: linhas que pertencem exclusivamente a esta conta e
+        // desaparecem com ela — nao sao "historico" de terceiro.
+        await db.DesafiosDeMfa.Where(x => x.AtendenteId == id).ExecuteDeleteAsync(ct);
+        await db.CodigosDeRecuperacaoMfa.Where(x => x.AtendenteId == id).ExecuteDeleteAsync(ct);
+        await db.DispositivosConfiaveis.Where(x => x.AtendenteId == id).ExecuteDeleteAsync(ct);
+        await db.EventosDeSeguranca.Where(x => x.AtendenteId == id).ExecuteDeleteAsync(ct);
+
+        db.Atendentes.Remove(atendente);
+        await db.SaveChangesAsync(ct);
+    }
+
     // --------------------------------------------------- Permissoes granulares
 
     public async Task<PermissoesDoAtendenteResponse> ObterPermissoesAsync(Guid id, CancellationToken ct = default)

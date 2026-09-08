@@ -56,6 +56,13 @@ public class AtendentesController(IAtendenteService servico, IMfaService mfa, IC
         return NoContent();
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Excluir(Guid id, CancellationToken ct)
+    {
+        await servico.ExcluirAsync(id, ct);
+        return NoContent();
+    }
+
     // ------------------------------------------------- Permissoes granulares
 
     [HttpGet("{id:guid}/permissoes")]

@@ -134,4 +134,15 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
     public static UsuariosServiceException ApenasTitularAlteraPermissaoDeTitular() =>
         new("apenas_titular_altera_permissao_de_titular",
             "So um administrador que tambem seja Titular pode alterar as permissoes de outro Titular.", 403);
+
+    // ------------------------------------------------------- Exclusao de atendente
+
+    public static UsuariosServiceException NaoPodeExcluirASiMesmo() =>
+        new("nao_pode_excluir_a_si_mesmo",
+            "Voce nao pode excluir o proprio cadastro.", 400);
+
+    /// <summary>Mesmo espirito de ClientesServiceException.NaoPodeExcluirComHistorico — quem tem historico se desativa, nao se apaga.</summary>
+    public static UsuariosServiceException NaoPodeExcluirComHistorico() =>
+        new("nao_pode_excluir_com_historico",
+            "Este atendente ja tem historico no sistema — desative o acesso em vez de excluir.", 409);
 }
