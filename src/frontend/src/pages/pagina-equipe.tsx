@@ -7,6 +7,7 @@ import { ListaDeAtendentes } from '@/features/equipe/lista-de-atendentes'
 import { DialogoDeAtendente } from '@/features/equipe/dialogo-de-atendente'
 import { DialogoDeSenha } from '@/features/equipe/dialogo-de-senha'
 import { DialogoDeMfa } from '@/features/equipe/dialogo-de-mfa'
+import { DialogoDeExclusaoDeAtendente } from '@/features/equipe/dialogo-de-exclusao'
 import { usarAtendentes } from '@/features/equipe/consultas'
 import type { Atendente } from '@/lib/api/tipos'
 
@@ -16,6 +17,7 @@ export function PaginaEquipe() {
   const [dialogoAberto, setDialogoAberto] = useState(false)
   const [senhaDe, setSenhaDe] = useState<Atendente | null>(null)
   const [mfaDe, setMfaDe] = useState<Atendente | null>(null)
+  const [emExclusao, setEmExclusao] = useState<Atendente | null>(null)
 
   return (
     <>
@@ -45,6 +47,7 @@ export function PaginaEquipe() {
             }}
             aoRedefinirSenha={setSenhaDe}
             aoAbrirMfa={setMfaDe}
+            aoExcluir={setEmExclusao}
           />
         </div>
       </div>
@@ -52,6 +55,18 @@ export function PaginaEquipe() {
       <DialogoDeAtendente atendente={emEdicao} aberto={dialogoAberto} aoFechar={() => setDialogoAberto(false)} />
       <DialogoDeSenha atendente={senhaDe} aoFechar={() => setSenhaDe(null)} />
       <DialogoDeMfa atendente={mfaDe} aoFechar={() => setMfaDe(null)} />
+      {emExclusao ? (
+        <DialogoDeExclusaoDeAtendente
+          key={emExclusao.id}
+          atendente={emExclusao}
+          aoFechar={() => setEmExclusao(null)}
+          aoAbrirEdicao={(atendente) => {
+            setEmExclusao(null)
+            setEmEdicao(atendente)
+            setDialogoAberto(true)
+          }}
+        />
+      ) : null}
     </>
   )
 }

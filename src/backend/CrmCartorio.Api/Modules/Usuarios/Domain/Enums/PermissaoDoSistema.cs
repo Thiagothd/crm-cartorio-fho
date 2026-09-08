@@ -76,6 +76,7 @@ public enum PermissaoDoSistema
     EquipeCadastrar,
     EquipeEditar,
     EquipeRedefinirSenha,
+    EquipeExcluir,
 
     /// <summary>A meta-permissão: decide o que cada colega acessa.</summary>
     EquipePermissoes,

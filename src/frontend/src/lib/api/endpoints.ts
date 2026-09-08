@@ -527,6 +527,9 @@ export const atendentesApi = {
   redefinirSenha: (id: string, novaSenha: string) =>
     api.post<void>(`/api/atendentes/${id}/senha`, { novaSenha }),
 
+  /** Exclusão física — só permitida quando o atendente não tem nenhum histórico no sistema. */
+  excluir: (id: string) => api.excluir<void>(`/api/atendentes/${id}`),
+
   /** SEC-03 — emite ticket de matrícula privilegiada fora de banda. Step-up do próprio ator. */
   emitirTicketDeMfa: (id: string, senhaDoAtor: string, codigoDoAtor: string) =>
     api.post<TicketDeMfa>(`/api/atendentes/${id}/mfa/ticket`, { senhaDoAtor, codigoDoAtor }),

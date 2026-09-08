@@ -108,6 +108,35 @@ separados de propósito.
 modelo fosse a fonte de verdade, mudar a definição de "Supervisão" numa
 release futura alteraria em silêncio o que meia dúzia de pessoas pode fazer.
 
+## Exclusão de atendente
+
+Desde 2026-09-07, `AtendenteService.ExcluirAsync` (`equipe.excluir`) é a
+segunda exceção da regra "só desativa, nunca apaga" — a primeira é
+`ClienteService.ExcluirAsync` (`Modules/Clientes/README.md`). Mesmo espírito:
+desfazer um cadastro feito por engano, nunca apagar quem já foi usado.
+
+Travas, nesta ordem:
+
+1. Ninguém exclui a si mesmo — mesmo raciocínio de
+   `NaoPodeDesativarASiMesmo()`, mas aqui é irreversível.
+2. **Sobra pelo menos um administrador ativo** — a mesma invariante de
+   `AtualizarAsync` ao desativar, porque excluir é pelo menos tão disruptivo
+   quanto desativar.
+3. **Sem histórico em nenhuma tabela que referencia `Atendentes`** —
+   `Conversas`, `Mensagens`, `HistoricoEtapas`, canal WhatsApp
+   (`CanalWhatsappNumeros`/`CanalWhatsappConexoes`), conhecimento de IA
+   (`ConhecimentosDeIa`/`HistoricoDeConhecimentosDeIa`), e como **autor** de
+   um evento de segurança sobre OUTRA conta (`EventosDeSeguranca.AtorAtendenteId`).
+   Nenhuma dessas colunas tem `ON DELETE CASCADE` no schema — de propósito,
+   é o banco protegendo o mesmo histórico que RF-015 protege para conversa.
+   Achar qualquer rastro lança `NaoPodeExcluirComHistorico()` (409); o caminho
+   é desativar (`AtualizarAtendenteRequest.Ativo`), não excluir.
+4. O que sobra são linhas que pertencem só a esta própria conta e desaparecem
+   com ela sem virar "histórico perdido" de ninguém — `DesafiosDeMfa`,
+   `CodigosDeRecuperacaoMfa`, `DispositivosConfiaveis` e o
+   `EventosDeSeguranca.AtendenteId` (eventos **sobre** esta conta, não os que
+   ela causou em outra). Essas são limpas antes do `Remove`.
+
 ## Senha
 
 PBKDF2-HMAC-SHA256, 210.000 iterações, salt por usuário. O número de iterações

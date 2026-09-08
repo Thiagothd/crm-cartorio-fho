@@ -14,6 +14,8 @@ public interface IAtendenteService
 
     Task RedefinirSenhaAsync(Guid id, RedefinirSenhaRequest request, CancellationToken ct = default);
 
+    Task ExcluirAsync(Guid id, CancellationToken ct = default);
+
     Task<PermissoesDoAtendenteResponse> ObterPermissoesAsync(Guid id, CancellationToken ct = default);
 
     Task DefinirPermissoesAsync(Guid id, DefinirPermissoesRequest request, string? ip, CancellationToken ct = default);

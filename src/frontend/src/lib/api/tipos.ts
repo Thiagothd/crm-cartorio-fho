@@ -168,6 +168,7 @@ export type ChaveDePermissao =
   | 'equipe.cadastrar'
   | 'equipe.editar'
   | 'equipe.redefinir_senha'
+  | 'equipe.excluir'
   | 'equipe.permissoes'
   | 'equipe.mfa_administrar'
   | 'seguranca.eventos.ver'

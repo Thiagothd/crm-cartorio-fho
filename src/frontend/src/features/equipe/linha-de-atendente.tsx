@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { KeyRound, Pencil, Settings2, ShieldAlert } from 'lucide-react'
+import { KeyRound, Pencil, Settings2, ShieldAlert, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { formatarDataHora } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
 import type { Atendente } from '@/lib/api/tipos'
@@ -19,15 +20,19 @@ export function LinhaDeAtendente({
   aoEditar,
   aoRedefinirSenha,
   aoAbrirMfa,
+  aoExcluir,
 }: {
   atendente: Atendente
   aoEditar: () => void
   aoRedefinirSenha: () => void
   aoAbrirMfa: () => void
+  aoExcluir: () => void
 }) {
   const navegar = useNavigate()
+  const { atendente: eu } = usarAutenticacao()
   const podeMfa = atendente.perfil === 'Administrador' || atendente.cargo === 'Titular'
   const semDoisFatores = podeMfa && !atendente.mfaAtivo
+  const souEu = atendente.id === eu?.id
 
   return (
     <div
@@ -79,6 +84,11 @@ export function LinhaDeAtendente({
         <Button variant="ghost" size="icon-sm" title="Editar" onClick={aoEditar}>
           <Pencil />
         </Button>
+        {!souEu ? (
+          <Button variant="ghost" size="icon-sm" title="Excluir" onClick={aoExcluir}>
+            <Trash2 />
+          </Button>
+        ) : null}
       </div>
     </div>
   )

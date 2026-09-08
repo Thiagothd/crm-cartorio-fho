@@ -85,6 +85,14 @@ export function usarRedefinirSenha() {
   })
 }
 
+export function usarExcluirAtendente() {
+  const invalidar = usarInvalidarEquipe()
+  return useMutation({
+    mutationFn: (id: string) => atendentesApi.excluir(id),
+    onSuccess: invalidar,
+  })
+}
+
 export function usarDefinirPermissoes() {
   const clienteDeConsultas = useQueryClient()
   return useMutation({

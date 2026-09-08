@@ -7779,6 +7779,205 @@ try
             Checar("83-8c. IP registrado",
                 evento83g.IpDeOrigem == "203.0.113.83");
         }
+
+        // ---------------------------------------------------------------
+        Console.WriteLine("Cenario 84 — equipe.excluir: as travas da exclusao fisica.");
+
+        Guid tenantIsolado84;
+        await using (var db = new CrmDbContext(opcoes))
+        {
+            var tenant = new Tenant
+            {
+                RazaoSocial = "[TESTE] Tenant isolado — exclusao de atendente (cenario 84)",
+                Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+            };
+            db.Tenants.Add(tenant);
+            await db.SaveChangesAsync();
+            tenantIsolado84 = tenant.Id;
+        }
+        tenantIdsDeTeste.Add(tenantIsolado84);
+
+        var todasMenosSimular84 = CatalogoDePermissoes.ConjuntoDoModelo(ModeloDePermissao.Administracao);
+        var semExcluir84 = todasMenosSimular84.Where(p => p != PermissaoDoSistema.EquipeExcluir).ToHashSet();
+        var semEquipePermissoes84 = todasMenosSimular84.Where(p => p != PermissaoDoSistema.EquipePermissoes).ToHashSet();
+
+        async Task<Guid> ContaNoIsolado84(string rotulo, IReadOnlySet<PermissaoDoSistema>? permissoes = null)
+        {
+            await using var db = new CrmDbContext(opcoes);
+            var conta = new Atendente
+            {
+                TenantId = tenantIsolado84,
+                Nome = $"[TESTE] 84 {rotulo}",
+                Email = $"teste-84-{Guid.NewGuid():N}@teste.local",
+                SenhaHash = hash.Gerar(SenhaBoa),
+                Perfil = PerfilDeAtendente.Administrador,
+                Permissoes = permissoes is null ? null : CatalogoDePermissoes.Serializar(permissoes),
+                Ativo = true
+            };
+            db.Atendentes.Add(conta);
+            await db.SaveChangesAsync();
+            ids.Add(conta.Id);
+            return conta.Id;
+        }
+
+        async Task<string?> CodigoDoErro84(Func<Task> acao)
+        {
+            try
+            {
+                await acao();
+                return null;
+            }
+            catch (UsuariosServiceException ex)
+            {
+                return ex.Codigo;
+            }
+        }
+
+        // 84-1: ator sem equipe.excluir -> sem_permissao
+        {
+            var idAtorSemPermissao84 = await ContaNoIsolado84("ator sem equipe.excluir", semExcluir84);
+            var idAlvo84a = await ContaNoIsolado84("alvo 84-1", todasMenosSimular84);
+
+            await using var db = new CrmDbContext(opcoes);
+            var ctx = new ContextoFixo(tenantIsolado84, idAtorSemPermissao84, "Ator84-1", PerfilDeAtendente.Administrador, semExcluir84);
+            var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAlvo84a));
+
+            Checar("84-1. ator sem equipe.excluir -> sem_permissao", codigo == "sem_permissao");
+        }
+
+        // 84-2: ninguem exclui a si mesmo
+        {
+            var idSelf84 = await ContaNoIsolado84("exclui a si mesmo", todasMenosSimular84);
+
+            await using var db = new CrmDbContext(opcoes);
+            var ctx = new ContextoFixo(tenantIsolado84, idSelf84, "Ator84-2", PerfilDeAtendente.Administrador, todasMenosSimular84);
+            var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idSelf84));
+
+            Checar("84-2. ninguem exclui a si mesmo -> nao_pode_excluir_a_si_mesmo",
+                codigo == "nao_pode_excluir_a_si_mesmo");
+        }
+
+        // 84-3: sobra pelo menos um administrador ativo — mesma invariante de
+        // AtualizarAsync. TENANT PROPRIO: os demais sub-cenarios de 84
+        // compartilham tenantIsolado84 e deixam outros administradores para
+        // tras, o que mascararia esta invariante (mesma razao do tenant
+        // isolado da corrida 83-5).
+        {
+            Guid tenantIsolado84c;
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                var tenant = new Tenant
+                {
+                    RazaoSocial = "[TESTE] Tenant isolado — ultimo administrador na exclusao (cenario 84-3)",
+                    Cnpj = Random.Shared.NextInt64(10_000_000_000_000, 99_999_999_999_999).ToString()
+                };
+                db.Tenants.Add(tenant);
+                await db.SaveChangesAsync();
+                tenantIsolado84c = tenant.Id;
+            }
+            tenantIdsDeTeste.Add(tenantIsolado84c);
+
+            async Task<Guid> ContaNoIsolado84c(string rotulo, IReadOnlySet<PermissaoDoSistema> permissoes)
+            {
+                await using var db = new CrmDbContext(opcoes);
+                var conta = new Atendente
+                {
+                    TenantId = tenantIsolado84c,
+                    Nome = $"[TESTE] 84-3 {rotulo}",
+                    Email = $"teste-84-3-{Guid.NewGuid():N}@teste.local",
+                    SenhaHash = hash.Gerar(SenhaBoa),
+                    Perfil = PerfilDeAtendente.Administrador,
+                    Permissoes = CatalogoDePermissoes.Serializar(permissoes),
+                    Ativo = true
+                };
+                db.Atendentes.Add(conta);
+                await db.SaveChangesAsync();
+                ids.Add(conta.Id);
+                return conta.Id;
+            }
+
+            var idUnicoAdmin84 = await ContaNoIsolado84c("unico com equipe.permissoes", todasMenosSimular84);
+            // Tem equipe.excluir, mas NAO equipe.permissoes — nao conta como
+            // administrador para a invariante, entao idUnicoAdmin84 e' de
+            // fato o UNICO administrador do tenant.
+            var idOutroAtor84 = await ContaNoIsolado84c("outro ator, sem equipe.permissoes", semEquipePermissoes84);
+
+            await using var dbExcluir84c = new CrmDbContext(opcoes);
+            var ctx = new ContextoFixo(tenantIsolado84c, idOutroAtor84, "Ator84-3", PerfilDeAtendente.Administrador, semEquipePermissoes84);
+            var codigo = await CodigoDoErro84(() => new AtendenteService(dbExcluir84c, ctx, hash).ExcluirAsync(idUnicoAdmin84));
+
+            Checar("84-3. excluir o unico outro administrador ativo -> ultimo_administrador",
+                codigo == "ultimo_administrador");
+
+            var aindaExiste84 = await dbExcluir84c.Atendentes.AsNoTracking().AnyAsync(a => a.Id == idUnicoAdmin84);
+            Checar("84-3b. o alvo recusado continua no banco", aindaExiste84);
+        }
+
+        // 84-4: e' AUTOR (nao alvo) de um evento de seguranca sobre OUTRA
+        // conta — auditoria de terceiro nao pode sumir, mesmo sem nenhum
+        // rastro de atendimento.
+        {
+            var idAutorDeTerceiro84 = await ContaNoIsolado84("autor de evento de terceiro", todasMenosSimular84);
+            var idOutraConta84 = await ContaNoIsolado84("conta afetada pelo evento", todasMenosSimular84);
+            var idAtorExcluidor84 = await ContaNoIsolado84("ator que tenta excluir", todasMenosSimular84);
+
+            await using (var dbSetup = new CrmDbContext(opcoes))
+            {
+                dbSetup.EventosDeSeguranca.Add(new EventoDeSeguranca
+                {
+                    TenantId = tenantIsolado84,
+                    AtendenteId = idOutraConta84,
+                    AtorAtendenteId = idAutorDeTerceiro84,
+                    Tipo = TipoDeEventoDeSeguranca.PermissoesAlteradas,
+                    OcorridoEm = DateTime.UtcNow
+                });
+                await dbSetup.SaveChangesAsync();
+            }
+
+            await using var db = new CrmDbContext(opcoes);
+            var ctx = new ContextoFixo(tenantIsolado84, idAtorExcluidor84, "Ator84-4", PerfilDeAtendente.Administrador, todasMenosSimular84);
+            var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAutorDeTerceiro84));
+
+            Checar("84-4. autor de evento de seguranca sobre outra conta -> nao_pode_excluir_com_historico",
+                codigo == "nao_pode_excluir_com_historico");
+        }
+
+        // 84-5: sem nenhum rastro -> exclusao de verdade, inclusive limpando
+        // as linhas que pertencem so a propria conta (nao contam como
+        // historico porque desaparecem COM ela).
+        {
+            var idAlvo84e = await ContaNoIsolado84("sem historico algum", todasMenosSimular84);
+            var idAtorExcluidor84e = await ContaNoIsolado84("ator que exclui de verdade", todasMenosSimular84);
+
+            await using (var dbSetup = new CrmDbContext(opcoes))
+            {
+                // Evento SOBRE a propria conta do alvo (nao como autor de
+                // terceiro) — deve ser limpo junto, nao bloquear a exclusao.
+                dbSetup.EventosDeSeguranca.Add(new EventoDeSeguranca
+                {
+                    TenantId = tenantIsolado84,
+                    AtendenteId = idAlvo84e,
+                    AtorAtendenteId = null,
+                    Tipo = TipoDeEventoDeSeguranca.MfaAtivado,
+                    OcorridoEm = DateTime.UtcNow
+                });
+                await dbSetup.SaveChangesAsync();
+            }
+
+            await using (var db = new CrmDbContext(opcoes))
+            {
+                var ctx = new ContextoFixo(tenantIsolado84, idAtorExcluidor84e, "Ator84-5", PerfilDeAtendente.Administrador, todasMenosSimular84);
+                var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAlvo84e));
+                Checar("84-5a. sem historico algum -> exclusao aceita", codigo is null);
+            }
+
+            await using var dbVerifica = new CrmDbContext(opcoes);
+            var sobrouAtendente84e = await dbVerifica.Atendentes.AsNoTracking().AnyAsync(a => a.Id == idAlvo84e);
+            var sobrouEvento84e = await dbVerifica.EventosDeSeguranca.AsNoTracking().AnyAsync(e => e.AtendenteId == idAlvo84e);
+
+            Checar("84-5b. o registro do atendente sumiu de verdade (exclusao fisica)", !sobrouAtendente84e);
+            Checar("84-5c. o EventoDeSeguranca proprio da conta foi limpo junto, nao ficou orfao", !sobrouEvento84e);
+        }
     }
 }
 finally

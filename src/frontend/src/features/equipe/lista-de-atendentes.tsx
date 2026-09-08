@@ -41,10 +41,12 @@ export function ListaDeAtendentes({
   aoEditar,
   aoRedefinirSenha,
   aoAbrirMfa,
+  aoExcluir,
 }: {
   aoEditar: (atendente: Atendente) => void
   aoRedefinirSenha: (atendente: Atendente) => void
   aoAbrirMfa: (atendente: Atendente) => void
+  aoExcluir: (atendente: Atendente) => void
 }) {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('todos')
@@ -137,6 +139,7 @@ export function ListaDeAtendentes({
               aoEditar={() => aoEditar(atendente)}
               aoRedefinirSenha={() => aoRedefinirSenha(atendente)}
               aoAbrirMfa={() => aoAbrirMfa(atendente)}
+              aoExcluir={() => aoExcluir(atendente)}
             />
           ))}
         </div>
