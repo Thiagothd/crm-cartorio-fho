@@ -79,7 +79,10 @@ export function PaginaServicos() {
       </AcoesDaPagina>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-6">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+        {/* `@container`: as grades abaixo (resumo e cartões de serviço)
+            precisam reagir à largura que sobra depois do rail empurrar o
+            conteúdo, não só ao tamanho da janela. */}
+        <div className="@container mx-auto flex max-w-[1600px] flex-col gap-4">
           <section aria-label="Filtros de serviços" className="rounded-card border border-linha bg-branco p-4 shadow-card">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.6fr)]">
               <div>
@@ -119,10 +122,15 @@ export function PaginaServicos() {
           </section>
 
           {data && !isError ? (
-            <section aria-label="Resumo dos serviços exibidos" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            // Container query (`@3xl`), não breakpoint de tela: quem aperta
+            // esta grade é o rail empurrando o conteúdo, não o tamanho do
+            // aparelho. O `hidden @3xl:contents` da 3ª/4ª pílula usa o MESMO
+            // limiar de `@3xl:grid-cols-4` — senão a grade abre 4 colunas
+            // com só 2 cartões dentro.
+            <section aria-label="Resumo dos serviços exibidos" className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
               <ResumoDeServicos rotulo="Serviços exibidos" valor={filtrados.length} detalhe={`de ${catalogo.length} no catálogo`} />
               <ResumoDeServicos rotulo="Atendimentos abertos" valor={filtrados.reduce((soma, s) => soma + s.conversasAtivas, 0)} detalhe="nos serviços exibidos" />
-              <div className="hidden md:contents">
+              <div className="hidden @3xl:contents">
               <ResumoDeServicos rotulo="Sem prazo" valor={filtrados.filter((s) => !s.prazo).length} detalhe="nos serviços exibidos" />
               <ResumoDeServicos rotulo="Sem documentos" valor={filtrados.filter((s) => !s.documentosNecessarios?.trim()).length} detalhe="nos serviços exibidos" />
               </div>
@@ -135,7 +143,7 @@ export function PaginaServicos() {
           </div>
 
           {isLoading ? (
-            <div role="status" aria-label="Carregando serviços" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-80 rounded-card" />)}</div>
+            <div role="status" aria-label="Carregando serviços" className="grid gap-4 @lg:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-80 rounded-card" />)}</div>
           ) : isError ? (
             <EstadoDaInterface tipo="erro" titulo="Não foi possível carregar os serviços" descricao={error instanceof ErroDaApi ? error.message : 'Verifique sua conexão e tente novamente.'} acao={<Button variant="outline" onClick={() => void refetch()}>Tentar novamente</Button>} />
           ) : filtrados.length ? (
@@ -143,7 +151,7 @@ export function PaginaServicos() {
               {Object.entries(porCategoria).map(([nome, servicos]) => (
                 <section key={nome} aria-label={nome}>
                   <div className="mb-3 flex items-center gap-3 px-1"><h2 className="text-sm font-semibold tracking-tight text-tinta">{nome}</h2><span className="font-dado text-xs text-tinta-media">{servicos.length}</span><span aria-hidden="true" className="h-px flex-1 bg-linha" /></div>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{servicos.map((servico) => <FichaDeServico key={servico.id} servico={servico} podeEditar={podeGerirCadastros} aoEditar={abrir} />)}</div>
+                  <div className="grid gap-4 @lg:grid-cols-2 @4xl:grid-cols-3">{servicos.map((servico) => <FichaDeServico key={servico.id} servico={servico} podeEditar={podeGerirCadastros} aoEditar={abrir} />)}</div>
                 </section>
               ))}
             </div>

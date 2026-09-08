@@ -170,7 +170,10 @@ export function PaginaClientes() {
       {/* Filtros ficam na sua própria bancada; a lista usa o fundo de papel
           para as fichas de cadastro terem hierarquia e leitura independente. */}
       <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-6">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+        {/* `@container`: as grades abaixo (resumo e fichas de cliente)
+            precisam reagir à largura que sobra depois do rail empurrar o
+            conteúdo, não só ao tamanho da janela. */}
+        <div className="@container mx-auto flex max-w-[1600px] flex-col gap-4">
           <section className="rounded-card border border-linha bg-branco shadow-card">
           <div className="flex flex-col gap-3 rounded-[inherit] bg-branco p-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -274,7 +277,7 @@ export function PaginaClientes() {
           </section>
 
           {data?.itens.length && !isError ? (
-            <section aria-label="Resumo da lista de clientes" className="grid gap-3 sm:grid-cols-3">
+            <section aria-label="Resumo da lista de clientes" className="grid gap-3 @xl:grid-cols-3">
               <ResumoDaLista rotulo="Clientes encontrados" valor={data.total} descricao="resultado da busca atual" />
               <ResumoDaLista rotulo="Em atendimento" valor={comAtendimentoAberto} descricao="cadastros desta lista" />
               <ResumoDaLista rotulo="Pendências cadastrais" valor={comPendenciaCadastral} descricao="cadastros desta lista" />
@@ -284,7 +287,7 @@ export function PaginaClientes() {
           <section className="rounded-card border border-linha bg-superficie/40 shadow-card">
           <div>
             {isLoading ? (
-              <div role="status" aria-label="Carregando clientes" className="grid gap-3 p-3 sm:grid-cols-2 md:gap-4 md:p-4 xl:grid-cols-3">
+              <div role="status" aria-label="Carregando clientes" className="grid gap-3 p-3 @lg:grid-cols-2 md:gap-4 md:p-4 @4xl:grid-cols-3">
                 {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-64 w-full rounded-card" />)}
               </div>
             ) : isError ? (

@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { RailDeNavegacao } from './rail-de-navegacao'
 import { CabecalhoGlobal } from './cabecalho-global'
 import { NavegacaoInferior } from './navegacao-inferior'
 import { FolhaMais } from './folha-mais'
 import { ContextoDoContainerDeAcoes } from './contexto-de-acoes-da-pagina'
 import { ProvedorDaBuscaGlobal } from './contexto-de-busca-global'
+import { ProvedorDoRail, usarRail } from './contexto-do-rail'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 
 /** `/atendimentos/:id` — a conversa já tem cabeçalho e navegação próprios. */
@@ -68,11 +70,25 @@ function useAvisoDeMolduraRolando(pathname: string) {
  * custariam ~50px do fio de mensagens num aparelho de 360px. É exatamente o
  * comportamento que a inbox já tinha antes da Fase 3, só que decidido aqui em
  * vez de dentro da página.
+ *
+ * `Shell` só monta o `ProvedorDoRail` — precisa estar ACIMA da moldura, que lê
+ * o estado para publicar `--largura-do-rail`. `MolduraDoShell` é o corpo de
+ * verdade, sem elemento a mais entre os dois (`shell.test.tsx` depende de
+ * `container.firstElementChild` ser a `<div>` da moldura).
  */
 export function Shell({ children }: { children: ReactNode }) {
+  return (
+    <ProvedorDoRail>
+      <MolduraDoShell>{children}</MolduraDoShell>
+    </ProvedorDoRail>
+  )
+}
+
+function MolduraDoShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const [containerDeAcoes, setContainerDeAcoes] = useState<HTMLDivElement | null>(null)
   const [folhaMaisAberta, setFolhaMaisAberta] = useState(false)
+  const { expandido } = usarRail()
 
   const emConversa = ehRotaDeConversa(location.pathname)
 
@@ -96,11 +112,33 @@ export function Shell({ children }: { children: ReactNode }) {
     // bloco container que faltava, e o recorte que já existia passa a valer.
     // Sem z-index: `relative` sozinho não cria contexto de empilhamento, então
     // nada muda de ordem.
+    //
+    // A var `--largura-do-rail` é publicada AQUI, não no rail: é o `Shell`
+    // quem sabe que abaixo de `md` o rail nem existe (`0px`, sem prefixo), e é
+    // esta mesma var que o rail lê para a própria largura
+    // (`w-[var(--largura-do-rail,4rem)]`) — uma fonte só, impossível
+    // dessincronizar.
     <ProvedorDaBuscaGlobal>
-      <div className="relative flex h-dvh min-h-dvh overflow-hidden bg-papel">
+      <div
+        className={cn(
+          'relative flex h-dvh min-h-dvh overflow-hidden bg-papel',
+          '[--largura-do-rail:0px]',
+          expandido
+            ? 'md:[--largura-do-rail:var(--largura-do-rail-expandido)]'
+            : 'md:[--largura-do-rail:var(--largura-do-rail-recolhido)]',
+        )}
+      >
         <RailDeNavegacao />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* `@container/conteudo`: o rail empurra em vez de cobrir, então esta
+            coluna perde até 192px de largura útil sem a JANELA mudar de
+            tamanho. Nomeado (`/conteudo`) para qualquer tela poder perguntar
+            "quanto sobrou depois do rail" com `@.../conteudo:`, mesmo de dentro
+            de um container aninhado sem nome (como o da coluna da conversa em
+            `pagina-inbox.tsx`). Fica aqui, não no <main>: o cabeçalho global
+            também perde os mesmos 192px, e este wrapper já é `min-w-0 flex-1` —
+            a largura vem de fora, condição segura para `container-type`. */}
+        <div className="@container/conteudo flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <CabecalhoGlobal ocultoNoCelular={emConversa} aoRegistrarContainerDeAcoes={setContainerDeAcoes} />
 
           <ContextoDoContainerDeAcoes.Provider value={containerDeAcoes}>

@@ -310,11 +310,16 @@ export function CabecalhoDaConversa({
 
         <EtiquetaDePrazo situacao={conversa.situacaoPrazo} prazoLimite={conversa.prazoLimite} compacta />
 
-        {/* Assumir, Histórico e Mídias saem da linha no celular e reaparecem
-            como item do menu ⋮ logo abaixo. Em 360px o cluster inteiro não cabe
-            junto do nome, e o que se perde primeiro é o que tem outro caminho. */}
+        {/* Assumir, Histórico e Mídias saem da linha quando a coluna aperta e
+            reaparecem como item do menu ⋮ logo abaixo — container query
+            (`@xl`, 36rem), não breakpoint de tela: quem tira espaço desta
+            linha é a largura que SOBRA para a coluna da conversa (rail
+            empurrando, lista de conversas ao lado), não o tamanho do
+            aparelho. Par completo com os itens homônimos do ⋮ mais abaixo —
+            os dois lados do par têm que usar o MESMO limiar, ou a ação
+            aparece duas vezes ou nenhuma. */}
         {naFila ? (
-          <Button size="sm" className="hidden md:inline-flex" onClick={aoAssumir} disabled={assumindo}>
+          <Button size="sm" className="hidden @xl:inline-flex" onClick={aoAssumir} disabled={assumindo}>
             <Hand />
             Assumir
           </Button>
@@ -323,7 +328,7 @@ export function CabecalhoDaConversa({
         <Button
           variant={painelAtivo === 'historico' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className="hidden rounded-full md:inline-flex"
+          className="hidden rounded-full @xl:inline-flex"
           aria-pressed={painelAtivo === 'historico'}
           onClick={() => aoAlternarPainel('historico')}
           title="Histórico de etapas"
@@ -376,13 +381,17 @@ export function CabecalhoDaConversa({
               Mídias e arquivos
             </DropdownMenuItem>
 
-            <DropdownMenuItem className="md:hidden" onSelect={() => aoAlternarPainel('historico')}>
+            {/* `@xl:hidden` — par complementar exato do botão homônimo da
+                linha, acima. Mesmo limiar dos dois lados: senão a ação
+                aparece na linha E no menu ao mesmo tempo, ou em nenhum dos
+                dois. */}
+            <DropdownMenuItem className="@xl:hidden" onSelect={() => aoAlternarPainel('historico')}>
               <History />
               Histórico de etapas
             </DropdownMenuItem>
 
             {naFila ? (
-              <DropdownMenuItem className="md:hidden" disabled={assumindo} onSelect={aoAssumir}>
+              <DropdownMenuItem className="@xl:hidden" disabled={assumindo} onSelect={aoAssumir}>
                 <Hand />
                 Assumir atendimento
               </DropdownMenuItem>

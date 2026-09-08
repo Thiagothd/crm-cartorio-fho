@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Building2, FolderTree, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { itemPelaRota } from '@/app/navegacao'
+import { itemPelaRota, itensForaDoMenu } from '@/app/navegacao'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { Avatar } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
@@ -32,8 +33,13 @@ export function CabecalhoGlobal({
 }) {
   const location = useLocation()
   const navegar = useNavigate()
-  const { atendente, tenant, sair } = usarAutenticacao()
+  const { atendente, tenant, sair, pode } = usarAutenticacao()
   const item = itemPelaRota(location.pathname)
+
+  // Telas que existem mas não moram no rail (Aparência, Segurança). Vêm da
+  // MESMA `app/navegacao.ts` — rótulo, ícone, rota e permissão — para o menu
+  // de perfil nunca virar uma segunda lista de navegação escrita à mão.
+  const telasDaConta = itensForaDoMenu(pode)
 
   return (
     <header
@@ -150,6 +156,19 @@ export function CabecalhoGlobal({
             </dl>
 
             <div className="p-1">
+              {telasDaConta.map((tela) => (
+                <DropdownMenuItem
+                  key={tela.rota}
+                  onSelect={() => navegar(tela.rota)}
+                  onPointerEnter={() => void tela.carregar()}
+                >
+                  <tela.icone />
+                  {tela.rotulo}
+                </DropdownMenuItem>
+              ))}
+
+              {telasDaConta.length > 0 ? <DropdownMenuSeparator /> : null}
+
               <DropdownMenuItem
                 onSelect={() => {
                   sair()

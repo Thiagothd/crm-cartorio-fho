@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { Navigate, useParams } from 'react-router-dom'
+import { Activity, BookOpen, RefreshCw } from 'lucide-react'
+import { AbasDeSecao, ehSecaoDe, type SecaoDeAba } from '@/components/layout/abas-de-secao'
+import { AbaConhecimentoDeIa } from '@/features/configuracoes/aba-conhecimento-de-ia'
 import { usarAnaliseDaIa } from '@/features/ia/consultas'
 import {
   CHAVES_DE_PERIODO,
@@ -35,7 +38,48 @@ const BADGE_DA_SITUACAO: Record<SituacaoAgoraDaIa['status'], 'success' | 'warnin
   Desligada: 'outline',
 }
 
+export type SecaoDeIa = 'situacao' | 'conhecimento'
+
+const SECOES: readonly SecaoDeAba<SecaoDeIa>[] = [
+  { chave: 'situacao', rotulo: 'Situação', icone: Activity },
+  { chave: 'conhecimento', rotulo: 'Conhecimento', icone: BookOpen },
+]
+
+/**
+ * A IA numa tela só: o que ela ENTREGOU (situação) e o que ela SABE
+ * (conhecimento aprovado). Eram dois itens no menu do rail, e a separação não
+ * se sustentava — quem abre "a IA não soube responder" na primeira seção quer,
+ * no mesmo minuto, cadastrar o que faltou na segunda. Agora é uma aba de
+ * distância, não uma volta pelo menu.
+ *
+ * A rota antiga `/automacao/conhecimento-ia` continua resolvendo por redirect
+ * (`app/rotas.tsx`).
+ */
 export function PaginaIa() {
+  const { secao } = useParams<{ secao?: string }>()
+
+  if (!ehSecaoDe(SECOES, secao)) {
+    return <Navigate to="/automacao/ia/situacao" replace />
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-3 md:p-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+        <AbasDeSecao
+          base="/automacao/ia"
+          secoes={SECOES}
+          rotuloDaNavegacao="Seções da IA"
+          className="self-start"
+        />
+
+        {secao === 'situacao' ? <SituacaoDaIa /> : <AbaConhecimentoDeIa />}
+      </div>
+    </div>
+  )
+}
+
+/** O painel de valor entregue — o que era a tela de IA inteira antes das abas. */
+function SituacaoDaIa() {
   const [chaveDePeriodo, definirChaveDePeriodo] = usarPreferenciaDeTexto<ChaveDePeriodo>(
     'crm-cartorio.ia.periodo',
     '7dias',
@@ -64,9 +108,12 @@ export function PaginaIa() {
       valor: l.total,
     })) ?? []
 
+  // Sem `flex-1 overflow-y-auto` nem `max-w-6xl` aqui: quem rola e quem limita
+  // a largura é a `PaginaIa` acima, para as duas seções dividirem a MESMA
+  // moldura e as abas não rolarem junto com o conteúdo de uma delas só.
   return (
-    <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+    <>
+      <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="max-w-2xl text-sm text-tinta-media">
             A Resposta Inteligente atende no WhatsApp usando só o que está cadastrado no catálogo de serviços e nas
@@ -217,7 +264,7 @@ export function PaginaIa() {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 

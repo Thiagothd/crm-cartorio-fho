@@ -8,11 +8,15 @@ import { X } from 'lucide-react'
  * divergem no terceiro mês. Toda a posicionalidade mora aqui; cada painel
  * entrega só o miolo.
  *
- * DOIS POSICIONAMENTOS, UM COMPONENTE. No desktop é uma coluna em fluxo, à
- * direita do fio, como o histórico sempre foi. Abaixo de `md` vira tela cheia:
- * num celular não existe "ao lado", e espremer uma coluna de 256px num aparelho
- * de 360px devolveria 100px de conversa. É só CSS — o componente é o mesmo, não
- * há remontagem ao girar o aparelho.
+ * DOIS POSICIONAMENTOS, UM COMPONENTE. Com coluna suficiente é uma coluna em
+ * fluxo, à direita do fio, como o histórico sempre foi; sem isso vira tela
+ * cheia. A decisão é por CONTAINER (`@xl`, 36rem = 576px do container da
+ * coluna da conversa em `pagina-inbox.tsx`), não por viewport: o que aperta
+ * essa coluna não é só o tamanho do aparelho — é também o rail de navegação
+ * empurrando o conteúdo e a lista de conversas ao lado. Em fluxo, 256px de
+ * painel + 320px de fio é o piso honesto; abaixo disso não existe "ao lado" —
+ * o celular de 360px é o caso extremo desse piso, não uma regra à parte. É só
+ * CSS — o componente é o mesmo, não há remontagem quando o container encolhe.
  */
 export function PainelLateralDaConversa({
   titulo,
@@ -55,7 +59,7 @@ export function PainelLateralDaConversa({
       // Fase 3.2 (secao 16): anima-esmaecer e' seguro aqui porque o painel
       // realmente monta/desmonta a cada abrir/fechar (ao contrario do wrapper
       // do fio, que so' monta uma vez por sessao de conversa).
-      className="anima-esmaecer fixed inset-0 z-30 flex flex-col overflow-hidden border-linha bg-superficie md:static md:z-auto md:w-64 md:shrink-0 md:border-l xl:w-72"
+      className="anima-esmaecer fixed inset-0 z-30 flex flex-col overflow-hidden border-linha bg-superficie @xl:static @xl:z-auto @xl:w-64 @xl:shrink-0 @xl:border-l @4xl:w-72"
     >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-linha px-4 py-3">
         <div className="min-w-0">

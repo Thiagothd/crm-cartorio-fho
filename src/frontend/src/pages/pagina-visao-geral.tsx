@@ -95,7 +95,10 @@ export function PaginaVisaoGeral() {
 
   return (
     <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      {/* `@container`, local — a largura que importa para as grades abaixo é
+          a que sobra depois do padding e do teto de `max-w-6xl`, não a do
+          container do shell direto. */}
+      <div className="@container mx-auto flex max-w-6xl flex-col gap-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="text-sm capitalize text-tinta-media">{dataDeHojeExtenso.format(new Date())}</p>
           <SeletorDePeriodo

@@ -11,7 +11,7 @@ import { conversasApi } from '@/lib/api/endpoints'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { usarHubDeAtendimento } from '@/lib/realtime/usar-hub-de-atendimento'
 import { usarPreferenciaLocal } from '@/lib/usar-preferencia-local'
-import { usarAbaixoDe } from '@/lib/usar-abaixo-de'
+import { usarConteudoAbaixoDe } from '@/lib/usar-conteudo-abaixo-de'
 import {
   usarAparenciaDaConversa,
   usarAtendentes,
@@ -88,12 +88,18 @@ export function PaginaInbox() {
     false,
   )
 
-  // Abaixo de 1024px — mais estreito que o gatilho do menu principal (1280px),
-  // porque o menu já recolheu primeiro e sobrou mais coluna aqui — a lista
-  // recolhe sozinha para devolver espaço ao fio. `listaRecolhidaEfetiva` é o
-  // que a tela usa para decidir o que mostrar; `listaRecolhida` continua sendo
-  // só a escolha manual, salva, que volta a valer assim que a janela alarga.
-  const estreitoParaLista = usarAbaixoDe(1024)
+  // 960px de largura ÚTIL — não de janela. Antes disto o rail sempre tinha
+  // 64px (o "fixar" era bloqueado abaixo de 1280px), então 1024px de janela
+  // sempre significou 960px de conteúdo; a conta ficava escondida atrás do
+  // gatilho do menu. Agora o rail empurra em qualquer largura e pode estar
+  // expandido (256px), então a mesma janela sobra menos coluna aqui — e é
+  // isso que `usarConteudoAbaixoDe` soma antes de perguntar. Com o rail
+  // recolhido o comportamento é IDÊNTICO ao de antes em toda largura; com o
+  // rail expandido a lista recolhe sozinha mais cedo, devolvendo espaço ao
+  // fio. `listaRecolhidaEfetiva` é o que a tela usa para decidir o que
+  // mostrar; `listaRecolhida` continua sendo só a escolha manual, salva, que
+  // volta a valer assim que sobra largura de novo.
+  const estreitoParaLista = usarConteudoAbaixoDe(960)
   const listaRecolhidaEfetiva = listaRecolhida || estreitoParaLista
 
   const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)

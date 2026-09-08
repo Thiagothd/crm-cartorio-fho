@@ -4,7 +4,7 @@ import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { Shell } from '@/components/layout/shell'
 import { Button } from '@/components/ui/button'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
-import { todosOsItens, type PermissaoNecessaria } from '@/app/navegacao'
+import { podeVer, todosOsItens, type PermissaoDeAcesso } from '@/app/navegacao'
 
 const PaginaLogin = lazy(() =>
   import('@/pages/pagina-login').then((modulo) => ({ default: modulo.PaginaLogin })),
@@ -41,7 +41,7 @@ const componentesPorRota = new Map(todosOsItens().map((item) => [item.rota, lazy
  * duas verdades, e a que ficasse esquecida seria a que abre a tela para quem
  * não devia.
  */
-const permissaoDeIndicadores: PermissaoNecessaria =
+const permissaoDeIndicadores: PermissaoDeAcesso =
   todosOsItens().find((item) => item.rota === '/indicadores')?.permissao ?? 'relatorios.ver'
 
 /**
@@ -52,8 +52,23 @@ const permissaoDeIndicadores: PermissaoNecessaria =
  * tela em modo leitura; editar exige `equipe.permissoes`, e isso o backend
  * decide de verdade a cada chamada.
  */
-const permissaoDeEquipe: PermissaoNecessaria =
+const permissaoDeEquipe: PermissaoDeAcesso =
   todosOsItens().find((item) => item.rota === '/equipe')?.permissao ?? 'equipe.ver'
+
+/**
+ * Mesma ideia das duas de cima, agora para as telas que absorveram itens do
+ * menu: Mensagens (automáticas | encerramento | respostas) e IA (situação |
+ * conhecimento). A permissão sai da MESMA entrada de `navegacao.ts` que
+ * protege a rota-mãe — repetir a chave aqui criaria duas verdades. Cada
+ * `permissao` já é "qualquer uma destas" (`PermissaoDeAcesso`), então quem
+ * tem só uma das seções da tela já abre a rota — é a própria página quem
+ * decide, aba por aba, qual seção esta conta específica alcança.
+ */
+const permissaoDeMensagens: PermissaoDeAcesso =
+  todosOsItens().find((item) => item.rota === '/automacao/mensagens')?.permissao ?? 'automacao.mensagens.ver'
+
+const permissaoDeIa: PermissaoDeAcesso =
+  todosOsItens().find((item) => item.rota === '/automacao/ia')?.permissao ?? 'ia.ver'
 
 const PaginaPermissoesDoAtendente = lazy(() =>
   import('@/pages/pagina-permissoes-do-atendente').then((modulo) => ({
@@ -130,16 +145,20 @@ function ExigeAutenticacao({ children }: { children: ReactNode }) {
   return <Shell>{children}</Shell>
 }
 
-/** Mesma permissão declarada em `app/navegacao.ts` — nunca amplia, só barra. */
+/**
+ * Mesma permissão declarada em `app/navegacao.ts` — nunca amplia, só barra.
+ * `podeVer` já resolve os dois formatos: uma chave, ou um array ("qualquer
+ * uma destas", usado pelas telas que fundem seções de permissões diferentes).
+ */
 function ExigePermissao({
   permissao,
   children,
 }: {
-  permissao: PermissaoNecessaria
+  permissao: PermissaoDeAcesso
   children: ReactNode
 }) {
   const { pode } = usarAutenticacao()
-  const permitido = permissao === 'autenticado' || pode(permissao)
+  const permitido = podeVer(permissao, pode)
 
   return <ExigeAutenticacao>{permitido ? children : <Navigate to="/" replace />}</ExigeAutenticacao>
 }
@@ -153,6 +172,8 @@ function RedirecionarConversaAntiga() {
 export function Rotas() {
   const PaginaAtendimento = componentesPorRota.get('/atendimentos')!
   const PaginaIndicadores = componentesPorRota.get('/indicadores')!
+  const PaginaMensagens = componentesPorRota.get('/automacao/mensagens')!
+  const PaginaIa = componentesPorRota.get('/automacao/ia')!
 
   return (
     <BrowserRouter>
@@ -245,10 +266,51 @@ export function Rotas() {
           }
         />
 
+        {/* As seções de Mensagens e de IA vivem na URL, pela mesma razão das
+            de Indicadores. Ficam fora de `navegacao.ts` de propósito: são
+            subdivisões de UMA tela — foi juntá-las que tirou três itens do
+            menu do rail. */}
+        <Route
+          path="/automacao/mensagens/:secao"
+          element={
+            <ExigePermissao permissao={permissaoDeMensagens}>
+              <PaginaSobDemanda>
+                <PaginaMensagens />
+              </PaginaSobDemanda>
+            </ExigePermissao>
+          }
+        />
+        <Route
+          path="/automacao/ia/:secao"
+          element={
+            <ExigePermissao permissao={permissaoDeIa}>
+              <PaginaSobDemanda>
+                <PaginaIa />
+              </PaginaSobDemanda>
+            </ExigePermissao>
+          }
+        />
+
         {/* Compatibilidade com links antigos — refresh, F5 e link compartilhado
             continuam funcionando depois da Fase 3. */}
         <Route path="/conversas/:id" element={<RedirecionarConversaAntiga />} />
         <Route path="/configuracoes" element={<Navigate to="/estrutura/etapas" replace />} />
+
+        {/* Os três itens de menu que viraram seção. Quem tinha `/automacao/
+            respostas` favoritado, ou um link antigo colado num chamado, cai na
+            aba certa em vez de na Visão Geral. */}
+        <Route
+          path="/automacao/respostas"
+          element={<Navigate to="/automacao/mensagens/respostas" replace />}
+        />
+        <Route
+          path="/automacao/encerramento"
+          element={<Navigate to="/automacao/mensagens/encerramento" replace />}
+        />
+        <Route
+          path="/automacao/conhecimento-ia"
+          element={<Navigate to="/automacao/ia/conhecimento" replace />}
+        />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
