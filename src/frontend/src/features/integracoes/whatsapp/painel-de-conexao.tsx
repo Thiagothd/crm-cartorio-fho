@@ -6,6 +6,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { Painel } from '@/components/ui/painel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { whatsappApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
@@ -133,8 +134,20 @@ export function PainelDeConexao() {
 
   return (
     <>
+      <Painel
+        titulo="Conexão do canal"
+        descricao="O número que fala com os clientes do cartório — parear, trocar ou desconectar."
+        acao={
+          data?.conectado ? (
+            <Badge variant="success">
+              <Check className="size-3" />
+              Conectado
+            </Badge>
+          ) : null
+        }
+      >
       {isLoading ? (
-        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-40 w-full" />
       ) : isError ? (
         <EstadoDaInterface
           tipo="erro"
@@ -155,24 +168,20 @@ export function PainelDeConexao() {
           descricao="Fale com o suporte técnico para habilitar o canal de WhatsApp."
         />
       ) : data.conectado ? (
-        <div className="flex flex-col gap-4 rounded-md border border-linha bg-branco p-4">
-          <div className="flex items-center gap-3">
+        // Identidade e ações lado a lado na largura devolvida pela grade da
+        // página; empilham sozinhas quando não couberem.
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
             <Avatar
               nome={data.perfilNome ?? data.numero ?? 'WhatsApp'}
               fotoUrl={data.perfilFotoUrl}
               tamanho="lg"
             />
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <p className="truncate font-titulo text-base text-tinta">
-                  {data.perfilNome ?? 'Número conectado'}
-                </p>
-                <Badge variant="success">
-                  <Check className="size-3" />
-                  Conectado
-                </Badge>
-              </div>
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-bold tracking-tight text-tinta">
+                {data.perfilNome ?? 'Número conectado'}
+              </p>
 
               <p className="truncate font-dado text-sm text-tinta-media">
                 {data.numero ? formatarTelefone(data.numero) : '—'}
@@ -198,7 +207,7 @@ export function PainelDeConexao() {
           </div>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-linha bg-branco p-6">
+        <div className="flex flex-col items-center gap-3 py-2">
           {qrCode ? (
             <>
               {/* Fundo branco explícito e fixo: o leitor do celular precisa de
@@ -252,6 +261,7 @@ export function PainelDeConexao() {
           ) : null}
         </div>
       )}
+      </Painel>
 
       <DialogoDeTroca
         situacao={data}

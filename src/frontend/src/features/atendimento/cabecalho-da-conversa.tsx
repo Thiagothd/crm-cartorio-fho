@@ -151,7 +151,11 @@ export function CabecalhoDaConversa({
               Nunca quebra — o nome do cliente é quem cede, truncando com
               reticências antes que a linha precise de uma segunda altura. */}
           <div className="flex flex-nowrap items-center gap-x-2 overflow-hidden">
-            <h2 className="min-w-0 shrink truncate font-titulo text-base leading-tight text-tinta">
+            {/* Fase 3.2 (secao 16): Inter bold no lugar da Spectral — a
+                "manchete" da 3.1, nao mais o titulo serifado. A Spectral
+                continua no selo e na linha de autoria do fio (10.4),
+                intocados. */}
+            <h2 className="min-w-0 shrink truncate text-[15px] font-semibold leading-tight tracking-tight text-tinta">
               {nomeExibido}
             </h2>
 
@@ -306,11 +310,16 @@ export function CabecalhoDaConversa({
 
         <EtiquetaDePrazo situacao={conversa.situacaoPrazo} prazoLimite={conversa.prazoLimite} compacta />
 
-        {/* Assumir, Histórico e Mídias saem da linha no celular e reaparecem
-            como item do menu ⋮ logo abaixo. Em 360px o cluster inteiro não cabe
-            junto do nome, e o que se perde primeiro é o que tem outro caminho. */}
+        {/* Assumir, Histórico e Mídias saem da linha quando a coluna aperta e
+            reaparecem como item do menu ⋮ logo abaixo — container query
+            (`@xl`, 36rem), não breakpoint de tela: quem tira espaço desta
+            linha é a largura que SOBRA para a coluna da conversa (rail
+            empurrando, lista de conversas ao lado), não o tamanho do
+            aparelho. Par completo com os itens homônimos do ⋮ mais abaixo —
+            os dois lados do par têm que usar o MESMO limiar, ou a ação
+            aparece duas vezes ou nenhuma. */}
         {naFila ? (
-          <Button size="sm" className="hidden md:inline-flex" onClick={aoAssumir} disabled={assumindo}>
+          <Button size="sm" className="hidden @xl:inline-flex" onClick={aoAssumir} disabled={assumindo}>
             <Hand />
             Assumir
           </Button>
@@ -319,7 +328,7 @@ export function CabecalhoDaConversa({
         <Button
           variant={painelAtivo === 'historico' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className="hidden md:inline-flex"
+          className="hidden rounded-full @xl:inline-flex"
           aria-pressed={painelAtivo === 'historico'}
           onClick={() => aoAlternarPainel('historico')}
           title="Histórico de etapas"
@@ -335,7 +344,7 @@ export function CabecalhoDaConversa({
         <Button
           variant={painelAtivo === 'midias' ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className="hidden @2xl:inline-flex"
+          className="hidden rounded-full @2xl:inline-flex"
           aria-pressed={painelAtivo === 'midias'}
           onClick={() => aoAlternarPainel('midias')}
           title="Mídias e arquivos"
@@ -346,7 +355,7 @@ export function CabecalhoDaConversa({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="size-9 md:size-8">
+            <Button variant="ghost" size="icon-sm" className="size-9 rounded-full md:size-8">
               <MoreVertical />
               <span className="sr-only">Ações</span>
             </Button>
@@ -372,13 +381,17 @@ export function CabecalhoDaConversa({
               Mídias e arquivos
             </DropdownMenuItem>
 
-            <DropdownMenuItem className="md:hidden" onSelect={() => aoAlternarPainel('historico')}>
+            {/* `@xl:hidden` — par complementar exato do botão homônimo da
+                linha, acima. Mesmo limiar dos dois lados: senão a ação
+                aparece na linha E no menu ao mesmo tempo, ou em nenhum dos
+                dois. */}
+            <DropdownMenuItem className="@xl:hidden" onSelect={() => aoAlternarPainel('historico')}>
               <History />
               Histórico de etapas
             </DropdownMenuItem>
 
             {naFila ? (
-              <DropdownMenuItem className="md:hidden" disabled={assumindo} onSelect={aoAssumir}>
+              <DropdownMenuItem className="@xl:hidden" disabled={assumindo} onSelect={aoAssumir}>
                 <Hand />
                 Assumir atendimento
               </DropdownMenuItem>
@@ -425,7 +438,8 @@ export function CabecalhoDaConversa({
             <DialogTitle>Encerrar atendimento</DialogTitle>
             <DialogDescription>
               A conversa sai da lista de ativas e vai para o arquivo. Nada é apagado — todo o
-              histórico continua consultável e o atendimento pode ser reaberto.
+              histórico continua consultável e o atendimento pode ser reaberto. O cliente recebe um
+              aviso de encerramento pelo WhatsApp.
             </DialogDescription>
           </DialogHeader>
 
@@ -438,6 +452,9 @@ export function CabecalhoDaConversa({
               placeholder="Ex.: certidão entregue no balcão"
               maxLength={500}
             />
+            <p className="text-xs text-tinta-fraca">
+              Fica só no registro interno — o cliente não vê o motivo.
+            </p>
           </div>
 
           <DialogFooter>
@@ -564,7 +581,11 @@ function PilulaDeSelecao({
            36px/14px assim que a tela passava de 768px, truncando cedo demais
            ("Atendimen...") dentro do mesmo max-w-[13rem]. */
         className={cn(
-          'h-auto w-auto min-w-[4.5rem] max-w-[13rem] gap-1 rounded-md border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta md:h-auto md:text-[11px] [&>svg]:size-3 [&>svg]:opacity-60',
+          // Fase 3.2: rounded-full no lugar de rounded-md. O par md:h-auto/
+          // md:text-[11px] continua EXATAMENTE como estava (ver comentario
+          // acima) — nao e redundancia, e o que impede a pilula de virar
+          // select de 36px a partir de 768px.
+          'h-auto w-auto min-w-[4.5rem] max-w-[13rem] gap-1 rounded-full border-linha bg-superficie px-1.5 py-0.5 text-[11px] font-medium text-tinta transition-colors duration-[var(--duracao-rapida)] hover:bg-papel md:h-auto md:text-[11px] [&>svg]:size-3 [&>svg]:opacity-60',
           flexivel ? 'shrink' : 'shrink-0',
         )}
       >

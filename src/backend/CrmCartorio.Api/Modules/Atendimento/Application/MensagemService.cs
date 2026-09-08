@@ -5,6 +5,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -249,7 +250,7 @@ public class MensagemService(
         // A trava do lado do envio continua: quem nao e o responsavel nao escreve
         // por cima de quem e. Sem isso, dois atendentes responderiam o mesmo
         // cliente ao mesmo tempo — o erro que este produto existe para eliminar.
-        if (conversa.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
+        if (conversa.AtendenteId != ctx.AtendenteId && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == conversa.AtendenteId)
@@ -330,6 +331,15 @@ public class MensagemService(
         SimularMensagemDeClienteRequest request,
         CancellationToken ct = default)
     {
+        // Ferramenta de demonstracao — forja uma mensagem "do cliente" sem
+        // WhatsApp real por tras. Fora de todos os 6 modelos de permissao de
+        // proposito (Modules/Usuarios/Domain/CatalogoDePermissoes.cs); quem
+        // precisar marca a chave a mao.
+        if (!ctx.Pode(PermissaoDoSistema.AtendimentoSimularCliente))
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+
         var conteudo = request.Conteudo?.Trim();
         if (string.IsNullOrWhiteSpace(conteudo))
         {
@@ -392,7 +402,28 @@ public class MensagemService(
         // essa flag ligada mesmo sem saber responder (mesmo dia, ver
         // AplicadorDeRespostaInteligente). Cliente pedindo "menu" no meio de uma
         // troca com a IA ia direto para ela, que nao entende "menu" como comando.
-        if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
+        // BUG-ATD-01 — checado ANTES de qualquer outra coisa: a conversa ja
+        // foi entregue a um humano (cliente pediu atendente, ou um atendente
+        // assumiu por conta propria) e a automacao conversacional fica muda.
+        // A mensagem ja foi gravada e os contadores acima ja foram
+        // atualizados — so falta a notificacao no fim do metodo, que
+        // continua incondicional.
+        //
+        // A pergunta de encerramento por inatividade e a UNICA excecao: se
+        // havia uma pendente, o cliente escrever prova que ele esta vivo —
+        // mesmo principio ja usado em ConcluirEnvioAsync quando o ATENDENTE
+        // responde.
+        //
+        // SE MEXER AQUI, MEXA EM RecebimentoDeWhatsApp.ReceberAsync TAMBEM —
+        // mesma cadeia de despacho, duplicada por enquanto.
+        if (conversa.EmAtendimentoHumano)
+        {
+            if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
+            {
+                conversa.PerguntaDeEncerramentoEnviadaEm = null;
+            }
+        }
+        else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
                 db, automaticas, conversa, conteudo, agora, ct))
         {
             // Primeiro de todos, ate antes do "menu": a pergunta de encerramento
@@ -637,7 +668,7 @@ public class MensagemService(
         {
             await conversas.AssumirAsync(destino.Id, ct);
         }
-        else if (destino.AtendenteId != ctx.AtendenteId && !ctx.PodeOperarConversaDeTerceiro)
+        else if (destino.AtendenteId != ctx.AtendenteId && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == destino.AtendenteId)
@@ -757,7 +788,7 @@ public class MensagemService(
 
         if (conversa.AtendenteId is not null
             && conversa.AtendenteId != ctx.AtendenteId
-            && !ctx.PodeOperarConversaDeTerceiro)
+            && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
         {
             var responsavel = await db.Atendentes.AsNoTracking()
                 .Where(a => a.Id == conversa.AtendenteId)

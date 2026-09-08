@@ -31,7 +31,8 @@ public static class AplicadorDeEscolhaDeServico
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         conversa.AguardandoEscolhaDeServico = false;
 
@@ -44,7 +45,7 @@ public static class AplicadorDeEscolhaDeServico
                 conversa.Id);
 
             await AplicadorDeRespostaInteligente.AplicarAsync(
-                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct, mensagemAtualId);
             return;
         }
 
@@ -58,7 +59,7 @@ public static class AplicadorDeEscolhaDeServico
                 conversa.Id);
 
             await AplicadorDeRespostaInteligente.AplicarAsync(
-                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct, mensagemAtualId);
             return;
         }
 

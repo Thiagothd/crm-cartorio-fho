@@ -70,10 +70,13 @@ export function ItemDeConversa({
       type="button"
       onClick={() => aoSelecionar(conversa.id)}
       className={cn(
-        'flex w-full gap-3 border-b border-linha px-3 py-2.5 text-left transition-colors',
-        selecionada ? 'bg-superficie' : 'hover:bg-superficie/60',
-        // Barra lateral marca a selecionada. É a linha mais fina que ainda se vê.
-        selecionada && 'border-l-2 border-l-tinta pl-[10px]',
+        // Fase 3.2 (docs/DESIGN.md, secao 16): a linha vira cartao — mesmo
+        // tratamento de indicador-numerico.tsx. Altura intacta (px-3 py-2.5
+        // continuam identicos ao de antes; so a borda trocou de lugar).
+        'flex w-full gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-colors',
+        selecionada
+          ? 'border-linha bg-superficie shadow-card'
+          : 'hover:border-linha hover:bg-superficie',
       )}
     >
       {/* Avatar do cliente na cor da etapa atual. Muda junto com a etapa. */}
@@ -99,7 +102,7 @@ export function ItemDeConversa({
                 este selo explica ao atendente por que ele está vendo um número.
                 Sem ele, pareceria falha de cadastro. */}
             {conversa.clienteNomePendente ? (
-              <span className="shrink-0 rounded border border-linha px-1 text-[10px] font-normal text-tinta-fraca">
+              <span className="shrink-0 rounded-full border border-linha px-1.5 text-[10px] font-normal text-tinta-fraca">
                 sem nome
               </span>
             ) : null}
@@ -111,7 +114,11 @@ export function ItemDeConversa({
             </span>
 
             {conversa.mensagensNaoLidas > 0 ? (
-              <span className="inline-flex min-w-4 shrink-0 items-center justify-center rounded-md border border-selo/45 bg-selo/8 px-1 font-dado text-[11px] font-medium text-selo">
+              // Fase 3.2: badge solido — bordo aqui marca o que exige acao
+              // (o que chegou e nao foi lido), junto com Enviar. "+ Novo
+              // atendimento" desceu para outline por causa disso (DESIGN.md,
+              // secao 16.5) — o orcamento de 3 bordos por tela fecha certo.
+              <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-selo px-1 font-dado text-[10px] font-semibold text-branco">
                 {conversa.mensagensNaoLidas}
               </span>
             ) : null}
@@ -131,7 +138,7 @@ export function ItemDeConversa({
           {conversa.etapaNome ? (
             <span
               title={conversa.etapaNome}
-              className="inline-flex min-w-0 shrink items-center truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium"
+              className="inline-flex min-w-0 shrink items-center truncate rounded-full border px-1.5 py-0.5 text-[11px] font-medium"
               style={{
                 backgroundColor: cores.fundo,
                 color: cores.texto,
@@ -164,7 +171,7 @@ export function ItemDeConversa({
           )}
 
           {naFila ? (
-            <span className="inline-flex shrink-0 items-center rounded-md border border-linha-forte px-1.5 py-0.5 text-[11px] font-medium text-tinta-media">
+            <span className="inline-flex shrink-0 items-center rounded-full border border-linha-forte px-1.5 py-0.5 text-[11px] font-medium text-tinta-media">
               Na fila
             </span>
           ) : conversa.atendenteNome ? (

@@ -28,6 +28,38 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     /// </summary>
     public Guid? AtendenteId { get; set; }
 
+    /// <summary>
+    /// A conversa já foi entregue a um humano neste ciclo — o cliente pediu
+    /// atendente, ou um atendente assumiu por conta própria. Enquanto isto
+    /// for verdade, a automação conversacional (triagem, menu de escolha de
+    /// serviço, Resposta Inteligente, piso de pós-atendimento) fica muda: a
+    /// mensagem do cliente continua sendo gravada, aparecendo no fio,
+    /// atualizando <see cref="UltimaMensagemEm"/>/<see cref="MensagensNaoLidas"/>
+    /// e chegando por SignalR — só não é respondida automaticamente.
+    /// </summary>
+    /// <remarks>
+    /// <b>Não é o mesmo que <see cref="AtendenteId"/> != null.</b> Esse é o
+    /// erro fácil de cometer (BUG-ATD-01): <see cref="AtendenteId"/> volta a
+    /// nulo quando um atendente devolve a conversa para a fila
+    /// (<c>ConversaService.LiberarAsync</c>), mas a conversa continua devendo
+    /// humano, não devendo bot — o cliente está esperando OUTRO atendente, não
+    /// pedindo para falar com a IA de novo. <see cref="AtendenteId"/> nulo e
+    /// <see cref="EmAtendimentoHumano"/> verdadeiro ao mesmo tempo é um estado
+    /// válido e comum: fila humana.
+    ///
+    /// Liga em <c>AplicadorDeRespostaInteligente.EscalarAsync</c> (pedido
+    /// explícito do cliente), em <c>AplicadorDePosAtendimento</c> (opção
+    /// "falar com atendente" do menu de continuação), em
+    /// <c>ConversaService.AssumirAsync</c> (inclui "responder direto da
+    /// fila", que reusa <c>AssumirAsync</c>) e em <c>ReabrirAsync</c>. Desliga
+    /// só em <c>EncerrarAsync</c>/<c>AplicadorDePosAtendimento.EncerrarPeloCliente</c>
+    /// — nunca em <c>LiberarAsync</c> nem <c>TransferirAsync</c>. Uma conversa
+    /// nova nasce com isto falso (automática) — o próximo atendimento depois
+    /// de um encerramento também, porque é sempre uma <see cref="Conversa"/>
+    /// nova.
+    /// </remarks>
+    public bool EmAtendimentoHumano { get; set; }
+
     /// <summary>Eixo de roteamento.</summary>
     public Guid? SetorId { get; set; }
 

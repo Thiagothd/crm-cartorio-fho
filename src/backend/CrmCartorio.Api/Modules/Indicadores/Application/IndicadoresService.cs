@@ -6,13 +6,11 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
-using CrmCartorio.Api.Modules.Indicadores.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.Indicadores.Application;
 
@@ -31,7 +29,7 @@ public class IndicadoresService(
     CrmDbContext db,
     IContextoDoUsuario ctx,
     IPareamentoDoCanal pareamento,
-    IOptions<OpcoesDaIA> opcoesDaIA,
+    ISituacaoDaIa situacaoDaIa,
     IMemoryCache cache) : IIndicadoresService
 {
     /// <summary>Quanto a Visão Geral e o sino esperam pelo gateway antes de desistir.</summary>
@@ -87,7 +85,7 @@ public class IndicadoresService(
 
         // Só para gestão, e por isso a consulta também só acontece para gestão:
         // atendente comum nem paga a ida ao banco de um painel que não vai ver.
-        var carga = ctx.PodeGerirCadastros
+        var carga = ctx.Pode(PermissaoDoSistema.RelatoriosEquipe)
             ? await MontarCargaDaEquipeAsync(tenantId, ct)
             : null;
 
@@ -119,17 +117,45 @@ public class IndicadoresService(
         var ativas = db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa);
 
-        // Uma varredura das conversas ativas responde as quatro contagens. O escopo
+        // Uma varredura das conversas ativas responde as cinco contagens. O escopo
         // "minhas" entra como predicado de cada contagem, e nao como filtro da
         // consulta, porque a fila e' sempre global: nao existe "minha fila" — fila
         // e', por definicao, o que ainda nao tem responsavel.
+        //
+        // A bandeira de "aguardando resposta" sai na PROJECAO, antes do agrupamento,
+        // e nao dentro de `g.Count(...)`: subconsulta correlacionada no argumento de
+        // um agregado e' o padrao que o tradutor do EF mais recusa. Aqui ela vira um
+        // OUTER APPLY na tabela derivada e o GroupBy agrega uma coluna comum.
+        //
+        // O corpo da bandeira e' o mesmo de AguardandoRespostaDoCartorio.Expressao —
+        // a unica copia dele no sistema, e ela existe porque `g.Count()` recebe
+        // Func<>, nao Expression<>, e nao ha como injetar a expressao compartilhada
+        // dentro de uma arvore sem LINQKit. Mexeu la, mexe aqui: o verificador de
+        // traducao checa as duas formas lado a lado.
         var contagens = await ativas
+            .Select(c => new
+            {
+                c.AtendenteId,
+                c.PrazoLimite,
+                c.PrazoAlertaEm,
+                AguardandoResposta = db.Mensagens
+                    .Where(m => m.ConversaId == c.Id
+                             && (m.AutorTipo != AutorTipo.Sistema || m.EhAutomatica))
+                    .OrderByDescending(m => m.EnviadaEm)
+                    .ThenByDescending(m => m.Id)
+                    .Select(m => m.AutorTipo)
+                    .FirstOrDefault() == AutorTipo.Cliente
+            })
             .GroupBy(_ => 1)
             .Select(g => new
             {
                 Ativas = g.Count(c => apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId),
 
                 NaFila = g.Count(c => c.AtendenteId == null),
+
+                AguardandoResposta = g.Count(c =>
+                    (apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId)
+                    && c.AguardandoResposta),
 
                 EmAlerta = g.Count(c =>
                     (apenasAtendenteId == null || c.AtendenteId == apenasAtendenteId)
@@ -148,9 +174,10 @@ public class IndicadoresService(
         // Serventia sem nenhuma conversa ativa nao devolve linha de agrupamento —
         // e' zero legitimo, nao ausencia de dado.
         return contagens is null
-            ? new IndicadoresAgoraResponse(0, 0, 0, 0)
+            ? new IndicadoresAgoraResponse(0, 0, 0, 0, 0)
             : new IndicadoresAgoraResponse(
-                contagens.Ativas, contagens.NaFila, contagens.EmAlerta, contagens.Atrasadas);
+                contagens.Ativas, contagens.NaFila, contagens.EmAlerta,
+                contagens.Atrasadas, contagens.AguardandoResposta);
     }
 
     /// <summary>
@@ -610,24 +637,18 @@ public class IndicadoresService(
         // Ninguem tem a permissao ampliada aqui — os mesmos gates do resto do
         // sistema. Quem nao pode ver, recebe o campo nulo, e o frontend nao
         // renderiza a peca (nunca um aviso de "sem permissao" no lugar do card).
-        if (ctx.PodeGerirAtendentes)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp))
         {
             var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
             whatsapp = new SaudeDoWhatsAppResponse(situacao.Habilitado, situacao.Conectado, situacao.Estado);
         }
 
-        if (ctx.PodeGerirCadastros)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeIa))
         {
-            var opcoes = opcoesDaIA.Value;
-
-            // Mesmo limite de dia (UTC) que RespostaInteligenteService usa para
-            // conferir o teto.
-            var inicioDoDiaUtc = DateTime.UtcNow.Date;
-
-            var usadoHoje = await db.Mensagens.AsNoTracking()
-                .CountAsync(m => m.TenantId == tenantId && m.GeradaPorIa && m.EnviadaEm >= inicioDoDiaUtc, ct);
-
-            ia = new SaudeDaIaResponse(opcoes.Habilitada, opcoes.EstaConfigurada, opcoes.Modelo, opcoes.LimiteDiario, usadoHoje);
+            // Mesmo calculo que SituacaoDaIa usa para o painel /automacao/ia —
+            // antes duplicado em quatro lugares, agora so aqui e la.
+            var resumo = await situacaoDaIa.ObterResumoAsync(ct);
+            ia = new SaudeDaIaResponse(resumo.Habilitada, resumo.EstaConfigurada, resumo.Modelo, resumo.LimiteDiario, resumo.UsadoHoje);
 
             var ativas = await db.MensagensAutomaticas.AsNoTracking()
                 .CountAsync(m => m.TenantId == tenantId && m.Ativo, ct);
@@ -668,7 +689,7 @@ public class IndicadoresService(
 
     private void GarantirGestao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.RelatoriosVer))
         {
             throw IndicadoresServiceException.SemPermissao();
         }
@@ -928,7 +949,7 @@ public class IndicadoresService(
                 $"{c.Protocolo} está na fila sem responsável", c.ClienteNome, c.UltimaMensagemEm, $"/atendimentos/{c.Id}"));
         }
 
-        if (ctx.PodeGerirAtendentes)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp))
         {
             var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
 
@@ -941,25 +962,17 @@ public class IndicadoresService(
             }
         }
 
-        if (ctx.PodeGerirCadastros)
+        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeIa))
         {
-            var opcoes = opcoesDaIA.Value;
+            var resumo = await situacaoDaIa.ObterResumoAsync(ct);
 
-            if (opcoes.EstaConfigurada)
+            if (resumo.EstaConfigurada && resumo.UsadoHoje >= resumo.LimiteDiario)
             {
-                var inicioDoDiaUtc = DateTime.UtcNow.Date;
-
-                var usadoHoje = await db.Mensagens.AsNoTracking()
-                    .CountAsync(m => m.TenantId == tenantId && m.GeradaPorIa && m.EnviadaEm >= inicioDoDiaUtc, ct);
-
-                if (usadoHoje >= opcoes.LimiteDiario)
-                {
-                    alertas.Add(new AlertaOperacionalResponse(
-                        "ia:limite", "ia_limite_atingido", SeveridadeDeAlerta.Alerta,
-                        "Teto diário da IA atingido",
-                        $"{usadoHoje} de {opcoes.LimiteDiario} respostas hoje. Atendimento humano assume o resto do dia.",
-                        agora, "/automacao/ia"));
-                }
+                alertas.Add(new AlertaOperacionalResponse(
+                    "ia:limite", "ia_limite_atingido", SeveridadeDeAlerta.Alerta,
+                    "Teto diário da IA atingido",
+                    $"{resumo.UsadoHoje} de {resumo.LimiteDiario} respostas hoje. Atendimento humano assume o resto do dia.",
+                    agora, "/automacao/ia"));
             }
         }
 

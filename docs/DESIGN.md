@@ -3,7 +3,9 @@
 > **Status:** Fase 1 aprovada. Shell global, navegação e Visão Geral entregues
 > na Fase 3 (seção 14). **Fase 3.1 (2026-08-21) redirecionou a linguagem visual
 > do painel — ver seção 15 antes de aplicar as seções 1 a 4.**
-> **Última atualização:** 2026-08-21
+> **Última atualização:** 2026-09-08 (17.5: Etapas, Setores, WhatsApp e
+> Conhecimento da IA migram para Fase 3.1; correção da tabela 15.1 — Clientes e
+> Serviços já haviam migrado em 2026-09-07)
 >
 > **Este documento é a fonte de verdade da interface.** Cor, fonte, raio e
 > espessura de borda saem daqui. Valor arbitrário no código é bug, não estilo.
@@ -522,8 +524,18 @@ Recolher é **só largura**: não muda filtro, não muda rota, não desmonta a
 consulta da lista e não mexe na conversa aberta. Mesma regra da 10.3. A escolha
 fica no `localStorage` (`crm-cartorio.lista-recolhida`), padrão **aberta**.
 
-Sem animação de largura, como no menu principal: animar uma coluna que tem fio
-rolando dentro rende repaint torto, não sofisticação.
+**Sem animação de largura** — diferente do menu principal (14.2) desde
+2026-09: animar uma coluna que tem fio rolando dentro rende repaint torto, não
+sofisticação. O menu principal passou a animar porque o gatilho dele virou
+clique raro e deliberado; esta lista continua sem animar porque ela está
+*dentro* da tela que rola, e recolhe também automaticamente conforme a
+largura disponível (abaixo, `estreitoParaLista`) — não só por escolha manual.
+
+Abaixo de **960px de largura disponível para o fio** (`usarConteudoAbaixoDe`,
+`lib/usar-conteudo-abaixo-de.ts`) a lista recolhe sozinha, mesmo sem o
+atendente ter pedido. Este número é sobre largura **útil**, não de janela: com
+o menu principal empurrando o conteúdo (14.2), a mesma janela pode sobrar
+menos coluna aqui, e o corte acompanha isso — não um valor fixo de viewport.
 
 ### 10.8 Cabeçalho da conversa em uma linha
 
@@ -555,13 +567,23 @@ inbox, é sempre a mesma:
 1. **Trunca** o que tem o valor inteiro em outro lugar — nome de quem atende
    (fica no `title`), nome de etapa e de setor (ficam na lista e no seletor).
 2. **Esconde** o telefone quando a coluna fica menor que 42rem. É
-   `@container`, não breakpoint de tela: quem aperta essa linha é o painel de
-   histórico abrindo ao lado, com a janela do mesmo tamanho.
+   `@container`, não breakpoint de tela: quem aperta essa linha não é só o
+   painel de histórico abrindo ao lado — é a largura que sobra depois da
+   lista de conversas (10.7) e do menu principal empurrando o conteúdo
+   (14.2), com a janela do mesmo tamanho.
 3. **Nunca sai o protocolo.** É o identificador que o cliente repete ao telefone
    e que o atendente procura na lista.
 
 "Atendido por Fulano" virou **cadeado + nome**, o mesmo tratamento que a linha da
 inbox já usava — mesma informação, ~70px a menos de linha.
+
+**"Assumir" e "Histórico" saem da linha por container query (`@xl`, 36rem),
+não breakpoint de tela** (2026-09) — cada um reaparece como item do menu ⋮
+logo abaixo, no MESMO limiar do lado que sai da linha: os dois lados desse
+par têm que casar, senão a ação aparece duas vezes ou nenhuma. O botão de
+"Mídias" já era assim desde antes (`@2xl`) e não mudou. "Voltar"/avatar
+continuam por breakpoint de viewport (`md`) — são sobre ROTA/dispositivo (uma
+coluna só no celular), não sobre a largura da coluna da conversa.
 
 Onde o container **não** tem altura fixa — painel de histórico, funil, telas de
 configuração — `flex-wrap` continua certo e não foi mexido. A regra é sobre faixa
@@ -742,6 +764,28 @@ nunca guarda informação indispensável. Abre por mouse e foco de teclado.
 
 As larguras de referência para revisão são 360px, 768px, 1024px e 1440px. Não
 são quatro layouts separados: são pontos de inspeção do mesmo fluxo responsivo.
+**Desde 2026-09 (menu que empurra, 14.2), cruzar cada uma com o rail recolhido
+E expandido** — a mesma janela sobra até 192px a menos de largura útil quando
+o menu está aberto, e esse cruzamento é o que revela o pior caso (768px de
+janela com o menu aberto dá 512px de conteúdo).
+
+**Critério para decidir breakpoint de viewport (`md`/`lg`/`xl`) versus
+container query (`@md`/`@lg`/`@xl`):** é sobre DISPOSITIVO — dedo grosso,
+aparelho de mão, "aqui só cabe uma coluna e a navegação é por rota" — continua
+viewport. É sobre CABE OU NÃO CABE — quantas colunas numa grade, esconder
+metadado de tabela, virar rolagem, coluna em fluxo vs. sobreposta — vira
+container query do container mais próximo que descreve esse espaço (`@container`
+local da página, ou `@container/conteudo` do shell quando não há um mais
+específico). Não é conversão mecânica: com o rail fechado o container tem
+`viewport − 64px`, então mapear `md`(768) para `@3xl`(768 do container) desloca
+o limiar em termos de janela para 832px — a faixa entre os dois perde o que
+antes aparecia ali. Cada conversão leva a conta ao lado, no comentário.
+
+As tabelas de `/clientes`, `/servicos` e da gestão de atendentes usam o
+terceiro degrau (rolagem horizontal interna, `overflow-x-auto` + `min-w` na
+`<table>`) desde 2026-09 — antes usavam `overflow-hidden`, que **recortava**
+em vez de rolar, contrariando esta seção. Colunas ocultáveis (`hidden` /
+`table-cell`) viram `@3xl/conteudo:table-cell` nessas telas.
 
 ---
 
@@ -835,40 +879,95 @@ valendo sem excepção.
 "Mais" leem dali — nunca existe uma segunda árvore de menu escrita à mão num
 componente. Mudar o menu é editar esse arquivo, não quatro.
 
-### 14.2 Rail de navegação — exceção deliberada ao "sem animação de largura"
+**Nem todo item vira linha do rail, e nem toda tela é um item.** Duas marcas
+resolvem isso sem criar uma segunda lista:
+
+- **`ocultoNoMenu: true`** — a tela tem rota, permissão e prefetch normais, mas
+  não é desenhada no rail; o caminho até ela é outro. Hoje: **Aparência** e
+  **Segurança**, que vivem no menu de perfil do cabeçalho. Tirar esses itens do
+  arquivo NÃO os esconderia — `todosOsItens()` é quem monta as `<Route>`, então
+  apagaria a rota. Segurança em especial é `permissao: 'autenticado'` de
+  propósito (cada um gerencia o próprio MFA, não é ação de gestão), e por isso
+  também não podia virar sub-item de Equipe (`equipe.ver`): trancaria quem não
+  tem essa chave fora da própria conta.
+- **Seções na URL, fora do menu** (`/automacao/mensagens/respostas`,
+  `/automacao/ia/conhecimento`, `/indicadores/atendentes`) — subdivisões de UMA
+  tela, desenhadas por `components/layout/abas-de-secao.tsx`. Foi juntar seções
+  assim que tirou três itens do rail: "Encerramento automático" e "Respostas
+  rápidas" viraram abas de **Mensagens**, e "Conhecimento da IA" virou aba de
+  **IA**. As rotas antigas continuam resolvendo por redirect em `rotas.tsx` —
+  link favoritado e link colado em chamado não podem morrer numa arrumação de
+  menu.
+- **`permissao` como array** (`PermissaoDeAcesso`) — "qualquer uma destas".
+  Mensagens e IA reúnem seções com chaves de permissão DIFERENTES
+  (`automacao.mensagens.ver`, `automacao.respostas.ver`,
+  `automacao.encerramento.ver`; `ia.ver`, `ia.conhecimento.ver`). Uma permissão
+  só no item ampliaria acesso (mostraria aba proibida) ou tiraria acesso
+  (esconderia a tela de quem tem direito a uma parte) — os dois inaceitáveis.
+  `podeVer` resolve os dois formatos; quem decide qual seção cada permissão
+  específica abre, aba por aba, é a própria página.
+
+A regra por trás das três: **menu é descoberta, aba é memória.** Vale fundir
+quando as telas são irmãs de verdade — mesmo perfil, mesma frequência, mesma
+pergunta —, e é ruim quando é só para encurtar a lista. Submenu de um filho só
+é o caso extremo do erro oposto: dois cliques para um destino único (era o caso
+de "Integrações", que virou item direto de WhatsApp).
+
+### 14.2 Rail de navegação — expande por clique e empurra o conteúdo
+
+> **Mudou em 2026-09** (`202609-CRM-AJUSTE-menu-empurra-conteudo`): o rail
+> deixou de abrir por hover e de sobrepor o conteúdo. As duas mudanças são a
+> mesma decisão — sem hover não sobra instante nenhum em que "cobrir em vez de
+> empurrar" evitasse reflow acidental, porque não há mais abertura acidental.
 
 O rail (`components/layout/rail-de-navegacao.tsx`) é a mesma "lombada do
 livro" da seção 10.3 — única grande superfície escura, item ativo em `branco`
 com texto `selo` contando para o limite de 3 ocorrências de bordô. O que muda:
 
-- **Fechado, 64px, só ícones.** Abre por hover com intenção (**160ms** para
-  abrir, **320ms** para fechar — cada evento cancela o timer contrário) e por
-  foco de teclado, que TRAVA o painel aberto enquanto o foco estiver dentro.
-  Os 90ms originais abriam o painel com o ponteiro só atravessando a borda, e o
-  resultado era sensação de coisa brusca; 160ms absorve a passagem acidental e
-  ainda fica dentro da janela em que o movimento se lê como resposta.
-- **Escolher um destino recolhe o painel na hora.** Fica num efeito sobre
-  `location.pathname`, não num `onClick` dos itens: a navegação também acontece
-  por submenu, por teclado e pelo histórico do navegador, e o `onClick` cobriria
-  só um dos caminhos.
-- **O painel aberto (256px) é OVERLAY sobre o conteúdo**, não uma coluna em
-  fluxo — por isso ele **pode** animar largura, ao contrário das colunas das
-  seções 10.3 e 10.7 (lista de conversas, menu antigo), que continuam sem
-  animação porque são colunas em fluxo e reflow no meio de uma tela com fio de
-  mensagens rolando fica torto. Aqui não há reflow: o rail expandido cobre o
-  conteúdo, e os ícones da faixa de 64px não se movem 1 pixel.
-- **Fixar aberto** é um botão de 24px no rodapé do painel, sem hambúrguer.
-  Preferência em `localStorage` (`crm-cartorio.menu-fixado`), ignorada abaixo
-  de 1280px pela mesma razão do menu antigo (a lista de 360px não cabe do
-  lado de um rail de 256px fixo).
-- **Não existe tooltip no rail**, e a ausência é deliberada — removida em
-  2026-08-21 por ser defeituosa por construção. O rail abre no hover em 160ms,
-  então a única janela em que o tooltip podia aparecer eram esses 160ms antes de
-  o painel mostrar o rótulo de verdade: com o atraso de 500ms do
-  `TooltipProvider` ele nunca aparecia, e com o `skipDelayDuration` de 300ms
-  piscava. Pior, ele **ficava preso** na tela, porque o componente alternava
-  entre controlado (`open={false}`) e não controlado (`open={undefined}`), e
-  voltar para não controlado restaura o estado interno do Radix.
+- **Fechado, 64px, só ícones. Expande SÓ por clique**, no controle do rodapé
+  do painel — não existe mais hover-intent. A preferência persiste em
+  `localStorage` e vale em qualquer largura onde o rail existe (`md` para
+  cima, ≥768px); não há mais gate de 1280px.
+- **Escolher um destino NÃO recolhe o painel.** Antes disso acontecia num
+  efeito sobre `location.pathname`, para o hover não ficar preso aberto sobre
+  a página nova. Sem hover, expandir é escolha deliberada e persistida do
+  atendente — recolher a cada navegação destruiria essa escolha a cada
+  clique, que é o oposto do que o clique pediu.
+- **O painel expandido (256px) EMPURRA o conteúdo — não é mais overlay.** A
+  largura reservada pelo espaçador em fluxo e a largura do `<aside>` vêm da
+  MESMA custom property, `--largura-do-rail`, publicada pelo `Shell`
+  (`components/layout/shell.tsx`) a partir do contexto do rail
+  (`contexto-do-rail.tsx`) — os dois elementos não podem dessincronizar
+  porque leem o mesmo valor. A área de conteúdo carrega `@container/conteudo`
+  para reagir à largura que sobra (seção 12.4, e as telas que dependem disso).
+  Isto alinha o rail com as colunas das seções 10.3 e 10.7 — nenhuma delas é
+  mais exceção à regra de "coluna em fluxo não anima largura sozinha sem
+  cuidado": a transição continua existindo (`--duracao-padrao`, 180ms), mas o
+  gatilho agora é clique raro e deliberado, não hover contínuo — o custo de
+  reflow que a versão anterior evitava de propósito deixou de se repetir a
+  cada passagem do mouse.
+- **Regressão de acessibilidade e mitigação.** Sem hover, tabular por dez
+  ícones de 16px sem rótulo nenhum é navegar às cegas — problema do usuário
+  **vidente** de teclado (quem usa leitor de tela continua OK: o rótulo nunca
+  sai do DOM, ver abaixo). Mitigação: foco de teclado dentro do rail expande o
+  `<aside>` num **overlay transitório**, com sombra — o espaçador em fluxo NÃO
+  muda, ninguém é empurrado, e a expansão desfaz assim que o foco sai. Não
+  persiste e não contradiz a decisão acima, que é sobre o estado escolhido
+  pelo clique. Atalho de teclado **Ctrl/Cmd+B** alterna o estado persistido de
+  qualquer lugar da tela.
+- **O botão do rodapé é o único controle de expansão.** 40px de altura por
+  48px úteis (a "célula" de 24px do texto original descrevia o ícone, não o
+  alvo). Nome acessível é o `<span>` de texto visível ("Expandir menu" /
+  "Recolher menu"), **sem** `aria-label`, `aria-pressed` nem `aria-expanded`:
+  nada some do DOM quando ele é acionado (os rótulos do rail continuam em
+  `opacity-0`, legíveis por leitor de tela), então nenhum dos três atributos
+  descreveria a ação sem prometer algo que não acontece. `title` traz o
+  atalho para quem passa o mouse.
+- **Não existe tooltip no rail**, e a ausência continua deliberada — removida
+  em 2026-08-21 por ser defeituosa por construção (o Radix alternava entre
+  controlado e não controlado e o balão ficava preso na tela). Sem hover, não
+  sobra nenhuma janela em que um tooltip precisaria aparecer sozinho: quem
+  quer o nome de um ícone clica e o vê por extenso, com o resto do menu.
 - **`className` do `NavLink` nunca é função.** A regra nasceu do `Slot` do Radix
   estringificando a função ao mesclar classes; o tooltip saiu, a forma fica —
   o estado ativo é calculado fora (`pathname` comparado à rota) e passado como
@@ -1093,13 +1192,24 @@ Isto **não** é liberdade geral. É uma direção com escopo, e o escopo está 
 | Visão Geral (`/`) | **Fase 3.1** |
 | Indicadores e Relatórios (`/indicadores/*`) | **Fase 3.1** |
 | Componentes compartilhados de `components/ui/` | **Fase 3.1** |
-| Inbox, fio de mensagens, conversa | Fase 1 — seções 1 a 12, **intactas** |
-| Clientes, Serviços, telas de configuração | Fase 1 — seções 1 a 12, **intactas** |
+| Inbox, fio de mensagens, conversa | **Fase 3.2 — ver seção 16** (era Fase 1 até 2026-09-06) |
+| Equipe e permissões (`/equipe`, `/equipe/:id/permissoes`) | **Fase 3.1 — ver seção 17** (era Fase 1 até 2026-09-08) |
+| Automação > Mensagens (`/automacao/mensagens/*`) | **Fase 3.1 — ver 17.4** (era Fase 1 até 2026-09-07) |
+| Clientes (`/clientes`) e Serviços (`/servicos`) | **Fase 3.1** (era Fase 1 até 2026-09-07 — ver `docs/AJUSTE-CLIENTES-VISUAL-EXCLUSAO.md` e `docs/AJUSTE-SERVICOS-VISUAL.md`) |
+| Estrutura da operação (`/estrutura/etapas`, `/estrutura/setores`), WhatsApp (`/integracoes/whatsapp`) e Conhecimento da IA (`/automacao/ia/conhecimento`) | **Fase 3.1 — ver 17.5** (era Fase 1 até 2026-09-08) |
+| Aparência, Segurança e o restante das telas de conta | Fase 1 — seções 1 a 12, **intactas** |
 
 A fronteira não é capricho: as telas operacionais são onde o atendente passa o
 dia, foram medidas em monitor de 1366×768 (7.1, 10.8) e a densidade delas é
 resultado de trabalho de ajuste que elevação e raio maior desfariam. Painel é
 tela de leitura; balcão é tela de trabalho.
+
+> **Revisto em 2026-09-06 (seção 16).** O argumento acima continua correto
+> quanto ao CUSTO — elevação com respiro e raio de cartão realmente desfariam
+> a densidade do balcão. O que ele errou foi tratar "moderno" e "denso" como
+> opostos. A seção 16 mantém a densidade medida (7.1 intacto) e moderniza pelas
+> alavancas que custam zero pixel vertical: contraste entre planos, raio, forma
+> de borda, tipografia e movimento.
 
 **O que continua valendo em toda parte, sem exceção:** a paleta da seção 2, o
 teto de 3 bordôs (2.1), as cores de etapa (2.2), o mapeamento de significado
@@ -1164,10 +1274,362 @@ velocidade), **Attio** (estrutura de CRM, organização dos módulos) e **Vercel
 (gráficos, indicadores, leitura operacional). O pedido foi textual: *"não quero
 que copie nada, pegue referências"*.
 
-Do que veio: hover-intent no menu com transição de largura, cartão elevado com
-raio maior, número de indicador grande e bold, realce de coluna no gráfico,
-pílulas segmentadas de filtro.
+Do que veio: hover-intent no menu com transição de largura (o hover saiu em
+2026-09, ver 14.2 — a transição de largura ficou, mas por clique), cartão
+elevado com raio maior, número de indicador grande e bold, realce de coluna no
+gráfico, pílulas segmentadas de filtro.
 
 Do que **não** veio: o fundo escuro, a paleta fria, o glow neon e o tipo de
 letra dessas telas. A paleta de papel e tinta da seção 2 é o que diferencia o
 produto de "SaaS genérico" — e é argumento comercial (seção 1), não gosto.
+
+## 16. Fase 3.2 — a Bancada (o balcão)
+
+**Decisão do Thiago, 2026-09-06.** A tela de Atendimento foi revista e
+recusada: *"esse visual está com aquele visual do arquivo md design ainda, e
+não está me agradando"*. A direção pedida foi a mesma da Fase 3.1, agora para a
+tela onde o atendente passa o dia: *"queria ver algo que eu abrisse e chamasse
+atenção por ser bonita, coisa inovadora, moderno, mas mantendo ainda mais ou
+menos os padrões"*. Pedido explícito de seguir a linguagem que já existe, não
+inventar uma terceira: *"use o design do visão geral"*.
+
+Junto veio o limite, e ele é a parte mais importante desta seção: *"O tamanho
+da tela das conversas foi uma coisa que eu demorei muito para ajustar...
+quando vai para algum monitor pequeno ela ficava pequena demais dentro da
+conversa"*.
+
+### 16.1 A regra que governa tudo aqui: orçamento vertical
+
+Nenhuma mudança visual no balcão pode reduzir a altura útil do fio. A conta de
+7.1 (1366×768) é contrato, não histórico — e desde 2026-09-06 ela **melhorou**,
+não só se manteve: a faixa de indicadores saiu da tela com conversa aberta (os
+mesmos números foram para dentro do cartão "Escolha uma conversa", que nunca
+compete com o fio por espaço) e os filtros avançados saíram da barra para o
+diálogo que já existia, devolvendo altura à lista. Medido em 1366×768: de
+~520px de fio antes desta entrega para ~539px depois, com o mesmo número de
+mensagens à vista ou mais.
+
+Toda alteração é classificada antes de ser feita:
+
+| Custo 0px — autorizado | Custo > 0px — proibido no balcão |
+| --- | --- |
+| Contraste entre planos (`bg-branco`/`bg-papel`) | Padding e gap dentro do fio ou da linha de lista |
+| Raio (`rounded-full`, `rounded-balao`) | Barra, faixa ou linha nova sempre visível |
+| Contraste e cor de borda | Fonte de corpo maior que a tabela de 7.1 |
+| Cor de estado (badge sólido vs. diluído) | Elevação que exige respiro em volta |
+| Peso e tracking de tipografia | |
+| Movimento por opacity/transform | |
+
+Medição de referência: altura do scroller do fio e número de mensagens
+visíveis em 1366×768, com o documento inteiro em 0px de rolagem.
+
+### 16.2 A ideia: o painel sobe, o balcão afunda
+
+A Fase 3.1 deu profundidade para cima ao painel — cartão elevado sobre `papel`.
+O balcão recebe profundidade para dentro: lista, cabeçalho e caixa de envio em
+`bg-branco` (o cromo onde se opera, agora em cartões flutuantes com
+`rounded-card`/`shadow-card` a partir de `md`) e o fio em `bg-papel` (o vão
+onde se lê a conversa, cercado de branco dos dois lados). É o mesmo recurso da
+3.1 com o sinal trocado, custa 0px, e é mais fiel ao "papel não flutua" da
+seção 4 do que a própria Fase 3.1 chegou a ser — nada no balcão flutua sobre o
+conteúdo; o que flutua é a MOLDURA em volta de dois vãos de leitura.
+
+No celular a moldura não existe (a coluna única já ocupa a tela inteira,
+como sempre foi) — o custo dos 16px de `md:gap-2 md:p-2` é zero abaixo de
+`md`, e o layout do celular é pixel-idêntico ao de antes desta entrega.
+
+### 16.3 Token novo
+
+| Token | Valor | Uso |
+| --- | --- | --- |
+| `--raio-balao` | `12px` | Balão do fio e campo de escrita da caixa de envio. Não é `--raio-card` (14px): balão não pertence à família elevada e 14px comprime mensagem curta. |
+
+**Armadilha registrada, para não repetir:** `--raio-card` e `--raio-balao` são
+valores de raio fora da escala nativa do Tailwind, e o `tailwind-merge` do
+projeto (`lib/utils.ts`) não os reconhecia como parte do grupo "raio de
+borda" — sobrescrever o raio de um componente base (ex.: `<Textarea
+className="rounded-balao">`) deixava as duas classes coexistindo no HTML
+final, e quem vencia era a ordem do CSS compilado, não a ordem do `cn(...)`.
+Corrigido registrando os dois tokens em `extendTailwindMerge` — sem isso, todo
+uso futuro de `rounded-card`/`rounded-balao` por cima de um componente com
+raio próprio (`Input`, `Textarea`, `Select`, `Button`) fica sujeito à mesma
+sorte de posição no arquivo gerado.
+
+### 16.4 O que continua proibido no balcão
+
+- **`shadow-card` em linha de lista, campo ou botão de barra.** As únicas duas
+  elevações do balcão são o cartão do estado vazio "Escolha uma conversa"
+  (nunca coexiste com o fio) e a pílula do separador de dia no fio (flutua
+  sobre o vão, não é o balão em si).
+- **`shadow-card` no balão de mensagem.** Ele recebeu raio novo
+  (`rounded-balao` + canto de cauda), nunca elevação — é conteúdo que rola e
+  se repete dezenas de vezes por tela, não um cartão.
+- **Animar largura de coluna que tenha o fio rolando dentro.** A exceção de
+  14.2 é só do rail, que não tem scroller dentro.
+- **Animar balão individualmente.** O fio re-renderiza a cada mensagem
+  recebida (tempo real); animar por balão faria o histórico inteiro "pular" a
+  cada atualização.
+- **Alterar qualquer valor da tabela de 7.1** (gap, padding do balão, tamanho
+  de corpo, altura de imagem).
+- Tudo o que 15.4 já proíbe (tema escuro, cor fora de token, emoji, teto de
+  bordô) vale igual aqui.
+
+### 16.5 Orçamento de bordô no balcão
+
+Com a conversa aberta, o bordô fica reservado a **mensagens não lidas** (badge
+sólido na lista, antes diluído) e **Enviar** (agora com o gradiente autorizado
+em 15.3, `from-selo to-selo/90`). *"+ Novo atendimento"* desceu de `default`
+para `outline` em 2026-09-06 — o botão de criação manual de atendimento não
+disputa mais atenção com o que já chegou e não foi lido.
+
+## 17. Fase 3.3 — as telas de administração
+
+**Revisto em 2026-09-08; ampliado em 2026-09-07 com 17.4 (Mensagens).** Equipe (`/equipe`) e a tela nova de permissões
+(`/equipe/:id/permissoes`) migraram de Fase 1 para **Fase 3.1** — são telas de
+gestão esporádica, lidas em monitor grande pelo dono/administrador, não o
+balcão de trabalho contínuo que a seção 16 protege. O orçamento vertical de
+16.1 não se aplica aqui: nenhuma delas tem um fio de mensagens rolando por
+baixo, e o mesmo tratamento de Visão Geral/Indicadores (`rounded-card`,
+`shadow-card`, `grade-com-vida`, `hover:-translate-y-0.5`, `font-dado` nos
+números) se aplica sem ressalva.
+
+### 17.1 Tela de detalhe fora do menu
+
+`/equipe/:id/permissoes` segue o mesmo padrão já estabelecido por
+`/indicadores/:secao` (seção 14.7): rota própria, fora de `app/navegacao.ts`
+(não é item de rail nem de folha "Mais" — chega-se a ela clicando no chip do
+modelo de permissão, na linha do atendente), com a permissão de acesso lida
+da MESMA entrada que protege a tela-mãe (`equipe.ver`) para nunca haver duas
+verdades. F5 preserva a tela, e o link é compartilhável.
+
+### 17.2 Orçamento de bordô
+
+Três usos, e só três: o botão **"Novo atendente"** (`from-selo to-selo/90`,
+mesmo gradiente autorizado em 15.3), o número do cartão **"Sem 2 etapas"**
+quando maior que zero (a etiqueta correspondente na linha do atendente reusa
+o mesmo tom), e o botão **"Resetar MFA"** dentro do diálogo de segurança — que
+nunca coexiste na tela com os outros dois, por estar num diálogo modal.
+
+### 17.3 Permissão que esmaece, não desaparece
+
+Na tela de permissões, desmarcar a tela de um bloco (a chave `*.ver`) esmaece
+— `opacity-45`, não `hidden` — as demais ações daquele bloco, com a nota "Sem
+acesso à tela, esta ação não faz efeito". Esconder o item removeria a
+possibilidade de ver (e desfazer) uma combinação que já existia; esmaecer
+avisa sem apagar o estado.
+
+### 17.4 Automação > Mensagens — o caminho desenhado
+
+**Decisão do Thiago, 2026-09-07.** A tela que a consolidação do menu criou
+(`/automacao/mensagens`, com as abas Automáticas, Encerramento e Respostas
+rápidas) foi revista e recusada no visual: *"pegue o design de atendimentos,
+visão geral, equipe"*, *"pode usar a tela inteira, vi que deixou a tela meio que
+centrada"*, e sobre a aba mais crítica: *"as mensagens automáticas... muito
+melhor para visualizar os caminhos sem erros"*. As três abas passam de Fase 1
+para **Fase 3.1**, pelo mesmo argumento de 17: é tela de gestão esporádica, lida
+em monitor grande, sem fio de mensagens rolando por baixo — o orçamento vertical
+de 16.1 não se aplica.
+
+**Teto de 1600px, não `max-w-6xl`.** A página usa a mesma moldura de Equipe
+(`min-h-0 flex-1 overflow-y-auto p-3 md:p-6` + `mx-auto max-w-[1600px]`), com
+`@container` local para as grades medirem a largura que sobra depois do padding
+e do teto — não a do shell direto (12.4). Os 1152px de `max-w-6xl` não eram
+folga: o caminho automático passa de 20 pontos, e naquela largura ele empilhava
+em duas colunas e obrigava a rolar para ver o roteiro inteiro, que é exatamente
+o que a peça existe para mostrar de uma vez.
+
+#### O desenho do caminho: trilhas, não trilho
+
+`features/configuracoes/fluxo-de-mensagens.tsx` era um **trilho horizontal** de
+cartões de 160px com `overflow-x-auto`, e seis desvios empilhados abaixo dele.
+Numa tela de 1440px sobrava metade da largura vazia e, ainda assim, metade dos
+pontos ficava fora do campo de visão. Virou uma grade de **trilhas**: cada ramo
+do caminho é um bloco com título, explicação e os pontos numa grade que reflui.
+**Nenhuma informação depende de rolagem horizontal** — o terceiro degrau de 12.4
+não é usado aqui porque não é preciso.
+
+- **A topologia é dado, não marcação** (`topologia-do-fluxo.ts`). Ela é a fonte
+  única do desenho E da contagem do topo: com duas listas, o número contaria
+  pontos que o desenho não mostra. Continua **fixa** — `GatilhoDeMensagem` é
+  enum e "gatilho novo exige código novo"; diferente do n8n, não se arrasta nem
+  se conecta nada, e o cadastro é o TEXTO de cada ponto.
+- **As etapas do funil são trilha própria**, não a continuação do roteiro. Coladas
+  no fim de "cliente encerrou", como estavam, afirmavam uma sequência que não
+  existe: mudar de etapa é eixo paralelo e pode acontecer a qualquer momento.
+- **Trilha larga vem antes.** As duas que ocupam a linha inteira (roteiro e, com
+  mais de duas etapas, o funil) são as primeiras da lista. Não é só editorial:
+  com uma trilha estreita na frente, a larga não cabe ao lado e a grade abre um
+  buraco de meia largura na primeira linha.
+- **Sem setas entre os cartões; numeração.** Seta em grade que reflui ou aparece
+  no começo de linha (dizendo o oposto do que quer dizer) ou obriga rolagem
+  horizontal para não refluir. O número resolve a ordem em qualquer largura, e
+  ele é a posição na TOPOLOGIA — filtrando por pendências, ver "2" e "4" é a
+  informação certa; renumerar para 1 e 2 esconderia que há pontos no meio.
+- **Ponto sem texto diz a consequência**, nunca só "vazio": "Falta escrever — o
+  cliente fala e não recebe menu nenhum". É o dado que decide se aquilo é
+  pendência de verdade ou silêncio deliberado.
+- **`@container/trilha` nomeado**, e não o container da página: a grade de pontos
+  precisa da largura da própria trilha, que é metade da tela quando ela não é
+  larga.
+
+#### Duas visões, e por que as duas existem
+
+Uma pílula segmentada alterna **Caminho** (o desenho) e **Cadastradas** (a lista),
+com a escolha em `localStorage` (`crm-cartorio.mensagens.visao`, padrão
+Caminho). Não é redundância: o desenho é a **topologia** e a lista é o
+**cadastro**, e elas divergem em dois casos reais — mensagem gravada para uma
+etapa já apagada não aparece em ponto nenhum do caminho, e quem procura "onde
+falei em cartório de notas" busca pelo TEXTO, que o desenho recorta em três
+linhas. Cada visão traz o controle que só faz sentido nela: o Caminho tem
+"Só o que falta escrever" (com 20+ pontos, essa é a pergunta de quem abre a
+tela); a lista tem busca por gatilho, etapa ou texto.
+
+**A lista virou cartão, não tabela** — mesma razão da Equipe em 17: o dado
+principal é um parágrafo, e parágrafo em célula ou vira rolagem horizontal ou
+vira uma linha cortada. Os marcadores que o texto usa (`{NomeCliente}`,
+`{MenuSetores}`) aparecem como fichas em `font-dado` no pé do cartão: ver de
+relance que uma mensagem de boas-vindas **não** usa `{MenuSetores}` é a diferença
+entre um menu que aparece e um que não aparece.
+
+#### Encerramento: a linha do tempo é o uso da largura devolvida
+
+O formulário vivia num `max-w-2xl` sozinho. A largura devolvida virou o painel
+**"Como o cliente vê"** ao lado (`@4xl`, duas colunas; abaixo disso empilha),
+com os quatro passos do ciclo escritos por extenso. Ele **reage a cada tecla** —
+não é ilustração, é o próprio valor configurado traduzido de minuto para
+linguagem ("depois de 20 min", "mais 30 min sem resposta"). Era a pergunta que
+o par de campos numéricos deixava no ar.
+
+O passo "se o cliente responder" é desenhado como **desvio** (fio e marcador
+tracejados): é o ramo em que o resto não acontece.
+
+**"Salvar" só acende com mudança de verdade.** Botão primário sempre ativo num
+formulário intocado é a interação que ensina a ignorar o botão — e gasta uma
+requisição para gravar o que já estava gravado. Ao lado dele, "Há alterações não
+salvas" enquanto houver.
+
+#### Respostas rápidas
+
+Grade de cartões pelo mesmo motivo da lista acima. **O atalho ganhou ficha
+própria** em `font-dado`, ao lado do título: é literal digitado caractere a
+caractere no meio do atendimento (seção 3), e era coluna de tabela que sumia no
+celular — agora é a âncora do cartão em qualquer largura. Filtro por
+Todas/Ativas/Desativadas e busca, no mesmo arranjo de `ListaDeAtendentes`.
+
+A frase de abertura repete que **nada sai daqui sozinho** (10.6). Não é enfeite:
+é a única fronteira do produto que uma tela de "textos prontos" pode borrar.
+
+#### Orçamento de bordô, e o `tom` do switch
+
+A conta destas três abas não fecha sozinha: o item ativo do rail já é uma
+ocorrência (10.3), a ação primária no cabeçalho global é a segunda, e sobra
+**uma**. A aba de Encerramento tem dois switches e o botão Salvar — quatro, se
+todos forem `selo`.
+
+A saída é a que 2.1 já mandava (*"se já são três, a resposta é `tinta` ou
+`linha-forte`"*), agora explícita no componente: `Switch` ganhou
+`tom?: 'selo' | 'tinta'`, padrão `selo`. **O switch que comanda a tela fica em
+`selo`; sub-interruptor dentro do escopo de outro fica em `tinta`** — nunca o
+contrário, que inverteria a hierarquia. Hoje usam `tom="tinta"`: "Só perguntar
+em horário comercial" (dentro de "Encerrar conversas paradas") e "Só o que falta
+escrever" (filtro de visualização, não configuração).
+
+**O desenho do caminho gasta ZERO bordô.** Pendência é `ambar` e desativado é
+neutro — nenhum dos dois é erro: sem o texto, o sistema continua funcionando, só
+fica em silêncio naquele momento. Com 20+ cartões na tela, qualquer acento
+semântico ali viraria parede.
+
+### 17.5 Estrutura da operação, WhatsApp e Conhecimento da IA
+
+**Decisão do Thiago, 2026-09-08.** *"quero que deixar as seguintes tela no mesmo
+estilo: Etapa, setores, whatsapp e conhecimento da IA"* — as quatro últimas
+telas de gestão que ainda estavam em Fase 1 passam para **Fase 3.1**, pelo mesmo
+argumento de 17 e 17.4: são telas de configuração esporádica, lidas em monitor
+grande, sem fio de mensagens rolando por baixo, então o orçamento vertical de
+16.1 não se aplica.
+
+Tudo o que 15.3 autoriza vale aqui — `rounded-card`, `shadow-card`,
+`grade-com-vida`, `hover:-translate-y-0.5`, `font-dado` nos números — e tudo o
+que 15.4 proíbe continua proibido.
+
+#### A moldura não é a mesma para todas, e isso é critério
+
+| Tela | Teto | Por quê |
+| --- | --- | --- |
+| Etapas, Setores, WhatsApp | `max-w-[1600px]` | São listas e cadastro, como Equipe, Clientes, Serviços e Mensagens |
+| Conhecimento da IA | `max-w-6xl` (1152px) | Divide a moldura com a aba **Situação**, que é PAINEL de gráficos — família de Visão Geral e Indicadores, que medem 1152px |
+
+Mensagens subiu para 1600px (17.4) por conta do conteúdo — o caminho automático
+passa de 20 pontos —, não por regra geral. Em `/automacao/ia` subir o teto
+deixaria o painel de gráficos mais largo que os painéis irmãos e faria a barra
+de abas mudar de largura entre as duas seções. As quatro ganharam `@container`
+local (12.4).
+
+#### Ordem é significado: `<ol>`, e as setas ficam visíveis
+
+Etapas e Setores viraram **coluna única de linha-cartão**, não grade que reflui.
+No funil, "para cima" quer dizer "antes no atendimento"; numa grade de duas
+colunas isso deixa de ser verdade na quebra de linha. As duas listas são `<ol>`
+— a ordem é lida junto com o nome por quem usa leitor de tela.
+
+Pelo mesmo motivo, **as setas de reordenar não somem no hover**, diferente das
+ações de linha da Equipe (17): reordenar é a ação principal desta tela, não uma
+ação secundária. Setor não tem endpoint de reordenação — a ordem dele se ajusta
+pelo campo do cadastro, e a linha traz só o lápis.
+
+O marcador da esquerda de Etapas é a **mini-pílula preenchida de 2.2**, com o
+trio fundo/tinta/borda da própria etapa carregando a posição no funil. Em
+Setores ele é neutro: cor de etapa não aparece em listagem que não é de etapa.
+
+#### WhatsApp: o que a largura devolvida comprou
+
+Era uma coluna de `max-w-2xl` (**672px**) com cinco blocos empilhados — numa
+tela de 1440px sobravam ~770px vazios. Agora:
+
+- **duas colunas** a partir de `@4xl` — à esquerda o CANAL (conexão e quem pode
+  falar com ele, o que se vem configurar), à direita a PROVA (teste de envio e o
+  que o filtro barrou, o que se lê para conferir). A esquerda é mais larga
+  (`1.35fr`) porque leva a única tabela com ação de linha;
+- **o histórico de conexões ocupa a largura inteira**, fora das duas colunas:
+  são quatro colunas de data e número, e na coluna estreita cada linha quebrava
+  em três. Rolar na horizontal para ler data é pior que usar a largura que já
+  estava sobrando;
+- os cinco blocos deixaram de remontar à mão `rounded-md border bg-branco p-4` +
+  `<h2>` e passaram a usar o componente `Painel`, que já é o cartão de 15.2.
+
+**O QR não mudou de tamanho nem de fundo.** Ele é leitura por câmera: `bg-white`
+fixo, contraste alto, e a textura de papel por trás atrapalharia. Nada da
+máquina de estado do pareamento (poll de 5s, contagem do bloqueio de 30s da
+Meta, QR que vive fora do cache) foi tocado — a mudança é de moldura.
+
+#### Conhecimento da IA: a vigência é o dado que faltava
+
+A tabela virou **grade de cartões**, pela razão já registrada em 17.4: o dado
+principal é um parágrafo de até 2000 caracteres. Na tabela antiga ele não tinha
+nem coluna — só aparecia no celular, cortado em duas linhas.
+
+A tela ganhou a distinção que o cadastro sempre teve e a interface não mostrava:
+**"em uso pela IA" não é "cadastrado"**. `MontadorDeContexto` lê apenas o que
+está ativo E dentro da janela de vigência, então um cadastro pode estar salvo,
+correto e mudo. O indicador "Em uso" conta o primeiro conjunto, "Fora de
+vigência" conta o segundo (em `ambar`, nunca bordô — é silêncio deliberado ou
+esquecimento, não erro), e o filtro repete os mesmos dois nomes.
+
+A busca varre o CONTEÚDO, não só o título: quem abre esta tela lembra do que
+escreveu, não de como nomeou o cadastro.
+
+#### Orçamento de bordô
+
+Duas ocorrências em cada uma, dentro do teto de 2.1: o item ativo do rail e a
+ação primária no cabeçalho global (`Nova Etapa`, `Novo Setor`, `Novo
+Conhecimento`). WhatsApp não tem ação primária no cabeçalho — a segunda
+ocorrência lá é **Desconectar**, que é `destructive`, e `--cor-erro` é o próprio
+`--cor-selo`. Nenhum indicador gasta bordô em nenhuma das quatro.
+
+#### O que estas quatro telas ganharam além do visual
+
+Os três estados que faltavam nas quatro: **carregando com a forma do elemento
+final** (não um bloco genérico), **erro com "Tentar de novo"** — antes a consulta
+falhava e a lista simplesmente sumia — e **vazio com a ação de criar o
+primeiro**. E a recusa do servidor passou a cair no diálogo (11.5), não num
+toast que some antes de a pessoa ler.

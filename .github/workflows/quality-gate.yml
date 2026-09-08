@@ -1,0 +1,231 @@
+name: Quality Gate — Pull Request
+
+on:
+  pull_request:
+    branches: [teste]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  backend-build:
+    name: backend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore src/backend/CrmCartorio.slnx
+
+      - name: Build Debug (warnings sao erros)
+        run: dotnet build src/backend/CrmCartorio.slnx --configuration Debug --no-restore -warnaserror
+
+      - name: Build Release (warnings sao erros)
+        run: dotnet build src/backend/CrmCartorio.slnx --configuration Release --no-restore -warnaserror
+
+  backend-verifiers-isolated:
+    name: backend-verifiers-isolated
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: src/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Traducao LINQ para SQL
+        run: dotnet run verificar-traducao.cs
+
+      - name: Limite de login por IP
+        run: dotnet run verificar-limite-de-login.cs
+
+      - name: Canal WhatsApp com doubles locais
+        run: dotnet run verificar-canal-whatsapp.cs
+
+      - name: Resposta inteligente com provedores fake
+        run: dotnet run verificar-resposta-inteligente.cs
+
+  backend-verifiers-sqlserver:
+    name: backend-verifiers-sqlserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Gera credencial efemera e inicia SQL Server descartavel
+        shell: bash
+        run: |
+          sql_password="Ci!$(openssl rand -hex 24)Aa1"
+          echo "::add-mask::$sql_password"
+          echo "CI_SQL_PASSWORD=$sql_password" >> "$GITHUB_ENV"
+          echo "CI_SQL_CONNECTION_STRING=Server=localhost,1433;Database=CRM_Cartorio_Dev;User Id=sa;Password=$sql_password;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True" >> "$GITHUB_ENV"
+
+          docker run --detach \
+            --name crm-ci-sql \
+            --publish 127.0.0.1:1433:1433 \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --env ACCEPT_EULA=Y \
+            --env "MSSQL_SA_PASSWORD=$sql_password" \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+      - name: Aguarda o SQL Server e cria somente o banco descartavel
+        shell: bash
+        run: |
+          sqlcmd=/opt/mssql-tools18/bin/sqlcmd
+
+          for tentativa in {1..60}; do
+            if docker exec crm-ci-sql "$sqlcmd" -C -S localhost -U sa -P "$CI_SQL_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1; then
+              pronto=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "${pronto:-0}" != "1" ]; then
+            docker logs crm-ci-sql --tail 100
+            exit 1
+          fi
+
+          docker exec crm-ci-sql "$sqlcmd" -C -S localhost -U sa -P "$CI_SQL_PASSWORD" -b \
+            -Q "CREATE DATABASE [CRM_Cartorio_Dev]"
+
+      - name: Aplica schema e dados somente no banco descartavel
+        shell: bash
+        run: |
+          sqlcmd=/opt/mssql-tools18/bin/sqlcmd
+
+          for script in sql/[0-9][0-9][0-9]-*.sql; do
+            echo "Aplicando $(basename "$script") no banco descartavel..."
+            docker exec crm-ci-sql "$sqlcmd" -C -S localhost -U sa -P "$CI_SQL_PASSWORD" \
+              -d CRM_Cartorio_Dev -b -V 16 -i "/workspace/$script"
+          done
+
+      - name: Verifica autenticacao
+        working-directory: src/backend
+        env:
+          # Somente para o processo publicado que o verificador sobe dentro do runner.
+          # Não é segredo de ambiente: a API é efêmera, local ao job e o valor morre com ele.
+          Jwt__Chave: "crm-cartorio-ci-jwt-descartavel-2026-nao-usar-fora-do-runner"
+        shell: bash
+        run: |
+          # O cenário HTTP do verificador sobe a API como processo-filho. Ele deve
+          # apontar para o MESMO SQL Server descartável deste job, nunca para DEV/TESTE/prod.
+          export ConnectionStrings__SqlServer="$CI_SQL_CONNECTION_STRING"
+
+          # SEC-03 cifra o segredo TOTP com AES-256. A API efêmera precisa da sua
+          # própria chave descartável para provar também a ativação voluntária de MFA.
+          mfa_key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$mfa_key"
+          export Mfa__VersaoCorrente="1"
+          export Mfa__Chaves__1="$mfa_key"
+
+          dotnet run verificar-autenticacao.cs -- "$CI_SQL_CONNECTION_STRING"
+
+      - name: Verifica concorrencia de conversas
+        working-directory: src/backend
+        run: dotnet run verificar-concorrencia.cs -- "$CI_SQL_CONNECTION_STRING"
+
+      - name: Verifica concorrencia da saida WhatsApp
+        working-directory: src/backend
+        run: dotnet run verificar-concorrencia-saida-whatsapp.cs -- "$CI_SQL_CONNECTION_STRING"
+
+      - name: Verifica concorrencia da entrada WhatsApp
+        working-directory: src/backend
+        run: dotnet run verificar-concorrencia-entrada-whatsapp.cs -- "$CI_SQL_CONNECTION_STRING"
+
+      - name: Verifica automacao
+        working-directory: src/backend
+        run: dotnet run verificar-automacao.cs -- "$CI_SQL_CONNECTION_STRING"
+
+      - name: Destroi o SQL Server descartavel
+        if: always()
+        shell: bash
+        run: docker rm --force crm-ci-sql >/dev/null 2>&1 || true
+
+  frontend-typecheck:
+    name: frontend-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Instalacao deterministica
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  frontend-tests:
+    name: frontend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Instalacao deterministica
+        run: npm ci
+
+      - name: Testes automatizados
+        run: npm run test
+
+  frontend-build:
+    name: frontend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Instalacao deterministica
+        run: npm ci
+
+      - name: Build de producao
+        run: npm run build

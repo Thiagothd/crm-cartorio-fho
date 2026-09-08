@@ -61,7 +61,11 @@ export function PaginaIndicadores() {
 
   return (
     <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      {/* `@container`, local — não `/conteudo` do shell: as grades abaixo
+          precisam da largura que sobra DEPOIS do padding (`p-3 md:p-6`) e do
+          teto de `max-w-6xl`, e consultar o container do shell direto
+          ignoraria os dois. */}
+      <div className="@container mx-auto flex max-w-6xl flex-col gap-4">
         <div className="flex flex-col gap-3">
           <AbasDeRelatorio className="self-start" />
 

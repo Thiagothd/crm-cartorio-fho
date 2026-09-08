@@ -45,7 +45,8 @@ public static class AplicadorDeRespostaInteligente
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         if (TriagemAutomatica.PediuHumano(conteudo))
         {
@@ -56,8 +57,40 @@ public static class AplicadorDeRespostaInteligente
             return;
         }
 
-        var historico = await MontarHistoricoAsync(db, conversa.Id, ct);
-        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, ct);
+        var historico = await MontarHistoricoAsync(db, conversa.Id, mensagemAtualId, ct);
+
+        // Snapshot do INSTANTE da chamada — TipoServicoId/SetorId da conversa
+        // podem mudar depois, e a analise de assunto precisa do que era
+        // verdade quando a pergunta foi feita, nao do estado final.
+        var contexto = new ContextoDaChamada(conversa.Id, mensagemAtualId, conversa.TipoServicoId, conversa.SetorId);
+        var resposta = await ia.ResponderAsync(conversa.TenantId, historico, conteudo, contexto, ct);
+
+        // BUG-ATD-01, corrida B/G do plano: a chamada acima pode levar
+        // segundos (rede) — tempo suficiente para um atendente assumir
+        // enquanto a IA ainda esta "em voo". Sem este recheck, a resposta
+        // gerada ANTES do takeover ainda seria entregue ao cliente por cima
+        // do atendente. Leitura fresca (fora do change tracker) do mesmo
+        // campo que o despacho externo ja consultou no inicio deste request —
+        // se mudou nesse meio tempo, descarta a resposta e nao faz nada.
+        //
+        // Janela residual, aceita de proposito: entre esta leitura e o commit
+        // final de quem chamou sobra uma janela de milissegundos, so operacao
+        // local, sem chamada de rede — fechar por completo exigiria segurar
+        // lock pelo tempo do timeout do provedor de IA (pior para throughput)
+        // ou separar a persistencia da automacao em duas transacoes, fora do
+        // escopo desta correcao.
+        var conversaFoiAssumidaEnquantoRespondia = await db.Conversas.AsNoTracking()
+            .Where(c => c.Id == conversa.Id)
+            .Select(c => c.EmAtendimentoHumano)
+            .SingleAsync(ct);
+
+        if (conversaFoiAssumidaEnquantoRespondia)
+        {
+            log.LogInformation(
+                "Conversa {ConversaId} entrou em atendimento humano enquanto a IA respondia; resposta descartada.",
+                conversa.Id);
+            return;
+        }
 
         if (!resposta.PodeResponder)
         {
@@ -125,6 +158,12 @@ public static class AplicadorDeRespostaInteligente
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
 
+        // O cliente pediu humano AGORA — a fila humana comeca aqui, antes de
+        // qualquer atendente clicar em Assumir. BUG-ATD-01: sem isto, uma
+        // mensagem que chegasse enquanto a conversa ainda esta na fila (sem
+        // atendente atribuido) continuaria caindo na automacao.
+        conversa.EmAtendimentoHumano = true;
+
         var gatilho = conversa.SetorId is null
             ? GatilhoDeMensagem.TriagemSemCorrespondencia
             : GatilhoDeMensagem.PedidoDeAtendente;
@@ -136,10 +175,10 @@ public static class AplicadorDeRespostaInteligente
     /// Reconstrói as trocas já feitas nesta sequência a partir do banco.
     /// </summary>
     /// <remarks>
-    /// A mensagem do cliente que provocou esta chamada já foi adicionada ao
-    /// <c>DbContext</c> por quem chamou, mas ainda não foi salva — uma consulta
-    /// <c>AsNoTracking</c> não a enxerga, então o histórico aqui é sempre só o que
-    /// veio ANTES dela, sem duplicar a pergunta atual.
+    /// No webhook, a mensagem que provocou a chamada ja foi salva para reivindicar
+    /// atomicamente o IdExterno; <paramref name="mensagemAtualId"/> a exclui do
+    /// historico porque ela ja segue separada como a pergunta atual. Na simulacao
+    /// pelo painel ela ainda nao foi salva e o parametro fica nulo.
     ///
     /// Exclui a primeiríssima mensagem do cliente na conversa (o "bom dia" que abriu
     /// o atendimento e disparou as boas-vindas) — ela nunca passou pela IA. As
@@ -147,7 +186,7 @@ public static class AplicadorDeRespostaInteligente
     /// exatamente esta sequência: nenhuma outra combinação de autor gera esse par.
     /// </remarks>
     private static async Task<IReadOnlyList<TrocaAnterior>> MontarHistoricoAsync(
-        CrmDbContext db, Guid conversaId, CancellationToken ct)
+        CrmDbContext db, Guid conversaId, Guid? mensagemAtualId, CancellationToken ct)
     {
         var primeiraMensagemClienteId = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId && m.AutorTipo == AutorTipo.Cliente)
@@ -157,6 +196,13 @@ public static class AplicadorDeRespostaInteligente
 
         var mensagens = await db.Mensagens.AsNoTracking()
             .Where(m => m.ConversaId == conversaId
+                     && m.Id != mensagemAtualId
+                     // No webhook duravel, mensagens posteriores ja podem estar
+                     // persistidas como Pendente. Elas nao pertencem ao historico
+                     // da entrada atual ate serem processadas em ordem.
+                     && (m.AutorTipo != AutorTipo.Cliente
+                         || m.IdExternoWhatsapp == null
+                         || m.EstadoProcessamentoEntrada == EstadoProcessamentoEntradaWhatsapp.Processada)
                      && ((m.AutorTipo == AutorTipo.Cliente && m.Id != primeiraMensagemClienteId)
                          || (m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa)))
             .OrderBy(m => m.EnviadaEm).ThenBy(m => m.Id)

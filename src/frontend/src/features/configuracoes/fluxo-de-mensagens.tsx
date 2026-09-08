@@ -1,265 +1,207 @@
-import { ArrowRight, CornerDownRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
-import type { Etapa, GatilhoDeMensagem, MensagemAutomatica } from '@/lib/api/tipos'
+import { Check, CornerDownRight, Plus } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { cn } from '@/lib/utils'
+import { encontrarMensagem, type PontoDoFluxo, type TrilhaDoFluxo } from './topologia-do-fluxo'
+import type { GatilhoDeMensagem, MensagemAutomatica } from '@/lib/api/tipos'
 
 /**
- * Trilho horizontal do caminho automático — pedido do Thiago nesta sessão,
- * referência declarada: os canais do n8n.
+ * O caminho do atendimento automático, desenhado.
  *
- * Diferente do n8n: o caminho aqui NÃO é livre. `GatilhoDeMensagem` é enum —
- * "gatilho novo exige código novo" (GatilhoDeMensagem.cs). Por isso o sistema
- * DESENHA o caminho real (topologia fixa, definida abaixo) em vez de deixar
- * arrastar e conectar nós, o que sugeriria caminho inventável pela tela.
+ * Reescrito na Fase 3.3 (2026-09-07). A versão anterior era um trilho
+ * HORIZONTAL com cartões de 160px e rolagem lateral: numa tela de 1440px
+ * sobrava metade da largura vazia, e mesmo assim metade dos pontos ficava fora
+ * do campo de visão — quem configurava não conseguia ver o caminho inteiro de
+ * uma vez, que é exatamente para o que esta peça existe.
  *
- * Sem sombra, gradiente nem cor fora dos tokens (DESIGN.md, seção 4) — o
- * trilho não gasta nenhuma das 3 ocorrências de bordô da tela.
+ * Agora são TRILHAS: cada desvio do caminho vira um bloco próprio, com título,
+ * explicação e os pontos numa grade que usa a largura toda e reflui em vez de
+ * rolar. Nenhuma informação depende de rolagem horizontal.
+ *
+ * O que NÃO mudou, e é o ponto inteiro desta peça: a topologia é fixa
+ * (`topologia-do-fluxo.ts`). Diferente do n8n, não se arrasta nem se conecta
+ * nada — `GatilhoDeMensagem` é enum e caminho novo exige código novo. O
+ * cadastro é o TEXTO de cada ponto.
+ *
+ * Orçamento de bordô (DESIGN.md 17.2): esta peça gasta ZERO. Pendência é
+ * âmbar, desativado é neutro — nenhum dos dois é erro.
  */
-
-interface PontoFixo {
-  gatilho: GatilhoDeMensagem
-  rotulo: string
-}
-
-const PRIMEIRO_CONTATO: PontoFixo = { gatilho: 'NovoAtendimento', rotulo: 'Primeiro contato' }
-const QUAL_SERVICO: PontoFixo = { gatilho: 'TriagemComCorrespondencia', rotulo: 'Qual serviço' }
-const SERVICO_ESCOLHIDO: PontoFixo = { gatilho: 'ServicoEscolhido', rotulo: 'Documentos e prazo' }
-const MENU_DE_CONTINUACAO: PontoFixo = { gatilho: 'MenuDeContinuacao', rotulo: 'Posso ajudar em mais algo?' }
-const DESPEDIDA: PontoFixo = { gatilho: 'Despedida', rotulo: 'Cliente encerrou' }
-const IA_SEM_CORRESPONDENCIA: PontoFixo = {
-  gatilho: 'RespostaSemCorrespondencia',
-  rotulo: 'IA sem resposta específica',
-}
-const ATENDENTE_PRIMEIRO_CONTATO: PontoFixo = {
-  gatilho: 'TriagemSemCorrespondencia',
-  rotulo: 'Atendente (1º contato)',
-}
-const ATENDENTE_EM_ATENDIMENTO: PontoFixo = {
-  gatilho: 'PedidoDeAtendente',
-  rotulo: 'Atendente (em atendimento)',
-}
-const PRAZO_ALERTA: PontoFixo = { gatilho: 'PrazoProximoVencimento', rotulo: 'Prazo perto de vencer' }
-const PRAZO_VENCIDO: PontoFixo = { gatilho: 'PrazoVencido', rotulo: 'Prazo vencido' }
-const PEDIDO_DE_NOME: PontoFixo = {
-  gatilho: 'PedidoDeNome',
-  rotulo: 'Contato sem nome',
-}
-const PERGUNTA_DE_ENCERRAMENTO: PontoFixo = {
-  gatilho: 'ConfirmacaoDeEncerramento',
-  rotulo: 'Posso encerrar?',
-}
-const ENCERROU_SOZINHO: PontoFixo = {
-  gatilho: 'EncerramentoPorInatividade',
-  rotulo: 'Encerrou por falta de resposta',
-}
-
 export function FluxoDeMensagens({
+  trilhas,
   mensagens,
-  etapas,
+  somentePendentes,
   aoClicarPonto,
 }: {
+  trilhas: TrilhaDoFluxo[]
   mensagens: MensagemAutomatica[]
-  etapas: Etapa[]
+  /** Esconde o que já tem texto — o modo "me mostra só o que falta". */
+  somentePendentes: boolean
   aoClicarPonto: (
     gatilho: GatilhoDeMensagem,
     etapaAlvoId: string | null,
     existente: MensagemAutomatica | null,
   ) => void
 }) {
-  function encontrar(gatilho: GatilhoDeMensagem, etapaAlvoId: string | null = null) {
-    return mensagens.find((m) => m.gatilho === gatilho && m.etapaAlvoId === etapaAlvoId) ?? null
+  const visiveis = trilhas
+    .map((trilha) => ({
+      trilha,
+      pontos: somentePendentes
+        ? trilha.pontos.filter((p) => !encontrarMensagem(mensagens, p.gatilho, p.etapaAlvoId))
+        : trilha.pontos,
+    }))
+    // Trilha sem ponto visível some inteira: no modo "só pendências", um bloco
+    // com título e nenhum cartão dentro seria ruído puro. A de etapas do funil
+    // é a única que pode ficar vazia fora desse modo — ela tem tratamento
+    // próprio, abaixo, porque ali "vazio" significa "falta cadastrar etapa".
+    .filter(({ trilha, pontos }) => pontos.length > 0 || trilha.chave === 'funil')
+
+  if (visiveis.length === 0) {
+    return (
+      <EstadoDaInterface
+        tipo="vazio"
+        icone={Check}
+        titulo="Todo ponto do caminho tem texto"
+        descricao="Nenhuma pendência: o sistema tem o que dizer em cada momento do atendimento automático."
+      />
+    )
   }
 
-  // As etapas do funil são cadastro do cartório parceiro (nome, ordem — sem papel fixo no
-  // código), então o trilho segue a lista de verdade em vez de supor "em
-  // análise"/"concluído" como dois pontos fixos.
-  const etapasOrdenadas = [...etapas].sort((a, b) => a.ordem - b.ordem)
-
-  const caminhoPrincipal = [
-    { ...PRIMEIRO_CONTATO, etapaAlvoId: null as string | null },
-    { ...QUAL_SERVICO, etapaAlvoId: null as string | null },
-    { ...SERVICO_ESCOLHIDO, etapaAlvoId: null as string | null },
-    { ...MENU_DE_CONTINUACAO, etapaAlvoId: null as string | null },
-    { ...DESPEDIDA, etapaAlvoId: null as string | null },
-    ...etapasOrdenadas.map((etapa) => ({
-      gatilho: 'EtapaAlterada' as GatilhoDeMensagem,
-      rotulo: etapa.nome,
-      etapaAlvoId: etapa.id as string | null,
-    })),
-  ]
-
   return (
-    <div className="flex flex-col gap-4 rounded-md border border-linha bg-superficie p-4">
-      <div>
-        <p className="text-sm font-semibold">Caminho do atendimento automático</p>
-        <p className="text-xs text-tinta-media">
-          Cada ponto é uma mensagem cadastrada. Clique para editar o texto ou cadastrar o que
-          falta.
-        </p>
-      </div>
-
-      <Trilho>
-        {caminhoPrincipal.map((ponto, indice) => (
-          <PontoComSeta key={`${ponto.gatilho}-${ponto.etapaAlvoId ?? ''}`} primeiro={indice === 0}>
-            <Ponto
-              rotulo={ponto.rotulo}
-              mensagem={encontrar(ponto.gatilho, ponto.etapaAlvoId)}
-              aoClicar={() =>
-                aoClicarPonto(ponto.gatilho, ponto.etapaAlvoId, encontrar(ponto.gatilho, ponto.etapaAlvoId))
-              }
-            />
-          </PontoComSeta>
-        ))}
-      </Trilho>
-
-      <div>
-        <div className="flex items-center gap-1.5 text-xs text-tinta-fraca">
-          <CornerDownRight className="size-3.5 shrink-0" />
-          <span>
-            Se o cliente sai do roteiro, ou nenhuma flag de fluxo está esperando resposta — a IA
-            nunca deixa passar em branco:
-          </span>
-        </div>
-
-        <div className="mt-2 pl-5">
-          <Trilho>
-            <PontoComSeta primeiro>
-              <div className="flex h-full w-40 shrink-0 items-center rounded-md border border-dashed border-linha bg-branco px-3 py-2 text-[11px] text-tinta-fraca">
-                A IA tenta responder — não é cadastro, é comportamento do sistema.
-              </div>
-            </PontoComSeta>
-            <PontoComSeta>
-              <Ponto
-                rotulo={IA_SEM_CORRESPONDENCIA.rotulo}
-                mensagem={encontrar(IA_SEM_CORRESPONDENCIA.gatilho)}
-                aoClicar={() =>
-                  aoClicarPonto(
-                    IA_SEM_CORRESPONDENCIA.gatilho,
-                    null,
-                    encontrar(IA_SEM_CORRESPONDENCIA.gatilho),
-                  )
-                }
-              />
-            </PontoComSeta>
-          </Trilho>
-        </div>
-
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
-          <CornerDownRight className="size-3.5 shrink-0" />
-          <span>
-            Se o WhatsApp não traz um nome utilizável, pergunta antes de mandar o menu — quem
-            tem nome no perfil não passa por aqui:
-          </span>
-        </div>
-
-        <div className="mt-2 pl-5">
-          <Trilho>
-            <PontoComSeta primeiro>
-              <Ponto
-                rotulo={PEDIDO_DE_NOME.rotulo}
-                mensagem={encontrar(PEDIDO_DE_NOME.gatilho)}
-                aoClicar={() =>
-                  aoClicarPonto(PEDIDO_DE_NOME.gatilho, null, encontrar(PEDIDO_DE_NOME.gatilho))
-                }
-              />
-            </PontoComSeta>
-            <PontoComSeta>
-              <div className="flex h-full w-40 shrink-0 items-center rounded-md border border-dashed border-linha bg-branco px-3 py-2 text-[11px] text-tinta-fraca">
-                Segue para o primeiro contato, acima — agora com o nome certo.
-              </div>
-            </PontoComSeta>
-          </Trilho>
-        </div>
-
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
-          <CornerDownRight className="size-3.5 shrink-0" />
-          <span>Chama atendente só quando o cliente pede — nunca por a IA não saber responder:</span>
-        </div>
-
-        <div className="mt-2 pl-5">
-          <Trilho>
-            {[ATENDENTE_PRIMEIRO_CONTATO, ATENDENTE_EM_ATENDIMENTO].map((ponto, indice) => (
-              <PontoComSeta key={ponto.gatilho} primeiro={indice === 0}>
-                <Ponto
-                  rotulo={ponto.rotulo}
-                  mensagem={encontrar(ponto.gatilho)}
-                  aoClicar={() => aoClicarPonto(ponto.gatilho, null, encontrar(ponto.gatilho))}
-                />
-              </PontoComSeta>
-            ))}
-          </Trilho>
-        </div>
-
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-tinta-fraca">
-          <CornerDownRight className="size-3.5 shrink-0" />
-          <span>
-            Se a conversa fica parada, pergunta antes de fechar — o tempo é configurado em
-            Automação &gt; Encerramento automático:
-          </span>
-        </div>
-
-        <div className="mt-2 pl-5">
-          <Trilho>
-            {[PERGUNTA_DE_ENCERRAMENTO, ENCERROU_SOZINHO].map((ponto, indice) => (
-              <PontoComSeta key={ponto.gatilho} primeiro={indice === 0}>
-                <Ponto
-                  rotulo={ponto.rotulo}
-                  mensagem={encontrar(ponto.gatilho)}
-                  aoClicar={() => aoClicarPonto(ponto.gatilho, null, encontrar(ponto.gatilho))}
-                />
-              </PontoComSeta>
-            ))}
-          </Trilho>
-        </div>
-      </div>
-
-      <div className="border-t border-linha pt-3">
-        <p className="text-xs font-medium text-tinta-media">
-          Dispara por prazo do serviço, não por resposta do cliente
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {[PRAZO_ALERTA, PRAZO_VENCIDO].map((ponto) => (
-            <Ponto
-              key={ponto.gatilho}
-              rotulo={ponto.rotulo}
-              mensagem={encontrar(ponto.gatilho)}
-              aoClicar={() => aoClicarPonto(ponto.gatilho, null, encontrar(ponto.gatilho))}
-            />
-          ))}
-        </div>
-      </div>
+    <div className="grade-com-vida grid gap-3 @4xl:grid-cols-2">
+      {visiveis.map(({ trilha, pontos }) => (
+        <Trilha
+          key={trilha.chave}
+          trilha={trilha}
+          pontos={pontos}
+          mensagens={mensagens}
+          aoClicarPonto={aoClicarPonto}
+        />
+      ))}
     </div>
   )
 }
 
-function Trilho({ children }: { children: ReactNode }) {
-  return (
-    <div className="overflow-x-auto pb-1">
-      <div className="flex w-max items-stretch">{children}</div>
-    </div>
-  )
-}
+function Trilha({
+  trilha,
+  pontos,
+  mensagens,
+  aoClicarPonto,
+}: {
+  trilha: TrilhaDoFluxo
+  pontos: PontoDoFluxo[]
+  mensagens: MensagemAutomatica[]
+  aoClicarPonto: (
+    gatilho: GatilhoDeMensagem,
+    etapaAlvoId: string | null,
+    existente: MensagemAutomatica | null,
+  ) => void
+}) {
+  const comTexto = trilha.pontos.filter((p) =>
+    encontrarMensagem(mensagens, p.gatilho, p.etapaAlvoId),
+  ).length
 
-function PontoComSeta({ children, primeiro }: { children: ReactNode; primeiro?: boolean }) {
   return (
-    <div className="flex shrink-0 items-stretch">
-      {primeiro ? null : (
-        <div className="flex shrink-0 items-center px-1 text-tinta-fraca">
-          <ArrowRight className="size-3.5" />
+    <section
+      className={cn(
+        // Container NOMEADO: a grade de pontos precisa saber a largura da
+        // própria trilha, que é metade da tela quando `larga` é falso. Sem o
+        // nome, uma consulta aqui dentro casaria com o container mais próximo
+        // — que é este mesmo, mas o nome deixa a intenção explícita e
+        // sobrevive a um container novo entrar no meio.
+        '@container/trilha flex flex-col rounded-card border border-linha bg-superficie p-3.5 sm:p-4',
+        trilha.larga && '@4xl:col-span-2',
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-linha bg-branco text-tinta-media"
+        >
+          <trilha.icone className="size-4" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-bold leading-tight tracking-tight text-tinta">
+            {trilha.titulo}
+          </h3>
+          <p className="mt-1 text-xs leading-snug text-tinta-media">{trilha.descricao}</p>
+        </div>
+
+        {trilha.pontos.length > 0 ? (
+          <span
+            className="shrink-0 font-dado text-[11px] font-medium text-tinta-fraca"
+            title={`${comTexto} de ${trilha.pontos.length} pontos com texto cadastrado`}
+          >
+            {comTexto}/{trilha.pontos.length}
+          </span>
+        ) : null}
+      </div>
+
+      {trilha.antes ? <Nota>{trilha.antes}</Nota> : null}
+
+      {pontos.length === 0 ? (
+        <p className="mt-3 rounded-md border border-dashed border-linha-forte bg-branco px-3 py-4 text-center text-xs text-tinta-media">
+          Nenhuma etapa cadastrada ainda. As etapas do funil vêm de{' '}
+          <strong className="font-semibold text-tinta">Estrutura &gt; Etapas</strong>.
+        </p>
+      ) : (
+        <div
+          className={cn(
+            'mt-3 grid gap-2.5',
+            // Trilha de um ponto só ocupa a largura inteira: numa grade de duas
+            // colunas o cartão único ficaria na metade esquerda, com metade da
+            // trilha vazia ao lado sem nada explicando por quê.
+            trilha.pontos.length > 1 && '@sm/trilha:grid-cols-2',
+            // Só as trilhas largas passam de duas colunas: as demais têm no
+            // máximo dois pontos, e uma grade de três deixaria uma coluna
+            // vazia permanente no fim da linha.
+            trilha.larga && '@2xl/trilha:grid-cols-3 @5xl/trilha:grid-cols-4 @7xl/trilha:grid-cols-5',
+          )}
+        >
+          {pontos.map((p) => {
+            const mensagem = encontrarMensagem(mensagens, p.gatilho, p.etapaAlvoId)
+
+            return (
+              <Ponto
+                key={`${p.gatilho}-${p.etapaAlvoId ?? ''}`}
+                ponto={p}
+                mensagem={mensagem}
+                // A numeração é a ordem na TOPOLOGIA, não na lista filtrada:
+                // no modo "só pendências", ver "2" e "4" é a informação certa
+                // — renumerar para 1 e 2 esconderia que existem pontos no meio.
+                ordem={trilha.sequencial ? trilha.pontos.indexOf(p) + 1 : null}
+                aoClicar={() => aoClicarPonto(p.gatilho, p.etapaAlvoId, mensagem)}
+              />
+            )
+          })}
         </div>
       )}
-      {children}
-    </div>
+
+      {trilha.depois ? <Nota>{trilha.depois}</Nota> : null}
+    </section>
+  )
+}
+
+/** Comportamento do sistema que emoldura a trilha — nunca é cadastro. */
+function Nota({ children }: { children: ReactNode }) {
+  return (
+    <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-snug text-tinta-fraca">
+      <CornerDownRight className="mt-px size-3.5 shrink-0" aria-hidden />
+      <span>{children}</span>
+    </p>
   )
 }
 
 function Ponto({
-  rotulo,
+  ponto,
   mensagem,
+  ordem,
   aoClicar,
 }: {
-  rotulo: string
+  ponto: PontoDoFluxo
   mensagem: MensagemAutomatica | null
+  ordem: number | null
   aoClicar: () => void
 }) {
   const semMensagem = !mensagem
@@ -270,21 +212,71 @@ function Ponto({
       type="button"
       onClick={aoClicar}
       className={cn(
-        'flex h-full w-40 shrink-0 flex-col gap-1 rounded-md border px-3 py-2 text-left transition-colors',
-        semMensagem && 'border-dashed border-linha bg-branco hover:border-ambar',
-        !semMensagem && inativa && 'border-linha bg-branco hover:border-linha-forte',
-        !semMensagem && !inativa && 'border-linha-forte bg-branco hover:border-tinta',
+        // Fase 3.1: superfície elevada, o mesmo vocabulário do cartão de
+        // atendente e do cartão de indicador. `text-left` porque isto é um
+        // registro clicável, não um botão de comando.
+        'group/ponto flex h-full flex-col gap-2 rounded-card border bg-branco p-3 text-left shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover',
+        semMensagem ? 'border-dashed border-linha-forte' : 'border-linha',
       )}
     >
-      <span className={cn('text-xs font-medium', inativa && 'text-tinta-fraca')}>{rotulo}</span>
-      {semMensagem ? (
-        <span className="text-[11px] text-ambar">sem mensagem</span>
-      ) : (
-        <span className={cn('line-clamp-2 text-[11px]', inativa ? 'text-tinta-fraca' : 'text-tinta-media')}>
-          {inativa ? 'Inativa — ' : ''}
-          {mensagem.conteudo}
+      <div className="flex items-start gap-2">
+        {ordem !== null ? (
+          <span
+            aria-hidden
+            className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-superficie font-dado text-[10px] font-semibold text-tinta-media"
+          >
+            {ordem}
+          </span>
+        ) : null}
+
+        <span
+          className={cn(
+            'min-w-0 flex-1 text-[13px] font-semibold leading-tight',
+            inativa ? 'text-tinta-media' : 'text-tinta',
+          )}
+        >
+          {ponto.rotulo}
         </span>
-      )}
+
+        {semMensagem ? (
+          <Plus
+            className="mt-px size-3.5 shrink-0 text-ambar opacity-0 transition-opacity duration-150 group-hover/ponto:opacity-100"
+            aria-hidden
+          />
+        ) : !inativa ? (
+          <Check className="mt-px size-3.5 shrink-0 text-verde" aria-label="Com texto ativo" />
+        ) : null}
+      </div>
+
+      <p className="text-[11px] leading-snug text-tinta-fraca">{ponto.quando}</p>
+
+      {/* `mt-auto`: numa grade de quatro colunas os cartões têm alturas de
+          conteúdo diferentes, e o texto da mensagem alinhado no rodapé dá a
+          linha de leitura que a grade sozinha não dá. */}
+      <div className="mt-auto border-t border-linha pt-2">
+        {semMensagem ? (
+          <p className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold text-ambar">Falta escrever</span>
+            <span className="text-[11px] leading-snug text-tinta-media">{ponto.seFaltar}</span>
+          </p>
+        ) : (
+          <>
+            {inativa ? (
+              <Badge variant="secondary" className="mb-1">
+                Desativada
+              </Badge>
+            ) : null}
+            <p
+              className={cn(
+                'line-clamp-3 whitespace-pre-wrap text-[11px] leading-relaxed',
+                inativa ? 'text-tinta-fraca' : 'text-tinta-media',
+              )}
+            >
+              {mensagem.conteudo}
+            </p>
+          </>
+        )}
+      </div>
     </button>
   )
 }

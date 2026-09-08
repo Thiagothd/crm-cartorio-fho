@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { usarPreferenciaDeTexto } from '@/lib/usar-preferencia-local'
 import { usarVisaoGeral } from '@/features/indicadores/consultas'
+import { usarVisaoGeralAoVivo } from '@/features/indicadores/tempo-real'
 import {
   CHAVES_DE_PERIODO,
   resolverIntervalo,
@@ -24,6 +26,10 @@ import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 import { Button } from '@/components/ui/button'
 import { formatarDuracaoMinutos } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
+import { usarResumoDoPainel } from '@/features/atendimento/consultas'
+import { DialogoNovaConversa } from '@/features/atendimento/dialogo-nova-conversa'
+import { DialogoDeCliente } from '@/features/clientes/dialogo-de-cliente'
+import { AcoesRapidas, type ContadoresDeAcoes } from '@/features/acoes-rapidas/acoes-rapidas'
 
 const ESCOPOS = ['todas', 'minhas'] as const
 
@@ -35,7 +41,10 @@ const dataDeHojeExtenso = new Intl.DateTimeFormat('pt-BR', {
 
 export function PaginaVisaoGeral() {
   const navegar = useNavigate()
+  const clienteDeConsultas = useQueryClient()
   const { atendente, podeGerirCadastros } = usarAutenticacao()
+  const [novoAtendimentoAberto, definirNovoAtendimentoAberto] = useState(false)
+  const [novoClienteAberto, definirNovoClienteAberto] = useState(false)
 
   const escopoPadrao = atendente?.perfil === 'Atendente' ? 'minhas' : 'todas'
   const [chaveDePeriodo, definirChaveDePeriodo] = usarPreferenciaDeTexto<ChaveDePeriodo>(
@@ -60,13 +69,36 @@ export function PaginaVisaoGeral() {
 
   const { data, isLoading, isError, refetch, isFetching } = usarVisaoGeral(de, ate, escopo)
 
+  const {
+    data: resumo,
+    isLoading: carregandoResumo,
+    isError: erroDoResumo,
+  } = usarResumoDoPainel()
+
+  usarVisaoGeralAoVivo(Boolean(atendente))
+
+  const contadores = useMemo<ContadoresDeAcoes>(() => {
+    // `undefined` só na PRIMEIRA carga: depois disso o cache já tem valor e um
+    // refetch de fundo nunca deve devolver os cartões para o skeleton.
+    const indisponivel = erroDoResumo ? null : carregandoResumo ? undefined : null
+
+    return {
+      fila: resumo?.naFila ?? indisponivel,
+      aguardando: resumo?.aguardandoResposta ?? data?.agora.aguardandoResposta ?? indisponivel,
+      minhas: resumo?.minhasConversas ?? indisponivel,
+    }
+  }, [resumo, carregandoResumo, erroDoResumo, data])
+
   function irParaInbox(query: string) {
     navegar(`/atendimentos${query}`)
   }
 
   return (
     <div className="flex-1 overflow-y-auto p-3 md:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      {/* `@container`, local — a largura que importa para as grades abaixo é
+          a que sobra depois do padding e do teto de `max-w-6xl`, não a do
+          container do shell direto. */}
+      <div className="@container mx-auto flex max-w-6xl flex-col gap-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="text-sm capitalize text-tinta-media">{dataDeHojeExtenso.format(new Date())}</p>
           <SeletorDePeriodo
@@ -79,35 +111,31 @@ export function PaginaVisaoGeral() {
           />
         </div>
 
-        {isLoading ? (
-          <div className="flex flex-col gap-4">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-64 w-full" />
+        {/* `grade-com-vida`: os blocos da tela entram subindo e esmaecendo em
+            cascata (index.css) — a Visao Geral tem "vida" ao carregar, nao um
+            recorte estatico. As Ações rápidas ficam FORA do ternário de
+            loading/erro, como 2º filho fixo: quem abriu a tela para abrir um
+            atendimento não deveria depender do gráfico carregar. */}
+        <div className="flex flex-col gap-4 grade-com-vida">
+          {isLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
-              <Skeleton className="h-48 w-full" />
-              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
             </div>
-          </div>
-        ) : isError || !data ? (
-          <EstadoDaInterface
-            tipo="erro"
-            descricao="Não foi possível carregar a Visão Geral."
-            acao={
-              <Button size="sm" onClick={() => void refetch()}>
-                <RefreshCw />
-                Tentar de novo
-              </Button>
-            }
-          />
-        ) : (
-          // `grade-com-vida`: os 4 blocos da tela entram subindo e esmaecendo em
-          // cascata (index.css) — a Visao Geral tem "vida" ao carregar, nao um
-          // recorte estatico. Recalcula do zero a cada `key` (embutida no
-          // primeiro filho via `agora-${escopo}`), entao trocar de escopo ou
-          // período repete a entrada.
-          <div className="flex flex-col gap-4 grade-com-vida">
-            {/* AGORA nunca muda com o período — misturar as duas coisas numa
-                faixa só faria parecer que o filtro afeta tudo, e não afeta. */}
+          ) : isError || !data ? (
+            <EstadoDaInterface
+              tipo="erro"
+              descricao="Não foi possível carregar a Visão Geral."
+              acao={
+                <Button size="sm" onClick={() => void refetch()}>
+                  <RefreshCw />
+                  Tentar de novo
+                </Button>
+              }
+            />
+          ) : (
+            // AGORA nunca muda com o período — misturar as duas coisas numa
+            // faixa só faria parecer que o filtro afeta tudo, e não afeta.
             <div className="grid gap-4 md:grid-cols-2">
               <div key={`agora-${escopo}`} className="rounded-card border border-linha bg-branco p-2 shadow-card">
                 <p className="px-2.5 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-tinta-fraca">
@@ -178,52 +206,86 @@ export function PaginaVisaoGeral() {
                 </div>
               </div>
             </div>
+          )}
 
-            <Painel
-              titulo="Fluxo de atendimentos"
-              acao={isFetching ? <RefreshCw className="size-3.5 animate-spin text-tinta-fraca" aria-hidden /> : null}
-            >
-              <FluxoDeAtendimentos pontos={data.fluxoDeAtendimentos} granularidade={data.periodo.granularidade} />
-            </Painel>
+          <AcoesRapidas
+            contadores={contadores}
+            aoAbrirNovoAtendimento={() => definirNovoAtendimentoAberto(true)}
+            aoAbrirNovoCliente={() => definirNovoClienteAberto(true)}
+          />
 
-            {/* Sem carga da equipe (atendente comum), "Requer atenção" fica com
-                a largura inteira em vez de dividir com um espaço vazio ou com um
-                aviso de "sem permissão". */}
-            <div className={cn('grid gap-4', data.cargaDaEquipe && 'md:grid-cols-2')}>
-              <Painel titulo="Requer atenção">
-                <RequerAtencao grupos={data.requerAtencao} />
+          {isLoading ? (
+            <>
+              <Skeleton className="h-64 w-full" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <Skeleton className="h-48 w-full" />
+                <Skeleton className="h-48 w-full" />
+              </div>
+            </>
+          ) : data ? (
+            <>
+              <Painel
+                titulo="Fluxo de atendimentos"
+                acao={isFetching ? <RefreshCw className="size-3.5 animate-spin text-tinta-fraca" aria-hidden /> : null}
+              >
+                <FluxoDeAtendimentos pontos={data.fluxoDeAtendimentos} granularidade={data.periodo.granularidade} />
               </Painel>
-              {data.cargaDaEquipe ? (
-                <Painel titulo="Carga da equipe agora">
-                  <CargaDaEquipe atendentes={data.cargaDaEquipe} />
+
+              {/* Sem carga da equipe (atendente comum), "Requer atenção" fica com
+                  a largura inteira em vez de dividir com um espaço vazio ou com um
+                  aviso de "sem permissão". */}
+              <div className={cn('grid gap-4', data.cargaDaEquipe && 'md:grid-cols-2')}>
+                <Painel titulo="Requer atenção">
+                  <RequerAtencao grupos={data.requerAtencao} />
                 </Painel>
-              ) : null}
-            </div>
+                {data.cargaDaEquipe ? (
+                  <Painel titulo="Carga da equipe agora">
+                    <CargaDaEquipe atendentes={data.cargaDaEquipe} />
+                  </Painel>
+                ) : null}
+              </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <Painel titulo="Serviços mais procurados">
-                <BarrasHorizontais
-                  itens={data.servicosMaisProcurados.map((s) => ({
-                    id: s.tipoServicoId ?? 'sem-servico',
-                    rotulo: s.nome,
-                    valor: s.total,
-                    percentual: s.percentual,
-                  }))}
-                />
-              </Painel>
-              <Painel titulo="Distribuição por etapa">
-                <BarraEmpilhada
-                  segmentos={data.distribuicaoPorEtapa}
-                  aoSelecionarSegmento={(id) => irParaInbox(id ? `?etapa=${id}` : '')}
-                />
-              </Painel>
-              <Painel titulo={podeGerirCadastros ? 'Saúde da operação' : 'Minha operação'}>
-                <SaudeDaOperacaoCard saude={data.saude} minhaDistribuicao={data.minhaDistribuicaoPorEtapa} />
-              </Painel>
-            </div>
-          </div>
-        )}
+              <div className="grid gap-4 md:grid-cols-3">
+                <Painel titulo="Serviços mais procurados">
+                  <BarrasHorizontais
+                    itens={data.servicosMaisProcurados.map((s) => ({
+                      id: s.tipoServicoId ?? 'sem-servico',
+                      rotulo: s.nome,
+                      valor: s.total,
+                      percentual: s.percentual,
+                    }))}
+                  />
+                </Painel>
+                <Painel titulo="Distribuição por etapa">
+                  <BarraEmpilhada
+                    segmentos={data.distribuicaoPorEtapa}
+                    aoSelecionarSegmento={(id) => irParaInbox(id ? `?etapa=${id}` : '')}
+                  />
+                </Painel>
+                <Painel titulo={podeGerirCadastros ? 'Saúde da operação' : 'Minha operação'}>
+                  <SaudeDaOperacaoCard saude={data.saude} minhaDistribuicao={data.minhaDistribuicaoPorEtapa} />
+                </Painel>
+              </div>
+            </>
+          ) : null}
+        </div>
       </div>
+
+      <DialogoNovaConversa
+        aberto={novoAtendimentoAberto}
+        aoMudarAberto={definirNovoAtendimentoAberto}
+        aoCriar={(id) => navegar(`/atendimentos/${id}`)}
+      />
+
+      <DialogoDeCliente
+        cliente={null}
+        aberto={novoClienteAberto}
+        aoFechar={() => definirNovoClienteAberto(false)}
+        aoSalvar={() => {
+          void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes'] })
+          void clienteDeConsultas.invalidateQueries({ queryKey: ['clientes-opcoes'] })
+        }}
+      />
     </div>
   )
 }

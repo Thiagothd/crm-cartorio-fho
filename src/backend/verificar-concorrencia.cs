@@ -2,13 +2,14 @@
 #:property PublishAot=false
 
 using System.Collections.Concurrent;
-using Anthropic;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -58,6 +59,15 @@ var opcoes = construtor.Options;
 
 await using (var checagem = new CrmDbContext(opcoes))
 {
+    if (!string.Equals(
+            checagem.Database.GetDbConnection().Database,
+            "CRM_Cartorio_Dev",
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "Recusado: o verificador so escreve em CRM_Cartorio_Dev.");
+    }
+
     if (!await checagem.Database.CanConnectAsync())
     {
         Console.WriteLine("Nao foi possivel conectar. Verifique a connection string.");
@@ -83,8 +93,8 @@ await using (var db = new CrmDbContext(opcoes))
     // Um cliente por conversa: CriarAsync recusa abrir um segundo atendimento
     // para quem ja tem um em aberto, e essa regra nao e o que estamos testando.
     //
-    // Simultaneas para o teste 1, mais um para o teste 2 e um para o teste 3.
-    for (var i = 0; i < Simultaneas + 2; i++)
+    // Simultaneas para o teste 1, mais um para cada um dos testes 2 a 6.
+    for (var i = 0; i < Simultaneas + 5; i++)
     {
         var telefone = $"559999900{i:D3}";
 
@@ -137,6 +147,7 @@ ConversaService Servico(CrmDbContext db, int indiceDoAtendente)
         new NotificadorSilencioso(),
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         new CanalSilencioso(),
+        new FilaSilenciosa(),
         NullLogger<ConversaService>.Instance);
 }
 
@@ -337,7 +348,8 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
         //
         // Tres dos quatro atendentes da base sao Supervisor ou Administrador, e
         // para esses o MensagemService PERMITE escrever em conversa de terceiro
-        // (PodeOperarConversaDeTerceiro) — comportamento desejado, nao furo. Com o
+        // (PermissaoDoSistema.AtendimentoMexerNoDeTerceiro) — comportamento
+        // desejado, nao furo. Com o
         // perfil real, quem lesse a conversa depois de outro ja ter assumido
         // passaria direto pela checagem de responsavel e gravaria, fazendo este
         // teste falhar de forma intermitente conforme o escalonamento do dia.
@@ -360,7 +372,7 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
             new CanalSilencioso(),
             new AnexosEmMemoria(),
             new RespostaInteligenteService(
-                db, new AnthropicClient(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
+                db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
             opcoesDaIA,
             NullLogger<MensagemService>.Instance);
 
@@ -443,6 +455,276 @@ else
 }
 
 // ---------------------------------------------------------------------------
+// TESTE 4 — Human Takeover (BUG-ATD-01): IA em voo quando o atendente assume
+// — a resposta gerada ANTES do takeover nao pode ser entregue DEPOIS.
+//
+// Cenarios B/G do plano: a chamada a IA pode levar segundos; nesse meio
+// tempo um atendente pode assumir a conversa. AplicadorDeRespostaInteligente
+// releu' o estado (recheck) logo apos a IA responder, exatamente para fechar
+// esta corrida — este teste teve prova real, sob concorrencia de verdade
+// (dois DbContext/conexoes distintas), nao so a logica isolada.
+//
+// Duas conclusoes SAO aceitas como corretas, e o teste distingue qual
+// aconteceu: (a) o recheck descarta a resposta, SimularRecebimentoAsync
+// termina normalmente, zero mensagem da IA gravada; ou (b) o SaveChanges
+// final de SimularRecebimentoAsync colide com o RowVersion que o Assumir
+// concorrente ja avancou (colisao PRE-EXISTENTE, documentada no plano —
+// nao e' o que este teste foi desenhado para fechar) e a chamada inteira
+// e desfeita, o que tambem satisfaz a garantia central: nenhuma resposta
+// da IA e' entregue por cima do atendente. So (b) NAO seria aceitavel se a
+// mensagem do cliente tambem se perdesse SEM nenhuma indicacao — por isso o
+// teste loga qual caminho ocorreu, em vez de esconder a diferenca.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 4 — IA em voo quando o atendente assume; resposta nao pode ser entregue depois");
+
+Guid conversaEmVoo;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    var criada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 2], null, null, "Oi"));
+
+    conversaEmVoo = criada.Id;
+
+    // Pula direto para "ja passou da triagem, a IA esta ouvindo" — o mesmo
+    // atalho usado em verificar-automacao.cs para este cenario.
+    var c = await db.Conversas.FirstAsync(x => x.Id == conversaEmVoo);
+    c.AguardandoTriagem = false;
+    c.AguardandoRespostaInteligente = true;
+    await db.SaveChangesAsync();
+}
+
+var iaEmVoo = new TaskCompletionSource();
+var liberaResposta = new TaskCompletionSource();
+var atendenteQueAssumiu = atendentes[0];
+Exception? excecaoDaSimulacao = null;
+
+var tarefaDaIa = Task.Run(async () =>
+{
+    await using var db = new CrmDbContext(opcoes);
+    var ctx = new ContextoFixo(tenantId, atendenteQueAssumiu.Id, atendenteQueAssumiu.Nome, PerfilDeAtendente.Atendente);
+    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = true });
+
+    var mensagens = new MensagemService(
+        db,
+        ctx,
+        Servico(db, 0),
+        new NotificadorSilencioso(),
+        new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new CanalSilencioso(),
+        new AnexosEmMemoria(),
+        new RespostaInteligenteAtrasada(iaEmVoo, liberaResposta.Task),
+        opcoesDaIA,
+        NullLogger<MensagemService>.Instance);
+
+    try
+    {
+        await mensagens.SimularRecebimentoAsync(conversaEmVoo, new SimularMensagemDeClienteRequest("uma pergunta qualquer"));
+    }
+    catch (Exception ex)
+    {
+        excecaoDaSimulacao = ex;
+    }
+});
+
+// So dispara o Assumir DEPOIS que a IA de fato comecou a "responder" — senao
+// o teste nao prova nada sobre a corrida.
+await iaEmVoo.Task;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    await Servico(db, 0).AssumirAsync(conversaEmVoo);
+}
+
+// So agora libera a resposta da IA — DEPOIS que o takeover ja aconteceu de
+// verdade no banco.
+liberaResposta.SetResult();
+await tarefaDaIa;
+
+int mensagensDaIaGravadas;
+bool emAtendimentoHumanoApos;
+Guid? atendenteApos;
+
+await using (var db = new CrmDbContext(opcoes))
+{
+    mensagensDaIaGravadas = await db.Mensagens
+        .CountAsync(m => m.ConversaId == conversaEmVoo && m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa);
+
+    var conversaApos = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversaEmVoo);
+    emAtendimentoHumanoApos = conversaApos.EmAtendimentoHumano;
+    atendenteApos = conversaApos.AtendenteId;
+}
+
+Console.WriteLine($"  mensagens da IA gravadas .. {mensagensDaIaGravadas}");
+Console.WriteLine($"  EmAtendimentoHumano ....... {emAtendimentoHumanoApos}");
+Console.WriteLine($"  atendente que assumiu ..... {(atendenteApos == atendenteQueAssumiu.Id ? "confirmado" : "ERRADO")}");
+Console.WriteLine(excecaoDaSimulacao is DbUpdateConcurrencyException
+    ? "  caminho ................... (b) colisao de RowVersion desfez a chamada inteira (aceitavel, ver comentario acima)"
+    : excecaoDaSimulacao is null
+        ? "  caminho ................... (a) recheck descartou a resposta, chamada terminou normalmente"
+        : $"  caminho ................... EXCECAO INESPERADA: {excecaoDaSimulacao.GetType().Name}: {excecaoDaSimulacao.Message.Split('\n')[0]}");
+
+if (excecaoDaSimulacao is not null and not DbUpdateConcurrencyException)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — excecao inesperada (nao e a colisao de RowVersion conhecida).");
+}
+else if (mensagensDaIaGravadas > 0)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — a resposta da IA gerada ANTES do takeover foi gravada mesmo assim.");
+}
+else if (!emAtendimentoHumanoApos || atendenteApos != atendenteQueAssumiu.Id)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — estado da conversa inconsistente apos o takeover.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — a resposta da IA em voo nunca foi entregue; o takeover venceu a corrida.");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 5 — reabrir nao atravessa conversa ativa no mesmo cliente e canal.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 5 — reabrir retorna conflito funcional quando ja existe conversa ativa");
+
+Guid conversaFechadaComOutraAtiva;
+await using (var db = new CrmDbContext(opcoes))
+{
+    var fechada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 3], null, null, "Conversa que sera fechada."));
+    conversaFechadaComOutraAtiva = fechada.Id;
+    await db.Conversas.Where(c => c.Id == fechada.Id).ExecuteUpdateAsync(s => s
+        .SetProperty(c => c.Status, StatusConversa.Encerrada)
+        .SetProperty(c => c.EncerradaEm, DateTime.UtcNow));
+    await Servico(db, 1).CriarAsync(
+        new CriarConversaRequest(clientesDeTeste[Simultaneas + 3], null, null, "Nova conversa ativa."));
+}
+
+string? codigoDaReabertura = null;
+Exception? erroDaReabertura = null;
+try
+{
+    await using var db = new CrmDbContext(opcoes);
+    await Servico(db, 0).ReabrirAsync(conversaFechadaComOutraAtiva);
+}
+catch (AtendimentoServiceException ex)
+{
+    codigoDaReabertura = ex.Codigo;
+}
+catch (Exception ex)
+{
+    erroDaReabertura = ex;
+}
+
+Console.WriteLine($"  codigo devolvido .......... {codigoDaReabertura ?? "(nenhum)"}");
+Console.WriteLine($"  erro inesperado ........... {(erroDaReabertura is null ? "nenhum" : erroDaReabertura.GetType().Name)}");
+if (erroDaReabertura is not null || codigoDaReabertura != "cliente_ja_tem_conversa_ativa")
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — reabrir nao devolveu o conflito funcional esperado.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — reabrir foi bloqueado com cliente_ja_tem_conversa_ativa.");
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
+// TESTE 6 — Criar e Reabrir concorrem pela mesma vaga do mesmo canal.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 6 — criar e reabrir concorrentes devolvem conflito funcional");
+
+Guid conversaFechadaParaCorrida;
+var clienteDaCorrida = clientesDeTeste[Simultaneas + 4];
+await using (var db = new CrmDbContext(opcoes))
+{
+    var fechada = await Servico(db, 0).CriarAsync(
+        new CriarConversaRequest(clienteDaCorrida, null, null, "Conversa para corrida de reabertura."));
+    conversaFechadaParaCorrida = fechada.Id;
+    await db.Conversas.Where(c => c.Id == fechada.Id).ExecuteUpdateAsync(s => s
+        .SetProperty(c => c.Status, StatusConversa.Encerrada)
+        .SetProperty(c => c.EncerradaEm, DateTime.UtcNow));
+}
+
+var largada6 = new TaskCompletionSource();
+var sucessosDaCorrida = new ConcurrentBag<string>();
+var conflitosDaCorrida = new ConcurrentBag<string>();
+var errosDaCorrida = new ConcurrentBag<string>();
+
+var criarOuReabrir = new[]
+{
+    Task.Run(async () =>
+    {
+        await largada6.Task;
+        try
+        {
+            await using var db = new CrmDbContext(opcoes);
+            await Servico(db, 0).ReabrirAsync(conversaFechadaParaCorrida);
+            sucessosDaCorrida.Add("reabrir");
+        }
+        catch (AtendimentoServiceException ex) when (ex.Codigo == "cliente_ja_tem_conversa_ativa")
+        {
+            conflitosDaCorrida.Add("reabrir");
+        }
+        catch (Exception ex)
+        {
+            errosDaCorrida.Add($"reabrir: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+        }
+    }),
+    Task.Run(async () =>
+    {
+        await largada6.Task;
+        try
+        {
+            await using var db = new CrmDbContext(opcoes);
+            await Servico(db, 1).CriarAsync(
+                new CriarConversaRequest(clienteDaCorrida, null, null, "Criacao concorrente."));
+            sucessosDaCorrida.Add("criar");
+        }
+        catch (AtendimentoServiceException ex) when (ex.Codigo == "cliente_ja_tem_conversa_ativa")
+        {
+            conflitosDaCorrida.Add("criar");
+        }
+        catch (Exception ex)
+        {
+            errosDaCorrida.Add($"criar: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+        }
+    })
+};
+
+largada6.SetResult();
+await Task.WhenAll(criarOuReabrir);
+
+int ativasDaCorrida;
+await using (var db = new CrmDbContext(opcoes))
+    ativasDaCorrida = await db.Conversas.CountAsync(c => c.ClienteId == clienteDaCorrida
+        && c.Canal == CanalOrigem.Simulado && c.Status == StatusConversa.Ativa);
+
+Console.WriteLine($"  sucessos .................. {sucessosDaCorrida.Count}");
+Console.WriteLine($"  conflitos funcionais ...... {conflitosDaCorrida.Count}");
+Console.WriteLine($"  erros inesperados ......... {errosDaCorrida.Count}");
+Console.WriteLine($"  conversas ativas .......... {ativasDaCorrida}");
+foreach (var erro in errosDaCorrida) Console.WriteLine($"    ! {erro}");
+
+if (sucessosDaCorrida.Count != 1 || conflitosDaCorrida.Count != 1 || errosDaCorrida.Count != 0 || ativasDaCorrida != 1)
+{
+    problemas++;
+    Console.WriteLine("  RESULTADO: FALHOU — a corrida nao terminou em uma vaga e um conflito funcional.");
+}
+else
+{
+    Console.WriteLine("  RESULTADO: OK — uma operacao venceu; a outra recebeu cliente_ja_tem_conversa_ativa.");
+}
+
+// ---------------------------------------------------------------------------
 // Limpeza
 //
 // Aqui SIM ha DELETE, e e a unica parte do repositorio que apaga alguma coisa.
@@ -489,13 +771,15 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public string Nome => nome;
     public PerfilDeAtendente Perfil => perfil;
 
-    public bool PodeGerirCadastros =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
-
-    public bool PodeGerirAtendentes => perfil is PerfilDeAtendente.Administrador;
-
-    public bool PodeOperarConversaDeTerceiro =>
-        perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    /// <remarks>
+    /// AtendimentoSimularCliente entra a mais, fora de <see cref="CatalogoDePermissoes.ConjuntoDaClasse"/>
+    /// (excluida de proposito de toda classe): este verificador usa
+    /// <c>MensagemService.SimularRecebimentoAsync</c> como harness para injetar a
+    /// mensagem do cliente sob concorrencia. Nao afeta o gate real.
+    /// </remarks>
+    public bool Pode(PermissaoDoSistema permissao) =>
+        permissao == PermissaoDoSistema.AtendimentoSimularCliente
+        || CatalogoDePermissoes.ConjuntoDaClasse(perfil).Contains(permissao);
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e o banco, nao o hub.</summary>
@@ -510,6 +794,15 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
         Task.FromResult<string?>(null);
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// Mesmo papel de <see cref="CanalSilencioso"/> para o novo caminho assincrono de
+/// ConversaService.MudarEtapaAsync: o verificador exercita a trava, nao a fila.
+/// </summary>
+file sealed class FilaSilenciosa : IFilaDeEnvioDoCanal
+{
+    public void Agendar(Guid conversaId) { }
 }
 
 /// <summary>
@@ -552,4 +845,37 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
     public Task ConversaEncerradaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task ConversaReabertaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>Nunca deveria ser chamado — Habilitada=false aqui. Ver o mesmo comentario em verificar-automacao.cs.</summary>
+file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
+{
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
+        throw new InvalidOperationException(
+            "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+}
+
+/// <summary>
+/// Para o TESTE 4 (BUG-ATD-01): simula a IA "em voo" sob concorrencia real —
+/// sinaliza <paramref name="sinalDeEntrada"/> assim que e' chamada (o teste
+/// usa isso para so entao disparar o Assumir concorrente) e so devolve a
+/// resposta depois que <paramref name="liberar"/> completar (o teste controla
+/// esse instante, DEPOIS de confirmar que o takeover ja aconteceu no banco).
+/// </summary>
+file sealed class RespostaInteligenteAtrasada(TaskCompletionSource sinalDeEntrada, Task liberar)
+    : IRespostaInteligenteService
+{
+    public async Task<RespostaDaIA> ResponderAsync(
+        Guid tenantId,
+        IReadOnlyList<TrocaAnterior> historico,
+        string mensagemDoCliente,
+        ContextoDaChamada? contexto = null,
+        CancellationToken ct = default)
+    {
+        sinalDeEntrada.TrySetResult();
+        await liberar;
+
+        return new RespostaDaIA(
+            true, "Resposta gerada ANTES do takeover — nao deveria ser entregue.", "");
+    }
 }

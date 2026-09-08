@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -257,10 +258,10 @@ public class RegrasDoCanal(
 
     private void GarantirPermissao()
     {
-        // Mesma trava do resto do canal (WhatsAppController.GarantirAdministrador):
-        // decidir quem fala com o numero do cartorio e decisao de quem gere o
-        // canal, nao de qualquer atendente.
-        if (!ctx.PodeGerirAtendentes)
+        // Mesma trava do resto do canal (WhatsAppController.Garantir): decidir
+        // quem fala com o numero do cartorio e decisao de quem gere o canal,
+        // nao de qualquer atendente.
+        if (!ctx.Pode(PermissaoDoSistema.WhatsappRegras))
         {
             throw CanalWhatsAppServiceException.WebhookNaoAutorizado();
         }

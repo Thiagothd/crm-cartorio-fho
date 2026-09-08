@@ -3,6 +3,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
+using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
@@ -27,6 +28,13 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
     public DbSet<NumeroDoCanal> CanalWhatsappNumeros => Set<NumeroDoCanal>();
     public DbSet<ConexaoDoCanal> CanalWhatsappConexoes => Set<ConexaoDoCanal>();
     public DbSet<DescarteDoCanal> CanalWhatsappDescartes => Set<DescarteDoCanal>();
+    public DbSet<ChamadaDeIa> ChamadasDeIa => Set<ChamadaDeIa>();
+    public DbSet<ConhecimentoDeIa> ConhecimentosDeIa => Set<ConhecimentoDeIa>();
+    public DbSet<HistoricoDeConhecimentoDeIa> HistoricoDeConhecimentosDeIa => Set<HistoricoDeConhecimentoDeIa>();
+    public DbSet<DesafioDeMfa> DesafiosDeMfa => Set<DesafioDeMfa>();
+    public DbSet<CodigoDeRecuperacaoMfa> CodigosDeRecuperacaoMfa => Set<CodigoDeRecuperacaoMfa>();
+    public DbSet<EventoDeSeguranca> EventosDeSeguranca => Set<EventoDeSeguranca>();
+    public DbSet<DispositivoConfiavel> DispositivosConfiaveis => Set<DispositivoConfiavel>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

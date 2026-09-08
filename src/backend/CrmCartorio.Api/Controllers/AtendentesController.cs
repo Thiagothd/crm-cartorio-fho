@@ -1,19 +1,30 @@
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Usuarios.Application;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CrmCartorio.Api.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/atendentes")]
-public class AtendentesController(IAtendenteService servico) : ControllerBase
+public class AtendentesController(IAtendenteService servico, IMfaService mfa, IContextoDoUsuario ctx) : ControllerBase
 {
+    private IdentidadeParaMfa AtorIdentidade => new(ctx.TenantId, ctx.AtendenteId);
+
+    private string? Ip => ResolvedorDeIpDoCliente.Resolver(HttpContext);
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AtendenteResponse>>> Listar(
         [FromQuery] bool incluirInativos = false,
         CancellationToken ct = default) =>
         Ok(await servico.ListarAsync(incluirInativos, ct));
+
+    /// <summary>Projecao minima para o seletor "transferir para" do balcao — qualquer autenticado, sem exigir <c>equipe.ver</c>.</summary>
+    [HttpGet("opcoes")]
+    public async Task<ActionResult<IReadOnlyList<AtendenteOpcaoResponse>>> Opcoes(CancellationToken ct) =>
+        Ok(await servico.ListarOpcoesAsync(ct));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<AtendenteResponse>> Obter(Guid id, CancellationToken ct) =>
@@ -42,6 +53,56 @@ public class AtendentesController(IAtendenteService servico) : ControllerBase
         CancellationToken ct)
     {
         await servico.RedefinirSenhaAsync(id, request, ct);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Excluir(Guid id, CancellationToken ct)
+    {
+        await servico.ExcluirAsync(id, ct);
+        return NoContent();
+    }
+
+    // ------------------------------------------------- Permissoes granulares
+
+    [HttpGet("{id:guid}/permissoes")]
+    public async Task<ActionResult<PermissoesDoAtendenteResponse>> ObterPermissoes(
+        Guid id, CancellationToken ct) =>
+        Ok(await servico.ObterPermissoesAsync(id, ct));
+
+    [HttpPut("{id:guid}/permissoes")]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.NomeGestao)]
+    public async Task<IActionResult> DefinirPermissoes(
+        Guid id, [FromBody] DefinirPermissoesRequest request, CancellationToken ct)
+    {
+        await servico.DefinirPermissoesAsync(id, request, Ip, ct);
+        return NoContent();
+    }
+
+    // ------------------------------------------------------- SEC-03 (MFA)
+
+    /// <summary>
+    /// Emite ticket de matricula privilegiada fora de banda para outro
+    /// Administrador/Titular. Step-up do proprio ator; alvo Titular exige ator
+    /// que tambem seja Titular.
+    /// </summary>
+    [HttpPost("{id:guid}/mfa/ticket")]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.NomeGestao)]
+    public async Task<ActionResult<TicketResponse>> EmitirTicketDeMfa(
+        Guid id, [FromBody] EmitirTicketRequest request, CancellationToken ct) =>
+        Ok(await mfa.EmitirTicketAsync(AtorIdentidade, id, request, Ip, ct));
+
+    /// <summary>
+    /// Reset administrativo: remove o MFA do alvo, apaga recovery codes,
+    /// invalida desafios pendentes, sobe TokenVersion — a conta fica sem login
+    /// ate nova matricula via ticket (se a politica exigir MFA para ela).
+    /// </summary>
+    [HttpPost("{id:guid}/mfa/reset")]
+    [EnableRateLimiting(PoliticaDeLimiteDeLogin.NomeGestao)]
+    public async Task<IActionResult> ResetarMfa(
+        Guid id, [FromBody] ResetarMfaRequest request, CancellationToken ct)
+    {
+        await mfa.ResetarAsync(AtorIdentidade, id, request, Ip, ct);
         return NoContent();
     }
 }

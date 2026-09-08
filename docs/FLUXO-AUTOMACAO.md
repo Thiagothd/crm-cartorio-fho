@@ -2,8 +2,11 @@
 
 > **Status:** implementado e verificado (Fase 2E — "piso da IA"; Fase 2G — IA
 > só escala por pedido explícito; Fase 2H — encerramento automático por
-> inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um).
-> **Última atualização:** 2026-08-24
+> inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um; Fase
+> 2J — dois provedores de IA, Gemini principal e Haiku de contingência; Fase
+> 2K — aviso ao cliente quando o atendente encerra pelo painel, e assinatura
+> de autoria no texto que sai pelo WhatsApp).
+> **Última atualização:** 2026-09-04
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -31,6 +34,16 @@ Três mecanismos garantem isso, em camadas, do mais específico para o mais gera
    flags de fluxo está ligada, e é ele quem garante que a camada 2 seja
    tentada mesmo quando a conversa "já acabou" do ponto de vista estruturado.
 
+> **Exceção, desde 2026-08-26 (BUG-ATD-01 — Human Takeover):** a regra acima
+> vale só enquanto a conversa está em modo automático. Assim que
+> `Conversa.EmAtendimentoHumano` liga — cliente pediu atendente, ou um
+> atendente assumiu — nenhum dos três mecanismos acima roda mais para
+> mensagens do cliente. A mensagem continua sendo gravada e chegando ao
+> painel; só a automação conversacional é que se cala. Ver §5 (o gate entra
+> ANTES de tudo, inclusive antes da pergunta de encerramento pendente) e o
+> README do módulo Atendimento, seção "Human Takeover", para o detalhe
+> completo.
+
 ---
 
 ## 2. Os três tipos de mensagem gerada pelo sistema
@@ -41,15 +54,22 @@ Três mecanismos garantem isso, em camadas, do mais específico para o mais gera
 | **Resposta da IA** | sim | o sistema (modelo de linguagem) | sim | `AutorTipo.Sistema` + `EhAutomatica=true` + `GeradaPorIa=true` |
 | **Anotação de sistema** | sim | ninguém — é registro | nunca | `AutorTipo.Sistema` + `EhAutomatica=false` |
 
-As duas primeiras são **indistinguíveis para o cliente** — chegam como mensagem
-normal no WhatsApp. A interface do painel é quem rotula "Automática" ou "IA"
-para o atendente, usando `GeradaPorIa` para diferenciar. A terceira nunca sai
-do painel: é o "Triagem automática encaminhou ao setor X" que dá contexto ao
-próximo atendente sem virar mensagem ao cliente.
+**Até 2026-09-04 as duas primeiras eram indistinguíveis para o cliente** —
+chegavam como mensagem normal no WhatsApp, e só a interface do painel rotulava
+"Automática" ou "IA" para o atendente. Desde a Fase 2K,
+`CanalWhatsApp.Application.AssinaturaDeAutoria` decora o texto **só na saída**
+(nunca gravado no banco — ver `Modules/CanalWhatsApp/README.md`): a resposta
+da IA sai com o cabeçalho em negrito `*Assistente Virtual*` (numa linha antes
+do conteúdo); a mensagem automática de **regra cadastrada** continua sem marca
+nenhuma (decisão deliberada — aquele texto já fala na voz institucional do
+cartório); e toda mensagem de **atendente** passa a sair com `*Nome do
+Atendente*` em negrito antes do conteúdo. A anotação de
+sistema continua nunca saindo do painel — é o "Triagem automática encaminhou
+ao setor X" que dá contexto ao próximo atendente sem virar mensagem ao cliente.
 
 ---
 
-## 3. Os 14 gatilhos
+## 3. Os 15 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -73,8 +93,9 @@ automáticas, sem release.
 | 12 | `ConfirmacaoDeEncerramento` | Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` — pergunta se pode encerrar, com menu numerado `1`/`2`. Ver §10 | `VarredorDeInatividade` (fase 1 — perguntar) |
 | 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
 | 14 | `PedidoDeNome` | O contato chegou sem nome utilizável no perfil do WhatsApp — pergunta como pode chamá-lo **antes** das boas-vindas. Ver §11 | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
+| 15 | `EncerramentoPeloAtendente` | Um atendente encerrou o atendimento pelo painel — avisa o cliente. Cortesia, não condição (mesma divergência do 13): sem texto ativo a conversa encerra do mesmo jeito. Não reusa `Despedida` (10): aquele é a voz de quem foi atendido até o fim e escolheu fechar; aqui quem fechou foi a serventia. Ver §9 | `ConversaService.EncerrarAsync`, e só ele |
 
-Os gatilhos de 5 a 14 são texto que o **cliente do cartório lê** — por isso
+Os gatilhos de 5 a 15 são texto que o **cliente do cartório lê** — por isso
 nenhum deles é constante fixa em C#: virariam a única mensagem do sistema que
 o cartório parceiro não poderia reescrever sozinho pela tela.
 
@@ -114,7 +135,13 @@ Ver §10.
 
 Se um atendente rotear a conversa manualmente enquanto `AguardandoTriagem`
 está ligada, a escolha da pessoa vale: a flag é limpa em silêncio, sem
-mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método).
+mensagem ao cliente (`AplicadorDeTriagem`, guarda no topo do método, testando
+`SetorId is not null`). **Historicamente esta era a única proteção contra
+automação reagindo com atendente já na conversa** — e cobria só este caso
+específico (setor já definido). Desde 2026-08-26 (BUG-ATD-01), o gate de
+`EmAtendimentoHumano` (§5) intercepta ANTES de `AplicadorDeTriagem` sequer
+ser chamado, cobrindo todos os casos — esta guarda por `SetorId` continua
+aqui, mas ficou redundante na prática.
 
 ---
 
@@ -135,7 +162,9 @@ divergência só apareceria na conversa de um cliente de verdade.
 
 ```mermaid
 flowchart TD
-    A[Mensagem do cliente chega] --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
+    A[Mensagem do cliente chega] --> H0{EmAtendimentoHumano?}
+    H0 -- sim --> H1[So limpa PerguntaDeEncerramentoEnviadaEm<br/>se havia uma pendente — nenhum Aplicador* roda]
+    H0 -- não --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
     Y -- sim --> Y1[AplicadorDeEncerramentoPorInatividade<br/>limpa o marcador sempre]
     Y1 -- "Confirmou / Negou<br/>(consumiu a mensagem)" --> FIM[Despedida + encerra,<br/>ou MenuDeContinuacao]
     Y1 -- "NaoEntendeu<br/>(não consumiu)" --> Z
@@ -161,6 +190,7 @@ flowchart TD
     L -- sim --> K[IA responde, grounded<br/>no catálogo cadastrado]
     L -- não --> M[Gatilho 11 — não promete<br/>atendente, continua ouvindo]
 
+    style H0 fill:#f4ead5,stroke:#8a6516
     style Y fill:#f4ead5,stroke:#8a6516
     style Z fill:#f4ead5,stroke:#8a6516
     style X fill:#f4ead5,stroke:#8a6516
@@ -168,8 +198,17 @@ flowchart TD
     style H fill:#f4ead5,stroke:#8a6516
 ```
 
+**`EmAtendimentoHumano` (`H0`) é checado ANTES de tudo, inclusive antes da
+pergunta de encerramento pendente — desde 2026-08-26 (BUG-ATD-01).** Nenhuma
+automação conversacional roda para uma conversa já entregue a um humano; a
+única exceção é limpar `PerguntaDeEncerramentoEnviadaEm` como prova de vida,
+se houver uma pendente (mesmo raciocínio de `Y`, aplicado sem acionar
+`AplicadorDeEncerramentoPorInatividade`). Ver README do módulo, seção
+"Human Takeover".
+
 **A pergunta pendente de encerramento (`Y`) é checada ANTES até do "menu" —
-é o primeiro passo do despacho, desde 2026-08-22.** `TratarRespostaAsync`
+é o primeiro passo do despacho automático (depois do gate acima), desde
+2026-08-22.** `TratarRespostaAsync`
 **sempre** limpa o marcador antes de decidir, porque qualquer mensagem, seja
 qual for o conteúdo, prova que o cliente ainda está ali. Se a resposta for
 `Confirmou` ou `Negou`, a mensagem foi tratada por completo (despedida +
@@ -203,8 +242,12 @@ achado no mesmo dia: sem isso, um cliente que já tinha setor definido e pedia
 "menu" ficava com o campo preenchido mesmo depois de "recomeçar", e
 `AplicadorDeTriagem` — ao ver `SetorId != null` com `AguardandoTriagem` ligada
 — interpreta isso como "um atendente já assumiu manualmente" (guarda pensada
-para outro cenário, ver §6) e **não faz nada**: nem responde, nem escala.
-"Do zero" agora é literal.
+para este cenário específico, ver §6) e **não faz nada**: nem responde, nem
+escala. "Do zero" agora é literal. **Nota 2026-08-26:** este continua sendo o
+comportamento para `SetorId` preenchido sem `EmAtendimentoHumano` ligado (ex.:
+conversa aberta pelo painel já com setor) — quando `EmAtendimentoHumano` está
+ligado, quem intercepta primeiro é o gate do §5, e `AplicadorDeTriagem` nem
+chega a ser chamado.
 
 **A segunda caixa (B/C/D) é o nível externo** — três flags específicas, cada
 uma com um `Aplicador*` próprio. **`AplicadorDePosAtendimento` é o `else`** —
@@ -290,6 +333,13 @@ Mesmo algoritmo do nível 1, um degrau abaixo: dentro do setor já reconhecido,
 Camada de contingência: responde **só com o que está cadastrado**, nunca
 inventa. Ver também o `README` do módulo
 [`RespostaInteligente`](../src/backend/CrmCartorio.Api/Modules/RespostaInteligente/README.md).
+
+**Desde 2026-08-25 (Fase 2J — dois provedores):** por trás de
+`IRespostaInteligenteService` existem dois provedores, escolhidos por um
+`OrquestradorDeProvedores` — **Gemini 3.7 Flash é o principal** (gratuito
+dentro da franquia), **Claude Haiku 4.5 é a contingência** (paga). A troca é
+transparente: o cliente nunca sabe qual dos dois respondeu. Detalhe completo
+na §8.1 abaixo.
 
 ### Quando é chamada
 
@@ -388,13 +438,105 @@ perguntas genuinamente fora do catálogo.
 
 Quando escala de verdade, o texto varia por contexto — ver §11.
 
-### O teto de segurança: `LimiteDiario`
+### 8.1 Gemini principal, Haiku de contingência
 
-Não é sobre qualidade de resposta, é sobre custo: `OpcoesDaIA.LimiteDiario`
-(padrão 300/dia, por tenant) é a rede contra um loop malformado gastando
-crédito sem controle. Estourado, a IA para de responder pelo resto do dia
-(UTC) e cai no mesmo encaminhamento humano de sempre — nunca trava o cliente
-em silêncio, só troca "IA responde" por "atendente responde".
+`OrquestradorDeProvedores` (`Modules/RespostaInteligente/Application/`) decide,
+a cada mensagem, se tenta o Gemini e cai para o Haiku quando necessário — sem
+retry duplo, sem duas respostas para a mesma mensagem. O prompt (§ acima) é o
+mesmo texto para os dois provedores; só o transporte HTTP muda (Gemini fala
+pela Interactions API do Google, `POST /v1/interactions`, via `HttpClient`
+tipado — não existe SDK .NET oficial para essa API; Haiku continua no SDK
+`Anthropic`).
+
+**Quando o Gemini é pulado preventivamente** (antes de qualquer chamada):
+
+- Sem chave configurada ou `Gemini:Habilitado=false`.
+- Margem de segurança da franquia atingida (§8.2).
+- Disjuntor aberto (§8.3) — Gemini teve falha recente e está em cooldown.
+
+**Fallback reativo** — o Gemini é tentado e o Haiku assume quando ele:
+
+| Situação | Classificação (`TipoDeFalhaDeIa`) |
+| --- | --- |
+| `429` de limite de requisições | `RateLimit` |
+| `429` de cota diária esgotada | `QuotaEsgotada` |
+| `500`/`502`/`503`/`504` | `Indisponibilidade` |
+| Timeout da nossa chamada | `Timeout` |
+| Falha de rede/DNS | `Rede` |
+| `400`/`401`/`403` (chave ou requisição inválida) | `Configuracao` — **log em nível `Error`**, nunca mascarado |
+| JSON fora do esquema pedido, resposta vazia | `RespostaInvalida` |
+
+`podeResponder=false` **não é falha** — é resposta válida do modelo (ele
+respondeu, só não sabia o que dizer). Nesse caso o Haiku **não** é chamado; o
+fluxo cai no mesmo `RespostaSemCorrespondencia` de sempre (§ acima).
+
+Cada tentativa (sucesso ou falha) vira uma linha em `dbo.ChamadasDeIa` —
+tokens, latência, custo estimado, motivo do fallback quando houver. Gravada
+num `DbContext` **próprio** (não o da requisição): fica registrada mesmo
+quando os dois provedores falham e nenhuma `Mensagem` chega a ser criada.
+
+### 8.2 Controle de cota do Gemini — global do projeto, não por tenant
+
+A franquia gratuita do Gemini é por **projeto Google**, não por tenant nem por
+chave individual — por isso `ContadorDeCotaDoGemini` e `DisjuntorDoGemini` são
+**singletons globais**, particionados só por um fingerprint não-secreto da
+chave (`FingerprintDeChave`, nunca a chave em si). Dois tenants usando o mesmo
+projeto Google **compartilham** RPM/TPM/RPD; os tetos de negócio (§8.4) e as
+métricas de custo continuam por tenant.
+
+`Gemini:LimiteRpm`/`LimiteTpm`/`LimiteRpd` nascem em `0` (não cadastrado) — o
+Google parou de publicar esses números na documentação pública; só aparecem
+no painel `aistudio.google.com/rate-limit` de cada conta. **Confirmado por
+chamada real em 2026-08-25** (conta de teste, free tier): a resposta de erro
+citou explicitamente `limit: 20` para a métrica
+`generate_content_free_tier_requests` do modelo `gemini-3.7-flash` — ou seja,
+RPM=20 **naquela conta**. É um dado real, não suposição, mas é por projeto:
+reconfirme antes de usar em produção.
+
+Com os limites cadastrados, o Gemini só é escolhido enquanto o consumo fica
+abaixo de `PercentualDeSeguranca` (85% por padrão) de cada limite. Com os
+limites em `0`, não existe "85% de uma cota desconhecida": o sistema aplica
+só um freio local conservador (`LimiteRpmDeDescoberta`) e deixa a camada
+reativa (429 real) ser a autoridade.
+
+### 8.3 O disjuntor — recuperação automática
+
+`DisjuntorDoGemini`: `Fechado` → `Aberto` → `Meio-Aberto`. Falhas normais
+(indisponibilidade, timeout, resposta inválida) abrem o circuito depois de
+`FalhasParaAbrirDisjuntor` (3) consecutivas; `429` de rate limit e erro de
+credencial (`401`/`403`) abrem **na hora**, sem esperar 3 falhas. Cota diária
+esgotada abre até a **meia-noite do horário do Pacífico** (é quando o RPD do
+Google reseta), não o cooldown curto.
+
+Vencido o cooldown, a **próxima mensagem real** vira uma sonda: se o Gemini
+responder, o circuito fecha e ele volta a ser principal; se falhar, o
+cooldown dobra (até `CooldownMaximoSegundos`). Só uma sonda por vez — outras
+mensagens simultâneas continuam no Haiku sem esperar o resultado dela.
+
+### 8.4 Os dois tetos diários
+
+| Teto | Conta o quê | Ao estourar |
+| --- | --- | --- |
+| `RespostaInteligente:LimiteDiario` (300, por tenant, dia UTC) | Respostas **entregues** ao cliente, qualquer provedor — uma por mensagem | IA para de responder pelo resto do dia; cai no encaminhamento humano de sempre |
+| `RespostaInteligente:Anthropic:LimiteDiarioHaiku` (60, por tenant, dia UTC) | Só respostas produzidas **pelo Anthropic** | Gemini continua normalmente até o teto geral; só o Haiku para |
+
+Os dois são reservados de forma atômica (`ContadorDeLimiteDiario`, em
+memória, hidratado de `ChamadasDeIa` na primeira mensagem do processo) —
+corrige a condição de corrida que a contagem direta no banco tinha antes de
+existirem dois provedores. Gemini falhar e o Haiku responder conta **1** no
+teto geral e **1** no teto do Haiku — nunca 2 no geral.
+
+Se os dois estourarem no mesmo dia, cai no atendimento humano de sempre —
+nunca deixa o cliente mudo.
+
+### 8.5 Painel `/automacao/ia`
+
+Mostra estado dos dois provedores (disponível / contingência / sem chave /
+teto atingido), consumo de hoje, franquia do Gemini (ou aviso de "não
+cadastrada"), motivos de fallback do período e economia estimada vs. 100%
+Haiku. Backend: `GET /api/ia/situacao` (`ISituacaoDaIa`) — o mesmo cálculo
+alimenta o card "Saúde da operação" da Visão Geral e o alerta `ia_limite_atingido`
+do sino, que antes duplicavam a contagem em 3 lugares diferentes.
 
 ---
 
@@ -445,6 +587,21 @@ conversa continuava `Status = Ativa` no painel para sempre. Hoje,
   mesma convenção de `AplicadorDeTriagem` e `AplicadorDeEscolhaDeServico`.
 
 Coberto por teste — `verificar-automacao.cs`, TESTE 7.
+
+### Encerrar pelo atendente também avisa o cliente — desde 2026-09-04
+
+Dos quatro caminhos que encerram uma conversa (pelo cliente, acima; pela
+resposta à pergunta de inatividade e pelo próprio varredor, §10; e este),
+**este era o único que fechava em silêncio.** `ConversaService.EncerrarAsync`
+agora enfileira o gatilho 15 (`EncerramentoPeloAtendente`) e envia **só a
+mensagem gerada** — nunca `EnviarPendentesAsync`, que drenaria qualquer
+automática parada há tempo naquela conversa (menu de continuação, boas-vindas
+presas por canal caído) junto da despedida, arriscando o cliente responder a
+um menu morto e reabrir um atendimento fantasma no mesmo instante em que este
+foi fechado. Guardado por `Canal == WhatsApp`, mesmo cuidado do varredor de
+inatividade (§10, guarda 2) — conversa simulada não gera nada. O motivo
+digitado pelo atendente fica só na anotação interna; o texto do gatilho 15 não
+tem como nomeá-lo.
 
 ---
 
@@ -758,7 +915,8 @@ num lado exige mexer no outro.
 | Grounding da IA | `Modules/RespostaInteligente/Application/MontadorDeContexto.cs` |
 | Opções da IA (chave, modelo, teto diário) | `Modules/RespostaInteligente/Application/OpcoesDaIA.cs` |
 | Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (rota de simulação, hoje só usada pelo verificador), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
-| Cobertura automatizada | `src/backend/verificar-automacao.cs` |
+| Assinatura de autoria no texto de saída (atendente/IA) | `Modules/CanalWhatsApp/Application/AssinaturaDeAutoria.cs` |
+| Cobertura automatizada | `src/backend/verificar-automacao.cs`, `src/backend/verificar-canal-whatsapp.cs` |
 
 ---
 
@@ -766,8 +924,10 @@ num lado exige mexer no outro.
 
 Registrados para não serem "descobertos" de novo e tratados como bug:
 
-- **Triagem com atendente já na conversa** — REQUISITOS.md §5.8. Decisão do
-  cartório parceiro, não código.
+- ~~**Triagem com atendente já na conversa** — REQUISITOS.md §5.8.~~
+  **Resolvido em 2026-08-26** como efeito colateral do BUG-ATD-01 (Human
+  Takeover) — não por decisão de atendimento tomada com o cartório parceiro. Ver
+  REQUISITOS.md §5.8 para o status atual.
 - **Setor sem serviço vinculado** — §7 deste documento. Lacuna estrutural,
   não reproduzível com o cadastro atual, sinalizada para correção futura.
 - **`LimiteDiario` estourado** não é falha — é o sistema trocando "IA

@@ -951,33 +951,10 @@ var mensagemPermitida = new Mensagem
 db.AddRange(clientePermitido, conversaPermitida, mensagemPermitida);
 await db.SaveChangesAsync();
 
-// Cancela dentro do double depois de contar a chamada. Isso prova que o envio
-// autorizado atravessa o gate sem depender de ExecuteUpdate, que o provider em
-// memória deliberadamente não implementa.
-var gatewayPermitido = new GatewayFake { CancelarEnvios = true };
-var enviadorPermitido = new EnviadorPeloWhatsApp(
-    db,
-    gatewayPermitido,
-    anexosFake,
-    regrasDoProcessador,
-    Options.Create(canalDeTeste),
-    NullLogger<EnviadorPeloWhatsApp>.Instance);
-var cancelamentoEsperado = false;
-
-try
-{
-    await enviadorPermitido.EnviarAsync(mensagemPermitida.Id);
-}
-catch (OperationCanceledException)
-{
-    cancelamentoEsperado = true;
-}
-
-Checar(
-    "Enviador deixa exatamente um envio de texto chegar ao gateway para o contato autorizado",
-    cancelamentoEsperado
-    && gatewayPermitido.EnviosDeTexto == 1
-    && gatewayPermitido.EnviosDeMidia == 0);
+// O caminho autorizado agora depende de ExecuteUpdate atomico. EF InMemory nao
+// implementa essa operacao; a prova de envio e concorrencia usa SQL Server real
+// em verificar-concorrencia-saida-whatsapp.cs. Este verificador continua
+// responsável pelo gate que impede qualquer efeito externo quando ha bloqueio.
 
 var gatewayDeFotos = new GatewayFake();
 using var cache = new MemoryCache(new MemoryCacheOptions());
@@ -999,6 +976,79 @@ var fotoPermitida = await clienteService.ObterFotoPerfilAsync(clientePermitido.I
 Checar(
     "Ficha do contato autorizado pode consultar foto no gateway",
     fotoPermitida is null && gatewayDeFotos.ConsultasDeFoto == 1);
+
+// ---------------------------------------------------------------------------
+// AssinaturaDeAutoria — funcao pura, sem banco nem gateway. Prova o que o
+// cliente le no WhatsApp quando um atendente responde, a IA responde, ou uma
+// regra cadastrada dispara. O caminho feliz completo (gateway real + prova de
+// nao-persistencia no banco) esta em verificar-concorrencia-saida-whatsapp.cs,
+// que usa SQL Server de verdade — o InMemory nao implementa ExecuteUpdate.
+// ---------------------------------------------------------------------------
+
+var autoriaAtendente = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "Maria Rezende");
+Checar(
+    "Atendente ganha cabecalho em negrito com o nome projetado do AtendenteId, conteudo abaixo",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == "*Maria Rezende*\nBom dia");
+
+var autoriaIa = new AutoriaDaMensagem(AutorTipo.Sistema, true, true, null);
+Checar(
+    "Resposta da IA leva o cabecalho 'Assistente Virtual'",
+    AssinaturaDeAutoria.Decorar("O valor varia conforme a tabela do TJ.", autoriaIa)
+        == "*Assistente Virtual*\nO valor varia conforme a tabela do TJ.");
+
+var autoriaRegraCadastrada = new AutoriaDaMensagem(AutorTipo.Sistema, true, false, null);
+Checar(
+    "Automatica de REGRA CADASTRADA nao recebe cabecalho nenhum (decisao do Thiago, 2026-09-04)",
+    AssinaturaDeAutoria.Decorar("Certo! Um atendente vai continuar seu atendimento.", autoriaRegraCadastrada)
+        == "Certo! Um atendente vai continuar seu atendimento.");
+
+var autoriaAnotacaoInterna = new AutoriaDaMensagem(AutorTipo.Sistema, false, false, null);
+Checar(
+    "Anotacao interna (Sistema, EhAutomatica=false) nao e decorada — defensivo, nunca deveria chegar aqui",
+    AssinaturaDeAutoria.Decorar("Conversa assumida por Fulano.", autoriaAnotacaoInterna)
+        == "Conversa assumida por Fulano.");
+
+var autoriaCliente = new AutoriaDaMensagem(AutorTipo.Cliente, false, false, null);
+Checar(
+    "Mensagem do cliente nao e decorada — defensivo",
+    AssinaturaDeAutoria.Decorar("Oi, bom dia", autoriaCliente) == "Oi, bom dia");
+
+var autoriaAtendenteSemNome = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, null);
+Checar(
+    "Atendente sem nome utilizavel nao produz cabecalho vazio (nunca '**')",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteSemNome) == "Bom dia");
+
+var autoriaAtendenteNomeSoEspacos = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, "   ");
+Checar(
+    "Atendente com nome so de espacos tambem nao produz cabecalho",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendenteNomeSoEspacos) == "Bom dia");
+
+var autoriaNomeComFormatacao = new AutoriaDaMensagem(
+    AutorTipo.Atendente, false, false, "Ma*ria_ `Re~zende\ndo Carmo");
+Checar(
+    "Nome com caracteres de formatacao do WhatsApp e quebra de linha e higienizado",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaNomeComFormatacao)
+        == "*Maria Rezende do Carmo*\nBom dia");
+
+var nomeMuitoLongo = new string('A', 120);
+var autoriaNomeLongo = new AutoriaDaMensagem(AutorTipo.Atendente, false, false, nomeMuitoLongo);
+var cabecalhoDoNomeLongo = AssinaturaDeAutoria.Cabecalho(autoriaNomeLongo);
+Checar(
+    "Nome acima do limite e cortado (cabecalho nao cresce sem controle)",
+    cabecalhoDoNomeLongo is not null && cabecalhoDoNomeLongo.Length < nomeMuitoLongo.Length);
+
+Checar(
+    "Legenda de midia escrita por gente ganha o mesmo cabecalho",
+    AssinaturaDeAutoria.DecorarLegenda("Segue a certidão digitalizada.", autoriaAtendente)
+        == "*Maria Rezende*\nSegue a certidão digitalizada.");
+
+Checar(
+    "Legenda nula continua nula — foto sem legenda nao ganha cabecalho (decisao do Thiago, 2026-09-04)",
+    AssinaturaDeAutoria.DecorarLegenda(null, autoriaAtendente) is null);
+
+Checar(
+    "Reenvio da mesma mensagem produz string identica (nao ha estado escondido na decoracao)",
+    AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente) == AssinaturaDeAutoria.Decorar("Bom dia", autoriaAtendente));
 
 Console.WriteLine();
 Console.WriteLine(falhas == 0
@@ -1203,9 +1253,7 @@ file sealed class ContextoFake(Guid tenantId) : IContextoDoUsuario
     public Guid AtendenteId => Guid.Empty;
     public string Nome => "Verificador";
     public PerfilDeAtendente Perfil => PerfilDeAtendente.Administrador;
-    public bool PodeGerirCadastros => true;
-    public bool PodeGerirAtendentes => true;
-    public bool PodeOperarConversaDeTerceiro => true;
+    public bool Pode(PermissaoDoSistema permissao) => true;
 }
 
 file sealed class HttpClientFactoryFake : IHttpClientFactory

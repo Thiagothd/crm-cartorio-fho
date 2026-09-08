@@ -1,9 +1,20 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { AtSign, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
+import {
+  ArrowLeft,
+  AtSign,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import type { DesafioMfa } from '@/lib/api/tipos'
 import { Button } from '@/components/ui/button'
+import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
@@ -23,7 +34,7 @@ import { Label } from '@/components/ui/label'
  * cheio.
  */
 export function PaginaLogin() {
-  const { atendente, carregando, entrar } = usarAutenticacao()
+  const { atendente, carregando, entrar, concluirLoginComMfa } = usarAutenticacao()
   const navegar = useNavigate()
 
   const [email, setEmail] = useState('')
@@ -33,17 +44,34 @@ export function PaginaLogin() {
   const [senhaVisivel, setSenhaVisivel] = useState(false)
   const [capsLockAtivo, setCapsLockAtivo] = useState(false)
 
+  // SEC-03 — etapa 2. `desafio` preenchido é o único sinal de que a conta
+  // exige segundo fator; nenhuma sessão existe enquanto ele não for resolvido.
+  const [desafio, setDesafio] = useState<DesafioMfa | null>(null)
+  const [codigoMfa, setCodigoMfa] = useState('')
+  const [usandoCodigoDeRecuperacao, setUsandoCodigoDeRecuperacao] = useState(false)
+  // Opt-in explícito, nunca marcado por padrão: computador de balcão de
+  // cartório é compartilhado, e "lembrar" por engano numa máquina de uso
+  // comum é exatamente o que não pode acontecer.
+  const [confiarNesteDispositivo, setConfiarNesteDispositivo] = useState(false)
+
   if (!carregando && atendente) {
     return <Navigate to="/" replace />
   }
 
-  async function aoEnviar(evento: FormEvent) {
+  async function aoEnviarSenha(evento: FormEvent) {
     evento.preventDefault()
     setErro(null)
     setEnviando(true)
 
     try {
-      await entrar(email, senha)
+      const resultado = await entrar(email, senha)
+
+      if (resultado.tipo === 'mfa') {
+        setDesafio(resultado.desafio)
+        setSenha('')
+        return
+      }
+
       navegar('/', { replace: true })
     } catch (falha) {
       setErro(
@@ -54,6 +82,42 @@ export function PaginaLogin() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  async function aoEnviarCodigo(evento: FormEvent) {
+    evento.preventDefault()
+    if (!desafio) return
+
+    setErro(null)
+    setEnviando(true)
+
+    try {
+      await concluirLoginComMfa(desafio.desafio, codigoMfa, confiarNesteDispositivo)
+      navegar('/', { replace: true })
+    } catch (falha) {
+      setErro(
+        falha instanceof ErroDaApi
+          ? falha.message
+          : 'Não foi possível conectar ao servidor. Verifique se a API está no ar.',
+      )
+      setCodigoMfa('')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  function voltarParaSenha() {
+    setDesafio(null)
+    setCodigoMfa('')
+    setErro(null)
+    setUsandoCodigoDeRecuperacao(false)
+    setConfiarNesteDispositivo(false)
+  }
+
+  function alternarModoDoCodigo() {
+    setUsandoCodigoDeRecuperacao((usando) => !usando)
+    setCodigoMfa('')
+    setErro(null)
   }
 
   const descricaoDoEmail = erro ? 'erro-login' : undefined
@@ -105,14 +169,152 @@ export function PaginaLogin() {
               região (via `aria-labelledby`), então ele precisa ser descritivo —
               e um `aria-label` diferente do texto na tela criaria duas verdades
               para a mesma coisa. */}
-          <h1 id="titulo-login" className="mt-7 text-2xl font-bold tracking-[-0.02em] text-tinta 2xl:mt-8 2xl:text-[28px]">
-            Entrar no CRM
+          {/* Selo discreto: dá a entender, antes de qualquer texto, que esta
+              é uma etapa de segurança e não um segundo login. Só aparece na
+              etapa do código — no formulário de senha a marca já basta. */}
+          {desafio ? (
+            <span
+              aria-hidden
+              className="mt-7 inline-flex size-9 items-center justify-center rounded-lg border border-linha bg-superficie text-selo"
+            >
+              <ShieldCheck className="size-4" />
+            </span>
+          ) : null}
+
+          <h1
+            id="titulo-login"
+            className={`text-2xl font-bold tracking-[-0.02em] text-tinta 2xl:text-[28px] ${desafio ? 'mt-3' : 'mt-7 2xl:mt-8'}`}
+          >
+            {desafio ? 'Confirme sua identidade' : 'Entrar no CRM'}
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-tinta-media 2xl:text-[15px]">
-            Use seu e-mail e senha para continuar os atendimentos da serventia.
+            {desafio
+              ? usandoCodigoDeRecuperacao
+                ? 'Digite um dos códigos de recuperação que você guardou ao ativar a verificação em duas etapas.'
+                : 'Digite o código de 6 dígitos gerado pelo seu aplicativo autenticador.'
+              : 'Use seu e-mail e senha para continuar os atendimentos da serventia.'}
           </p>
 
-          <form onSubmit={aoEnviar} className="mt-7 flex flex-col gap-4">
+          {desafio ? (
+            <form onSubmit={aoEnviarCodigo} className="mt-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="codigo-mfa" className="text-[13px] font-semibold text-tinta">
+                  Código
+                </Label>
+
+                {/* Um campo por modo, nunca um campo que muda de formato: o
+                    código do autenticador tem 6 dígitos e ganha as células; o
+                    de recuperação tem 4 blocos alfanuméricos e precisa de
+                    largura, não de grade. */}
+                {usandoCodigoDeRecuperacao ? (
+                  <Input
+                    id="codigo-mfa"
+                    type="text"
+                    inputMode="text"
+                    autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    autoFocus
+                    spellCheck={false}
+                    required
+                    aria-invalid={erro ? true : undefined}
+                    aria-describedby={erro ? 'erro-login' : undefined}
+                    value={codigoMfa}
+                    onChange={(evento) => {
+                      setCodigoMfa(evento.target.value)
+                      setErro(null)
+                    }}
+                    placeholder="XXXX-XXXX-XXXX-XXXX"
+                    className="h-12 rounded-lg border-linha bg-superficie text-center font-dado tracking-[0.1em] md:h-12 md:text-sm"
+                  />
+                ) : (
+                  <EntradaDeCodigoOtp
+                    id="codigo-mfa"
+                    autoFocus
+                    required
+                    value={codigoMfa}
+                    onChange={(valor) => {
+                      setCodigoMfa(valor)
+                      setErro(null)
+                    }}
+                    disabled={enviando}
+                    aria-invalid={erro ? true : undefined}
+                    aria-describedby={erro ? 'erro-login' : undefined}
+                    className="self-center rounded-lg border-linha bg-superficie"
+                  />
+                )}
+
+                <button
+                  type="button"
+                  onClick={alternarModoDoCodigo}
+                  disabled={enviando}
+                  className="self-start text-[13px] font-medium text-tinta-media underline-offset-4 transition-colors hover:text-tinta hover:underline disabled:opacity-50"
+                >
+                  {usandoCodigoDeRecuperacao
+                    ? 'Usar o código do aplicativo'
+                    : 'Perdeu o acesso ao aplicativo? Usar um código de recuperação'}
+                </button>
+              </div>
+
+              {/* Opt-in, nunca padrão — ver o comentário do estado. O texto de
+                  apoio diz o que ACONTECE ("não pediremos o código neste
+                  navegador"), não o que a caixa é. */}
+              {/* O texto de apoio fica FORA do <label>, ligado só por
+                  `aria-describedby`: dentro dele, a frase inteira entraria no
+                  nome acessível da caixa ("Confiar neste dispositivo… não
+                  pediremos o código…"), o que atrapalha leitor de tela e
+                  colide com o próprio campo "Código" ao lado. */}
+              <div className="flex flex-col gap-1 rounded-lg border border-linha bg-superficie/60 px-3 py-2.5">
+                <label
+                  htmlFor="confiar-dispositivo"
+                  className="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium text-tinta"
+                >
+                  <input
+                    id="confiar-dispositivo"
+                    type="checkbox"
+                    checked={confiarNesteDispositivo}
+                    onChange={(evento) => setConfiarNesteDispositivo(evento.target.checked)}
+                    disabled={enviando}
+                    aria-describedby="ajuda-confiar-dispositivo"
+                    className="size-4 shrink-0 accent-[var(--cor-selo)]"
+                  />
+                  Confiar neste dispositivo por 30 dias
+                </label>
+                <p id="ajuda-confiar-dispositivo" className="pl-[26px] text-[11px] leading-relaxed text-tinta-media">
+                  Não pediremos o código novamente neste navegador por 30 dias. A senha continua
+                  sendo exigida em todo acesso.
+                </p>
+              </div>
+
+              {erro ? (
+                <div className="flex items-start gap-2.5 rounded-lg border border-selo/30 bg-selo/[0.07] px-3 py-2.5">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0 text-selo" aria-hidden />
+                  <p id="erro-login" role="alert" className="text-[13px] leading-relaxed text-selo">
+                    {erro}
+                  </p>
+                </div>
+              ) : null}
+
+              <Button
+                type="submit"
+                disabled={enviando || (!usandoCodigoDeRecuperacao && codigoMfa.length < 6)}
+                className="mt-1 h-12 w-full rounded-lg bg-gradient-to-b from-selo to-selo/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
+              >
+                {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+                {enviando ? 'Verificando…' : 'Confirmar'}
+              </Button>
+
+              <button
+                type="button"
+                onClick={voltarParaSenha}
+                disabled={enviando}
+                className="inline-flex items-center justify-center gap-1.5 self-center text-[13px] font-medium text-tinta-media transition-colors hover:text-tinta disabled:opacity-50"
+              >
+                <ArrowLeft className="size-3.5" aria-hidden />
+                Voltar
+              </button>
+            </form>
+          ) : (
+          <form onSubmit={aoEnviarSenha} className="mt-7 flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="email" className="text-[13px] font-semibold text-tinta">
                 E-mail
@@ -208,6 +410,7 @@ export function PaginaLogin() {
               {enviando ? 'Entrando…' : 'Entrar'}
             </Button>
           </form>
+          )}
         </div>
 
         {/* Rodapé em faixa própria, encostado na borda do cartão: separa o aviso

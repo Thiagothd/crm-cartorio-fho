@@ -6,6 +6,7 @@ import { Loader2, MessagesSquare, Search, SearchX, Users } from 'lucide-react'
 import { conversasApi, clientesApi } from '@/lib/api/endpoints'
 import { formatarTelefone } from '@/lib/formatacao'
 import { cn } from '@/lib/utils'
+import { usarBuscaGlobal } from './contexto-de-busca-global'
 
 interface ResultadoDaBusca {
   chave: string
@@ -21,24 +22,21 @@ interface ResultadoDaBusca {
  * de balcão: o cliente liga e diz o protocolo.
  */
 export function BuscaGlobal() {
-  const [aberta, setAberta] = useState(false)
+  // O estado (e o atalho Ctrl+K) mora no ProvedorDaBuscaGlobal do Shell — mais
+  // de um lugar precisa abrir esta busca (o botão abaixo, e o cartão "Buscar"
+  // das ações rápidas da Visão Geral). Fora do Shell (ex.: em teste isolado)
+  // o contexto é `null`; cai num estado local só para o componente continuar
+  // funcionando sozinho.
+  const contexto = usarBuscaGlobal()
+  const [abertaLocal, setAbertaLocal] = useState(false)
+  const aberta = contexto?.aberta ?? abertaLocal
+  const setAberta = contexto?.definirAberta ?? setAbertaLocal
+
   const [busca, setBusca] = useState('')
   const buscaAdiada = useDeferredValue(busca)
   const [indiceAtivo, setIndiceAtivo] = useState(0)
   const navegar = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    function aoTeclarNaJanela(evento: KeyboardEvent) {
-      if ((evento.metaKey || evento.ctrlKey) && evento.key.toLowerCase() === 'k') {
-        evento.preventDefault()
-        setAberta((atual) => !atual)
-      }
-    }
-
-    window.addEventListener('keydown', aoTeclarNaJanela)
-    return () => window.removeEventListener('keydown', aoTeclarNaJanela)
-  }, [])
 
   useEffect(() => {
     if (!aberta) {

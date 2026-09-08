@@ -11,18 +11,72 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Infrastructure.Web;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.CentralDeIa.Application;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Configuracoes.Application;
 using CrmCartorio.Api.Modules.Consultas.Application;
 using CrmCartorio.Api.Modules.Indicadores.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
+using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using CrmCartorio.Api.Modules.RespostaInteligente.Infrastructure;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+
+// SEC-03 — bootstrap do MFA do primeiro privilegiado. Comando de execucao
+// unica, NAO um modo do servidor: sai antes de montar qualquer servico web,
+// hospedagem ou pipeline HTTP. Ver FerramentaDeBootstrapMfa para as regras
+// (so interativo, nunca ILogger, fecha sozinho apos o primeiro uso).
+if (args.Contains("--emitir-ticket-de-bootstrap"))
+{
+    var configuracaoDoBootstrap = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeBootstrapMfa.ExecutarAsync(configuracaoDoBootstrap);
+}
+
+// SEC-03 — break-glass: reset de emergencia para privilegiado que perdeu
+// autenticador E codigos de recuperacao. Mesma disciplina do bootstrap
+// acima (comando de execucao unica, so interativo, nunca ILogger) — ver
+// FerramentaDeResetDeEmergencia para o porque de existir separado do reset
+// administrativo normal e do bootstrap (os dois ficam bloqueados justamente
+// no cenario que o break-glass existe para resolver).
+if (args.Contains("--reset-de-emergencia"))
+{
+    var configuracaoDeEmergencia = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeResetDeEmergencia.ExecutarAsync(configuracaoDeEmergencia);
+}
+
+// SEC-03 — reemissao de ticket DURANTE uma recuperacao de emergencia ja
+// aberta (bloqueador B20, setima revisao independente): o ticket que o
+// break-glass emitiu foi perdido, expirou, ou ficou inutilizavel antes da
+// rematricula. Mesma disciplina dos dois comandos acima; ver
+// FerramentaDeReemissaoDeTicketDeEmergencia — nunca reativa o MFA, nunca
+// libera login, so troca o ticket.
+if (args.Contains("--reemitir-ticket-de-emergencia"))
+{
+    var configuracaoDeReemissao = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeReemissaoDeTicketDeEmergencia.ExecutarAsync(configuracaoDeReemissao);
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +90,8 @@ builder.Services.Configure<OpcoesDoCanalWhatsApp>(
     builder.Configuration.GetSection(OpcoesDoCanalWhatsApp.Secao));
 builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
+builder.Services.Configure<OpcoesDeMfa>(builder.Configuration.GetSection(OpcoesDeMfa.Secao));
+builder.Services.Configure<OpcoesDaCentralDeIa>(builder.Configuration.GetSection(OpcoesDaCentralDeIa.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
 var opcoesCanalWhatsApp = builder.Configuration
@@ -78,8 +134,25 @@ builder.Services.AddScoped<IHashDeSenha, HashDeSenha>();
 builder.Services.AddScoped<IContextoDoUsuario, ContextoDoUsuario>();
 builder.Services.AddScoped<IGeradorDeToken, GeradorDeToken>();
 
+// SEC-03: cookie HttpOnly de "confiar neste dispositivo por 30 dias". So o
+// transporte mora aqui — quem decide conceder, aceitar ou recusar e o
+// AutenticacaoService (ver ICookieDeDispositivoConfiavel).
+builder.Services.AddScoped<ICookieDeDispositivoConfiavel, CookieDeDispositivoConfiavel>();
+
+// SEC-01: revogacao de sessao. ValidadorDeSessao confere Ativo/TokenVersion no
+// banco; SessaoAtivaHandler acopla essa checagem a policy padrao de
+// autorizacao (registrada mais abaixo), cobrindo controllers e o Hub do
+// SignalR com o mesmo componente. O mesmo round-trip agora tambem resolve as
+// permissoes granulares e deposita em PermissoesDaRequisicao — ContextoDoUsuario
+// le de la, nunca faz consulta propria.
+builder.Services.AddScoped<IValidadorDeSessao, ValidadorDeSessao>();
+builder.Services.AddScoped<PermissoesDaRequisicao>();
+builder.Services.AddScoped<IAuthorizationHandler, SessaoAtivaHandler>();
+
 builder.Services.AddScoped<IAutenticacaoService, AutenticacaoService>();
 builder.Services.AddScoped<IAtendenteService, AtendenteService>();
+builder.Services.AddSingleton<ICifraDeSegredoMfa, CifraDeSegredoMfa>();
+builder.Services.AddScoped<IMfaService, MfaService>();
 builder.Services.AddScoped<IClienteService, ClienteService>();
 builder.Services.AddScoped<IImportacaoDeContatosService, ImportacaoDeContatosService>();
 builder.Services.AddScoped<ISetorService, SetorService>();
@@ -106,25 +179,128 @@ builder.Services.AddScoped<SemeadorDeDemonstracao>();
 // O recebimento fica no Atendimento porque e regra de atendimento; so o formato
 // do gateway mora no slice CanalWhatsApp.
 builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();
+builder.Services.AddScoped<IProcessadorDeEntradaWhatsapp, ProcessadorDeEntradaWhatsapp>();
+builder.Services.AddSingleton<SinalizadorDeEntradaWhatsapp>();
 builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
 builder.Services.AddSingleton<ControleDeTentativasDePareamento>();
-builder.Services.AddHttpClient();
-builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>();
 
-// Resposta Inteligente (Fase 2B). Sem chave configurada, o SDK sobe do mesmo jeito
-// — GarantirConfigurado nunca chega a chamar a API. O cliente e' singleton porque
-// nao guarda estado de requisicao; o timeout de rede real fica no CancelAfter do
-// proprio servico, nao aqui.
+// Fila em memoria para o envio pendente nao bloquear a acao do atendente (ex.:
+// mudar etapa) esperando a chamada de rede ao gateway. Singleton unico: quem
+// escreve (ConversaService, via IFilaDeEnvioDoCanal) e quem le
+// (HospedeDaFilaDeEnvioDoCanal, pelo tipo concreto) precisam do mesmo Channel.
+builder.Services.AddSingleton<FilaDeEnvioDoCanal>();
+builder.Services.AddSingleton<IFilaDeEnvioDoCanal>(sp => sp.GetRequiredService<FilaDeEnvioDoCanal>());
+builder.Services.AddHttpClient();
+
+// Mesmo ajuste de pool de conexao aplicado ao ProvedorGemini (ver comentario
+// abaixo, "ACHADO AO VIVO 2026-09-03"): o padrao do IHttpClientFactory recicla o
+// handler a cada 2 minutos, forcando abertura de conexao do zero para quem
+// chamar depois de um intervalo ocioso. Aqui o alvo e localhost (BaseUrl da
+// Evolution API, sem DNS nem TLS de verdade), entao o ganho esperado e bem menor
+// que o do Gemini — mas custa nada aplicar o mesmo padrao e elimina essa
+// variavel por completo. Nao define BaseAddress aqui de proposito: EvolutionClient
+// resolve a URL em tempo de chamada (o numero pode ser trocado pela tela sem
+// reiniciar o processo — Fase 2F).
+builder.Services.AddHttpClient<IEvolutionClient, EvolutionClient>()
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+    });
+
+// Resposta Inteligente (Fase 2B, dois provedores desde a Fase 2G): arquitetura
+// pensada como Gemini 3.7 Flash principal + Haiku 4.5 de contingencia, mas
+// ACHADO AO VIVO, 2026-09-03: Gemini.Habilitado esta FALSE por decisao temporaria
+// do Thiago — free tier instavel (timeouts de 20-60s, 429/503) e o tier pago exige
+// pre-pagamento que ele nao quis comprometer agora. Enquanto isso, Haiku e o UNICO
+// provedor. Nada nesta orquestracao precisou mudar para isso: PoliticaDeSelecao
+// pula o Gemini synchronously (sem HTTP, sem espera) quando desligado — ver
+// Modules/RespostaInteligente/README.md.
+// Sem chave configurada, os dois sobem do mesmo jeito; EstaConfigurado de cada
+// provedor decide se ele e tentado, nunca o registro no DI.
+//
+// AnthropicClient continua singleton com a ApiKey capturada no boot (mesma
+// ressalva de sempre: rotacionar a chave exige reciclar o processo).
+// ApiKeyDoAnthropicResolvida cai para a chave legada (RespostaInteligente:ApiKey)
+// quando RespostaInteligente:Anthropic:ApiKey esta vazio — sem isso, o primeiro
+// deploy desta mudanca subiria producao sem IA (appsettings.Production.json nao
+// e sobrescrito pelo deploy).
 builder.Services.AddSingleton(sp =>
 {
     var opcoesDaIA = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value;
-    return new AnthropicClient { ApiKey = opcoesDaIA.ApiKey };
+    return new AnthropicClient { ApiKey = opcoesDaIA.ApiKeyDoAnthropicResolvida };
 });
+// Registrados via chave (AddKeyedScoped) e nao pelo tipo concreto: o
+// OrquestradorDeProvedores so conhece IProvedorDeIa, o que permite substituir os
+// dois por fakes nos verificadores sem tocar em HttpClient/AnthropicClient real.
+builder.Services.AddScoped<ProvedorAnthropic>();
+builder.Services.AddKeyedScoped<IProvedorDeIa>(
+    ChaveDoProvedor.Anthropic, (sp, _) => sp.GetRequiredService<ProvedorAnthropic>());
+
+// HttpClient tipado, mesmo padrao do EvolutionClient — nao existe SDK .NET
+// oficial para a Interactions API do Gemini (o pacote Google.GenAI so cobre o
+// generateContent legado).
+// A conexao com o Google e mantida VIVA de proposito. O padrao do
+// IHttpClientFactory recicla o handler a cada 2 minutos; num chat de cartorio, que
+// passa longos periodos ocioso, isso garantia que quase toda conversa comecasse
+// pagando DNS + TCP + TLS do zero. Ver ACHADO em OpcoesDoGemini.TimeoutSegundos:
+// a primeira chamada apos ociosidade estourava 20s enquanto as seguintes
+// respondiam em ~2,4s.
+builder.Services.AddHttpClient<ProvedorGemini>((sp, http) =>
+{
+    var opcoesGemini = sp.GetRequiredService<IOptions<OpcoesDaIA>>().Value.Gemini;
+    http.BaseAddress = new Uri(opcoesGemini.BaseUrl);
+})
+    // Infinito aqui NAO vaza conexao: quem controla a idade da conexao passa a ser
+    // PooledConnectionLifetime abaixo, que e o mecanismo correto para isso e ainda
+    // respeita troca de DNS. Sem esta linha, a rotacao de 2min do factory jogaria
+    // fora justamente a conexao que acabamos de aquecer.
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        // Uma conexao travada falha rapido e libera o orcamento de latencia para a
+        // contingencia, em vez de consumir a espera inteira do cliente.
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+
+        // Renova a conexao periodicamente (acompanha mudanca de DNS do Google) sem
+        // descartar a cada 2 minutos como o padrao do factory faria.
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+
+        // Mantem a conexao ociosa no pool por mais tempo que o intervalo do
+        // aquecedor, para que ele de fato encontre uma conexao viva para reusar.
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+    });
+builder.Services.AddKeyedScoped<IProvedorDeIa>(
+    ChaveDoProvedor.Gemini, (sp, _) => sp.GetRequiredService<ProvedorGemini>());
+
+// Cota do Gemini e o disjuntor de fallback sao GLOBAIS do projeto Google (a
+// franquia nao e por tenant), por isso singleton com particionamento interno por
+// ChaveDeProjeto — ver ContadorDeCotaDoGemini e DisjuntorDoGemini. Os dois tetos
+// diarios por tenant (LimiteDiario, LimiteDiarioHaiku) tambem viram reserva
+// atomica em memoria, corrigindo a race condition que a contagem direta no banco
+// tinha antes dos dois provedores.
+builder.Services.AddSingleton<ContadorDeCotaDoGemini>();
+builder.Services.AddSingleton<DisjuntorDoGemini>();
+builder.Services.AddSingleton<ContadorDeLimiteDiario>();
+builder.Services.AddScoped<PoliticaDeSelecao>();
+builder.Services.AddScoped<RegistradorDeChamadas>();
+builder.Services.AddScoped<IOrquestradorDeProvedores, OrquestradorDeProvedores>();
+
 builder.Services.AddScoped<IRespostaInteligenteService, RespostaInteligenteService>();
 builder.Services.AddScoped<ISituacaoDaIa, SituacaoDaIa>();
+builder.Services.AddScoped<IAnaliseDaIa, AnaliseDaIa>();
+builder.Services.AddScoped<IConhecimentoDeIaService, ConhecimentoDeIaService>();
+
+// Central de IA privada do desenvolvedor — identidade propria, fora do modelo
+// Atendente/Tenant. Ver Modules/CentralDeIa/README.md.
+builder.Services.AddScoped<IGeradorDeTokenDaCentralDeIa, GeradorDeTokenDaCentralDeIa>();
+builder.Services.AddScoped<ICentralDeIaAutenticador, CentralDeIaAutenticador>();
+builder.Services.AddScoped<IObservabilidadeDaIa, ObservabilidadeDaIaService>();
 
 // Visão Geral, Indicadores e Relatórios, alertas do sino — só consulta, lê o
 // DbContext direto (permitido; chamar o Service de outro slice não seria).
@@ -154,6 +330,22 @@ builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
 // ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
 // boas-vindas, sem triagem. Ver IVarredorDeInatividade.
 builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
+
+// Drena a fila acima em segundo plano — ver FilaDeEnvioDoCanal e
+// HospedeDaFilaDeEnvioDoCanal para o porque de existir. Complementar ao
+// processamento de ENTRADA abaixo: aquele resolve o webhook (durável em SQL
+// Server); este resolve o envio disparado por uma AÇÃO DO ATENDENTE (ex.:
+// mudar etapa), que nunca passa pelo webhook.
+builder.Services.AddHostedService<HospedeDaFilaDeEnvioDoCanal>();
+
+// O webhook confirma depois do commit curto; automacao/IA/saida sao retomadas
+// por workers coordenados no SQL Server, inclusive apos reciclagem do IIS.
+builder.Services.AddHostedService<HospedeDoProcessamentoDeEntradaWhatsapp>();
+
+// Canal de cartorio fica ocioso a maior parte do dia, entao quase toda conversa
+// comecava com a conexao do Gemini fria — e a primeira chamada estourava o
+// orcamento de latencia inteiro. Sondagem sem chave, custo zero de token.
+builder.Services.AddHostedService<AquecedorDeConexaoDoGemini>();
 
 // ---------------------------------------------------------------- autenticacao
 
@@ -188,11 +380,50 @@ builder.Services
                 }
 
                 return Task.CompletedTask;
+            },
+
+            // SEC-01: SessaoAtivaRequirement falha com Forbid (403) por
+            // convencao do framework quando o usuario esta autenticado mas a
+            // policy nao passa. Para quem chama a API, token revogado deve
+            // parecer "nao autenticado" — 401, igual a token expirado ou
+            // ausente — nunca 403 (este projeto nunca usa 403 de policy do
+            // framework; permissao fina e sempre erro de negocio dentro do
+            // service, via IContextoDoUsuario).
+            OnForbidden = contexto =>
+            {
+                contexto.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
             }
         };
     });
 
-builder.Services.AddAuthorization();
+// SEC-02: amortecedor de forca bruta no login, por IP, em memoria. A politica
+// mora em PoliticaDeLimiteDeLogin para que o verificador exercite exatamente
+// esta configuracao, e nao uma copia dela.
+builder.Services.AdicionarLimiteDeLogin();
+
+// SEC-01: a policy padrao (usada por todo [Authorize] sem policy nomeada —
+// controllers e o Hub do SignalR, nenhum deles nomeia policy) passa a exigir
+// tambem SessaoAtivaRequirement: sessao ativa no banco, nao so JWT com
+// assinatura e expiracao validas. Ver SessaoAtivaHandler. A unica excecao do
+// projeto e a policy nomeada "CentralDeIa" logo abaixo — motivo no comentario
+// dela.
+builder.Services.AddAuthorization(opcoes =>
+{
+    opcoes.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser()
+        .AddRequirements(new SessaoAtivaRequirement())
+        .Build();
+
+    // Modules/CentralDeIa — a UNICA policy NOMEADA do projeto (todo o resto usa
+    // a DefaultPolicy acima, sem nome). E o caso certo de fugir da regra: o
+    // ator aqui nao e um Atendente, entao SessaoAtivaRequirement (que exige
+    // TokenVersion de um Atendente) nao se aplica — a exigencia e so a claim
+    // propria do token da Central. Ver Modules/CentralDeIa/README.md.
+    opcoes.AddPolicy("CentralDeIa", politica => politica
+        .RequireAuthenticatedUser()
+        .RequireClaim(ClaimsDaCentralDeIa.Operador, "true"));
+});
 
 // ------------------------------------------------------------------- pipeline
 
@@ -224,6 +455,27 @@ builder.Services.AddCors(opcoes =>
 
 var app = builder.Build();
 
+// Checagem de sanidade, nao um Validate/ValidateOnStart: a IA segue a mesma
+// politica de "nunca travar o sistema por configuracao ruim" do resto do
+// modulo (OpcoesDaIA.EstaConfigurada) — um TimeoutSegundos alto demais vira
+// aviso no log de boot, nunca impede o processo de subir. Ver a premissa
+// documentada em DisjuntorDoGemini.TempoMaximoDeSondaPadrao.
+{
+    var opcoesGeminiNoBoot = app.Services.GetRequiredService<IOptions<OpcoesDaIA>>().Value.Gemini;
+    var timeoutEfetivoSegundos = Math.Max(5, opcoesGeminiNoBoot.TimeoutSegundos);
+
+    if (timeoutEfetivoSegundos >= DisjuntorDoGemini.TempoMaximoDeSondaPadrao.TotalSeconds)
+    {
+        app.Logger.LogWarning(
+            "RespostaInteligente:Gemini:TimeoutSegundos ({TimeoutSegundos}s, efetivo {TimeoutEfetivo}s) " +
+            "esta igual ou acima do teto de validade da sonda do disjuntor ({TempoMaximoDeSonda}s). " +
+            "Uma sonda lenta (nao cancelada) pode ser tratada como perdida antes de terminar, abrindo uma " +
+            "segunda sonda concorrente. Reduza o timeout ou aumente o teto da sonda (DisjuntorDoGemini).",
+            opcoesGeminiNoBoot.TimeoutSegundos, timeoutEfetivoSegundos,
+            DisjuntorDoGemini.TempoMaximoDeSondaPadrao.TotalSeconds);
+    }
+}
+
 // ------------------------------------------------------------------ execucao
 
 app.UseMiddleware<TratamentoDeErroMiddleware>();
@@ -246,11 +498,30 @@ app.UseCors(PoliticaCors);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// SEC-02: antes da autenticacao de proposito — a recusa por excesso de
+// tentativas nao precisa (nem deve) custar validacao de token, consulta ao banco
+// ou PBKDF2. Nao afeta rota alguma por si so: sem [EnableRateLimiting] a
+// requisicao passa direto, entao /api/autenticacao/serventia, os webhooks e o
+// resto da API seguem sem limite nenhum.
+app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<AtendimentoHub>("/hubs/atendimento");
+
+// SEC-01: sem isto, CloseOnAuthenticationExpiration fica no padrao (false) e a
+// conexao NUNCA cai sozinha quando o proprio JWT expira — so quando algo mais
+// a derruba (rede, aba fechada, reciclagem do App Pool). Com true, o SignalR
+// fecha a conexao no `exp` do token, do mesmo jeito que uma chamada REST com
+// token expirado ja falha. Isto e SOBRE EXPIRACAO, nao sobre revogacao por
+// TokenVersion — nao fecha uma conexao cujo token ainda esta dentro da
+// validade mas foi revogado por troca de senha/desativacao/perfil (SEC-01B,
+// ver AtendimentoHub.cs e Modules/Usuarios/README.md).
+app.MapHub<AtendimentoHub>("/hubs/atendimento", opcoes =>
+{
+    opcoes.CloseOnAuthenticationExpiration = true;
+});
 
 // Vivo: o processo subiu e responde. NAO prova que o banco responde — de
 // proposito, para servir de liveness barato (o IIS e o tunel batem aqui).
@@ -289,3 +560,5 @@ if (app.Configuration.GetValue<bool>("Seed:Habilitado"))
 }
 
 app.Run();
+
+return 0;

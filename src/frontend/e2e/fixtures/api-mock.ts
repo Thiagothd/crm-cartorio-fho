@@ -1,0 +1,584 @@
+import { expect, type Page, type Route } from '@playwright/test'
+
+type Perfil = 'Atendente' | 'Supervisor' | 'Administrador'
+
+const agora = '2026-08-31T20:00:00.000Z'
+
+const tenant = {
+  id: 'tenant-e2e',
+  razaoSocial: 'Cartório E2E Ltda.',
+  nomeFantasia: 'Cartório Modelo E2E',
+  cnpj: '12345678000199',
+  whatsappNumeroExibicao: '(11) 99999-0000',
+  whatsappConfigurado: false,
+}
+
+/**
+ * Espelho dos 3 presets herdados (Balcão/Supervisão/Administração) de
+ * `CatalogoDePermissoes.cs` — o backend real deriva exatamente este conjunto
+ * quando `Atendente.Permissoes` é `NULL` (Classe da conta sem personalização).
+ * Os testes de E2E escritos contra o sistema de 3 perfis continuam valendo
+ * porque o comportamento de cada perfil "sem ajuste" não mudou; só a forma de
+ * representá-lo no token/sessão passou a ser um conjunto de chaves, não mais
+ * o `perfil` sozinho.
+ */
+const PERMISSOES_BALCAO = [
+  'atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'atendimento.mover', 'atendimento.transferir',
+  'clientes.ver', 'atendimento.abrir_novo', 'atendimento.vincular_servico', 'atendimento.encerrar',
+  'clientes.cadastrar', 'clientes.editar',
+]
+const PERMISSOES_SUPERVISAO = [
+  ...PERMISSOES_BALCAO,
+  'servicos.ver', 'servicos.editar', 'etapas.ver', 'etapas.editar', 'setores.ver', 'setores.editar',
+  'automacao.mensagens.ver', 'automacao.mensagens.editar', 'automacao.respostas.ver', 'automacao.respostas.editar',
+  'automacao.encerramento.ver', 'automacao.encerramento.editar', 'ia.ver', 'ia.conhecimento.ver', 'ia.conhecimento.editar',
+  'aparencia.ver', 'aparencia.editar',
+  'atendimento.reabrir', 'atendimento.mexer_no_de_terceiro', 'clientes.excluir', 'clientes.importar_agenda',
+  'relatorios.ver', 'relatorios.equipe', 'relatorios.saude_ia',
+]
+/** Tudo, exceto `atendimento.simular_cliente` — de propósito, ver o enum no backend. */
+const PERMISSOES_ADMINISTRACAO = [
+  'atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'atendimento.abrir_novo', 'atendimento.mover',
+  'atendimento.vincular_servico', 'atendimento.encerrar', 'atendimento.reabrir', 'atendimento.transferir', 'atendimento.mexer_no_de_terceiro',
+  'clientes.ver', 'clientes.cadastrar', 'clientes.editar', 'clientes.excluir', 'clientes.importar_agenda',
+  'servicos.ver', 'servicos.editar', 'etapas.ver', 'etapas.editar', 'setores.ver', 'setores.editar',
+  'automacao.mensagens.ver', 'automacao.mensagens.editar', 'automacao.respostas.ver', 'automacao.respostas.editar',
+  'automacao.encerramento.ver', 'automacao.encerramento.editar', 'ia.ver', 'ia.conhecimento.ver', 'ia.conhecimento.editar',
+  'relatorios.ver', 'relatorios.equipe', 'relatorios.saude_ia', 'relatorios.saude_whatsapp',
+  'whatsapp.ver', 'whatsapp.parear', 'whatsapp.regras', 'whatsapp.testar_envio',
+  'aparencia.ver', 'aparencia.editar', 'serventia.editar',
+  'equipe.ver', 'equipe.cadastrar', 'equipe.editar', 'equipe.redefinir_senha', 'equipe.permissoes', 'equipe.mfa_administrar',
+  'seguranca.eventos.ver',
+]
+
+/**
+ * Catálogo reduzido para a tela `/equipe/:id/permissoes` — não os ~49 itens
+ * reais, só o suficiente para exercitar троca de modelo, marcar/desmarcar e o
+ * esmaecimento de "sem efeito" (17.3): `clientes.cadastrar` depende da tela
+ * `clientes.ver`.
+ */
+const CATALOGO_DE_PERMISSOES = [
+  { chave: 'atendimento.ver', rotulo: 'Abrir a tela de Atendimento', descricao: 'Ver a fila e as conversas.', bloco: 'Atendimento', ehTela: true },
+  { chave: 'atendimento.responder', rotulo: 'Escrever e enviar mensagem', descricao: 'Responder o cliente.', bloco: 'Atendimento', ehTela: false },
+  { chave: 'clientes.ver', rotulo: 'Abrir a tela de Clientes', descricao: 'Ver a lista de clientes.', bloco: 'Clientes', ehTela: true },
+  { chave: 'clientes.cadastrar', rotulo: 'Cadastrar cliente novo', descricao: 'Criar a ficha de um cliente.', bloco: 'Clientes', ehTela: false },
+  { chave: 'equipe.ver', rotulo: 'Abrir a tela de Equipe', descricao: 'Ver a lista de atendentes.', bloco: 'Equipe e segurança', ehTela: true },
+  { chave: 'equipe.permissoes', rotulo: 'Decidir o que cada pessoa acessa', descricao: 'Montar as permissões de outro atendente.', bloco: 'Equipe e segurança', ehTela: false },
+]
+
+const MODELOS_DE_PERMISSAO = [
+  { modelo: 'Balcao', rotulo: 'Balcão', descricao: 'Atende do começo ao fim.', chaves: ['atendimento.ver', 'atendimento.responder', 'clientes.ver'] },
+  { modelo: 'Supervisao', rotulo: 'Supervisão', descricao: 'Toca a equipe do dia.', chaves: ['atendimento.ver', 'atendimento.responder', 'clientes.ver', 'clientes.cadastrar'] },
+  { modelo: 'Administracao', rotulo: 'Administração', descricao: 'Responde pelo sistema.', chaves: CATALOGO_DE_PERMISSOES.map((c) => c.chave) },
+]
+
+const usuarios = {
+  Atendente: {
+    id: 'atendente-e2e', nome: 'Ana Atendente', email: 'atendente@teste.local', perfil: 'Atendente' as Perfil,
+    cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
+  },
+  Supervisor: {
+    id: 'supervisor-e2e', nome: 'Sofia Supervisora', email: 'supervisor@teste.local', perfil: 'Supervisor' as Perfil,
+    cargo: 'Substituto', cargoDescrito: 'Substituto', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    mfaAtivo: false, modelo: null, permissoes: PERMISSOES_SUPERVISAO,
+  },
+  Administrador: {
+    id: 'admin-e2e', nome: 'Alice Administradora', email: 'admin@teste.local', perfil: 'Administrador' as Perfil,
+    cargo: 'Titular', cargoDescrito: 'Titular', setorPadraoId: 'setor-notas', setorPadraoNome: 'Notas', ativo: true, ultimoAcessoEm: agora,
+    // Titular é conta privilegiada (SEC-03) — com MFA ativo, não sobra "Sem 2 etapas" perdido no meio dos testes de E2E.
+    mfaAtivo: true, modelo: null, permissoes: PERMISSOES_ADMINISTRACAO,
+  },
+}
+
+function sessao(perfil: Perfil) {
+  return {
+    token: `token-${perfil.toLowerCase()}`,
+    expiraEm: '2026-09-01T04:00:00.000Z',
+    atendente: usuarios[perfil],
+    tenant,
+  }
+}
+
+function clienteBase(id: string, nome: string, telefone: string) {
+  return {
+    id, nome, tipo: 'Fisica', telefoneWhatsapp: telefone, telefoneAlternativo: null, email: `${id}@teste.local`,
+    documento: id === 'cliente-2' ? null : '12345678901', rg: null, orgaoEmissor: null, ufOrgaoEmissor: null,
+    dataNascimento: null, estadoCivil: 'NaoInformado', regimeDeBens: 'NaoInformado', profissao: null,
+    nacionalidade: 'Brasileira', naturalidade: null, nomeDoPai: null, nomeDaMae: null, razaoSocial: null,
+    representanteLegal: null, cep: id === 'cliente-2' ? null : '01001000', logradouro: id === 'cliente-2' ? null : 'Praça da Sé',
+    numero: id === 'cliente-2' ? null : '100', complemento: null, bairro: id === 'cliente-2' ? null : 'Sé',
+    cidade: id === 'cliente-2' ? null : 'São Paulo', uf: id === 'cliente-2' ? null : 'SP', observacoes: null,
+    ativo: true, primeiroContatoEm: agora, totalConversas: id === 'cliente-1' ? 1 : 0, temConversaAtiva: id === 'cliente-1',
+    percentualDeQualificacao: id === 'cliente-2' ? 20 : 82, idade: null, fotoPerfilUrl: null, nomePendente: false, nomePerguntadoEm: null,
+  }
+}
+
+export interface EstadoE2E {
+  perfil: Perfil
+  setores: any[]
+  etapas: any[]
+  servicos: any[]
+  atendentes: any[]
+  respostasRapidas: any[]
+  mensagensAutomaticas: any[]
+  encerramento: any
+  conhecimentos: any[]
+  canal: {
+    situacao: any
+    regras: any
+    descartes: any
+    conexoes: any[]
+  }
+  clientes: any[]
+  conversas: any[]
+  detalhes: Record<string, any>
+  conflitoAoAssumir: boolean
+  chamadasExternas: string[]
+}
+
+export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
+  const setores = [
+    { id: 'setor-notas', nome: 'Notas', descricao: 'Atos notariais', ordem: 1, ativo: true, conversasAtivas: 1 },
+    { id: 'setor-civil', nome: 'Registro Civil', descricao: 'Registro civil', ordem: 2, ativo: true, conversasAtivas: 0 },
+  ]
+  // As cores são as TINTAS da paleta fechada de etapa (DESIGN.md 2.2) — o
+  // seletor do cadastro só oferece estas quatro, e é delas que o mapa de
+  // `cores-de-etapa.ts` deriva fundo e borda. Com um hexadecimal fora da
+  // paleta a interface cai no neutro (degradação prevista), e o teste passaria
+  // a exercitar justamente o caminho que produção não tem.
+  const etapas = [
+    { id: 'etapa-triagem', nome: 'Triagem', descricao: 'Primeiro contato', ordem: 1, cor: '#2E5170', ehFinal: false, ativo: true, conversasAtivas: 1 },
+    { id: 'etapa-final', nome: 'Concluído', descricao: null, ordem: 2, cor: '#3D5C3A', ehFinal: true, ativo: true, conversasAtivas: 0 },
+  ]
+  const servicos = [
+    { id: 'servico-1', nome: 'Reconhecimento de firma', codigo: 'RF', categoria: 'Notas', categoriaDescrita: 'Notas', descricao: 'Reconhecimento de assinatura', ativo: true,
+      prazo: { id: 'prazo-1', prazoHoras: 24, percentualAlerta: 80, apenasDiasUteis: true, prazoDescrito: '1 dia útil' }, conversasAtivas: 1,
+      setorId: 'setor-notas', setorNome: 'Notas', documentosNecessarios: 'Documento com foto' },
+  ]
+  const atendentes = [
+    ...Object.values(usuarios),
+    {
+      id: 'atendente-sem-historico', nome: 'Bruno SemHistorico', email: 'bruno@teste.local', perfil: 'Atendente' as Perfil,
+      cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: null,
+      mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
+    },
+    {
+      id: 'atendente-com-historico', nome: 'Carla ComHistorico', email: 'carla@teste.local', perfil: 'Atendente' as Perfil,
+      cargo: 'Escrevente', cargoDescrito: 'Escrevente', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: agora,
+      mfaAtivo: false, modelo: null, permissoes: PERMISSOES_BALCAO,
+      // Marcador só do mock: o backend real descobre isso vasculhando Conversas/Mensagens/etc.
+      // (AtendenteService.ExcluirAsync); aqui simulamos o mesmo resultado sem montar essas tabelas.
+      _temHistorico: true,
+    },
+    {
+      // Administrador/Titular que NÃO é quem está logado — só assim o ícone
+      // de Segurança (MFA) aparece numa linha que não é a própria (`podeMfa`
+      // exige Administrador ou Titular; a própria conta logada já é uma).
+      id: 'atendente-privilegiado', nome: 'Diego Diretor', email: 'diego@teste.local', perfil: 'Administrador' as Perfil,
+      cargo: 'Titular', cargoDescrito: 'Titular', setorPadraoId: null, setorPadraoNome: null, ativo: true, ultimoAcessoEm: agora,
+      mfaAtivo: true, modelo: null, permissoes: PERMISSOES_ADMINISTRACAO,
+    },
+  ]
+  const respostasRapidas = [
+    { id: 'rapida-1', atalho: 'docs', titulo: 'Documentos necessários', conteudo: 'Por favor, envie seu documento com foto.', ativo: true },
+    { id: 'rapida-2', atalho: 'ola', titulo: 'Saudação', conteudo: 'Olá! Como posso ajudar?', ativo: true },
+  ]
+  const mensagensAutomaticas = [
+    { id: 'auto-1', gatilho: 'NovoAtendimento', gatilhoDescrito: 'Primeiro contato do cliente', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ola, {NomeCliente}! Aqui e o {NomeCartorio}. Escolha o assunto:\n{MenuSetores}', ativo: true },
+    { id: 'auto-2', gatilho: 'TriagemComCorrespondencia', gatilhoDescrito: 'Setor reconhecido, falta escolher o servico', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Certo! Qual servico voce precisa?\n{MenuServicos}', ativo: true },
+    { id: 'auto-3', gatilho: 'ServicoEscolhido', gatilhoDescrito: 'Cliente escolheu o servico', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Para este servico voce precisa de:\n{DocumentosNecessarios}\n\nPrazo estimado: {PrazoServico}.', ativo: true },
+    { id: 'auto-4', gatilho: 'EtapaAlterada', gatilhoDescrito: 'Atendimento muda de etapa', etapaAlvoId: 'etapa-final', etapaAlvoNome: 'Concluido', conteudo: 'Seu atendimento {Protocolo} foi concluido. Obrigado!', ativo: false },
+    { id: 'auto-5', gatilho: 'ConfirmacaoDeEncerramento', gatilhoDescrito: 'Conversa parada: posso encerrar?', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ainda precisa de ajuda?\n1 - Sim, continuar\n2 - Nao, pode encerrar', ativo: true },
+  ]
+  const encerramento = { minutosParaPerguntar: 20, minutosParaEncerrar: 30, horaInicial: 8, horaFinal: 18 }
+
+  // Um em uso e um fora de vigência (janela já encerrada): é o par que a tela
+  // de Conhecimento precisa distinguir, porque o contexto da IA lê só o
+  // primeiro (`MontadorDeContexto`).
+  const conhecimentos = [
+    {
+      id: 'conhecimento-1', titulo: 'Política de reagendamento', tema: 'Atendimento',
+      conteudo: 'O reagendamento pode ser pedido até 24h antes do horário marcado, sem custo.',
+      tipoServicoId: null, tipoServicoNome: null, vigenteDesde: null, vigenteAte: null,
+      versao: 2, criadoPorNome: 'Helena Titular', atualizadoPorNome: 'Helena Titular',
+      ativo: true, criadoEm: agora, atualizadoEm: agora,
+    },
+    {
+      id: 'conhecimento-2', titulo: 'Mutirão de firmas de janeiro', tema: 'Campanha',
+      conteudo: 'Durante o mutirão, o reconhecimento de firma sai no mesmo dia.',
+      tipoServicoId: 'servico-1', tipoServicoNome: 'Reconhecimento de firma',
+      vigenteDesde: '2026-01-01', vigenteAte: '2026-01-31',
+      versao: 1, criadoPorNome: 'Helena Titular', atualizadoPorNome: null,
+      ativo: true, criadoEm: agora, atualizadoEm: agora,
+    },
+  ]
+
+  const canal = {
+    situacao: {
+      habilitado: true, conectado: true, estado: 'open', numero: '5538999990000',
+      perfilNome: 'Cartório de Gameleiras', perfilFotoUrl: null, qrCodeBase64: null,
+      conectadoEm: agora,
+    },
+    regras: {
+      modo: 'SomenteLiberados', origem: 'Banco',
+      liberados: [
+        { id: 'numero-1', telefone: '5538999991111', rotulo: 'cartório parceiro', tipo: 'Liberado', criadoPorNome: 'Helena Titular', criadoEm: agora },
+      ],
+      bloqueados: [],
+    },
+    descartes: {
+      totalHoje: 2,
+      recentes: [
+        { telefone: '5538999997777', motivo: 'ForaDaLista', criadoEm: agora },
+      ],
+    },
+    conexoes: [
+      { numero: '5538999990000', perfilNome: 'Cartório de Gameleiras', conectadoEm: agora, desconectadoEm: null, motivo: 'Pareamento', atendenteNome: 'Helena Titular' },
+    ],
+  }
+  const clientes = [
+    clienteBase('cliente-1', 'Marina Souza', '5511999991111'),
+    clienteBase('cliente-2', 'Carlos Lima', '5511999992222'),
+  ]
+  const conversa = {
+    id: 'conversa-1', protocolo: 'ATD-2026-0001', clienteId: 'cliente-1', clienteNome: 'Marina Souza', clienteTelefone: '5511999991111',
+    atendenteId: null, atendenteNome: null, setorId: 'setor-notas', setorNome: 'Notas', etapaId: 'etapa-triagem', etapaNome: 'Triagem', etapaCor: '#2E5170',
+    tipoServicoId: 'servico-1', tipoServicoNome: 'Reconhecimento de firma', status: 'Ativa', iniciadaEm: agora, ultimaMensagemEm: agora,
+    mensagensNaoLidas: 2, aguardandoTriagem: false, prazoIniciadoEm: agora, prazoLimite: '2026-09-01T20:00:00.000Z', situacaoPrazo: 'EmDia',
+    previaUltimaMensagem: 'Preciso reconhecer uma firma.', encerradaEm: null, encerradaPorNome: null, motivoEncerramento: null, reabertaEm: null,
+    clienteFotoPerfilUrl: null, clienteNomePendente: false,
+  }
+  const mensagens = [
+    { id: 'msg-1', conversaId: 'conversa-1', autorTipo: 'Cliente', atendenteId: null, atendenteNome: null, conteudo: 'Preciso reconhecer uma firma.', tipo: 'Texto', statusEntrega: 'Lida', ehAutomatica: false, fixada: false, oculta: false, ocultaPorNome: null, encaminhadaDeProtocolo: null, enviadaEm: agora, lidaEm: agora, mensagemRespondidaId: null, respondidaAutor: null, respondidaConteudo: null, arquivoNome: null, arquivoTipoMime: null, arquivoTamanhoBytes: null, geradaPorIa: false },
+  ]
+  return {
+    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento,
+    conhecimentos, canal, clientes,
+    conversas: [conversa],
+    detalhes: { 'conversa-1': { conversa, mensagens, historico: [] } },
+    conflitoAoAssumir: false,
+    chamadasExternas: [],
+  }
+}
+
+function json(route: Route, body: unknown, status = 200) {
+  return route.fulfill({ status, contentType: 'application/json; charset=utf-8', body: JSON.stringify(body) })
+}
+
+function problema(route: Route, status: number, codigo: string, title: string, extras: Record<string, unknown> = {}) {
+  return json(route, { type: 'about:blank', status, codigo, title, ...extras }, status)
+}
+
+function perfilPeloToken(token: string | undefined): Perfil {
+  if (token?.includes('atendente')) return 'Atendente'
+  if (token?.includes('supervisor')) return 'Supervisor'
+  return 'Administrador'
+}
+
+function corpoJson(route: Route) {
+  try { return route.request().postDataJSON() as any } catch { return {} }
+}
+
+export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
+  await page.route('**/hubs/**', async (route) => route.abort('blockedbyclient'))
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const path = url.pathname
+    const metodo = request.method()
+
+    if (path === '/api/autenticacao/serventia' && metodo === 'GET') return json(route, { nome: tenant.nomeFantasia })
+
+    if (path === '/api/autenticacao/login' && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      const perfil = Object.values(usuarios).find((u) => u.email === String(corpo.email ?? '').toLowerCase())?.perfil
+      if (!perfil || corpo.senha !== 'Teste123!') return problema(route, 401, 'credenciais_invalidas', 'E-mail ou senha inválidos.')
+      estado.perfil = perfil
+      return json(route, sessao(perfil))
+    }
+
+    if (path === '/api/autenticacao/sessao' && metodo === 'GET') {
+      const token = request.headers()['authorization']
+      if (!token) return problema(route, 401, 'nao_autenticado', 'Não autenticado.')
+      return json(route, sessao(perfilPeloToken(token)))
+    }
+
+    if (path === '/api/setores' && metodo === 'GET') return json(route, estado.setores)
+    if (path === '/api/etapas' && metodo === 'GET') return json(route, estado.etapas)
+    if (path === '/api/tipos-servico' && metodo === 'GET') return json(route, estado.servicos.filter((s) => url.searchParams.get('incluirInativos') === 'true' || s.ativo))
+    if (path === '/api/atendentes' && metodo === 'GET') return json(route, estado.atendentes)
+    if (path === '/api/respostas-rapidas' && metodo === 'GET') return json(route, estado.respostasRapidas)
+    if (path === '/api/mensagens-automaticas' && metodo === 'GET') return json(route, estado.mensagensAutomaticas.filter((m) => url.searchParams.get('incluirInativas') === 'true' || m.ativo))
+    if (path === '/api/serventia/encerramento-automatico' && metodo === 'GET') return json(route, estado.encerramento)
+    if (path === '/api/serventia/encerramento-automatico' && metodo === 'PUT') { estado.encerramento = corpoJson(route); return json(route, estado.encerramento) }
+    if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
+
+    // --- Conhecimento da IA ---
+    if (path === '/api/conhecimento-de-ia' && metodo === 'GET') {
+      return json(route, estado.conhecimentos.filter((c) => url.searchParams.get('incluirInativos') === 'true' || c.ativo))
+    }
+    if (path === '/api/conhecimento-de-ia' && metodo === 'POST') {
+      const corpo = corpoJson(route) as Record<string, unknown>
+      const novo = {
+        id: `conhecimento-${estado.conhecimentos.length + 1}`, versao: 1,
+        tipoServicoNome: corpo.tipoServicoId ? 'Reconhecimento de firma' : null,
+        criadoPorNome: usuarios[estado.perfil].nome, atualizadoPorNome: null,
+        criadoEm: agora, atualizadoEm: agora, ...corpo,
+      }
+      estado.conhecimentos.push(novo)
+      return json(route, novo, 201)
+    }
+    const conhecimentoHistorico = path.match(/^\/api\/conhecimento-de-ia\/([^/]+)\/historico$/)
+    if (conhecimentoHistorico && metodo === 'GET') {
+      const alvo = estado.conhecimentos.find((c) => c.id === conhecimentoHistorico[1])
+      return json(route, alvo && alvo.versao > 1
+        ? [{ versao: 1, titulo: alvo.titulo, conteudo: 'Texto da versão anterior.', tema: alvo.tema, tipoServicoNome: alvo.tipoServicoNome, vigenteDesde: null, vigenteAte: null, ativo: true, alteradoPorNome: 'Helena Titular', ocorridoEm: agora }]
+        : [])
+    }
+    const conhecimentoAlvo = path.match(/^\/api\/conhecimento-de-ia\/([^/]+)$/)
+    if (conhecimentoAlvo && metodo === 'PUT') {
+      const alvo = estado.conhecimentos.find((c) => c.id === conhecimentoAlvo[1])
+      if (!alvo) return problema(route, 404, 'conhecimento_nao_encontrado', 'Conhecimento não encontrado.')
+      Object.assign(alvo, corpoJson(route), { versao: alvo.versao + 1, atualizadoEm: agora })
+      return json(route, alvo)
+    }
+
+    // --- Canal WhatsApp ---
+    if (path === '/api/whatsapp/situacao' && metodo === 'GET') return json(route, estado.canal.situacao)
+    if (path === '/api/whatsapp/regras' && metodo === 'GET') return json(route, estado.canal.regras)
+    if (path === '/api/whatsapp/descartes' && metodo === 'GET') return json(route, estado.canal.descartes)
+    if (path === '/api/whatsapp/conexoes' && metodo === 'GET') return json(route, estado.canal.conexoes)
+    if (path === '/api/whatsapp/desconectar' && metodo === 'POST') {
+      estado.canal.situacao = { ...estado.canal.situacao, conectado: false, estado: 'close', conectadoEm: null }
+      return json(route, estado.canal.situacao)
+    }
+    if (path === '/api/whatsapp/regras/modo' && metodo === 'PUT') {
+      estado.canal.regras = { ...estado.canal.regras, modo: (corpoJson(route) as { modo: string }).modo, origem: 'Banco' }
+      return json(route, estado.canal.regras)
+    }
+    if (path === '/api/whatsapp/testar-envio' && metodo === 'POST') {
+      estado.chamadasExternas.push('whatsapp:testar-envio')
+      return json(route, { enviado: true, motivo: null })
+    }
+
+    if (path === '/api/conversas/resumo' && metodo === 'GET') {
+      return json(route, { totalAtivas: estado.conversas.length, naFila: estado.conversas.filter((c) => !c.atendenteId).length, minhasConversas: estado.conversas.filter((c) => c.atendenteId === usuarios[estado.perfil].id).length, encerradasHoje: 0, emAlerta: 0, atrasadas: 0,
+        porEtapa: estado.etapas.map((e) => ({ id: e.id, nome: e.nome, cor: e.cor, total: estado.conversas.filter((c) => c.etapaId === e.id).length })),
+        porSetor: estado.setores.map((s) => ({ id: s.id, nome: s.nome, cor: null, total: estado.conversas.filter((c) => c.setorId === s.id).length })) })
+    }
+
+    if (path === '/api/conversas' && metodo === 'GET') {
+      const busca = (url.searchParams.get('busca') ?? '').toLowerCase()
+      const itens = estado.conversas.filter((c) => !busca || `${c.clienteNome} ${c.protocolo}`.toLowerCase().includes(busca))
+      return json(route, { itens, total: itens.length, pagina: 1, tamanho: 50 })
+    }
+
+    const detalhe = path.match(/^\/api\/conversas\/([^/]+)$/)
+    if (detalhe && metodo === 'GET') {
+      const encontrado = estado.detalhes[detalhe[1]]
+      return encontrado ? json(route, encontrado) : problema(route, 404, 'conversa_nao_encontrada', 'Conversa não encontrada.')
+    }
+
+    const ler = path.match(/^\/api\/conversas\/([^/]+)\/ler$/)
+    if (ler && metodo === 'POST') {
+      const alvo = estado.conversas.find((c) => c.id === ler[1])
+      if (alvo) alvo.mensagensNaoLidas = 0
+      if (estado.detalhes[ler[1]]) estado.detalhes[ler[1]].conversa.mensagensNaoLidas = 0
+      return route.fulfill({ status: 204 })
+    }
+
+    const assumir = path.match(/^\/api\/conversas\/([^/]+)\/assumir$/)
+    if (assumir && metodo === 'POST') {
+      if (estado.conflitoAoAssumir) return problema(route, 409, 'conversa_ja_assumida', 'Conversa já assumida.', { atendenteNome: 'Outro Atendente' })
+      const alvo = estado.conversas.find((c) => c.id === assumir[1])
+      if (!alvo) return problema(route, 404, 'conversa_nao_encontrada', 'Conversa não encontrada.')
+      alvo.atendenteId = usuarios[estado.perfil].id
+      alvo.atendenteNome = usuarios[estado.perfil].nome
+      estado.detalhes[alvo.id].conversa = alvo
+      return json(route, alvo)
+    }
+
+    const liberar = path.match(/^\/api\/conversas\/([^/]+)\/liberar$/)
+    if (liberar && metodo === 'POST') {
+      const alvo = estado.conversas.find((c) => c.id === liberar[1])
+      if (!alvo) return problema(route, 404, 'conversa_nao_encontrada', 'Conversa não encontrada.')
+      alvo.atendenteId = null; alvo.atendenteNome = null; estado.detalhes[alvo.id].conversa = alvo
+      return json(route, alvo)
+    }
+
+    const enviar = path.match(/^\/api\/conversas\/([^/]+)\/mensagens$/)
+    if (enviar && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      const mensagem = { id: `msg-${Date.now()}`, conversaId: enviar[1], autorTipo: 'Atendente', atendenteId: usuarios[estado.perfil].id, atendenteNome: usuarios[estado.perfil].nome, conteudo: corpo.conteudo, tipo: 'Texto', statusEntrega: 'Enviada', ehAutomatica: false, fixada: false, oculta: false, ocultaPorNome: null, encaminhadaDeProtocolo: null, enviadaEm: agora, lidaEm: null, mensagemRespondidaId: corpo.mensagemRespondidaId ?? null, respondidaAutor: corpo.mensagemRespondidaId ? 'Marina Souza' : null, respondidaConteudo: corpo.mensagemRespondidaId ? 'Preciso reconhecer uma firma.' : null, arquivoNome: null, arquivoTipoMime: null, arquivoTamanhoBytes: null, geradaPorIa: false }
+      estado.detalhes[enviar[1]].mensagens.push(mensagem)
+      return json(route, mensagem, 201)
+    }
+
+    if (path === '/api/clientes/opcoes' && metodo === 'GET') return json(route, { cidades: ['São Paulo'] })
+    if (path === '/api/clientes' && metodo === 'GET') {
+      const busca = (url.searchParams.get('busca') ?? '').toLowerCase()
+      const semDocumento = url.searchParams.get('semDocumento') === 'true'
+      const semEndereco = url.searchParams.get('semEndereco') === 'true'
+      let itens = estado.clientes.filter((c) => !busca || `${c.nome} ${c.telefoneWhatsapp}`.toLowerCase().includes(busca))
+      if (url.searchParams.get('incluirInativos') !== 'true') itens = itens.filter((c) => c.ativo)
+      if (semDocumento) itens = itens.filter((c) => !c.documento)
+      if (semEndereco) itens = itens.filter((c) => !c.logradouro || !c.numero || !c.cidade || !c.uf)
+      if (url.searchParams.get('comConversaAtiva') === 'true') itens = itens.filter((c) => c.temConversaAtiva)
+      for (const campo of ['tipo', 'estadoCivil', 'cidade']) {
+        const valor = url.searchParams.get(campo)
+        if (valor) itens = itens.filter((c) => c[campo] === valor)
+      }
+      return json(route, { itens, total: itens.length, pagina: 1, tamanho: 100 })
+    }
+    if (path === '/api/clientes' && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      const novo = { ...clienteBase(`cliente-${estado.clientes.length + 1}`, corpo.nome, corpo.telefoneWhatsapp), ...corpo }
+      estado.clientes.push(novo)
+      return json(route, novo, 201)
+    }
+    const cliente = path.match(/^\/api\/clientes\/([^/]+)$/)
+    if (cliente && metodo === 'PUT') {
+      const alvo = estado.clientes.find((c) => c.id === cliente[1])
+      if (!alvo) return problema(route, 404, 'cliente_nao_encontrado', 'Cliente não encontrado.')
+      Object.assign(alvo, corpoJson(route)); return json(route, alvo)
+    }
+    if (cliente && metodo === 'DELETE') {
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
+      const indice = estado.clientes.findIndex((c) => c.id === cliente[1])
+      if (indice < 0) return problema(route, 404, 'cliente_nao_encontrado', 'Cliente não encontrado.')
+      if (estado.clientes[indice].totalConversas > 0) return problema(route, 409, 'cliente_tem_historico', 'Este cliente tem atendimento registrado e não pode ser excluído. Desative o cadastro em vez de excluir.')
+      estado.clientes.splice(indice, 1); return route.fulfill({ status: 204 })
+    }
+
+    if (path === '/api/indicadores/visao-geral' && metodo === 'GET') {
+      return json(route, {
+        periodo: { de: agora, ate: agora, granularidade: 'dia' },
+        agora: { ativas: 1, naFila: 1, emAlerta: 0, atrasadas: 0 },
+        noPeriodo: { abertos: 1, encerrados: 0, primeiraRespostaMedianaMinutos: 4, primeiraRespostaMediaMinutos: 4, amostraPrimeiraResposta: 1 },
+        fluxoDeAtendimentos: [], requerAtencao: [], cargaDaEquipe: estado.perfil === 'Atendente' ? null : [], servicosMaisProcurados: [], distribuicaoPorEtapa: [], saudeDaOperacao: null,
+      })
+    }
+    if (path === '/api/indicadores/alertas' && metodo === 'GET') return json(route, [])
+
+    if (path === '/api/atendentes' && metodo === 'POST') {
+      const corpo = corpoJson(route) as { email: string }
+      if (estado.atendentes.some((a) => a.email === corpo.email)) {
+        return problema(route, 409, 'email_em_uso', `Já existe um atendente com o e-mail ${corpo.email}.`)
+      }
+      const novo = { ...usuarios.Atendente, ...corpo, id: `atendente-${estado.atendentes.length + 1}`, cargoDescrito: corpo.cargo, setorPadraoNome: null, ativo: true, ultimoAcessoEm: null }
+      estado.atendentes.push(novo); return json(route, novo, 201)
+    }
+    const atendente = path.match(/^\/api\/atendentes\/([^/]+)$/)
+    if (atendente && metodo === 'PUT') {
+      const alvo = estado.atendentes.find((a) => a.id === atendente[1]); if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      Object.assign(alvo, corpoJson(route)); return json(route, alvo)
+    }
+    if (atendente && metodo === 'GET') {
+      const alvo = estado.atendentes.find((a) => a.id === atendente[1])
+      return alvo ? json(route, alvo) : problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+    }
+    if (atendente && metodo === 'DELETE') {
+      const alvo = estado.atendentes.find((a) => a.id === atendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      if (alvo.id === usuarios[estado.perfil].id) {
+        return problema(route, 400, 'nao_pode_excluir_a_si_mesmo', 'Você não pode excluir o próprio cadastro.')
+      }
+      if ((alvo as { _temHistorico?: boolean })._temHistorico) {
+        return problema(route, 409, 'nao_pode_excluir_com_historico', 'Este atendente já tem histórico no sistema — desative o acesso em vez de excluir.')
+      }
+      estado.atendentes = estado.atendentes.filter((a) => a.id !== alvo.id)
+      return route.fulfill({ status: 204 })
+    }
+
+    const senha = path.match(/^\/api\/atendentes\/([^/]+)\/senha$/)
+    if (senha && metodo === 'POST') {
+      const alvo = estado.atendentes.find((a) => a.id === senha[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      return route.fulfill({ status: 204 })
+    }
+
+    const permissoesDoAtendente = path.match(/^\/api\/atendentes\/([^/]+)\/permissoes$/)
+    if (permissoesDoAtendente && metodo === 'GET') {
+      const alvo = estado.atendentes.find((a) => a.id === permissoesDoAtendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      return json(route, {
+        atendenteId: alvo.id, modelo: alvo.modelo, chaves: alvo.permissoes,
+        catalogo: CATALOGO_DE_PERMISSOES, modelos: MODELOS_DE_PERMISSAO,
+      })
+    }
+    if (permissoesDoAtendente && metodo === 'PUT') {
+      const alvo = estado.atendentes.find((a) => a.id === permissoesDoAtendente[1])
+      if (!alvo) return problema(route, 404, 'atendente_nao_encontrado', 'Atendente não encontrado.')
+      if (alvo.id === usuarios[estado.perfil].id) {
+        return problema(route, 400, 'nao_pode_editar_as_proprias_permissoes', 'Você não pode editar as próprias permissões.')
+      }
+      const corpo = corpoJson(route) as { modelo: string | null; chaves: string[] }
+      alvo.modelo = corpo.modelo; alvo.permissoes = corpo.chaves
+      return route.fulfill({ status: 204 })
+    }
+
+    const ticketDeMfa = path.match(/^\/api\/atendentes\/([^/]+)\/mfa\/ticket$/)
+    if (ticketDeMfa && metodo === 'POST') {
+      return json(route, { ticket: 'TICKET-E2E-1234-5678', expiraEm: agora })
+    }
+    const resetDeMfa = path.match(/^\/api\/atendentes\/([^/]+)\/mfa\/reset$/)
+    if (resetDeMfa && metodo === 'POST') {
+      const corpo = corpoJson(route) as { motivo?: string }
+      if (!corpo.motivo?.trim()) return problema(route, 400, 'motivo_obrigatorio', 'Informe o motivo desta ação.')
+      const alvo = estado.atendentes.find((a) => a.id === resetDeMfa[1])
+      if (alvo) alvo.mfaAtivo = false
+      return route.fulfill({ status: 204 })
+    }
+
+    if (path === '/api/setores' && metodo === 'POST') {
+      const corpo = corpoJson(route); const novo = { id: `setor-${estado.setores.length + 1}`, conversasAtivas: 0, ...corpo }; estado.setores.push(novo); return json(route, novo, 201)
+    }
+    if (path === '/api/etapas/reordenar' && metodo === 'POST') {
+      const ids = corpoJson(route) as string[]; estado.etapas.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); estado.etapas.forEach((e, i) => e.ordem = i + 1); return json(route, estado.etapas)
+    }
+    if (path === '/api/etapas' && metodo === 'POST') {
+      const corpo = corpoJson(route); const novo = { id: `etapa-${estado.etapas.length + 1}`, conversasAtivas: 0, ...corpo }; estado.etapas.push(novo); return json(route, novo, 201)
+    }
+    if (path === '/api/tipos-servico' && metodo === 'POST') {
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
+      const corpo = corpoJson(route)
+      const novo = { ...corpo, id: `servico-${estado.servicos.length + 1}`, conversasAtivas: 0, categoriaDescrita: corpo.categoria, setorNome: estado.setores.find((s) => s.id === corpo.setorId)?.nome ?? null, prazo: corpo.prazo ? { ...corpo.prazo, id: 'prazo-novo', prazoDescrito: `${corpo.prazo.prazoHoras} horas` } : null }
+      estado.servicos.push(novo); return json(route, novo, 201)
+    }
+    const servico = path.match(/^\/api\/tipos-servico\/([^/]+)$/)
+    if (servico && metodo === 'PUT') {
+      if (estado.perfil === 'Atendente') return problema(route, 403, 'sem_permissao', 'Seu perfil não permite alterar cadastros.')
+      const alvo = estado.servicos.find((s) => s.id === servico[1])
+      if (!alvo) return problema(route, 404, 'servico_nao_encontrado', 'Serviço não encontrado.')
+      const corpo = corpoJson(route)
+      Object.assign(alvo, corpo, { categoriaDescrita: corpo.categoria, setorNome: estado.setores.find((s) => s.id === corpo.setorId)?.nome ?? null, prazo: corpo.prazo ? { ...corpo.prazo, id: 'prazo-editado', prazoDescrito: `${corpo.prazo.prazoHoras} horas` } : null })
+      return json(route, alvo)
+    }
+
+    return problema(route, 501, 'mock_nao_implementado', `Endpoint E2E não implementado: ${metodo} ${path}`)
+  })
+
+  await page.route('https://**/*', async (route) => {
+    estado.chamadasExternas.push(route.request().url())
+    await route.abort('blockedbyclient')
+  })
+
+  return estado
+}
+
+export async function autenticarLocalmente(page: Page, perfil: Perfil = 'Administrador') {
+  await page.addInitScript(({ token }) => localStorage.setItem('crm-cartorio.token', token), {
+    token: `token-${perfil.toLowerCase()}`,
+  })
+}
+
+export async function entrarPelaTela(page: Page, perfil: Perfil = 'Administrador') {
+  const usuario = usuarios[perfil]
+  await page.goto('/login')
+  await page.getByLabel('E-mail').fill(usuario.email)
+  await page.getByLabel('Senha').fill('Teste123!')
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL(/\/$/)
+}

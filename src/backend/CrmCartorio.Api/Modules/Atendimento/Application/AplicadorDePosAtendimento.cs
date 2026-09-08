@@ -56,7 +56,8 @@ public static class AplicadorDePosAtendimento
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         // "menu"/"voltar" ja foi tratado no despacho, antes desta classe ser
         // chamada (ver ReabrirDoZeroAsync) — nao precisa checar de novo aqui.
@@ -88,7 +89,7 @@ public static class AplicadorDePosAtendimento
         // sozinha (so por pedido explicito). Nunca sobra mensagem sem passar
         // por aqui.
         await AplicadorDeRespostaInteligente.AplicarAsync(
-            db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+            db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct, mensagemAtualId);
     }
 
     /// <summary>
@@ -183,6 +184,11 @@ public static class AplicadorDePosAtendimento
                 : GatilhoDeMensagem.PedidoDeAtendente;
 
             await automaticas.EnfileirarAsync(conversa, gatilho, ct: ct);
+
+            // Segundo caminho de pedido de humano, paralelo ao de
+            // AplicadorDeRespostaInteligente.EscalarAsync — mesmo efeito,
+            // mesma necessidade de ligar o modo humano aqui (BUG-ATD-01).
+            conversa.EmAtendimentoHumano = true;
         }
         else if (escolhido == OpcaoEncerrar)
         {
@@ -217,6 +223,13 @@ public static class AplicadorDePosAtendimento
     ///
     /// <c>internal</c> e nao <c>private</c> desde 2026-08-19: o aplicador da
     /// resposta a pergunta de inatividade encerra pelo mesmo caminho.
+    ///
+    /// <b>Divergencia deliberada, desde 2026-09-04:</b> este caminho dispara o
+    /// gatilho <see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.Despedida"/>
+    /// (quem fechou foi o cliente, escolhendo); <see cref="ConversaService"/>
+    /// dispara <see cref="Configuracoes.Domain.Enums.GatilhoDeMensagem.EncerramentoPeloAtendente"/>
+    /// (quem fechou foi a serventia). Nao e a mesma mensagem por proposito — nao
+    /// precisa ficar em sincronia com aquele gatilho.
     /// </remarks>
     internal static void EncerrarPeloCliente(
         CrmDbContext db,
@@ -236,6 +249,7 @@ public static class AplicadorDePosAtendimento
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoNome = false;
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
+        conversa.EmAtendimentoHumano = false;
 
         db.Mensagens.Add(new Mensagem
         {

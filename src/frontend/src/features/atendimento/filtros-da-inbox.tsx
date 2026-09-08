@@ -28,6 +28,7 @@ export interface FiltrosVisiveis {
   etapaId?: string
   situacaoPrazo?: SituacaoPrazo
   apenasEncerradasHoje?: boolean
+  apenasAguardandoResposta?: boolean
   escopo: 'todas' | 'minhas' | 'fila'
   busca: string
 }
@@ -41,6 +42,7 @@ export function filtrosParaConsulta(filtros: FiltrosVisiveis): FiltroDeConversas
     apenasMinhas: filtros.escopo === 'minhas',
     apenasNaFila: filtros.escopo === 'fila',
     apenasEncerradasHoje: filtros.apenasEncerradasHoje,
+    apenasAguardandoResposta: filtros.apenasAguardandoResposta,
     busca: filtros.busca.trim() || undefined,
     tamanho: 60,
   }
@@ -62,7 +64,8 @@ export function temFiltroAplicado(filtros: FiltrosVisiveis) {
     Boolean(filtros.setorId) ||
     Boolean(filtros.etapaId) ||
     Boolean(filtros.situacaoPrazo) ||
-    Boolean(filtros.apenasEncerradasHoje)
+    Boolean(filtros.apenasEncerradasHoje) ||
+    Boolean(filtros.apenasAguardandoResposta)
   )
 }
 
@@ -103,60 +106,72 @@ export function FiltrosDaInbox({
 
   return (
     <div className="flex shrink-0 flex-col gap-2.5 border-b border-linha p-3">
-      {/* O botao de recolher divide a LINHA da busca, em vez de ganhar uma
-          linha propria: linha nova aqui sairia da altura da lista, que e
-          exatamente o que esta mudanca veio devolver. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-32 flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-tinta-media" />
-          <Input
-            value={filtros.busca}
-            onChange={(e) => atualizar({ busca: e.target.value })}
-            placeholder="Nome, telefone ou protocolo"
-            className="pl-8"
-          />
-        </div>
-
-        <DialogoNovaConversa aoCriar={aoCriarConversa} />
-
-        <Button
-          variant={temFiltroAvancado ? 'secondary' : 'outline'}
-          size="icon"
-          className="md:hidden"
-          onClick={() => setFiltrosAbertos(true)}
-          aria-label="Abrir filtros avançados"
-          title="Filtros"
-        >
-          <SlidersHorizontal />
-          <span className="sr-only">Filtros</span>
-        </Button>
-
-        <button
-          type="button"
-          onClick={aoRecolher}
-          aria-expanded
-          aria-label="Recolher a lista de conversas"
-          title="Recolher a lista de conversas"
-          className="hidden size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:flex"
-        >
-          <ChevronsLeft className="size-4" />
-        </button>
+      {/* Linha 1 — busca em largura cheia. Pedido do Thiago em 2026-09-07:
+          antes dividia a linha com "Novo atendimento", ficando espremida. */}
+      <div className="relative w-full">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-tinta-fraca" />
+        <Input
+          value={filtros.busca}
+          onChange={(e) => atualizar({ busca: e.target.value })}
+          placeholder="Nome, telefone ou protocolo"
+          // Fase 3.2: a coluna da lista virou cartao bg-branco (secao 16) — o
+          // Input padrao tambem e bg-card (branco) e sumiria encaixado nela
+          // sem este override local.
+          className="w-full rounded-full bg-superficie pl-9 focus-visible:bg-branco"
+        />
       </div>
 
-      {/* Grupo segmentado. O estado ativo antes era bg-card sobre bg-muted —
-          branco sobre superfície, dois tons vizinhos na paleta de papel, e o
-          botão seiecionado ficava indistinguível.
+      {/* Linha 2 — "Novo atendimento" ancora a esquerda (e' a acao primaria
+          desta barra); os controles de utilidade (filtro, recolher) vao para
+          a direita, agrupados. Pedido do Thiago em 2026-09-07: antes os
+          quatro elementos disputavam a mesma linha da busca e quebravam em
+          ordem imprevisivel pelo flex-wrap. */}
+      <div className="flex items-center justify-between gap-2">
+        <DialogoNovaConversa aoCriar={aoCriarConversa} />
 
-          A distinção agora vem de BORDA + PESO, não de matiz: é o mesmo
-          tratamento que tabs.tsx e o Indicador do painel já usam. Bordô ficou
-          fora de propósito — a inbox já tem três ocorrências (item de menu
-          ativo, Novo atendimento, Enviar) e DESIGN.md 2.1 manda usar tinta ou
-          linha-forte a partir daí. `aria-pressed` deixa o estado audível para
-          leitor de tela, já que cor sozinha nunca é sinal suficiente. */}
+        <div className="flex items-center gap-2">
+          {/* Fase 3.2: antes so' aparecia abaixo de md (os selects inline
+              cobriam o desktop). Agora e' o unico caminho para os filtros
+              avancados em qualquer largura — CamposDeFiltroAvancado inline
+              foi removido, e o Dialog abaixo passa a ser a unica casa deles.
+              Isso devolve ~80px a lista (secao 16). */}
+          <Button
+            variant={temFiltroAvancado ? 'secondary' : 'outline'}
+            size="icon"
+            className="relative"
+            onClick={() => setFiltrosAbertos(true)}
+            aria-label="Abrir filtros avançados"
+            title="Filtros"
+          >
+            <SlidersHorizontal />
+            {temFiltroAvancado ? (
+              <span aria-hidden className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-tinta" />
+            ) : null}
+            <span className="sr-only">Filtros</span>
+          </Button>
+
+          <button
+            type="button"
+            onClick={aoRecolher}
+            aria-expanded
+            aria-label="Recolher a lista de conversas"
+            title="Recolher a lista de conversas"
+            className="hidden size-9 shrink-0 items-center justify-center rounded-md border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:flex"
+          >
+            <ChevronsLeft className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Grupo segmentado — Fase 3.2 (docs/DESIGN.md, secao 16): mesma pilula
+          de seletor-de-periodo.tsx. Continua sem bordô de propósito — a inbox
+          já soma 3 ocorrências entre menu ativo, badge de não lidas e Enviar
+          (DESIGN.md 2.1). `aria-pressed` deixa o estado audível para leitor
+          de tela, já que cor sozinha nunca é sinal suficiente. */}
       <div
         role="group"
         aria-label="Escopo das conversas"
-        className="flex items-center gap-1 rounded-md border border-linha bg-muted p-0.5"
+        className="flex items-center gap-1 rounded-full border border-linha bg-superficie p-1"
       >
         {escopos.map(({ valor, rotulo }) => {
           const ativo = filtros.escopo === valor && filtros.status === 'Ativa'
@@ -170,10 +185,10 @@ export function FiltrosDaInbox({
                 atualizar({ escopo: valor, status: 'Ativa', apenasEncerradasHoje: false })
               }
               className={cn(
-                'flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 py-1 text-xs transition-colors md:min-h-0',
+                'flex min-h-10 flex-1 items-center justify-center rounded-full px-2 py-1 text-xs transition-colors md:min-h-0',
                 ativo
-                  ? 'border-linha-forte bg-branco font-semibold text-tinta'
-                  : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
+                  ? 'bg-tinta font-semibold text-branco shadow-card'
+                  : 'font-medium text-tinta-media hover:bg-branco hover:text-tinta',
               )}
             >
               {rotulo}
@@ -191,25 +206,15 @@ export function FiltrosDaInbox({
             })
           }
           className={cn(
-            'flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 py-1 text-xs transition-colors md:min-h-0',
+            'flex min-h-10 flex-1 items-center justify-center rounded-full px-2 py-1 text-xs transition-colors md:min-h-0',
             filtros.status === 'Encerrada'
-              ? 'border-linha-forte bg-branco font-semibold text-tinta'
-              : 'border-transparent font-medium text-tinta-media hover:bg-branco/60 hover:text-tinta',
+              ? 'bg-tinta font-semibold text-branco shadow-card'
+              : 'font-medium text-tinta-media hover:bg-branco hover:text-tinta',
           )}
           title="Conversas encerradas continuam consultáveis — nada é apagado"
         >
           {filtros.apenasEncerradasHoje ? 'Encerradas hoje' : 'Encerradas'}
         </button>
-      </div>
-
-      <div className="hidden md:block">
-        <CamposDeFiltroAvancado
-          filtros={filtros}
-          etapas={etapas}
-          setores={setores}
-          aoMudar={atualizar}
-          temFiltroAvancado={temFiltroAvancado}
-        />
       </div>
 
       <Dialog open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>

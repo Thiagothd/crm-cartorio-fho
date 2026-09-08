@@ -4,6 +4,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Clientes.Application;
@@ -26,6 +27,8 @@ public class ImportacaoDeContatosService(
         AnalisarImportacaoRequest request,
         CancellationToken ct = default)
     {
+        GarantirPermissao();
+
         var linhas = request.Fonte == FonteDeImportacao.WhatsApp
             ? await LerContatosDoWhatsAppAsync(ct)
             : LerDoTexto(request.Texto);
@@ -223,7 +226,7 @@ public class ImportacaoDeContatosService(
 
     private void GarantirPermissao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.ClientesImportarAgenda))
         {
             throw ClientesServiceException.SemPermissao();
         }

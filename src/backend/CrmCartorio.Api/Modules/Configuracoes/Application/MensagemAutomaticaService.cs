@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Configuracoes.Application;
@@ -108,7 +109,7 @@ public class MensagemAutomaticaService(CrmDbContext db, IContextoDoUsuario ctx) 
 
     private void GarantirPermissao()
     {
-        if (!ctx.PodeGerirCadastros)
+        if (!ctx.Pode(PermissaoDoSistema.AutomacaoMensagensEditar))
         {
             throw ConfiguracoesServiceException.SemPermissao();
         }
@@ -197,6 +198,7 @@ public class MensagemAutomaticaService(CrmDbContext db, IContextoDoUsuario ctx) 
         GatilhoDeMensagem.PrazoVencido => "Prazo vencido",
         GatilhoDeMensagem.TriagemSemCorrespondencia => "Cliente nao escolheu setor no menu",
         GatilhoDeMensagem.RespostaSemCorrespondencia => "IA sem resposta especifica (cliente nao pediu atendente)",
+        GatilhoDeMensagem.EncerramentoPeloAtendente => "Atendente encerrou o atendimento",
         _ => gatilho.ToString()
     };
 }

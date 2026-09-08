@@ -7,7 +7,14 @@
 
 // Enums ---------------------------------------------------------------------
 
-/** Permissão no sistema — o que a pessoa PODE FAZER aqui dentro. */
+/**
+ * Classe da conta — a exigência de segurança (verificação em duas etapas
+ * obrigatória para Administrador, proteção do Titular). NÃO é o que a pessoa
+ * acessa: isso é `Atendente.permissoes`, ajustável por tela em
+ * `/equipe/:id/permissoes`. As duas coisas coincidem no dia 1 (é o preset que
+ * cada Classe carrega quando ninguém personalizou nada), mas são eixos
+ * independentes — ver Modules/Usuarios/README.md, "Permissões granulares".
+ */
 export type PerfilDeAtendente = 'Atendente' | 'Supervisor' | 'Administrador'
 
 /**
@@ -33,7 +40,7 @@ export type AutorTipo = 'Cliente' | 'Atendente' | 'Sistema'
 
 export type TipoMensagem = 'Texto' | 'Imagem' | 'Documento' | 'Audio' | 'Video'
 
-export type StatusEntrega = 'Pendente' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
+export type StatusEntrega = 'Pendente' | 'Enviando' | 'Enviada' | 'Entregue' | 'Lida' | 'Falha'
 
 export type SituacaoPrazo = 'SemPrazo' | 'EmDia' | 'EmAlerta' | 'Atrasada'
 
@@ -57,6 +64,7 @@ export type GatilhoDeMensagem =
   | 'ConfirmacaoDeEncerramento'
   | 'EncerramentoPorInatividade'
   | 'PedidoDeNome'
+  | 'EncerramentoPeloAtendente'
 
 /**
  * Encerramento automático de conversa parada.
@@ -98,6 +106,82 @@ export type RegimeDeBens =
   | 'SeparacaoObrigatoria'
   | 'ParticipacaoFinalNosAquestos'
 
+// Permissoes granulares -------------------------------------------------------
+
+/**
+ * Espelho de `PermissaoDoSistema`/`CatalogoDePermissoes` do backend (chave de
+ * texto, não o enum). Fonte única de verdade: Modules/Usuarios/Domain/
+ * CatalogoDePermissoes.cs — um item novo lá precisa entrar aqui também.
+ */
+export type ChaveDePermissao =
+  // Atendimento
+  | 'atendimento.ver'
+  | 'atendimento.assumir'
+  | 'atendimento.responder'
+  | 'atendimento.abrir_novo'
+  | 'atendimento.mover'
+  | 'atendimento.vincular_servico'
+  | 'atendimento.encerrar'
+  | 'atendimento.reabrir'
+  | 'atendimento.transferir'
+  | 'atendimento.mexer_no_de_terceiro'
+  | 'atendimento.simular_cliente'
+  // Clientes
+  | 'clientes.ver'
+  | 'clientes.cadastrar'
+  | 'clientes.editar'
+  | 'clientes.excluir'
+  | 'clientes.importar_agenda'
+  // Catálogo e estrutura
+  | 'servicos.ver'
+  | 'servicos.editar'
+  | 'etapas.ver'
+  | 'etapas.editar'
+  | 'setores.ver'
+  | 'setores.editar'
+  // Automação e IA
+  | 'automacao.mensagens.ver'
+  | 'automacao.mensagens.editar'
+  | 'automacao.respostas.ver'
+  | 'automacao.respostas.editar'
+  | 'automacao.encerramento.ver'
+  | 'automacao.encerramento.editar'
+  | 'ia.ver'
+  | 'ia.conhecimento.ver'
+  | 'ia.conhecimento.editar'
+  // Relatórios
+  | 'relatorios.ver'
+  | 'relatorios.equipe'
+  | 'relatorios.saude_ia'
+  | 'relatorios.saude_whatsapp'
+  // WhatsApp
+  | 'whatsapp.ver'
+  | 'whatsapp.parear'
+  | 'whatsapp.regras'
+  | 'whatsapp.testar_envio'
+  // Aparência e serventia
+  | 'aparencia.ver'
+  | 'aparencia.editar'
+  | 'serventia.editar'
+  // Equipe e segurança
+  | 'equipe.ver'
+  | 'equipe.cadastrar'
+  | 'equipe.editar'
+  | 'equipe.redefinir_senha'
+  | 'equipe.excluir'
+  | 'equipe.permissoes'
+  | 'equipe.mfa_administrar'
+  | 'seguranca.eventos.ver'
+
+/** Espelho de `ModeloDePermissao` — rótulo do último preset aplicado, nunca a verdade (ver `Atendente.permissoes`). */
+export type ModeloDePermissao =
+  | 'Recepcao'
+  | 'Balcao'
+  | 'Catalogo'
+  | 'Supervisao'
+  | 'Administracao'
+  | 'Auditoria'
+
 // Autenticacao --------------------------------------------------------------
 
 export interface Atendente {
@@ -112,6 +196,12 @@ export interface Atendente {
   setorPadraoNome: string | null
   ativo: boolean
   ultimoAcessoEm: string | null
+  /** Verificação em duas etapas confirmada e ativa nesta conta. */
+  mfaAtivo: boolean
+  /** Nulo quando a conta segue a Classe da conta (nunca personalizou permissões). */
+  modelo: ModeloDePermissao | null
+  /** O conjunto EFETIVO de chaves — já resolvido pelo backend (NULL na base vira o preset da Classe). */
+  permissoes: ChaveDePermissao[]
 }
 
 export interface Tenant {
@@ -128,6 +218,90 @@ export interface Sessao {
   expiraEm: string
   atendente: Atendente
   tenant: Tenant
+}
+
+// MFA (SEC-03) ----------------------------------------------------------------
+
+/** Tipo do desafio de MFA — decide qual tela a etapa 2 mostra. */
+export type TipoDeDesafioMfa = 'SegundoFator' | 'MatriculaPrivilegiada' | 'Ticket'
+
+export interface DesafioMfa {
+  /** O DESAFIO em si — a credencial da etapa 2. Nunca um JWT. */
+  desafio: string
+  tipo: TipoDeDesafioMfa
+  expiraEm: string
+}
+
+/**
+ * Resposta única da etapa 1 do login. `requerMfa` decide qual dos dois campos
+ * está preenchido — nunca os dois, nunca nenhum.
+ */
+export interface LoginEtapa1Resposta {
+  requerMfa: boolean
+  sessao: Sessao | null
+  desafio: DesafioMfa | null
+}
+
+export interface IniciarMfaResposta {
+  /** URI `otpauth://` — vira o QR Code, renderizado no navegador (o segredo nunca sai daqui). */
+  otpauthUri: string
+  /** Para quem prefere digitar manualmente em vez de escanear. */
+  segredoBase32: string
+  expiraEm: string
+}
+
+export interface ConfirmarMfaResposta {
+  sessao: Sessao
+  /** Os 10 códigos em texto — mostrados UMA única vez nesta resposta. */
+  codigosDeRecuperacao: string[]
+}
+
+export interface RegenerarCodigosResposta {
+  codigosDeRecuperacao: string[]
+}
+
+export interface MfaSituacao {
+  ativo: boolean
+  /** A política da serventia exige MFA para este perfil/cargo — quando true, `/mfa/desativar` é recusado. */
+  obrigatorio: boolean
+  /** `null` quando o MFA não está ativo. */
+  codigosDeRecuperacaoRestantes: number | null
+  confirmadoEm: string | null
+  /** Quantos navegadores têm "confiar por 30 dias" ativo agora — 0 esconde a ação de esquecer. */
+  dispositivosConfiaveisAtivos: number
+}
+
+export interface TicketDeMfa {
+  ticket: string
+  expiraEm: string
+}
+
+// Permissoes granulares (tela /equipe/:id/permissoes) ------------------------
+
+export interface PermissaoDoCatalogo {
+  chave: ChaveDePermissao
+  rotulo: string
+  descricao: string
+  bloco: string
+  ehTela: boolean
+}
+
+export interface ModeloDePermissaoCatalogado {
+  modelo: ModeloDePermissao
+  rotulo: string
+  descricao: string
+  chaves: ChaveDePermissao[]
+}
+
+export interface PermissoesDoAtendente {
+  atendenteId: string
+  /** Nulo quando a conta segue a Classe (nunca personalizou). */
+  modelo: ModeloDePermissao | null
+  chaves: ChaveDePermissao[]
+  /** O catálogo inteiro (~49 itens) — igual para todo mundo, vem do backend para nunca duplicar rótulo/descrição aqui. */
+  catalogo: PermissaoDoCatalogo[]
+  /** Os 6 modelos prontos, cada um com o conjunto que aplicam. */
+  modelos: ModeloDePermissaoCatalogado[]
 }
 
 // Atendimento ---------------------------------------------------------------
@@ -259,6 +433,7 @@ export interface ContagemPorChave {
 export interface ResumoDoPainel {
   totalAtivas: number
   naFila: number
+  aguardandoResposta: number
   minhasConversas: number
   encerradasHoje: number
   emAlerta: number
@@ -276,6 +451,7 @@ export interface FiltroDeConversas {
   apenasNaFila?: boolean
   apenasMinhas?: boolean
   apenasEncerradasHoje?: boolean
+  apenasAguardandoResposta?: boolean
   situacaoPrazo?: SituacaoPrazo
   busca?: string
   pagina?: number
@@ -574,6 +750,39 @@ export interface RespostaRapida {
   ativo: boolean
 }
 
+// Conhecimento de IA ----------------------------------------------------------
+
+export interface ConhecimentoDeIa {
+  id: string
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoId: string | null
+  tipoServicoNome: string | null
+  /** Datas ISO ("AAAA-MM-DD"). Nulo = sem limite. */
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  versao: number
+  criadoPorNome: string | null
+  atualizadoPorNome: string | null
+  ativo: boolean
+  criadoEm: string
+  atualizadoEm: string
+}
+
+export interface VersaoDeConhecimentoDeIa {
+  versao: number
+  titulo: string
+  conteudo: string
+  tema: string
+  tipoServicoNome: string | null
+  vigenteDesde: string | null
+  vigenteAte: string | null
+  ativo: boolean
+  alteradoPorNome: string | null
+  ocorridoEm: string
+}
+
 // Servicos ------------------------------------------------------------------
 
 export interface PrazoServico {
@@ -612,6 +821,7 @@ export interface IndicadoresAgora {
   naFila: number
   emAlerta: number
   atrasadas: number
+  aguardandoResposta: number
 }
 
 export interface IndicadoresDoPeriodo {
@@ -861,10 +1071,143 @@ export interface AlertaOperacional {
   rota: string
 }
 
+/** `Disponivel`, `Contingencia`, `SemChave` ou `TetoDiarioAtingido`. */
+export type StatusDoProvedorDeIa = 'Disponivel' | 'Contingencia' | 'SemChave' | 'TetoDiarioAtingido'
+
+export interface EstadoDoProvedorDeIa {
+  nome: string
+  modelo: string
+  configurado: boolean
+  status: StatusDoProvedorDeIa
+  voltaATentarEm: string | null
+  motivo: string | null
+}
+
+export interface FranquiaDoGemini {
+  limitesCadastrados: boolean
+  limiteRpd: number | null
+  requisicoesHoje: number
+  limiteRpm: number | null
+  requisicoesNaJanela: number
+  limiteTpm: number | null
+  tokensNaJanela: number
+  percentualDeSeguranca: number
+  sugestaoDeLimiteRpd: number | null
+}
+
+export interface HojeDaIa {
+  totalDeChamadas: number
+  atendidasPeloGemini: number
+  caidasNoHaiku: number
+  percentualGratuito: number
+  custoEstimadoHaikuReais: number
+  tokensDoGemini: number
+}
+
+export interface MotivosDeFallback {
+  quota: number
+  rateLimit: number
+  indisponibilidade: number
+  configuracao: number
+  outros: number
+  /** Gemini foi discado e falhou, e o Haiku assumiu — soma dos 5 campos acima. */
+  fallbackExecutado: number
+  /** Gemini nunca foi discado (desligado, disjuntor aberto, margem de cota) e o Haiku respondeu sozinho. */
+  fallbackPreventivo: number
+}
+
+export interface EconomiaDaIa {
+  custoRealHaikuReais: number
+  custoSeFosseTudoHaikuReais: number
+  economiaEstimadaReais: number
+  percentualDeEconomia: number
+}
+
 export interface SituacaoDaIa {
   habilitada: boolean
   estaConfigurada: boolean
-  modelo: string
+  gemini: EstadoDoProvedorDeIa
+  anthropic: EstadoDoProvedorDeIa
   limiteDiario: number
-  usadoHoje: number
+  usadoHojeGeral: number
+  limiteDiarioHaiku: number
+  usadoHojeHaiku: number
+  franquia: FranquiaDoGemini
+  hoje: HojeDaIa
+  motivosDeFallback: MotivosDeFallback
+  economia: EconomiaDaIa
+  periodoDe: string
+  periodoAte: string
+}
+
+// --- Análise da IA (Etapa B — /automacao/ia do gestor) ----------------------
+
+export interface PeriodoDaAnaliseDeIa {
+  de: string
+  ate: string
+  granularidade: 'hora' | 'dia'
+}
+
+/** `status`: `Atendendo` | `Contingencia` | `Desligada` — nunca nome de provedor. */
+export interface SituacaoAgoraDaIa {
+  status: 'Atendendo' | 'Contingencia' | 'Desligada'
+  detalhe: string | null
+}
+
+export interface ValorEntregueDaIa {
+  /** `null` quando o período começa antes de `rodadasMedidasDesde` — a tela mostra "—", nunca um número sub-contado. */
+  perguntasAtendidas: number | null
+  perguntasAtendidasDeltaPercentual: number | null
+  taxaDeResolucao: number
+  taxaDeResolucaoDeltaPontos: number | null
+  naoSoubeResponder: number
+  naoSoubeResponderDeltaPercentual: number | null
+  tempoTipicoDeRespostaSegundos: number | null
+  tempoTipicoDeRespostaDeltaPercentual: number | null
+}
+
+export interface PontoDeVolumeDeIa {
+  inicio: string
+  entregues: number
+  naoSoubeResponder: number
+  falhas: number
+}
+
+export interface ResultadoDasTentativasDeIa {
+  entregues: number
+  naoSoubeResponder: number
+  falhas: number
+}
+
+export interface AssuntoMaisPerguntado {
+  tipoServicoId: string | null
+  nome: string
+  total: number
+  percentual: number
+}
+
+export interface LacunaDeCatalogo {
+  categoria: string
+  tipoServicoId: string | null
+  servicoNome: string
+  total: number
+}
+
+/** `severidade`: `atencao` | `informativo` — só para o ícone; o texto já carrega o número. */
+export interface InsightDaIa {
+  severidade: 'atencao' | 'informativo'
+  texto: string
+}
+
+export interface AnaliseDaIa {
+  periodo: PeriodoDaAnaliseDeIa
+  situacaoAgora: SituacaoAgoraDaIa
+  valorEntregue: ValorEntregueDaIa
+  volumeAoLongoDoTempo: PontoDeVolumeDeIa[]
+  resultadoDasTentativas: ResultadoDasTentativasDeIa
+  assuntosMaisPerguntados: AssuntoMaisPerguntado[]
+  horariosDeMaiorUso: number[]
+  lacunasDeCatalogo: LacunaDeCatalogo[]
+  insights: InsightDaIa[]
+  rodadasMedidasDesde: string | null
 }

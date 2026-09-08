@@ -34,8 +34,32 @@ const SEM_VALOR = '__nenhum__'
  * na hora. Na Fase 2 a conversa nasce sozinha quando a mensagem chega no webhook —
  * este diálogo continua útil para atendimento que começou no balcão.
  */
-export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string) => void }) {
-  const [aberto, setAberto] = useState(false)
+export function DialogoNovaConversa({
+  aoCriar,
+  aberto: abertoControlado,
+  aoMudarAberto,
+}: {
+  aoCriar: (conversaId: string) => void
+  /**
+   * Omitido: o diálogo é dono do próprio estado e desenha o botão "Novo
+   * atendimento" — é o uso da barra de filtros da inbox, inalterado.
+   * Informado: quem chama controla o aberto/fechado, e NENHUM gatilho é
+   * desenhado — o gatilho é de quem chama (ex.: o cartão de destaque da
+   * Visão Geral).
+   */
+  aberto?: boolean
+  aoMudarAberto?: (aberto: boolean) => void
+}) {
+  const controlado = abertoControlado !== undefined
+  const [abertoInterno, setAbertoInterno] = useState(false)
+  const aberto = controlado ? abertoControlado : abertoInterno
+
+  function definirAberto(valor: boolean) {
+    if (!controlado) setAbertoInterno(valor)
+    aoMudarAberto?.(valor)
+    if (!valor) limpar()
+  }
+
   const [busca, setBusca] = useState('')
   const [clienteId, setClienteId] = useState('')
   const [setorId, setSetorId] = useState(SEM_VALOR)
@@ -101,8 +125,7 @@ export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string)
 
       invalidar()
       aoCriar(conversa.id)
-      setAberto(false)
-      limpar()
+      definirAberto(false)
       toast.success(`Atendimento ${conversa.protocolo} aberto.`)
     } catch (falha) {
       toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível abrir o atendimento.')
@@ -112,19 +135,20 @@ export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string)
   }
 
   return (
-    <Dialog
-      open={aberto}
-      onOpenChange={(v) => {
-        setAberto(v)
-        if (!v) limpar()
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <Plus />
-          Novo atendimento
-        </Button>
-      </DialogTrigger>
+    <Dialog open={aberto} onOpenChange={definirAberto}>
+      {controlado ? null : (
+        <DialogTrigger asChild>
+          {/* Fase 3.2 (docs/DESIGN.md, secao 16.5): desceu de bordo (default)
+              para outline em 2026-09-06. Com o badge de nao lidas virando
+              solido em bordo (item-de-conversa.tsx), o orcamento de 3 por tela
+              (2.1) passa a marcar so o que exige acao — o que chegou sem
+              resposta, e Enviar — nao mais a criacao manual de atendimento. */}
+          <Button size="sm" variant="outline">
+            <Plus />
+            Novo atendimento
+          </Button>
+        </DialogTrigger>
+      )}
 
       <DialogContent>
         <DialogHeader>
@@ -263,7 +287,7 @@ export function DialogoNovaConversa({ aoCriar }: { aoCriar: (conversaId: string)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setAberto(false)}>
+          <Button variant="outline" onClick={() => definirAberto(false)}>
             Cancelar
           </Button>
           <Button onClick={() => void salvar()} disabled={salvando}>

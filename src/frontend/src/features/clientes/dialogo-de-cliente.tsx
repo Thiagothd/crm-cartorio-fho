@@ -83,11 +83,13 @@ export function DialogoDeCliente({
   aberto,
   aoFechar,
   aoSalvar,
+  abaInicial = 'contato',
 }: {
   cliente: Cliente | null
   aberto: boolean
   aoFechar: () => void
   aoSalvar: () => void
+  abaInicial?: 'contato' | 'observacoes'
 }) {
   const [dados, setDados] = useState<DadosDeCliente>(VAZIO)
   const [salvando, setSalvando] = useState(false)
@@ -115,10 +117,10 @@ export function DialogoDeCliente({
     setEstadoDoCep(null)
     setEstadoDoDocumento(null)
     setErroDeSalvamento(null)
-    setAba('contato')
+    setAba(abaInicial)
     ultimoCepConsultado.current = ''
     ultimoCnpjConsultado.current = ''
-  }, [aberto, cliente])
+  }, [aberto, cliente, abaInicial])
 
   // Fechar o diálogo no meio de uma consulta não pode deixar a resposta chegar
   // depois e escrever num formulário que já é de outro cliente.
@@ -518,7 +520,7 @@ export function DialogoDeCliente({
             </Campo>
 
             {cliente ? (
-              <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-linha bg-superficie px-4 py-3">
                 <div>
                   <Label htmlFor="cliente-ativo">Cliente ativo</Label>
                   <p className="text-xs text-tinta-media">Desativar não apaga o histórico.</p>

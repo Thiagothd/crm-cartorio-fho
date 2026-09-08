@@ -97,6 +97,27 @@ Checar("Filtro: EmDia", () =>
                  && (c.PrazoAlertaEm == null || agora < c.PrazoAlertaEm))
         .ToQueryString());
 
+// A regra de "o cartorio esta devendo resposta" entra na inbox como Expression
+// compartilhada, nao como lambda reescrita — se ela deixar de traduzir, o card da
+// Visao Geral e a lista que ele abre caem juntos.
+Checar("Filtro: aguardando resposta (Expression compartilhada, APPLY no WHERE)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens))
+        .ToQueryString());
+
+// O caso real da inbox: o APPLY do filtro CONVIVENDO com os oito da projecao,
+// com ordenacao e paginacao por cima. E' a combinacao, nao o filtro sozinho,
+// que estoura em execucao.
+Checar("Inbox: aguardando resposta + projecao completa + paginacao", () =>
+    ProjecaoDeConversa
+        .De(db, db.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+            .Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens))
+            .OrderByDescending(c => c.UltimaMensagemEm))
+        .Skip(0).Take(60)
+        .ToQueryString());
+
 // 3. Busca textual da inbox — Any() cruzando com Clientes.
 Checar("Filtro: busca textual", () =>
     db.Conversas.AsNoTracking()
@@ -246,6 +267,15 @@ Checar("Disparador: regras de gatilho de etapa", () =>
                  && m.Ativo
                  && m.Gatilho == GatilhoDeMensagem.EtapaAlterada
                  && m.EtapaAlvoId == etapaAlvoId)
+        .OrderBy(m => m.CriadoEm)
+        .Select(m => m.Conteudo)
+        .ToQueryString());
+
+Checar("Disparador: modelos ativos do gatilho EncerramentoPeloAtendente (sem filtro de etapa)", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.Ativo
+                 && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
         .OrderBy(m => m.CriadoEm)
         .Select(m => m.Conteudo)
         .ToQueryString());
@@ -427,6 +457,53 @@ Checar("Indicadores: bloco AGORA (GroupBy constante, 4 Count com predicado)", ()
         {
             Ativas = g.Count(c => escopo == null || c.AtendenteId == escopo),
             NaFila = g.Count(c => c.AtendenteId == null),
+            EmAlerta = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora <= c.PrazoLimite
+                && c.PrazoAlertaEm != null
+                && agora >= c.PrazoAlertaEm),
+            Atrasadas = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo)
+                && c.PrazoLimite != null
+                && agora > c.PrazoLimite)
+        })
+        .ToQueryString();
+});
+
+// O bloco AGORA com a quinta contagem. Dois pontos delicados no mesmo lugar: o
+// `GroupBy(_ => 1)` (ver acima) e a subconsulta correlacionada da bandeira de
+// "aguardando resposta", que sai na PROJECAO de proposito — dentro de
+// `g.Count(...)` seria subconsulta no argumento de um agregado, que o EF recusa
+// com frequencia. Esta e a unica copia do corpo de
+// AguardandoRespostaDoCartorio.Expressao no sistema: se as duas divergirem, o
+// card e a lista passam a mentir um sobre o outro.
+Checar("Indicadores: bloco AGORA com 5 contagens (bandeira por APPLY + GroupBy constante)", () =>
+{
+    Guid? escopo = null;
+
+    return db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Select(c => new
+        {
+            c.AtendenteId,
+            c.PrazoLimite,
+            c.PrazoAlertaEm,
+            AguardandoResposta = db.Mensagens
+                .Where(m => m.ConversaId == c.Id
+                         && (m.AutorTipo != AutorTipo.Sistema || m.EhAutomatica))
+                .OrderByDescending(m => m.EnviadaEm)
+                .ThenByDescending(m => m.Id)
+                .Select(m => m.AutorTipo)
+                .FirstOrDefault() == AutorTipo.Cliente
+        })
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Ativas = g.Count(c => escopo == null || c.AtendenteId == escopo),
+            NaFila = g.Count(c => c.AtendenteId == null),
+            AguardandoResposta = g.Count(c =>
+                (escopo == null || c.AtendenteId == escopo) && c.AguardandoResposta),
             EmAlerta = g.Count(c =>
                 (escopo == null || c.AtendenteId == escopo)
                 && c.PrazoLimite != null
@@ -650,7 +727,7 @@ Checar("Canal WhatsApp: historico de conexoes com nome do atendente (subconsulta
         })
         .ToQueryString());
 
-Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de EnviadorPeloWhatsApp)", () =>
+Checar("Canal WhatsApp: envio — projecao completa do alvo (identica a EnviadorPeloWhatsApp.EnviarAsync)", () =>
     db.Mensagens.AsNoTracking()
         .Where(m => m.Id == Guid.Empty)
         .Select(m => new
@@ -658,6 +735,16 @@ Checar("Canal WhatsApp: envio — telefone e tenant da conversa (mesma forma de 
             m.Id,
             m.Conteudo,
             m.StatusEntrega,
+            m.ArquivoCaminho,
+            m.ArquivoNome,
+            m.ArquivoTipoMime,
+            m.AutorTipo,
+            m.EhAutomatica,
+            m.GeradaPorIa,
+            AtendenteNome = db.Atendentes
+                .Where(a => a.Id == m.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefault(),
             Canal = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.Canal).FirstOrDefault(),
             TenantId = db.Conversas.Where(c => c.Id == m.ConversaId).Select(c => c.TenantId).FirstOrDefault(),
             Telefone = db.Conversas
@@ -687,24 +774,29 @@ Checar("Inatividade: tenants com o recurso configurado (projecao de nulavel com 
         })
         .ToQueryString());
 
-Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; SLA nao bloqueia mais)", () =>
+Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enum de canal; ultima mensagem nao e do cliente via subconsulta)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm == null
                  && c.UltimaMensagemEm < agora.AddMinutes(-20)
                  && c.Canal == CanalOrigem.WhatsApp
-                 && c.MensagensNaoLidas == 0)
+                 && db.Mensagens
+                        .Where(m => m.ConversaId == c.Id)
+                        .OrderByDescending(m => m.EnviadaEm)
+                        .Select(m => m.AutorTipo)
+                        .FirstOrDefault() != AutorTipo.Cliente)
         .OrderBy(c => c.UltimaMensagemEm)
         .Take(200)
         .ToQueryString());
 
-Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta", () =>
+Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAtendimentoHumano, BUG-ATD-01)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm != null
-                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30))
+                 && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30)
+                 && !c.EmAtendimentoHumano)
         .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
         .Take(200)
         .ToQueryString());
@@ -714,6 +806,14 @@ Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilh
         .Where(m => m.TenantId == tenantId
                  && m.Ativo
                  && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
+        .ToQueryString());
+
+// --- Human Takeover / BUG-ATD-01 (028) --------------------------------------
+
+Checar("EmAtendimentoHumano: recheck pos-IA em AplicadorDeRespostaInteligente (projecao de bool unico)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.Id == tenantId)
+        .Select(c => c.EmAtendimentoHumano)
         .ToQueryString());
 
 // --- Pedido de nome (025) ---------------------------------------------------
@@ -744,6 +844,216 @@ Checar("Importacao: telefones do lote ja existentes, ao confirmar (Contains + pr
         .Where(c => c.TenantId == tenantId && telefonesDoLoteDeImportacao.Contains(c.TelefoneWhatsapp))
         .Select(c => c.TelefoneWhatsapp)
         .ToQueryString());
+
+// --- 15. Analise da IA — ChamadasDeIa (migracao 042) ------------------------
+//
+// Ate esta secao, ZERO consultas de ChamadasDeIa passavam por aqui — nem as
+// duas que ja rodam em producao (SituacaoDaIa.cs e SituacaoGlobalDaIaService.cs)
+// nem as que a agregacao nova (Etapas B/C) vai precisar. As de maior risco sao
+// GroupBy por enum NULAVEL convertido (MotivoDaNaoResposta), chave composta
+// com divisao inteira (histograma de latencia) e Distinct().Count() separado
+// do GroupBy(_ => 1) — o caso classico que o EF Core recusa quando embutido
+// junto de outros agregados na mesma projecao.
+
+var periodoDeDaIa = agora.AddDays(-7);
+var periodoAteDaIa = agora;
+
+Checar("ChamadasDeIa: producao SituacaoDaIa.cs (projecao do periodo, por tenant)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .Select(c => new
+        {
+            c.Provedor,
+            c.Sucesso,
+            c.FoiFallback,
+            c.TipoDeFallback,
+            c.TipoDeFalha,
+            c.TokensEntrada,
+            c.TokensSaida,
+            c.TokensPensamento,
+            c.CustoEstimadoUsd
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: contagem condicional de PodeResponder (bool? dentro de agregacao)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa)
+        .GroupBy(_ => 1)
+        .Select(g => new
+        {
+            Entregues = g.Count(c => c.PodeResponder == true),
+            NaoSoube = g.Count(c => c.PodeResponder == false),
+            Falhas = g.Count(c => !c.Sucesso),
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: soma de custo com ?? sobre decimal? dentro de Sum", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Sucesso)
+        .GroupBy(_ => 1)
+        .Select(g => new { CustoTotalUsd = g.Sum(c => c.CustoEstimadoUsd ?? 0m) })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: contagem de rodadas distintas (Distinct().Count() fora do GroupBy(_ => 1))", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.RodadaId != null)
+        .Select(c => c.RodadaId!.Value)
+        .Distinct()
+        .ToQueryString());
+
+Checar("ChamadasDeIa: histograma de latencia por provedor (chave composta com divisao inteira)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.Sucesso)
+        .GroupBy(c => new { c.Provedor, Balde = c.LatenciaMs / 250 })
+        .Select(g => new { g.Key.Provedor, g.Key.Balde, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: breakdown por provedor e tipo de falha (dois enums convertidos na chave composta)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => !c.Sucesso)
+        .GroupBy(c => new { c.Provedor, c.TipoDeFalha })
+        .Select(g => new { g.Key.Provedor, g.Key.TipoDeFalha, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: distribuicao por servico (Guid? como chave de agrupamento)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId)
+        .GroupBy(c => c.TipoServicoId)
+        .Select(g => new
+        {
+            TipoServicoId = g.Key,
+            Total = g.Count(),
+            NaoSoube = g.Count(c => c.PodeResponder == false),
+        })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: agrupado por categoria da nao-resposta (enum NULAVEL convertido como chave)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.PodeResponder == false)
+        .GroupBy(c => c.MotivoDaNaoResposta)
+        .Select(g => new { Categoria = g.Key, Total = g.Count() })
+        .ToQueryString());
+
+Checar("ChamadasDeIa: ranking de tenants por tentativas, ordenado e paginado (a consulta da Central)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => c.TenantId)
+        .Select(g => new { TenantId = g.Key, Total = g.Count() })
+        .OrderByDescending(x => x.Total)
+        .ThenBy(x => x.TenantId)
+        .Skip(0)
+        .Take(20)
+        .ToQueryString());
+
+// --- 16. Analise da IA (Etapa B) — AnaliseDaIa.cs, producao real -----------
+
+Checar("AnaliseDaIa: agregados por RodadaId (Guid? nulavel como chave, 4 contagens condicionais)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa)
+        .GroupBy(c => c.RodadaId)
+        .Select(g => new
+        {
+            RodadaId = g.Key,
+            Tentativas = g.Count(),
+            Entregues = g.Count(c => c.Sucesso && c.PodeResponder == true),
+            NaoSoube = g.Count(c => c.Sucesso && c.PodeResponder == false),
+            Falhas = g.Count(c => !c.Sucesso)
+        })
+        .ToQueryString());
+
+Checar("AnaliseDaIa: lacunas de catalogo (chave composta: enum nulavel convertido + Guid nulavel)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm < periodoAteDaIa && c.PodeResponder == false)
+        .GroupBy(c => new { c.MotivoDaNaoResposta, c.TipoServicoId })
+        .Select(g => new { g.Key.MotivoDaNaoResposta, g.Key.TipoServicoId, Total = g.Count() })
+        .OrderByDescending(g => g.Total)
+        .Take(10)
+        .ToQueryString());
+
+// --- 17. Central de IA (Etapa C) — ObservabilidadeDaIaService.cs, producao real
+
+Checar("ObservabilidadeDaIa: distribuicao por modelo (chave composta enum + string)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => new { c.Provedor, c.Modelo })
+        .Select(g => new { g.Key.Provedor, g.Key.Modelo, Total = g.Count(), Custo = g.Sum(c => c.CustoEstimadoUsd ?? 0m) })
+        .ToQueryString());
+
+Checar("ObservabilidadeDaIa: media condicional (Average com Where dentro do grupo, ao lado de Count/Sum)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .GroupBy(c => c.TenantId)
+        .Select(g => new
+        {
+            TenantId = g.Key,
+            Tentativas = g.Count(),
+            Falhas = g.Count(c => !c.Sucesso),
+            CustoEstimadoUsd = g.Sum(c => c.CustoEstimadoUsd ?? 0m),
+            LatenciaMediaMs = g.Where(c => c.Sucesso).Average(c => (double?)c.LatenciaMs),
+        })
+        .ToQueryString());
+
+Checar("ObservabilidadeDaIa: busca de tenant por nome (Like sobre coluna nulavel) alimentando Contains em ChamadasDeIa", () =>
+{
+    var idsQueBatemNaBusca = db.Tenants.AsNoTracking()
+        .Where(t => EF.Functions.Like(t.NomeFantasia, "%gameleiras%") || EF.Functions.Like(t.RazaoSocial, "%gameleiras%"))
+        .Select(t => t.Id);
+
+    return idsQueBatemNaBusca.ToQueryString() + "\n---\n" +
+        db.ChamadasDeIa.AsNoTracking()
+            .Where(c => idsQueBatemNaBusca.Contains(c.TenantId))
+            .ToQueryString();
+});
+
+Checar("ObservabilidadeDaIa: historico paginado (OrderByDescending por coluna + ThenBy Id, Skip/Take)", () =>
+    db.ChamadasDeIa.AsNoTracking()
+        .Where(c => c.IniciadaEm >= periodoDeDaIa && c.IniciadaEm <= periodoAteDaIa)
+        .OrderByDescending(c => c.IniciadaEm)
+        .ThenBy(c => c.Id)
+        .Skip(0)
+        .Take(20)
+        .ToQueryString());
+
+// Permissoes granulares (Equipe — permissoes granulares + redesenho).
+
+Checar("Permissoes granulares: projecao de CarregarSessaoAsync (SEC-01 + resolucao de permissoes no mesmo round-trip)", () =>
+    db.Atendentes.AsNoTracking()
+        .Where(a => a.Id == atendenteId && a.TenantId == tenantId)
+        .Select(a => new { a.Ativo, a.TokenVersion, a.Perfil, a.Permissoes })
+        .ToQueryString());
+
+Checar("Permissoes granulares: projecao de ListarAsync com Permissoes/ModeloDePermissao/MfaAtivo", () =>
+    db.Atendentes.AsNoTracking()
+        .Where(a => a.TenantId == tenantId && a.Ativo)
+        .OrderBy(a => a.Nome)
+        .Select(a => new
+        {
+            a.Id,
+            a.Nome,
+            a.Email,
+            a.Perfil,
+            a.Cargo,
+            a.SetorPadraoId,
+            SetorPadraoNome = db.Setores
+                .Where(s => s.Id == a.SetorPadraoId)
+                .Select(s => s.Nome)
+                .FirstOrDefault(),
+            a.Ativo,
+            a.UltimoAcessoEm,
+            a.MfaAtivo,
+            a.ModeloDePermissao,
+        })
+        .ToQueryString());
+
+// A invariante do ultimo administrador (AtendenteService.DefinirPermissoesAsync)
+// NAO passa por aqui de proposito: virou SqlQuery<Guid> com WITH (UPDLOCK,
+// HOLDLOCK) dentro de uma transacao explicita, nao um EXISTS aninhado em LINQ
+// — o EXISTS que excluia so o proprio alvo nao travava a linha do outro lado
+// de uma troca cruzada (A tira de B ao mesmo tempo que B tira de A), e as
+// duas chamadas passavam, zerando quem tem equipe.permissoes no tenant
+// inteiro (provado ao vivo pelo cenario 83-5 de verificar-autenticacao.cs).
+// Raw SQL com table hint nao e "traducao de LINQ" — nada aqui exercitaria o
+// tradutor; a garantia mora no verificador de autenticacao, sob corrida real.
 
 Console.WriteLine();
 Console.WriteLine(falhas == 0

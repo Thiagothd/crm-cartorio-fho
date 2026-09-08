@@ -3,7 +3,7 @@ using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 
 namespace CrmCartorio.Api.Infrastructure.Security;
 
-public class ContextoDoUsuario(IHttpContextAccessor acessor) : IContextoDoUsuario
+public class ContextoDoUsuario(IHttpContextAccessor acessor, PermissoesDaRequisicao permissoes) : IContextoDoUsuario
 {
     private ClaimsLidas Claims => _claims ??= Ler();
     private ClaimsLidas? _claims;
@@ -18,14 +18,13 @@ public class ContextoDoUsuario(IHttpContextAccessor acessor) : IContextoDoUsuari
 
     public PerfilDeAtendente Perfil => Claims.Perfil;
 
-    public bool PodeGerirCadastros =>
-        Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
-
-    public bool PodeGerirAtendentes =>
-        Perfil is PerfilDeAtendente.Administrador;
-
-    public bool PodeOperarConversaDeTerceiro =>
-        Perfil is PerfilDeAtendente.Supervisor or PerfilDeAtendente.Administrador;
+    /// <summary>
+    /// Resolvida sem consulta ao banco: <see cref="PermissoesDaRequisicao"/> já
+    /// foi preenchido pelo <see cref="SessaoAtivaHandler"/> a partir da MESMA
+    /// leitura que o SEC-01 já fazia — nunca da claim, que pode estar
+    /// desatualizada até o token expirar.
+    /// </summary>
+    public bool Pode(PermissaoDoSistema permissao) => permissoes.Pode(permissao);
 
     private ClaimsLidas Ler()
     {

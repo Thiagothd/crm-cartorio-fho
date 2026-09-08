@@ -58,13 +58,22 @@ function IconeDeEntrega({
   status: StatusEntrega
   automatica?: boolean
 }) {
-  const configuracao = {
+  const configuracoes: Record<
+    StatusEntrega,
+    { rotulo: string; icone: typeof Clock; classe: string }
+  > = {
     Pendente: { rotulo: 'Pendente', icone: Clock, classe: '' },
+    Enviando: {
+      rotulo: 'Envio em andamento ou aguardando confirmação',
+      icone: Clock,
+      classe: 'text-tinta-fraca',
+    },
     Enviada: { rotulo: 'Enviada', icone: Check, classe: '' },
     Entregue: { rotulo: 'Entregue', icone: CheckCheck, classe: '' },
     Lida: { rotulo: 'Lida pelo cliente', icone: CheckCheck, classe: 'text-verde' },
     Falha: { rotulo: 'Falha no envio', icone: TriangleAlert, classe: 'text-selo' },
-  }[status]
+  }
+  const configuracao = configuracoes[status] ?? configuracoes.Pendente
   const Icone = configuracao.icone
 
   // Toda mensagem automática nasce Pendente na Fase 1 — não há WhatsApp conectado
@@ -261,10 +270,13 @@ export function FioDeMensagens({
         return (
           <div key={mensagem.id} id={`mensagem-${mensagem.id}`} className="flex flex-col gap-1.5">
             {dia ? (
+              // Fase 3.2 (secao 16): pilula flutuando sobre o vao — um dos
+              // dois unicos lugares do balcao com shadow-card (o outro e' o
+              // cartao "Escolha uma conversa"). Nunca no balao em si.
               <div className="my-0.5 flex justify-center">
                 <time
                   dateTime={new Date(dia).toISOString()}
-                  className="rounded-md border border-linha bg-branco px-3 py-1 font-dado text-[10px] text-tinta-fraca"
+                  className="rounded-full border border-linha bg-branco/80 px-2.5 py-0.5 font-dado text-[10px] text-tinta-fraca shadow-card"
                 >
                   {formatadorDeDia.format(new Date(dia))}
                 </time>
@@ -313,8 +325,15 @@ export function FioDeMensagens({
 
                     <article
                       className={cn(
-                        'max-w-[82%] rounded-md border px-2.5 py-1.5 sm:max-w-[72%]',
-                        doAtendente ? 'border-verde/20 bg-verde/10' : null,
+                        // Fase 3.2 (secao 16): rounded-balao (12px) no lugar
+                        // do rounded-md (6px) datado, com um canto de cauda
+                        // que faz o olho ler "conversa", nao "lista de
+                        // caixinhas". Nunca shadow-card aqui — balao nao
+                        // pertence a familia elevada (a Central de balões
+                        // scrolla e re-renderiza a cada mensagem nova).
+                        'max-w-[82%] rounded-balao border px-2.5 py-1.5 sm:max-w-[72%]',
+                        daServentia ? 'rounded-br-[4px]' : 'rounded-bl-[4px]',
+                        doAtendente ? 'border-verde/25 bg-verde/10' : null,
 
                         /* Neutra, e não a diluição de verde do atendente: verde é a
                            cor de quem respondeu, e a automática não tem quem. Fica
@@ -322,7 +341,7 @@ export function FioDeMensagens({
                            autoria. */
                         automatica ? 'border-linha-forte bg-superficie' : null,
 
-                        !daServentia ? 'border-linha-forte bg-branco' : null,
+                        !daServentia ? 'border-linha bg-branco' : null,
 
                         /* Ocultada e sendo exibida: fica visivelmente rebaixada,
                            para ninguém confundir com o fio normal. */
@@ -365,7 +384,7 @@ export function FioDeMensagens({
                   )}
 
                   {mensagem.respondidaConteudo ? (
-                    <div className="mb-1.5 border-l-2 border-linha-forte bg-papel/70 px-2 py-1">
+                    <div className="mb-1.5 rounded-md rounded-l-none border-l-2 border-verde/40 bg-papel/70 px-2 py-1">
                       <p className="text-[11px] font-medium text-tinta-media">
                         {mensagem.respondidaAutor ?? 'Mensagem'}
                       </p>

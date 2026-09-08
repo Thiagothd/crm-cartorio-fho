@@ -47,7 +47,8 @@ public static class AplicadorDeTriagem
         string conteudo,
         DateTime agora,
         ILogger log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? mensagemAtualId = null)
     {
         conversa.AguardandoTriagem = false;
 
@@ -74,7 +75,7 @@ public static class AplicadorDeTriagem
                 conversa.Id);
 
             await AplicadorDeRespostaInteligente.AplicarAsync(
-                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct);
+                db, ia, automaticas, opcoesDaIA, conversa, conteudo, agora, log, ct, mensagemAtualId);
 
             return false;
         }
