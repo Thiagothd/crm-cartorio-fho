@@ -878,6 +878,40 @@ valendo sem excepção.
 "Mais" leem dali — nunca existe uma segunda árvore de menu escrita à mão num
 componente. Mudar o menu é editar esse arquivo, não quatro.
 
+**Nem todo item vira linha do rail, e nem toda tela é um item.** Duas marcas
+resolvem isso sem criar uma segunda lista:
+
+- **`ocultoNoMenu: true`** — a tela tem rota, permissão e prefetch normais, mas
+  não é desenhada no rail; o caminho até ela é outro. Hoje: **Aparência** e
+  **Segurança**, que vivem no menu de perfil do cabeçalho. Tirar esses itens do
+  arquivo NÃO os esconderia — `todosOsItens()` é quem monta as `<Route>`, então
+  apagaria a rota. Segurança em especial é `permissao: 'autenticado'` de
+  propósito (cada um gerencia o próprio MFA, não é ação de gestão), e por isso
+  também não podia virar sub-item de Equipe (`equipe.ver`): trancaria quem não
+  tem essa chave fora da própria conta.
+- **Seções na URL, fora do menu** (`/automacao/mensagens/respostas`,
+  `/automacao/ia/conhecimento`, `/indicadores/atendentes`) — subdivisões de UMA
+  tela, desenhadas por `components/layout/abas-de-secao.tsx`. Foi juntar seções
+  assim que tirou três itens do rail: "Encerramento automático" e "Respostas
+  rápidas" viraram abas de **Mensagens**, e "Conhecimento da IA" virou aba de
+  **IA**. As rotas antigas continuam resolvendo por redirect em `rotas.tsx` —
+  link favoritado e link colado em chamado não podem morrer numa arrumação de
+  menu.
+- **`permissao` como array** (`PermissaoDeAcesso`) — "qualquer uma destas".
+  Mensagens e IA reúnem seções com chaves de permissão DIFERENTES
+  (`automacao.mensagens.ver`, `automacao.respostas.ver`,
+  `automacao.encerramento.ver`; `ia.ver`, `ia.conhecimento.ver`). Uma permissão
+  só no item ampliaria acesso (mostraria aba proibida) ou tiraria acesso
+  (esconderia a tela de quem tem direito a uma parte) — os dois inaceitáveis.
+  `podeVer` resolve os dois formatos; quem decide qual seção cada permissão
+  específica abre, aba por aba, é a própria página.
+
+A regra por trás das três: **menu é descoberta, aba é memória.** Vale fundir
+quando as telas são irmãs de verdade — mesmo perfil, mesma frequência, mesma
+pergunta —, e é ruim quando é só para encurtar a lista. Submenu de um filho só
+é o caso extremo do erro oposto: dois cliques para um destino único (era o caso
+de "Integrações", que virou item direto de WhatsApp).
+
 ### 14.2 Rail de navegação — expande por clique e empurra o conteúdo
 
 > **Mudou em 2026-09** (`202609-CRM-AJUSTE-menu-empurra-conteudo`): o rail
