@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookOpen, History, Pencil, Plus } from 'lucide-react'
+import { BookOpen, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 import {
   Dialog,
   DialogContent,
@@ -24,9 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { EstadoVazio } from '@/components/layout/shell'
+import { AcoesDaPagina } from '@/components/layout/contexto-de-acoes-da-pagina'
 import { conhecimentoDeIaApi, servicosApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { ResumoDoConhecimento } from './resumo-do-conhecimento'
+import { ListaDeConhecimento } from './lista-de-conhecimento'
+import { descreverVigencia } from './vigencia-de-conhecimento'
 import type { ConhecimentoDeIa, VersaoDeConhecimentoDeIa } from '@/lib/api/tipos'
 
 /** Mesmo limite da coluna (ConhecimentoDeIaConfiguration.cs). */
@@ -36,23 +39,9 @@ const LIMITE_DO_CONTEUDO = 2000
 const SEM_SERVICO = '_nenhum'
 
 /**
- * VigenteDesde/VigenteAte chegam como "AAAA-MM-DD" puro (DateOnly, sem hora).
- * Formata por string, sem passar por Date — evitar `new Date("AAAA-MM-DD")`
- * aqui é o que evita o dia deslocar por fuso (ele é interpretado como
- * meia-noite UTC, e o Intl formata no fuso local do navegador).
+ * O que a IA sabe — Fase 3.1 (DESIGN.md 17.5). A moldura (rolagem, teto de
+ * largura e `@container`) é da `PaginaIa`, que as duas seções dividem.
  */
-function formatarDataOnly(iso: string) {
-  const [ano, mes, dia] = iso.split('-')
-  return `${dia}/${mes}/${ano}`
-}
-
-function descreverVigencia(desde: string | null, ate: string | null) {
-  if (!desde && !ate) return 'Sempre'
-  if (desde && ate) return `${formatarDataOnly(desde)} – ${formatarDataOnly(ate)}`
-  if (desde) return `A partir de ${formatarDataOnly(desde)}`
-  return `Até ${formatarDataOnly(ate!)}`
-}
-
 export function AbaConhecimentoDeIa() {
   const [emEdicao, setEmEdicao] = useState<ConhecimentoDeIa | null>(null)
   const [aberto, setAberto] = useState(false)
@@ -60,7 +49,7 @@ export function AbaConhecimentoDeIa() {
 
   const clienteDeConsultas = useQueryClient()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['conhecimento-de-ia-gestao'],
     queryFn: () => conhecimentoDeIaApi.listar(true),
   })
@@ -76,112 +65,60 @@ export function AbaConhecimentoDeIa() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <p className="max-w-2xl text-sm text-tinta-media">
-          Conteúdo que a IA pode usar para responder — por serviço ou por tema livre. Toda edição
-          preserva a versão anterior, com data e responsável. Diferente das{' '}
-          <strong className="text-tinta">respostas rápidas</strong> (atalho que o atendente
-          digita), este cadastro é lido direto pela IA.
-        </p>
-
-        <Button size="sm" className="sm:shrink-0" onClick={abrirNovo}>
-          <Plus />
-          Novo conhecimento
+      <AcoesDaPagina>
+        <Button size="sm" onClick={abrirNovo}>
+          <Plus aria-hidden="true" />
+          <span>
+            Novo<span className="hidden lg:inline"> Conhecimento</span>
+          </span>
         </Button>
-      </div>
+      </AcoesDaPagina>
+
+      <p className="max-w-2xl text-sm text-tinta-media">
+        Conteúdo que a IA pode usar para responder — por serviço ou por tema livre. Toda edição
+        preserva a versão anterior, com data e responsável. Diferente das{' '}
+        <strong className="text-tinta">respostas rápidas</strong> (atalho que o atendente digita),
+        este cadastro é lido direto pela IA.
+      </p>
 
       {isLoading ? (
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[92px] rounded-card" />
+            ))}
+          </div>
+          <div className="grid gap-2.5 @3xl:grid-cols-2 @6xl:grid-cols-3">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[168px] rounded-card" />
+            ))}
+          </div>
         </div>
+      ) : isError ? (
+        <EstadoDaInterface
+          tipo="erro"
+          titulo="Não foi possível carregar o conhecimento"
+          acao={
+            <Button variant="outline" onClick={() => void refetch()}>
+              Tentar de novo
+            </Button>
+          }
+        />
       ) : data?.length ? (
-        <div className="overflow-hidden rounded-md border border-linha">
-          <table className="w-full table-fixed text-sm md:table-auto">
-            <thead className="bg-superficie text-xs text-tinta-media">
-              <tr>
-                <th className="px-3 py-2.5 text-left font-medium md:px-4">Título</th>
-                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">
-                  Tema / Serviço
-                </th>
-                <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">Vigência</th>
-                <th className="hidden w-20 px-4 py-2.5 text-left font-medium md:table-cell">Versão</th>
-                <th className="w-20 md:w-24" />
-              </tr>
-            </thead>
-
-            <tbody>
-              {data.map((conhecimento) => (
-                <tr
-                  key={conhecimento.id}
-                  className="border-t border-linha align-top hover:bg-superficie"
-                >
-                  <td className="px-3 py-3 md:px-4 md:py-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{conhecimento.titulo}</span>
-                      {!conhecimento.ativo ? <Badge variant="secondary">Inativo</Badge> : null}
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-[11px] text-tinta-fraca md:hidden">
-                      {conhecimento.conteudo}
-                    </p>
-                    <p className="mt-1 text-[11px] text-tinta-fraca md:hidden">
-                      {conhecimento.tema}
-                      {conhecimento.tipoServicoNome ? ` · ${conhecimento.tipoServicoNome}` : ''}
-                      {' — '}
-                      {descreverVigencia(conhecimento.vigenteDesde, conhecimento.vigenteAte)}
-                    </p>
-                  </td>
-
-                  <td className="hidden px-4 py-2.5 md:table-cell">
-                    <span className="text-xs text-tinta-media">{conhecimento.tema}</span>
-                    {conhecimento.tipoServicoNome ? (
-                      <p className="mt-0.5 text-[11px] text-tinta-fraca">
-                        {conhecimento.tipoServicoNome}
-                      </p>
-                    ) : null}
-                  </td>
-
-                  <td className="hidden px-4 py-2.5 md:table-cell">
-                    <span className="text-xs text-tinta-media">
-                      {descreverVigencia(conhecimento.vigenteDesde, conhecimento.vigenteAte)}
-                    </span>
-                  </td>
-
-                  <td className="hidden px-4 py-2.5 font-dado text-xs text-tinta-media md:table-cell">
-                    v{conhecimento.versao}
-                  </td>
-
-                  <td className="px-1 py-2.5 md:px-2">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => setEmHistorico(conhecimento)}
-                        aria-label={`Ver histórico de ${conhecimento.titulo}`}
-                      >
-                        <History />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => {
-                          setEmEdicao(conhecimento)
-                          setAberto(true)
-                        }}
-                        aria-label={`Editar ${conhecimento.titulo}`}
-                      >
-                        <Pencil />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <ResumoDoConhecimento conhecimentos={data} />
+          <ListaDeConhecimento
+            conhecimentos={data}
+            aoEditar={(conhecimento) => {
+              setEmEdicao(conhecimento)
+              setAberto(true)
+            }}
+            aoVerHistorico={setEmHistorico}
+          />
+        </>
       ) : (
-        <EstadoVazio
+        <EstadoDaInterface
+          tipo="vazio"
           icone={BookOpen}
           titulo="Nenhum conhecimento cadastrado"
           descricao="Sem cadastro, a IA responde só com o catálogo de serviços. Comece por uma política ou exceção que a equipe explica com frequência."
@@ -225,6 +162,7 @@ function DialogoDeConhecimentoDeIa({
   const [vigenteAte, setVigenteAte] = useState<string | null>(null)
   const [ativo, setAtivo] = useState(true)
   const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
 
   const { data: servicos } = useQuery({
     queryKey: ['servicos-gestao'],
@@ -242,16 +180,30 @@ function DialogoDeConhecimentoDeIa({
     setVigenteDesde(conhecimento?.vigenteDesde ?? null)
     setVigenteAte(conhecimento?.vigenteAte ?? null)
     setAtivo(conhecimento?.ativo ?? true)
+    setErro(null)
   }, [aberto, conhecimento])
 
   async function salvar() {
+    // DESIGN.md 11.4/11.5 — a recusa cai no diálogo, não num toast que some
+    // antes de a pessoa ler o que faltou.
+    if (!titulo.trim() || !tema.trim() || !conteudo.trim()) {
+      setErro('Título, tema e conteúdo são obrigatórios.')
+      return
+    }
+
+    if (vigenteDesde && vigenteAte && vigenteDesde > vigenteAte) {
+      setErro('A data inicial da vigência não pode ser depois da final.')
+      return
+    }
+
     setSalvando(true)
+    setErro(null)
 
     try {
       const dados = {
-        titulo,
-        conteudo,
-        tema,
+        titulo: titulo.trim(),
+        conteudo: conteudo.trim(),
+        tema: tema.trim(),
         tipoServicoId: tipoServicoId === SEM_SERVICO ? null : tipoServicoId,
         vigenteDesde,
         vigenteAte,
@@ -268,15 +220,20 @@ function DialogoDeConhecimentoDeIa({
       aoSalvar()
       aoFechar()
     } catch (falha) {
-      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível salvar.')
+      setErro(falha instanceof ErroDaApi ? falha.message : 'Não foi possível salvar. Tente novamente.')
     } finally {
       setSalvando(false)
     }
   }
 
   return (
-    <Dialog open={aberto} onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent className="max-w-xl">
+    <Dialog open={aberto} onOpenChange={(v) => !v && !salvando && aoFechar()}>
+      <DialogContent
+        className="max-w-xl"
+        mostrarFechar={!salvando}
+        onEscapeKeyDown={(e) => { if (salvando) e.preventDefault() }}
+        onInteractOutside={(e) => { if (salvando) e.preventDefault() }}
+      >
         <DialogHeader>
           <DialogTitle>{conhecimento ? 'Editar conhecimento' : 'Novo conhecimento'}</DialogTitle>
           <DialogDescription>
@@ -292,9 +249,13 @@ function DialogoDeConhecimentoDeIa({
             <Input
               id="conhecimento-titulo"
               value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
+              onChange={(e) => {
+                setTitulo(e.target.value)
+                if (erro) setErro(null)
+              }}
               placeholder="Ex.: Política de reagendamento"
               maxLength={160}
+              aria-invalid={erro !== null && !titulo.trim()}
             />
           </div>
 
@@ -304,9 +265,13 @@ function DialogoDeConhecimentoDeIa({
               <Input
                 id="conhecimento-tema"
                 value={tema}
-                onChange={(e) => setTema(e.target.value)}
+                onChange={(e) => {
+                  setTema(e.target.value)
+                  if (erro) setErro(null)
+                }}
                 placeholder="Ex.: Atendimento"
                 maxLength={80}
+                aria-invalid={erro !== null && !tema.trim()}
               />
             </div>
 
@@ -340,10 +305,14 @@ function DialogoDeConhecimentoDeIa({
             <Textarea
               id="conhecimento-conteudo"
               value={conteudo}
-              onChange={(e) => setConteudo(e.target.value)}
+              onChange={(e) => {
+                setConteudo(e.target.value)
+                if (erro) setErro(null)
+              }}
               rows={6}
               maxLength={LIMITE_DO_CONTEUDO}
               className="resize-none"
+              aria-invalid={erro !== null && !conteudo.trim()}
             />
           </div>
 
@@ -369,8 +338,8 @@ function DialogoDeConhecimentoDeIa({
             </div>
           </div>
           <p className="-mt-2 text-xs text-tinta-media">
-            Deixe em branco para valer desde sempre / para sempre. Fora da janela, a IA para de
-            ver este conteúdo sem precisar desativar.
+            Deixe em branco para valer desde sempre / para sempre. Fora da janela, a IA para de ver
+            este conteúdo sem precisar desativar.
           </p>
 
           <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">
@@ -380,14 +349,21 @@ function DialogoDeConhecimentoDeIa({
             </div>
             <Switch id="conhecimento-ativo" checked={ativo} onCheckedChange={setAtivo} />
           </div>
+
+          {erro ? (
+            <p role="alert" className="rounded-lg border border-erro/20 bg-erro/5 p-3 text-sm text-erro">
+              {erro}
+            </p>
+          ) : null}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={aoFechar}>
+          <Button variant="outline" onClick={aoFechar} disabled={salvando}>
             Cancelar
           </Button>
           <Button onClick={() => void salvar()} disabled={salvando}>
-            Salvar
+            {salvando ? <Loader2 className="animate-spin" /> : null}
+            {salvando ? 'Salvando…' : 'Salvar'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -426,7 +402,7 @@ function DialogoDeHistorico({
             </>
           ) : data?.length ? (
             data.map((versao: VersaoDeConhecimentoDeIa) => (
-              <div key={versao.versao} className="rounded-md border border-linha p-3">
+              <div key={versao.versao} className="rounded-card border border-linha p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-dado text-xs text-tinta-media">v{versao.versao}</span>
                   <span className="text-xs text-tinta-fraca">
@@ -435,7 +411,7 @@ function DialogoDeHistorico({
                   </span>
                 </div>
                 <p className="mt-1.5 font-medium">{versao.titulo}</p>
-                <p className="mt-1 text-sm text-tinta-media">{versao.conteudo}</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-tinta-media">{versao.conteudo}</p>
                 <p className="mt-1.5 text-[11px] text-tinta-fraca">
                   {versao.tema}
                   {versao.tipoServicoNome ? ` · ${versao.tipoServicoNome}` : ''}

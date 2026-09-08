@@ -102,6 +102,13 @@ export interface EstadoE2E {
   respostasRapidas: any[]
   mensagensAutomaticas: any[]
   encerramento: any
+  conhecimentos: any[]
+  canal: {
+    situacao: any
+    regras: any
+    descartes: any
+    conexoes: any[]
+  }
   clientes: any[]
   conversas: any[]
   detalhes: Record<string, any>
@@ -114,9 +121,14 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'setor-notas', nome: 'Notas', descricao: 'Atos notariais', ordem: 1, ativo: true, conversasAtivas: 1 },
     { id: 'setor-civil', nome: 'Registro Civil', descricao: 'Registro civil', ordem: 2, ativo: true, conversasAtivas: 0 },
   ]
+  // As cores são as TINTAS da paleta fechada de etapa (DESIGN.md 2.2) — o
+  // seletor do cadastro só oferece estas quatro, e é delas que o mapa de
+  // `cores-de-etapa.ts` deriva fundo e borda. Com um hexadecimal fora da
+  // paleta a interface cai no neutro (degradação prevista), e o teste passaria
+  // a exercitar justamente o caminho que produção não tem.
   const etapas = [
-    { id: 'etapa-triagem', nome: 'Triagem', descricao: null, ordem: 1, cor: '#7f1d1d', ehFinal: false, ativo: true, conversasAtivas: 1 },
-    { id: 'etapa-final', nome: 'Concluído', descricao: null, ordem: 2, cor: '#166534', ehFinal: true, ativo: true, conversasAtivas: 0 },
+    { id: 'etapa-triagem', nome: 'Triagem', descricao: 'Primeiro contato', ordem: 1, cor: '#2E5170', ehFinal: false, ativo: true, conversasAtivas: 1 },
+    { id: 'etapa-final', nome: 'Concluído', descricao: null, ordem: 2, cor: '#3D5C3A', ehFinal: true, ativo: true, conversasAtivas: 0 },
   ]
   const servicos = [
     { id: 'servico-1', nome: 'Reconhecimento de firma', codigo: 'RF', categoria: 'Notas', categoriaDescrita: 'Notas', descricao: 'Reconhecimento de assinatura', ativo: true,
@@ -136,13 +148,58 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'auto-5', gatilho: 'ConfirmacaoDeEncerramento', gatilhoDescrito: 'Conversa parada: posso encerrar?', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ainda precisa de ajuda?\n1 - Sim, continuar\n2 - Nao, pode encerrar', ativo: true },
   ]
   const encerramento = { minutosParaPerguntar: 20, minutosParaEncerrar: 30, horaInicial: 8, horaFinal: 18 }
+
+  // Um em uso e um fora de vigência (janela já encerrada): é o par que a tela
+  // de Conhecimento precisa distinguir, porque o contexto da IA lê só o
+  // primeiro (`MontadorDeContexto`).
+  const conhecimentos = [
+    {
+      id: 'conhecimento-1', titulo: 'Política de reagendamento', tema: 'Atendimento',
+      conteudo: 'O reagendamento pode ser pedido até 24h antes do horário marcado, sem custo.',
+      tipoServicoId: null, tipoServicoNome: null, vigenteDesde: null, vigenteAte: null,
+      versao: 2, criadoPorNome: 'Helena Titular', atualizadoPorNome: 'Helena Titular',
+      ativo: true, criadoEm: agora, atualizadoEm: agora,
+    },
+    {
+      id: 'conhecimento-2', titulo: 'Mutirão de firmas de janeiro', tema: 'Campanha',
+      conteudo: 'Durante o mutirão, o reconhecimento de firma sai no mesmo dia.',
+      tipoServicoId: 'servico-1', tipoServicoNome: 'Reconhecimento de firma',
+      vigenteDesde: '2026-01-01', vigenteAte: '2026-01-31',
+      versao: 1, criadoPorNome: 'Helena Titular', atualizadoPorNome: null,
+      ativo: true, criadoEm: agora, atualizadoEm: agora,
+    },
+  ]
+
+  const canal = {
+    situacao: {
+      habilitado: true, conectado: true, estado: 'open', numero: '5538999990000',
+      perfilNome: 'Cartório de Gameleiras', perfilFotoUrl: null, qrCodeBase64: null,
+      conectadoEm: agora,
+    },
+    regras: {
+      modo: 'SomenteLiberados', origem: 'Banco',
+      liberados: [
+        { id: 'numero-1', telefone: '5538999991111', rotulo: 'cartório parceiro', tipo: 'Liberado', criadoPorNome: 'Helena Titular', criadoEm: agora },
+      ],
+      bloqueados: [],
+    },
+    descartes: {
+      totalHoje: 2,
+      recentes: [
+        { telefone: '5538999997777', motivo: 'ForaDaLista', criadoEm: agora },
+      ],
+    },
+    conexoes: [
+      { numero: '5538999990000', perfilNome: 'Cartório de Gameleiras', conectadoEm: agora, desconectadoEm: null, motivo: 'Pareamento', atendenteNome: 'Helena Titular' },
+    ],
+  }
   const clientes = [
     clienteBase('cliente-1', 'Marina Souza', '5511999991111'),
     clienteBase('cliente-2', 'Carlos Lima', '5511999992222'),
   ]
   const conversa = {
     id: 'conversa-1', protocolo: 'ATD-2026-0001', clienteId: 'cliente-1', clienteNome: 'Marina Souza', clienteTelefone: '5511999991111',
-    atendenteId: null, atendenteNome: null, setorId: 'setor-notas', setorNome: 'Notas', etapaId: 'etapa-triagem', etapaNome: 'Triagem', etapaCor: '#7f1d1d',
+    atendenteId: null, atendenteNome: null, setorId: 'setor-notas', setorNome: 'Notas', etapaId: 'etapa-triagem', etapaNome: 'Triagem', etapaCor: '#2E5170',
     tipoServicoId: 'servico-1', tipoServicoNome: 'Reconhecimento de firma', status: 'Ativa', iniciadaEm: agora, ultimaMensagemEm: agora,
     mensagensNaoLidas: 2, aguardandoTriagem: false, prazoIniciadoEm: agora, prazoLimite: '2026-09-01T20:00:00.000Z', situacaoPrazo: 'EmDia',
     previaUltimaMensagem: 'Preciso reconhecer uma firma.', encerradaEm: null, encerradaPorNome: null, motivoEncerramento: null, reabertaEm: null,
@@ -152,7 +209,8 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'msg-1', conversaId: 'conversa-1', autorTipo: 'Cliente', atendenteId: null, atendenteNome: null, conteudo: 'Preciso reconhecer uma firma.', tipo: 'Texto', statusEntrega: 'Lida', ehAutomatica: false, fixada: false, oculta: false, ocultaPorNome: null, encaminhadaDeProtocolo: null, enviadaEm: agora, lidaEm: agora, mensagemRespondidaId: null, respondidaAutor: null, respondidaConteudo: null, arquivoNome: null, arquivoTipoMime: null, arquivoTamanhoBytes: null, geradaPorIa: false },
   ]
   return {
-    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento, clientes,
+    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento,
+    conhecimentos, canal, clientes,
     conversas: [conversa],
     detalhes: { 'conversa-1': { conversa, mensagens, historico: [] } },
     conflitoAoAssumir: false,
@@ -212,6 +270,54 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'GET') return json(route, estado.encerramento)
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'PUT') { estado.encerramento = corpoJson(route); return json(route, estado.encerramento) }
     if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
+
+    // --- Conhecimento da IA ---
+    if (path === '/api/conhecimento-de-ia' && metodo === 'GET') {
+      return json(route, estado.conhecimentos.filter((c) => url.searchParams.get('incluirInativos') === 'true' || c.ativo))
+    }
+    if (path === '/api/conhecimento-de-ia' && metodo === 'POST') {
+      const corpo = corpoJson(route) as Record<string, unknown>
+      const novo = {
+        id: `conhecimento-${estado.conhecimentos.length + 1}`, versao: 1,
+        tipoServicoNome: corpo.tipoServicoId ? 'Reconhecimento de firma' : null,
+        criadoPorNome: usuarios[estado.perfil].nome, atualizadoPorNome: null,
+        criadoEm: agora, atualizadoEm: agora, ...corpo,
+      }
+      estado.conhecimentos.push(novo)
+      return json(route, novo, 201)
+    }
+    const conhecimentoHistorico = path.match(/^\/api\/conhecimento-de-ia\/([^/]+)\/historico$/)
+    if (conhecimentoHistorico && metodo === 'GET') {
+      const alvo = estado.conhecimentos.find((c) => c.id === conhecimentoHistorico[1])
+      return json(route, alvo && alvo.versao > 1
+        ? [{ versao: 1, titulo: alvo.titulo, conteudo: 'Texto da versão anterior.', tema: alvo.tema, tipoServicoNome: alvo.tipoServicoNome, vigenteDesde: null, vigenteAte: null, ativo: true, alteradoPorNome: 'Helena Titular', ocorridoEm: agora }]
+        : [])
+    }
+    const conhecimentoAlvo = path.match(/^\/api\/conhecimento-de-ia\/([^/]+)$/)
+    if (conhecimentoAlvo && metodo === 'PUT') {
+      const alvo = estado.conhecimentos.find((c) => c.id === conhecimentoAlvo[1])
+      if (!alvo) return problema(route, 404, 'conhecimento_nao_encontrado', 'Conhecimento não encontrado.')
+      Object.assign(alvo, corpoJson(route), { versao: alvo.versao + 1, atualizadoEm: agora })
+      return json(route, alvo)
+    }
+
+    // --- Canal WhatsApp ---
+    if (path === '/api/whatsapp/situacao' && metodo === 'GET') return json(route, estado.canal.situacao)
+    if (path === '/api/whatsapp/regras' && metodo === 'GET') return json(route, estado.canal.regras)
+    if (path === '/api/whatsapp/descartes' && metodo === 'GET') return json(route, estado.canal.descartes)
+    if (path === '/api/whatsapp/conexoes' && metodo === 'GET') return json(route, estado.canal.conexoes)
+    if (path === '/api/whatsapp/desconectar' && metodo === 'POST') {
+      estado.canal.situacao = { ...estado.canal.situacao, conectado: false, estado: 'close', conectadoEm: null }
+      return json(route, estado.canal.situacao)
+    }
+    if (path === '/api/whatsapp/regras/modo' && metodo === 'PUT') {
+      estado.canal.regras = { ...estado.canal.regras, modo: (corpoJson(route) as { modo: string }).modo, origem: 'Banco' }
+      return json(route, estado.canal.regras)
+    }
+    if (path === '/api/whatsapp/testar-envio' && metodo === 'POST') {
+      estado.chamadasExternas.push('whatsapp:testar-envio')
+      return json(route, { enviado: true, motivo: null })
+    }
 
     if (path === '/api/conversas/resumo' && metodo === 'GET') {
       return json(route, { totalAtivas: estado.conversas.length, naFila: estado.conversas.filter((c) => !c.atendenteId).length, minhasConversas: estado.conversas.filter((c) => c.atendenteId === usuarios[estado.perfil].id).length, encerradasHoje: 0, emAlerta: 0, atrasadas: 0,

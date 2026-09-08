@@ -32,6 +32,7 @@ import { AcoesDaPagina } from '@/components/layout/contexto-de-acoes-da-pagina'
 import { EstadoVazio } from '@/components/layout/shell'
 import { etapasApi, mensagensAutomaticasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
+import { normalizarTexto as normalizar } from './normalizar-texto'
 import { usarPreferenciaDeTexto } from '@/lib/usar-preferencia-local'
 import { cn } from '@/lib/utils'
 import { MARCADORES } from '@/features/atendimento/placeholders'
@@ -58,13 +59,6 @@ type Visao = (typeof VISOES)[number]
 
 /** A escolha entre desenho e cadastro é de gosto de quem trabalha, e persiste. */
 const CHAVE_DA_VISAO = 'crm-cartorio.mensagens.visao'
-
-function normalizar(texto: string) {
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
 
 export function AbaMensagensAutomaticas() {
   const [emEdicao, setEmEdicao] = useState<MensagemAutomatica | null>(null)
