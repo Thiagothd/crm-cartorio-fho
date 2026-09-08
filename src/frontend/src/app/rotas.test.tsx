@@ -7,7 +7,15 @@ import { Rotas } from '@/app/rotas'
 // conjunto vazio — Permissoes=NULL sempre deriva da Classe). O mock reflete
 // isso: "autenticado, sem nada especial" já enxerga Atendimento e Clientes.
 const PERMISSOES_BALCAO = ['atendimento.ver', 'atendimento.assumir', 'atendimento.responder', 'clientes.ver']
-const PERMISSOES_GESTAO = [...PERMISSOES_BALCAO, 'servicos.ver', 'relatorios.ver', 'etapas.ver', 'setores.ver']
+const PERMISSOES_GESTAO = [
+  ...PERMISSOES_BALCAO,
+  'servicos.ver',
+  'relatorios.ver',
+  'etapas.ver',
+  'setores.ver',
+  'automacao.mensagens.ver',
+  'ia.ver',
+]
 const PERMISSOES_ADMINISTRADOR = [...PERMISSOES_GESTAO, 'equipe.ver', 'whatsapp.ver']
 
 let autenticacao = {
@@ -32,11 +40,8 @@ vi.mock('@/pages/pagina-inbox', () => ({ PaginaInbox: () => <h1>Atendimento simu
 vi.mock('@/pages/pagina-clientes', () => ({ PaginaClientes: () => <h1>Clientes simulados</h1> }))
 vi.mock('@/pages/pagina-servicos', () => ({ PaginaServicos: () => <h1>Serviços simulados</h1> }))
 vi.mock('@/pages/pagina-indicadores', () => ({ PaginaIndicadores: () => <h1>Indicadores simulados</h1> }))
-vi.mock('@/pages/pagina-mensagens-automaticas', () => ({
-  PaginaMensagensAutomaticas: () => <h1>Mensagens automáticas simuladas</h1>,
-}))
-vi.mock('@/pages/pagina-respostas-rapidas', () => ({
-  PaginaRespostasRapidas: () => <h1>Respostas rápidas simuladas</h1>,
+vi.mock('@/pages/pagina-mensagens', () => ({
+  PaginaMensagens: () => <h1>Mensagens simuladas</h1>,
 }))
 vi.mock('@/pages/pagina-ia', () => ({ PaginaIa: () => <h1>IA simulada</h1> }))
 vi.mock('@/pages/pagina-equipe', () => ({ PaginaEquipe: () => <h1>Equipe simulada</h1> }))
@@ -44,6 +49,7 @@ vi.mock('@/pages/pagina-etapas', () => ({ PaginaEtapas: () => <h1>Etapas simulad
 vi.mock('@/pages/pagina-setores', () => ({ PaginaSetores: () => <h1>Setores simulados</h1> }))
 vi.mock('@/pages/pagina-aparencia', () => ({ PaginaAparencia: () => <h1>Aparência simulada</h1> }))
 vi.mock('@/pages/pagina-whatsapp', () => ({ PaginaWhatsApp: () => <h1>WhatsApp simulado</h1> }))
+vi.mock('@/pages/pagina-seguranca', () => ({ PaginaSeguranca: () => <h1>Segurança simulada</h1> }))
 
 describe('Rotas', () => {
   beforeEach(() => {
@@ -145,6 +151,37 @@ describe('Rotas', () => {
 
     expect(await screen.findByRole('heading', { name: 'Etapas simuladas' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/estrutura/etapas')
+  })
+
+  // As três telas que viraram seção. Quem tem o endereço antigo favoritado, ou
+  // colado num chamado, precisa cair na ABA certa — não na Visão Geral.
+  it.each([
+    ['/automacao/respostas', '/automacao/mensagens/respostas', 'Mensagens simuladas'],
+    ['/automacao/encerramento', '/automacao/mensagens/encerramento', 'Mensagens simuladas'],
+    ['/automacao/conhecimento-ia', '/automacao/ia/conhecimento', 'IA simulada'],
+  ])('redireciona o link antigo %s para %s', async (antiga, nova, titulo) => {
+    autenticacao = {
+      atendente: { id: 'gestor-1' },
+      carregando: false,
+      pode: (chave: string) => PERMISSOES_GESTAO.includes(chave),
+    }
+    window.history.pushState({}, '', antiga)
+    render(<Rotas />)
+
+    expect(await screen.findByRole('heading', { name: titulo })).toBeInTheDocument()
+    expect(window.location.pathname).toBe(nova)
+  })
+
+  // Segurança saiu do rail (`ocultoNoMenu`), mas a rota continua viva — é o
+  // caminho que o menu de perfil usa, e vale para QUALQUER autenticado, não só
+  // gestão: cada um gerencia o próprio MFA.
+  it('Segurança continua acessível fora do menu, para qualquer autenticado', async () => {
+    autenticacao.atendente = { id: 'atendente-1' }
+    window.history.pushState({}, '', '/seguranca')
+    render(<Rotas />)
+
+    expect(await screen.findByRole('heading', { name: 'Segurança simulada' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/seguranca')
   })
 
   it('rota desconhecida cai na Visão Geral', async () => {

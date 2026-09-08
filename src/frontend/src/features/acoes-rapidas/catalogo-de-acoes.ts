@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Hourglass, Search, UserRound, UserX } from 'lucide-react'
-import { todosOsItens, type PermissaoNecessaria } from '@/app/navegacao'
+import { itemPelaRota, type PermissaoDeAcesso } from '@/app/navegacao'
 
 export type ComandoDeAcao = 'abrir-busca'
 export type ChaveDeContador = 'fila' | 'aguardando' | 'minhas'
@@ -11,7 +11,7 @@ interface AcaoBase {
   /** Linha de apoio. Vira `sr-only` quando o número toma o lugar dela. */
   descricao: string
   icone: LucideIcon
-  permissao: PermissaoNecessaria
+  permissao: PermissaoDeAcesso
 }
 
 export interface AcaoQueNavega extends AcaoBase {
@@ -77,14 +77,23 @@ export const ACOES_DE_TRABALHO: AcaoRapida[] = [
   },
 ]
 
-const ROTAS_DE_GESTAO = ['/automacao/respostas', '/indicadores', '/integracoes/whatsapp'] as const
+// `/automacao/mensagens/respostas` é uma SEÇÃO da tela de Mensagens, não um
+// item de menu — por isso a resolução abaixo usa `itemPelaRota`, que casa o
+// caminho com o item mais específico que o contém (aqui, `/automacao/
+// mensagens`). Era `/automacao/respostas` quando respostas rápidas tinha tela
+// própria; aquela rota continua existindo como redirect, mas apontar direto
+// para a seção evita um salto de navegação à toa.
+const ROTAS_DE_GESTAO = [
+  '/automacao/mensagens/respostas',
+  '/indicadores',
+  '/integracoes/whatsapp',
+] as const
 
 const ROTULO_CURTO: Record<string, string> = {
+  '/automacao/mensagens/respostas': 'Respostas rápidas',
   '/indicadores': 'Indicadores',
   '/integracoes/whatsapp': 'Canal WhatsApp',
 }
-
-const PELA_ROTA = new Map(todosOsItens().map((item) => [item.rota, item]))
 
 /**
  * As pílulas de gestão, derivadas de `app/navegacao.ts` — rótulo, ícone,
@@ -94,7 +103,7 @@ const PELA_ROTA = new Map(todosOsItens().map((item) => [item.rota, item]))
  */
 export function acoesDeGestao(): AcaoQueNavega[] {
   return ROTAS_DE_GESTAO.flatMap((rota) => {
-    const item = PELA_ROTA.get(rota)
+    const item = itemPelaRota(rota)
     if (!item) return []
 
     return [
@@ -111,8 +120,12 @@ export function acoesDeGestao(): AcaoQueNavega[] {
   })
 }
 
-/** Prefetch da rota, reusando o mesmo thunk do `lazy()`. Ignora query string. */
+/**
+ * Prefetch da rota, reusando o mesmo thunk do `lazy()`. Ignora query string, e
+ * resolve seção para a tela que a contém (`/automacao/mensagens/respostas` →
+ * o item de `/automacao/mensagens`, que é quem carrega o módulo).
+ */
 export function carregarRota(rota: string): (() => void) | undefined {
-  const item = PELA_ROTA.get(rota.split('?')[0])
+  const item = itemPelaRota(rota.split('?')[0])
   return item ? () => void item.carregar() : undefined
 }
