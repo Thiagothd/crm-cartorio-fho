@@ -58,6 +58,45 @@ test('busca textual filtra a lista sem depender de ordem entre testes', async ({
   await expect(page.getByRole('button', { name: /Marina Souza/ })).toBeVisible()
 })
 
+/**
+ * Regressão do achado em produção de 2026-09-09: "Encerradas" só trocava o
+ * status e mantinha o escopo anterior, então quem vinha de Minhas ou Fila via
+ * apenas parte das encerradas — sem nenhuma pílula acesa explicando o recorte.
+ *
+ * A asserção é sobre a REQUISIÇÃO, e não sobre a lista: o mock ignora
+ * apenasMinhas/apenasNaFila (só honra `busca`), então contar linhas na tela
+ * passaria mesmo com o bug de volta. O contrato que quebrou é o da query.
+ */
+test('trocar de filtro nao acumula o recorte anterior na consulta', async ({ page }) => {
+  const estado = criarEstadoE2E()
+  const consultas: string[] = []
+  page.on('request', (req) => {
+    const url = new URL(req.url())
+    if (url.pathname === '/api/conversas') consultas.push(url.search)
+  })
+
+  await abrirInbox(page, estado)
+
+  // A inbox abre na fila — quem chega ao balcão vê primeiro o que não tem dono.
+  await expect.poll(() => consultas.some((c) => c.includes('apenasNaFila=true'))).toBe(true)
+
+  const escopos = page.getByRole('group', { name: 'Escopo das conversas' })
+  await escopos.getByRole('button', { name: 'Minhas' }).click()
+  await expect.poll(() => consultas.at(-1)).toContain('apenasMinhas=true')
+
+  await escopos.getByRole('button', { name: 'Encerradas' }).click()
+  await expect.poll(() => consultas.at(-1)).toContain('status=Encerrada')
+
+  const encerradas = consultas.at(-1) ?? ''
+  expect(encerradas).not.toContain('apenasMinhas')
+  expect(encerradas).not.toContain('apenasNaFila')
+
+  // E o inverso: sair de Encerradas volta para uma vista limpa de ativas.
+  await escopos.getByRole('button', { name: 'Todas' }).click()
+  await expect.poll(() => consultas.at(-1)).toContain('status=Ativa')
+  expect(consultas.at(-1) ?? '').not.toContain('apenasMinhas')
+})
+
 test('resposta rapida insere texto no campo e nao envia sozinha', async ({ page }) => {
   const estado = criarEstadoE2E()
   await abrirInbox(page, estado)
