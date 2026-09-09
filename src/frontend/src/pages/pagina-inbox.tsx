@@ -54,6 +54,16 @@ const FILTROS_INICIAIS: FiltrosVisiveis = {
   busca: '',
 }
 
+/**
+ * A inbox ABRE na fila, não em "Todas" — quem chega ao balcão precisa ver o
+ * que ainda não tem dono, não a lista inteira. "Todas" fica a um clique.
+ *
+ * Separado de FILTROS_INICIAIS de propósito: aquele é a BASE dos atalhos dos
+ * indicadores e do deep link por query string, onde "todas" é a resposta certa
+ * (o atalho "em alerta" mostra as em alerta de todo mundo, não só as da fila).
+ */
+const FILTROS_DE_ENTRADA: FiltrosVisiveis = { ...FILTROS_INICIAIS, escopo: 'fila' }
+
 export function PaginaInbox() {
   const { id: idDaRota } = useParams<{ id: string }>()
   const navegar = useNavigate()
@@ -102,7 +112,7 @@ export function PaginaInbox() {
   const estreitoParaLista = usarConteudoAbaixoDe(960)
   const listaRecolhidaEfetiva = listaRecolhida || estreitoParaLista
 
-  const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_INICIAIS)
+  const [filtros, setFiltros] = useState<FiltrosVisiveis>(FILTROS_DE_ENTRADA)
   const [assumindo, setAssumindo] = useState(false)
   const [mensagemRespondida, setMensagemRespondida] = useState<Mensagem | null>(null)
 
