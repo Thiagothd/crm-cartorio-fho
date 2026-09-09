@@ -74,6 +74,66 @@ public static class NormalizadorDeTelefone
         return digitosSoDigitos.Insert(4, "9");
     }
 
+    /// <summary>
+    /// Dois números (já só-dígitos) representam o mesmo celular brasileiro?
+    /// Compara igualdade exata primeiro, e só então a forma legada do WhatsApp
+    /// (12 dígitos, sem o nono) contra a canônica (13 dígitos, com o nono).
+    /// </summary>
+    /// <remarks>
+    /// Achado ao vivo em 2026-09-09: a checagem de "Somente os liberados" e
+    /// "Todos, menos os bloqueados" (<see cref="Application.RegrasDoCanal"/>)
+    /// comparava só igualdade exata, e o WhatsApp entregou o número liberado
+    /// de uma atendente ora com o nono dígito, ora sem — bloqueando mensagens
+    /// dela mesma, já cadastrada, porque as duas formas nunca batiam. Extraído
+    /// daqui, e não duplicado, porque <see cref="OpcoesDoCanalWhatsApp"/> já
+    /// resolvia exatamente este mesmo problema para a lista de bloqueio do
+    /// appsettings — a mesma equivalência vale para as duas fontes.
+    ///
+    /// Deliberadamente NÃO insere o nono dígito de um número de 12 dígitos
+    /// isolado (ver <see cref="CanonicalizarMovelBrasileiro"/>): aqui os DOIS
+    /// lados vêm de fontes diferentes (cadastro vs. remetente da mensagem), e
+    /// o de 12 dígitos pode legitimamente ser um fixo — comparar as duas
+    /// formas possíveis é seguro; assumir que é sempre celular não é.
+    /// </remarks>
+    public static bool NumerosEquivalentes(string a, string b)
+    {
+        if (a.Length == 0 || b.Length == 0)
+        {
+            return false;
+        }
+
+        if (a.Equals(b, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return SaoFormasDoMesmoMovelBrasileiro(a, b);
+    }
+
+    /// <summary>
+    /// 13 dígitos, DDI 55, DDD brasileiro válido, e nono dígito (índice 4) — a
+    /// forma completa de um celular brasileiro, a única capaz de "perder" o
+    /// nono e ainda ser inequivocamente um celular (nunca um fixo).
+    /// </summary>
+    public static bool EhMovelBrasileiroCanonico(string numero) =>
+        numero.Length == 13
+        && numero.StartsWith("55", StringComparison.Ordinal)
+        && DddValido(numero)
+        && numero[4] == '9';
+
+    private static bool SaoFormasDoMesmoMovelBrasileiro(string primeiro, string segundo)
+    {
+        var comNono = primeiro.Length == 13 ? primeiro : segundo;
+        var semNono = primeiro.Length == 12 ? primeiro : segundo;
+
+        return EhMovelBrasileiroCanonico(comNono)
+            && comNono[5] is >= '6' and <= '9'
+            && semNono.Length == 12
+            && semNono.StartsWith("55", StringComparison.Ordinal)
+            && DddValido(semNono)
+            && comNono.Remove(4, 1).Equals(semNono, StringComparison.Ordinal);
+    }
+
     private static bool DddValido(string numero) =>
         numero.Length >= 4
         && int.TryParse(numero.AsSpan(2, 2), out var ddd)

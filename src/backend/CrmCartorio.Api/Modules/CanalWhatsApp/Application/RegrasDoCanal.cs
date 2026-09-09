@@ -58,8 +58,15 @@ public class RegrasDoCanal(
 
         var telefone = NormalizadorDeTelefone.ParaE164(request.Telefone);
 
-        var jaExiste = await db.CanalWhatsappNumeros.AsNoTracking()
-            .AnyAsync(n => n.TenantId == ctx.TenantId && n.Telefone == telefone, ct);
+        // Mesma equivalencia com/sem nono digito do PodeFalarComAsync — sem
+        // isto, cadastrar a mesma pessoa nas duas formas (o contorno manual
+        // que o achado de 2026-09-09 exigiu antes desta correcao) passaria
+        // batido, como duas pessoas diferentes.
+        var jaExiste = (await db.CanalWhatsappNumeros.AsNoTracking()
+                .Where(n => n.TenantId == ctx.TenantId)
+                .Select(n => n.Telefone)
+                .ToListAsync(ct))
+            .Any(numero => NormalizadorDeTelefone.NumerosEquivalentes(numero, telefone));
 
         if (jaExiste)
         {
@@ -138,8 +145,7 @@ public class RegrasDoCanal(
 
         if (modo == ModoDeRecebimento.SomenteLiberados)
         {
-            var liberado = await db.CanalWhatsappNumeros.AsNoTracking().AnyAsync(
-                n => n.TenantId == tenantId && n.Telefone == digitos && n.Tipo == TipoDeNumero.Liberado, ct);
+            var liberado = await ExisteEquivalenteAsync(tenantId, digitos, TipoDeNumero.Liberado, ct);
 
             return liberado
                 ? new VeredictoDoNumero(true, null)
@@ -147,12 +153,36 @@ public class RegrasDoCanal(
         }
 
         // TodosMenosBloqueados
-        var bloqueado = await db.CanalWhatsappNumeros.AsNoTracking().AnyAsync(
-            n => n.TenantId == tenantId && n.Telefone == digitos && n.Tipo == TipoDeNumero.Bloqueado, ct);
+        var bloqueado = await ExisteEquivalenteAsync(tenantId, digitos, TipoDeNumero.Bloqueado, ct);
 
         return bloqueado
             ? new VeredictoDoNumero(false, MotivoDoDescarte.Bloqueado)
             : new VeredictoDoNumero(true, null);
+    }
+
+    /// <remarks>
+    /// CORRECAO (achado ao vivo, 2026-09-09) — a comparacao era <c>n.Telefone
+    /// == digitos</c>, exata. O WhatsApp entrega o mesmo celular brasileiro ora
+    /// com o nono digito, ora sem (a mesma inconsistencia que
+    /// <see cref="OpcoesDoCanalWhatsApp.NumeroPermitido"/> ja tratava para a
+    /// lista de bloqueio do appsettings): uma atendente cadastrada em
+    /// "Somente os liberados" com o numero completo teve mensagens dela mesma
+    /// descartadas como "fora da lista" so' porque chegaram na forma sem o
+    /// nono. A lista de liberados/bloqueados de um tenant e' pequena (pessoas,
+    /// nao clientes) — trazer para memoria e comparar com
+    /// <see cref="NormalizadorDeTelefone.NumerosEquivalentes"/> e seguro e
+    /// correto; nao ha' como expressar essa equivalencia num predicado que o
+    /// EF traduza para SQL.
+    /// </remarks>
+    private async Task<bool> ExisteEquivalenteAsync(
+        Guid tenantId, string digitos, TipoDeNumero tipo, CancellationToken ct)
+    {
+        var cadastrados = await db.CanalWhatsappNumeros.AsNoTracking()
+            .Where(n => n.TenantId == tenantId && n.Tipo == tipo)
+            .Select(n => n.Telefone)
+            .ToListAsync(ct);
+
+        return cadastrados.Any(numero => NormalizadorDeTelefone.NumerosEquivalentes(numero, digitos));
     }
 
     public async Task RegistrarDescarteAsync(

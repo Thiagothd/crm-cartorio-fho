@@ -8,6 +8,8 @@ using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
+using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
@@ -874,6 +876,65 @@ Checar(
     "Processador entrega o contato autorizado",
     recebimentoFake.Recebimentos == 1
     && recebimentoFake.Ultima?.TelefoneE164 == "5519990001488");
+
+// CORRECAO (achado ao vivo, 2026-09-09): "Somente os liberados" e "Todos,
+// menos os bloqueados" comparavam por igualdade exata de digitos. Uma
+// atendente cadastrada com o numero completo (13 digitos, com o nono) teve
+// mensagens dela mesma descartadas como "fora da lista" so' porque o
+// WhatsApp entregou o remetente na forma legada (12 digitos, sem o nono).
+// Estes cenarios chamam RegrasDoCanal.PodeFalarComAsync diretamente, no modo
+// BANCO (Tenant.WhatsappModoDeRecebimento setado) — nao no fallback de
+// appsettings ja coberto acima.
+tenant.WhatsappModoDeRecebimento = ModoDeRecebimento.SomenteLiberados;
+db.CanalWhatsappNumeros.Add(new NumeroDoCanal
+{
+    TenantId = tenant.Id,
+    Telefone = "5538988000271", // forma canonica, com o nono digito
+    Tipo = TipoDeNumero.Liberado
+});
+await db.SaveChangesAsync();
+
+var veredictoComNono = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, "5538988000271");
+var veredictoSemNono = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, "553888000271");
+var veredictoOutroNumero = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, "5538999990000");
+
+Checar(
+    "Somente liberados: numero cadastrado com o nono digito passa na forma canonica",
+    veredictoComNono.Permitido);
+Checar(
+    "Somente liberados: MESMO numero, entregue sem o nono digito, tambem passa (o bug)",
+    veredictoSemNono.Permitido);
+Checar(
+    "Somente liberados: numero de fato diferente continua descartado como fora da lista",
+    !veredictoOutroNumero.Permitido && veredictoOutroNumero.Motivo == MotivoDoDescarte.ForaDaLista);
+
+tenant.WhatsappModoDeRecebimento = ModoDeRecebimento.TodosMenosBloqueados;
+const string bloqueadoCanonico = "5538974000711"; // forma canonica, com o nono digito
+var bloqueadoFormaLegada = bloqueadoCanonico.Remove(4, 1); // mesmo numero, sem o nono
+db.CanalWhatsappNumeros.Add(new NumeroDoCanal
+{
+    TenantId = tenant.Id,
+    Telefone = bloqueadoCanonico,
+    Tipo = TipoDeNumero.Bloqueado
+});
+await db.SaveChangesAsync();
+
+var veredictoBloqueadoCanonico = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, bloqueadoCanonico);
+var veredictoBloqueadoFormaLegada = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, bloqueadoFormaLegada);
+var veredictoNaoBloqueado = await regrasDoProcessador.PodeFalarComAsync(tenant.Id, "5538999990000");
+
+Checar(
+    "Todos menos bloqueados: numero bloqueado na forma canonica e recusado",
+    !veredictoBloqueadoCanonico.Permitido && veredictoBloqueadoCanonico.Motivo == MotivoDoDescarte.Bloqueado);
+Checar(
+    "Todos menos bloqueados: MESMO numero bloqueado, entregue sem o nono digito, tambem e recusado",
+    !veredictoBloqueadoFormaLegada.Permitido && veredictoBloqueadoFormaLegada.Motivo == MotivoDoDescarte.Bloqueado);
+Checar(
+    "Todos menos bloqueados: numero nao bloqueado continua passando",
+    veredictoNaoBloqueado.Permitido);
+
+tenant.WhatsappModoDeRecebimento = null;
+await db.SaveChangesAsync();
 
 var clienteBloqueado = new Cliente
 {
