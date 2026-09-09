@@ -550,13 +550,27 @@ app.MapGet("/health/pronto", async (CrmDbContext db, CancellationToken ct) =>
 // recurso, nunca concorre com /api nem com /hubs.
 //
 // O roteiro publico (Central de Ajuda, wwwroot/roteiro/) tem index.html
-// proprio, fora do bundle do React — sem este par especifico, /roteiro e
-// /roteiro/<pagina-inexistente> cairiam no fallback do SPA acima e
-// mostrariam a tela de login em vez do manual. UseStaticFiles ja resolve
-// arquivo citado por nome (ex.: /roteiro/atendimento.html) normalmente;
-// isto so cobre o caso de pasta sem nome de arquivo na URL.
-app.MapFallbackToFile("/roteiro", "roteiro/index.html");
-app.MapFallbackToFile("/roteiro/{**caminho}", "roteiro/index.html");
+// proprio, fora do bundle do React — sem isto, "/roteiro" e "/roteiro/" (sem
+// nome de arquivo) cairiam no fallback do SPA acima e mostrariam a tela de
+// login em vez do manual. UseStaticFiles ja resolve arquivo citado por nome
+// (ex.: /roteiro/atendimento.html) normalmente.
+//
+// MapGet, deliberadamente NAO MapFallbackToFile: duas tentativas anteriores
+// com fallback (testadas e revertidas) quebraram das duas formas possiveis —
+// um padrao coringa ({**caminho}) e' casado pelo roteamento ANTES do
+// UseStaticFiles servir o arquivo fisico, entao QUALQUER arquivo dentro de
+// /roteiro/ (css, js, imagem, outra pagina) passava a devolver este
+// index.html; e dois padroes literais ("/roteiro" e "/roteiro/") empatam com
+// o fallback generico {*path:nonfile} do proprio React pra path sem extensao,
+// e o roteamento de endpoint recusa escolher (AmbiguousMatchException, 500).
+// MapGet e' rota normal — sempre resolvida antes de qualquer fallback, sem
+// ambiguidade possivel com ele. So UMA rota, nao duas: no roteamento do
+// ASP.NET Core "/roteiro" e "/roteiro/" sao o MESMO padrao (a barra final
+// nao cria segmento novo) — registrar os dois path literais gerava DOIS
+// endpoints identicos, e o proprio roteamento nao sabia escolher entre eles
+// (a mesma AmbiguousMatchException, agora entre os dois MapGet).
+var indiceDoRoteiro = Path.Combine(app.Environment.WebRootPath, "roteiro", "index.html");
+app.MapGet("/roteiro", () => Results.File(indiceDoRoteiro, "text/html")).AllowAnonymous();
 
 app.MapFallbackToFile("index.html");
 
