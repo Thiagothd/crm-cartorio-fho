@@ -45,7 +45,7 @@ export function ResumoDaEquipe({ atendentes }: { atendentes: Atendente[] }) {
       <CartaoDeIndicador
         rotulo="Administram"
         valor={String(administram)}
-        detalhe="Com equipe.permissoes"
+        detalhe="Podem gerir permissões"
         icone={UserCog}
       />
       <CartaoDeIndicador

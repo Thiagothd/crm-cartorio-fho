@@ -59,6 +59,14 @@ export const EntradaDeCodigoOtp = React.forwardRef<HTMLInputElement, EntradaDeCo
           className,
         )}
         style={{
+          // Sem isto, o cursor de texto nativo herda o mesmo letterSpacing
+          // aplicado depois do ÚLTIMO caractere — invisível enquanto sobra
+          // pelo menos uma célula vazia à frente para "receber" o cursor,
+          // mas com os 6 dígitos completos o cursor vaza para uma 7ª célula
+          // que não existe (achado ao vivo, ver Protocolo de Verificação
+          // 2026-09-08/1). O preenchimento em célula continua vindo só do
+          // texto — nunca dependeu do cursor para parecer "cheio".
+          caretColor: 'transparent',
           // Largura exata das células, para o gradiente e o texto usarem a
           // mesma régua.
           width: `calc(${larguraDaCelula} * ${quantidade})`,
