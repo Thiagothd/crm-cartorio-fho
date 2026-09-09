@@ -569,8 +569,19 @@ app.MapGet("/health/pronto", async (CrmDbContext db, CancellationToken ct) =>
 // nao cria segmento novo) — registrar os dois path literais gerava DOIS
 // endpoints identicos, e o proprio roteamento nao sabia escolher entre eles
 // (a mesma AmbiguousMatchException, agora entre os dois MapGet).
+//
+// Dentro do handler, "/roteiro" (sem barra) REDIRECIONA para "/roteiro/" em
+// vez de servir o arquivo direto — sem isto, o navegador resolve os caminhos
+// relativos do HTML (href="css/estilo.css") contra a URL SEM barra, e
+// "roteiro" vira nome de arquivo a ser substituido: o pedido real sai como
+// "/css/estilo.css" (um nivel acima), nunca "/roteiro/css/estilo.css".
+// Testado ao vivo: pagina carregava, CSS/JS nao. So com a barra final no
+// endereco os caminhos relativos resolvem certo.
 var indiceDoRoteiro = Path.Combine(app.Environment.WebRootPath, "roteiro", "index.html");
-app.MapGet("/roteiro", () => Results.File(indiceDoRoteiro, "text/html")).AllowAnonymous();
+app.MapGet("/roteiro", (HttpContext ctx) => ctx.Request.Path.Value!.EndsWith('/')
+        ? Results.File(indiceDoRoteiro, "text/html")
+        : Results.Redirect("/roteiro/"))
+    .AllowAnonymous();
 
 app.MapFallbackToFile("index.html");
 
