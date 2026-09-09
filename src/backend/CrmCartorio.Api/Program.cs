@@ -548,6 +548,16 @@ app.MapGet("/health/pronto", async (CrmDbContext db, CancellationToken ct) =>
 //
 // Vem DEPOIS de MapControllers e MapHub de proposito: fallback e' ultimo
 // recurso, nunca concorre com /api nem com /hubs.
+//
+// O roteiro publico (Central de Ajuda, wwwroot/roteiro/) tem index.html
+// proprio, fora do bundle do React — sem este par especifico, /roteiro e
+// /roteiro/<pagina-inexistente> cairiam no fallback do SPA acima e
+// mostrariam a tela de login em vez do manual. UseStaticFiles ja resolve
+// arquivo citado por nome (ex.: /roteiro/atendimento.html) normalmente;
+// isto so cobre o caso de pasta sem nome de arquivo na URL.
+app.MapFallbackToFile("/roteiro", "roteiro/index.html");
+app.MapFallbackToFile("/roteiro/{**caminho}", "roteiro/index.html");
+
 app.MapFallbackToFile("index.html");
 
 // O semeador nunca cria schema — o DDL fica em sql/001-schema.sql para execucao
