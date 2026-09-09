@@ -182,7 +182,12 @@ export function FiltrosDaInbox({
               type="button"
               aria-pressed={ativo}
               onClick={() =>
-                atualizar({ escopo: valor, status: 'Ativa', apenasEncerradasHoje: false })
+                atualizar({
+                  escopo: valor,
+                  status: 'Ativa',
+                  apenasEncerradasHoje: false,
+                  apenasAguardandoResposta: false,
+                })
               }
               className={cn(
                 'flex min-h-10 flex-1 items-center justify-center rounded-full px-2 py-1 text-xs transition-colors md:min-h-0',
@@ -196,13 +201,22 @@ export function FiltrosDaInbox({
           )
         })}
 
+        {/* Os quatro botões são UM grupo exclusivo: cada um é uma vista
+            inteira, nunca uma camada sobre a anterior. "Encerradas" precisa
+            zerar escopo e recortes junto — sem isso, quem tinha clicado em
+            Minhas ou Fila antes seguia com esse recorte aplicado por baixo,
+            vendo só parte das encerradas, e NENHUMA pílula acesa dizia por
+            quê (o `ativo` das outras três exige status 'Ativa'). Achado em
+            produção em 2026-09-09. */}
         <button
           type="button"
           aria-pressed={filtros.status === 'Encerrada'}
           onClick={() =>
             atualizar({
-              status: filtros.status === 'Ativa' ? 'Encerrada' : 'Ativa',
+              status: 'Encerrada',
+              escopo: 'todas',
               apenasEncerradasHoje: false,
+              apenasAguardandoResposta: false,
             })
           }
           className={cn(
