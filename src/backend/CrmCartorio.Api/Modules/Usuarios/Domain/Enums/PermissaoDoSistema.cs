@@ -82,4 +82,12 @@ public enum PermissaoDoSistema
     EquipePermissoes,
     EquipeMfaAdministrar,
     SegurancaEventosVer,
+
+    /// <summary>Aprovar/negar/revogar uma solicitação de acesso técnico — só o preset Administração.</summary>
+    SegurancaAcessoTecnicoAprovar,
+
+    // ----------------------------------------------------------------- Suporte
+
+    /// <summary>Da conta técnica da equipe do projeto: pedir acesso, nunca ler dado sozinha.</summary>
+    SuporteSolicitarAcesso,
 }

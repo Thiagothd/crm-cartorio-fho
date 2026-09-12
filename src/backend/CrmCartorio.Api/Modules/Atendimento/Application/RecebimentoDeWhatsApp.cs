@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain;
@@ -18,6 +19,7 @@ public sealed class RecebimentoDeWhatsApp(
     IArmazenamentoDeAnexos anexos,
     INotificadorDeAtendimento notificador,
     SinalizadorDeEntradaWhatsapp sinalizador,
+    ICifraDeDados cifra,
     ILogger<RecebimentoDeWhatsApp> log) : IRecebimentoDeWhatsApp
 {
     private const int MaximoDeTentativasDeAceitacao = 5;
@@ -191,7 +193,7 @@ public sealed class RecebimentoDeWhatsApp(
     {
         var opcoes = new DbContextOptionsBuilder<CrmDbContext>();
         ConfiguracaoDoBanco.Configurar(opcoes, _connectionString);
-        return new CrmDbContext(opcoes.Options);
+        return new CrmDbContext(opcoes.Options, cifra);
     }
 
     private static async Task<Guid?> ObterConversaDaMensagemAsync(

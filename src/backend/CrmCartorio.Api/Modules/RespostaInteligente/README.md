@@ -47,6 +47,7 @@ provedor, e continua sem saber que existem dois.
 | `Cota/ContadorDeLimiteDiario` | Reserva atômica dos dois tetos diários por tenant (`LimiteDiario`, `LimiteDiarioHaiku`) |
 | `Cota/RegistradorDeChamadas` | Grava `ChamadaDeIa` num `DbContext` próprio — sobrevive a falha do fluxo de negócio |
 | `MontadorDeContexto` | Monta o texto de grounding: catálogo de `TipoServico` (nome, setor, descrição, **documentos necessários e prazo/SLA**), `RespostaRapida` ativa e `ConhecimentoDeIa` ativo/vigente — igual para os dois provedores |
+| `MascaradorDeDadosPessoais` | Blindagem LGPD (2026-09): oculta CPF, CNPJ, telefone, e-mail e CEP do histórico e da pergunta do cliente antes de montar o `PedidoDeIa` — nunca do contexto/catálogo, que não é dado pessoal de terceiro |
 | `IConhecimentoDeIaService` / `ConhecimentoDeIaService` | Cadastro governado de conhecimento (por serviço/tema, com vigência); toda edição preserva a versão anterior em `HistoricoDeConhecimentoDeIa` antes de sobrescrever |
 | `Infrastructure/AquecedorDeConexaoDoGemini` | Mantém a conexão HTTP com o Google viva (sondagem sem chave, custo zero de token) para o primeiro cliente não pagar a abertura de conexão |
 | `PromptDeSistema` | Prompt fixo, versionado em código. `ParaAnthropic()`/`ParaGemini()` — mesmo texto, ajuste por modelo só se um caso real do corpus de qualidade provar necessidade |
@@ -214,14 +215,32 @@ com os dois provedores, é chamado de dois lugares:
    explícito de atendente ou quando a própria IA não souber responder
    (`podeResponder=false`).
 
+## Blindagem LGPD — mascaramento antes de sair
+
+`RespostaInteligenteService.ResponderAsync` é o ÚNICO ponto do sistema que
+monta o `PedidoDeIa` — por isso é ali, e só ali, que
+`MascaradorDeDadosPessoais.Mascarar` roda sobre cada `TrocaAnterior.Conteudo`
+do histórico e sobre a pergunta atual, antes de qualquer HTTP para Gemini ou
+Anthropic. **Nunca** aplicado ao `Contexto` (catálogo/conhecimento), que é
+conteúdo nosso, não dado pessoal digitado pelo cliente.
+
+Limite honesto, documentado na própria classe: é reconhecimento por padrão de
+texto, não de entidade — não cobre nome próprio, e um CPF de 11 dígitos sem
+pontuação é indistinguível de um telefone de 11 dígitos sem pontuação (cai na
+regra de telefone). Reduz o que sai; não elimina o risco por completo. Ver
+[docs/PROTECAO-DE-DADOS.md](../../../../../docs/PROTECAO-DE-DADOS.md), seção 5.
+
 ## Verificação
 
 - `verificar-resposta-inteligente.cs` — orquestrador real, provedores fake,
-  banco em memória. 13 cenários, 56 verificações: seleção normal, margem de
-  cota, os cinco tipos de falha, recuperação automática do disjuntor, os dois
-  provedores falhando, concorrência, `podeResponder=false` não aciona
-  fallback, contagem correta dos dois tetos, persistência independente do
-  fluxo de negócio, franquia não cadastrada, cota global entre tenants.
+  banco em memória. Cenários 1-30: seleção normal, margem de cota, os cinco
+  tipos de falha, recuperação automática do disjuntor, os dois provedores
+  falhando, concorrência, `podeResponder=false` não aciona fallback, contagem
+  correta dos dois tetos, persistência independente do fluxo de negócio,
+  franquia não cadastrada, cota global entre tenants. Cenário 31 (blindagem
+  LGPD): captura o `PedidoDeIa` que `RespostaInteligenteService` monta e prova
+  que CPF, CNPJ, telefone, e-mail e CEP saem mascarados, sem exercitar
+  Gemini/Haiku/cota.
 - `verificar-qualidade-ia.cs` — rede real, opt-in (as duas chaves precisam
   estar configuradas). Compara Gemini(`low`)/Gemini(`medium`)/Haiku contra um
   corpus de 30 casos fora do roteiro, medindo invenção de conteúdo e acerto de

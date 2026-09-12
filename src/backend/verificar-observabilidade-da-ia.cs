@@ -3,6 +3,7 @@
 #:package Microsoft.EntityFrameworkCore.InMemory@10.0.9
 
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.CentralDeIa.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
@@ -50,7 +51,7 @@ CrmDbContext NovoBanco()
 {
     var nome = $"observabilidade-da-ia-{Interlocked.Increment(ref sequencial)}-{Guid.NewGuid():N}";
     var opcoes = new DbContextOptionsBuilder<CrmDbContext>().UseInMemoryDatabase(nome).Options;
-    return new CrmDbContext(opcoes);
+    return new CrmDbContext(opcoes, FabricaDeCifraDeDados.CriarDormente());
 }
 
 ChamadaDeIa NovaLinha(

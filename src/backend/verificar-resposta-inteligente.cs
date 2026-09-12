@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
@@ -62,11 +63,12 @@ var tenantId = Guid.NewGuid();
 {
     var nome = NovoNomeDeBanco();
     var servicos = new ServiceCollection();
+    servicos.AddSingleton<ICifraDeDados>(FabricaDeCifraDeDados.CriarDormente());
     servicos.AddDbContext<CrmDbContext>(o => o.UseInMemoryDatabase(nome));
     var provedor = servicos.BuildServiceProvider();
 
     var opcoes = new DbContextOptionsBuilder<CrmDbContext>().UseInMemoryDatabase(nome).Options;
-    var db = new CrmDbContext(opcoes);
+    var db = new CrmDbContext(opcoes, FabricaDeCifraDeDados.CriarDormente());
 
     return (db, provedor.GetRequiredService<IServiceScopeFactory>());
 }
@@ -1066,8 +1068,61 @@ Console.WriteLine("CENARIO 30 — os dois provedores falham: RodadaId igual, Tip
 }
 Console.WriteLine();
 
+Console.WriteLine("CENARIO 31 — blindagem LGPD: CPF/CNPJ/telefone/e-mail/CEP mascarados antes do pedido sair para o provedor");
+{
+    // Nivel do RespostaInteligenteService, nao do orquestrador: e' ali que o
+    // PedidoDeIa e' montado e mascarado, uma camada acima do que
+    // MontarAmbiente()/NovoPedido() deste arquivo exercitam.
+    var (db, _) = NovoBanco();
+    var capturador = new CapturadorDePedido();
+    var servico = new RespostaInteligenteService(db, capturador, Options.Create(NovasOpcoes()), NullLogger<RespostaInteligenteService>.Instance);
+
+    var historicoComDadoPessoal = new List<TrocaAnterior>
+    {
+        new(true, "meu CPF e 123.456.789-00, pode confirmar meu cadastro?"),
+        new(false, "Claro, so um instante."),
+    };
+
+    await servico.ResponderAsync(
+        tenantId,
+        historicoComDadoPessoal,
+        "meu telefone e (38) 99912-0045 e meu email e cliente@exemplo.com, o CEP e 39500-000",
+        contexto: null,
+        ct: CancellationToken.None);
+
+    var pedido = capturador.UltimoPedido!;
+    Checar("CPF do historico mascarado", pedido.Historico[0].Conteudo.Contains("[CPF]") && !pedido.Historico[0].Conteudo.Contains("123.456.789"));
+    Checar("Troca sem dado pessoal passa intacta", pedido.Historico[1].Conteudo == "Claro, so um instante.");
+    Checar("Telefone da pergunta mascarado", pedido.MensagemDoCliente.Contains("[TELEFONE]") && !pedido.MensagemDoCliente.Contains("99912-0045"));
+    Checar("E-mail da pergunta mascarado", pedido.MensagemDoCliente.Contains("[EMAIL]") && !pedido.MensagemDoCliente.Contains("cliente@exemplo.com"));
+    Checar("CEP da pergunta mascarado", pedido.MensagemDoCliente.Contains("[CEP]") && !pedido.MensagemDoCliente.Contains("39500-000"));
+
+    var capturadorCnpj = new CapturadorDePedido();
+    var servicoCnpj = new RespostaInteligenteService(db, capturadorCnpj, Options.Create(NovasOpcoes()), NullLogger<RespostaInteligenteService>.Instance);
+    await servicoCnpj.ResponderAsync(tenantId, [], "o CNPJ da empresa e 12.345.678/0001-95", contexto: null, ct: CancellationToken.None);
+    var pedidoCnpj = capturadorCnpj.UltimoPedido!;
+    Checar("CNPJ mascarado (nao confundido com CPF)", pedidoCnpj.MensagemDoCliente.Contains("[CNPJ]") && !pedidoCnpj.MensagemDoCliente.Contains("12.345.678"));
+}
+Console.WriteLine();
+
 Console.WriteLine(falhas == 0 ? "TODOS OS CENARIOS PASSARAM." : $"{falhas} CENARIO(S) COM FALHA.");
 return falhas == 0 ? 0 : 1;
+
+// ============================================================================
+// Blindagem LGPD (CENARIO 31): captura o PedidoDeIa que o RespostaInteligenteService
+// monta, sem exercitar Gemini/Haiku/cota — o que este cenario mede e' o texto
+// que SAIRIA para qualquer provedor, nao a escolha de qual provedor responde.
+// ============================================================================
+file sealed class CapturadorDePedido : IOrquestradorDeProvedores
+{
+    public PedidoDeIa? UltimoPedido { get; private set; }
+
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct)
+    {
+        UltimoPedido = pedido;
+        return Task.FromResult(new RespostaDaIA(true, "resposta de teste", "ok"));
+    }
+}
 
 // ============================================================================
 // Fake de provedor — fila de resultados configurados; conta chamadas.

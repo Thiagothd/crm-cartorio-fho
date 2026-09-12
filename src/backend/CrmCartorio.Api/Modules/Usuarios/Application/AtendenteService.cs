@@ -135,12 +135,22 @@ public class AtendenteService(
             Nome = request.Nome.Trim(),
             Email = email,
             SenhaHash = hash.Gerar(request.Senha),
-            Perfil = request.Perfil,
+            // Blindagem LGPD: conta tecnica nasce SEMPRE com o preset "Suporte
+            // tecnico" explicito (nunca NULL/"segue a Classe da conta") — sem
+            // isto, Perfil=Administrador faria ChavesEfetivas devolver TODAS
+            // as permissoes, inclusive atendimento.ver, ate alguem lembrar de
+            // personalizar pela tela.
+            Perfil = request.EhContaTecnica ? PerfilDeAtendente.Atendente : request.Perfil,
             Cargo = request.Cargo,
             SetorPadraoId = request.SetorPadraoId,
-            Ativo = true
-            // Permissoes/ModeloDePermissao ficam NULL — "segue a Classe da
-            // conta" ate alguem personalizar em /equipe/:id/permissoes.
+            Ativo = true,
+            EhContaTecnica = request.EhContaTecnica,
+            Permissoes = request.EhContaTecnica
+                ? CatalogoDePermissoes.Serializar([PermissaoDoSistema.SuporteSolicitarAcesso])
+                : null
+            // ModeloDePermissao fica NULL nos dois casos: conta tecnica tem
+            // conjunto fixo (nao e' preset de tela), conta comum "segue a
+            // Classe da conta" ate alguem personalizar em /equipe/:id/permissoes.
         };
 
         db.Atendentes.Add(atendente);
@@ -446,6 +456,23 @@ public class AtendenteService(
 
         var chavesPedidas = CatalogoDePermissoes.DesserializarLista(request.Chaves);
 
+        // Blindagem LGPD: conta tecnica da equipe do projeto nunca recebe leitura de
+        // dado de cliente por concessao direta — a UNICA leitura permitida
+        // vem da autorizacao de acesso tecnico aprovada pelo cartorio (ver
+        // Modules/Seguranca, ValidadorDeSessao.CarregarSessaoAsync). Sem
+        // isto, conceder atendimento.ver a uma conta tecnica contornaria o
+        // proposito inteiro da blindagem.
+        if (alvo.EhContaTecnica && chavesPedidas.Any(c =>
+            {
+                var chaveTexto = CatalogoDePermissoes.Descrever(c).ChaveTexto;
+                return chaveTexto.StartsWith("atendimento.", StringComparison.Ordinal)
+                    || chaveTexto.StartsWith("clientes.", StringComparison.Ordinal)
+                    || chaveTexto.StartsWith("relatorios.", StringComparison.Ordinal);
+            }))
+        {
+            throw UsuariosServiceException.ContaTecnicaNaoRecebeLeituraDeDado();
+        }
+
         // (b) Anti-escalada: o ator so repassa o que ele mesmo tem, inclusive
         // EquipePermissoes em si.
         var conjuntoDoAtor = ator.Permissoes is null
@@ -568,6 +595,7 @@ public class AtendenteService(
             atendente.UltimoAcessoEm,
             atendente.MfaAtivo,
             atendente.ModeloDePermissao,
-            CatalogoDePermissoes.ChavesEfetivas(atendente.Permissoes, atendente.Perfil));
+            CatalogoDePermissoes.ChavesEfetivas(atendente.Permissoes, atendente.Perfil),
+            atendente.EhContaTecnica);
     }
 }

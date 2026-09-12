@@ -38,8 +38,17 @@ public class Cliente : EntidadeBase, IEntidadeDeTenant
 
     public string? Email { get; set; }
 
-    /// <summary>CPF ou CNPJ, so digitos. Opcional.</summary>
+    /// <summary>CPF ou CNPJ, so digitos. Opcional. Cifrado em repouso (PR3) — busca exata via <see cref="DocumentoHash"/>.</summary>
     public string? Documento { get; set; }
+
+    /// <summary>
+    /// Indice cego (HMAC) de <see cref="Documento"/>, so digitos — sustenta
+    /// busca por igualdade exata quando a cifra em repouso esta ativa, sem
+    /// expor o documento em claro no indice do banco. Nulo enquanto a cifra
+    /// esta dormente (nenhuma chave configurada) ou enquanto nao houver
+    /// documento. Ver <c>Infrastructure/Security/IndiceCego.cs</c>.
+    /// </summary>
+    public string? DocumentoHash { get; set; }
 
     // --- pessoa fisica -------------------------------------------------------
 

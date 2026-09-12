@@ -1,6 +1,7 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -20,11 +21,47 @@ public static class ProjecaoDeMensagem
     /// <summary>Quantos caracteres da mensagem citada vao para a previa.</summary>
     private const int TamanhoDaPrevia = 160;
 
+    /// <summary>
+    /// Materializa e devolve a lista com a previa da citacao ja cortada em
+    /// <see cref="TamanhoDaPrevia"/>. O corte acontece EM MEMORIA, depois do
+    /// <c>ToListAsync</c> — nao dentro da consulta (ver <see cref="De"/>):
+    /// desde que <c>Mensagem.Conteudo</c> ficou cifrado em repouso (PR3), um
+    /// <c>Substring</c> traduzido para SQL cortaria bytes do CIPHERTEXT, nao
+    /// do texto em claro, e devolveria lixo sempre que a cifra estiver ativa.
+    /// </summary>
+    public static async Task<List<MensagemResponse>> ListarAsync(
+        CrmDbContext db,
+        IQueryable<Mensagem> origem,
+        string clienteNome,
+        CancellationToken ct = default) =>
+        (await De(db, origem, clienteNome).ToListAsync(ct))
+            .ConvertAll(CortarPreviaDaCitacao);
+
+    /// <summary>Mesma regra de <see cref="ListarAsync"/>, para quando so uma linha e esperada.</summary>
+    public static async Task<MensagemResponse> ObterUmaAsync(
+        CrmDbContext db,
+        IQueryable<Mensagem> origem,
+        string clienteNome,
+        CancellationToken ct = default) =>
+        CortarPreviaDaCitacao(await De(db, origem, clienteNome).FirstAsync(ct));
+
+    private static MensagemResponse CortarPreviaDaCitacao(MensagemResponse mensagem) =>
+        mensagem.RespondidaConteudo is { Length: > TamanhoDaPrevia } texto
+            ? mensagem with { RespondidaConteudo = texto[..TamanhoDaPrevia] }
+            : mensagem;
+
     /// <param name="clienteNome">
     /// Nome do cliente da conversa. Vem de fora porque a citacao pode ser de uma
     /// mensagem do cliente, e resolver isso por subconsulta obrigaria a passar
     /// pela conversa a cada linha.
     /// </param>
+    /// <remarks>
+    /// Publico so para <c>verificar-traducao.cs</c> chamar <c>ToQueryString()</c>
+    /// sem executar. Fora de teste de traducao, use
+    /// <see cref="ListarAsync"/>/<see cref="ObterUmaAsync"/> — chamar isto direto
+    /// e materializar devolve <see cref="MensagemResponse.RespondidaConteudo"/>
+    /// sem cortar para <see cref="TamanhoDaPrevia"/>.
+    /// </remarks>
     public static IQueryable<MensagemResponse> De(
         CrmDbContext db,
         IQueryable<Mensagem> origem,
@@ -69,11 +106,14 @@ public static class ProjecaoDeMensagem
                         : "Sistema")
                 .FirstOrDefault(),
 
+            // Conteudo INTEIRO aqui de proposito — o corte para a previa
+            // acontece depois de materializado (ver ListarAsync/ObterUmaAsync
+            // acima). Conteudo esta cifrado em repouso (PR3): um Substring
+            // traduzido para SQL operaria sobre o ciphertext, nao sobre o
+            // texto em claro.
             db.Mensagens
                 .Where(r => r.Id == m.MensagemRespondidaId)
-                .Select(r => r.Conteudo.Length > TamanhoDaPrevia
-                    ? r.Conteudo.Substring(0, TamanhoDaPrevia)
-                    : r.Conteudo)
+                .Select(r => r.Conteudo)
                 .FirstOrDefault(),
 
             // Sem ArquivoCaminho: a interface pede o binario pelo id da mensagem,

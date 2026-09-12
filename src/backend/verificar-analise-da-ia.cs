@@ -48,7 +48,7 @@ CrmDbContext NovoBanco()
 {
     var nome = $"analise-da-ia-{Interlocked.Increment(ref sequencial)}-{Guid.NewGuid():N}";
     var opcoes = new DbContextOptionsBuilder<CrmDbContext>().UseInMemoryDatabase(nome).Options;
-    return new CrmDbContext(opcoes);
+    return new CrmDbContext(opcoes, FabricaDeCifraDeDados.CriarDormente());
 }
 
 /// <summary>
@@ -354,6 +354,8 @@ file sealed class ContextoFixo(Guid tenantId) : IContextoDoUsuario
     public string Nome => "Verificador";
     public PerfilDeAtendente Perfil => PerfilDeAtendente.Administrador;
     public bool Pode(PermissaoDoSistema permissao) => true;
+    public Guid? AutorizacaoDeAcessoTecnicoId => null;
+    public Guid? EscopoDeConversaId => null;
 }
 
 /// <summary>

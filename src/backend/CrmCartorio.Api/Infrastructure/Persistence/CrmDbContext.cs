@@ -1,9 +1,12 @@
 using CrmCartorio.Api.Domain.Common;
+using CrmCartorio.Api.Infrastructure.Persistence.Cifra;
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
+using CrmCartorio.Api.Modules.Seguranca.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
@@ -11,8 +14,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Infrastructure.Persistence;
 
-public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(options)
+public class CrmDbContext(DbContextOptions<CrmDbContext> options, ICifraDeDados cifra) : DbContext(options)
 {
+    /// <summary>
+    /// Exposta so para <see cref="Cifra.ChaveDeCacheDeModeloDeCrm"/> — o EF
+    /// cacheia o model POR TIPO de DbContext, nao por instancia de opcoes;
+    /// sem essa chave incluir a instancia de cifra, o segundo
+    /// <c>new CrmDbContext(opcoes, outraCifra)</c> reaproveitaria o model
+    /// (e os ValueConverter) montado pelo PRIMEIRO, ignorando silenciosamente
+    /// a cifra nova. Producao nunca sente isso (uma unica instancia
+    /// singleton pela vida do processo); ferramenta/verificador que testa
+    /// cifra dormente e ativa no MESMO processo sentiria.
+    /// </summary>
+    internal ICifraDeDados Cifra => cifra;
+
+
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Atendente> Atendentes => Set<Atendente>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
@@ -35,6 +51,8 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
     public DbSet<CodigoDeRecuperacaoMfa> CodigosDeRecuperacaoMfa => Set<CodigoDeRecuperacaoMfa>();
     public DbSet<EventoDeSeguranca> EventosDeSeguranca => Set<EventoDeSeguranca>();
     public DbSet<DispositivoConfiavel> DispositivosConfiaveis => Set<DispositivoConfiavel>();
+    public DbSet<RegistroDeAcesso> RegistrosDeAcesso => Set<RegistroDeAcesso>();
+    public DbSet<AutorizacaoDeAcessoTecnico> AutorizacoesDeAcessoTecnico => Set<AutorizacaoDeAcessoTecnico>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +61,12 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(op
         // Cada modulo carrega a configuracao das proprias entidades. O assembly e
         // varrido inteiro para que adicionar um slice novo nao exija tocar aqui.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CrmDbContext).Assembly);
+
+        // PR3 (cifra em repouso): as Configurations acima so marcaram QUAIS
+        // propriedades sao cifradas (.Cifrada(), sem DI). Aqui, com a
+        // instancia real de ICifraDeDados do construtor, cada uma recebe o
+        // ValueConverter de verdade — ver ExtensoesDeCifra.
+        modelBuilder.AplicarConversoresDeCifra(cifra);
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)

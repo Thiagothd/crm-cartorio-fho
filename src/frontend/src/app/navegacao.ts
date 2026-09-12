@@ -6,8 +6,10 @@ import {
   Bot,
   Building2,
   GitBranch,
+  History,
   Home,
   Inbox,
+  LifeBuoy,
   MessageSquare,
   Palette,
   Plug,
@@ -206,6 +208,29 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         permissao: 'equipe.ver',
         descricao: 'Atendentes, cargos e permissões de cada um',
         carregar: pagina(() => import('@/pages/pagina-equipe'), 'PaginaEquipe'),
+      }),
+      // Blindagem LGPD (2026-09): quem abriu qual conversa/ficha/anexo, os
+      // eventos do SEC-03 e o resumo do que já está protegido. Visível no
+      // rail (não é conta pessoal como Aparência/Segurança) — é o que
+      // sustenta a promessa "o programador não lê sem deixar rastro".
+      item({
+        rotulo: 'Acesso aos dados',
+        rota: '/acesso-aos-dados',
+        icone: History,
+        permissao: 'seguranca.eventos.ver',
+        descricao: 'Quem abriu o quê, e o que já está protegido',
+        carregar: pagina(() => import('@/pages/pagina-acesso-aos-dados'), 'PaginaAcessoAosDados'),
+      }),
+      // suporte.solicitar_acesso é exclusiva da conta técnica da equipe do projeto —
+      // excluída de propósito de todo preset comum (CatalogoDePermissoes.cs).
+      // Ninguém do cartório vê este item; só a conta técnica, quando logada.
+      item({
+        rotulo: 'Suporte técnico',
+        rota: '/suporte',
+        icone: LifeBuoy,
+        permissao: 'suporte.solicitar_acesso',
+        descricao: 'Pedir acesso técnico temporário, com motivo',
+        carregar: pagina(() => import('@/pages/pagina-suporte-tecnico'), 'PaginaSuporteTecnico'),
       }),
       submenu({
         rotulo: 'Estrutura da operação',

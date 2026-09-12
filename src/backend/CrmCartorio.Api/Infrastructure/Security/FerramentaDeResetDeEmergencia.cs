@@ -361,7 +361,7 @@ public static class FerramentaDeResetDeEmergencia
 
         var optionsBuilder = new DbContextOptionsBuilder<CrmDbContext>();
         ConfiguracaoDoBanco.Configurar(optionsBuilder, connectionString);
-        await using var db = new CrmDbContext(optionsBuilder.Options);
+        await using var db = new CrmDbContext(optionsBuilder.Options, FabricaDeCifraDeDados.CriarDeConfiguracao(configuracao));
 
         if (!await db.Database.CanConnectAsync())
         {

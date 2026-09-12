@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using Microsoft.Extensions.Options;
@@ -34,9 +35,19 @@ public class OpcoesDeAnexos
 public class ArmazenamentoDeAnexosEmDisco(
     IOptions<OpcoesDeAnexos> opcoes,
     IHostEnvironment ambiente,
+    ICifraDeDados cifra,
+    IProvedorDeChaveDeDados provedorDeChave,
     ILogger<ArmazenamentoDeAnexosEmDisco> log) : IArmazenamentoDeAnexos
 {
     private readonly OpcoesDeAnexos _opcoes = opcoes.Value;
+
+    /// <summary>
+    /// Marca no inicio do arquivo cifrado (PR3). Sua ausencia e o que
+    /// distingue anexo legado/dormente (bytes puros da midia) de anexo
+    /// cifrado — nao ha coluna no banco para isso, o proprio arquivo se
+    /// descreve.
+    /// </summary>
+    private static readonly byte[] Magica = "CRMA"u8.ToArray();
 
     /// <summary>
     /// Tipos aceitos, e a extensao com que cada um e gravado.
@@ -127,7 +138,11 @@ public class ArmazenamentoDeAnexosEmDisco(
 
         Directory.CreateDirectory(Path.GetDirectoryName(absoluto)!);
 
-        await File.WriteAllBytesAsync(absoluto, conteudo, ct);
+        var bytesParaGravar = provedorDeChave.CifraAtiva
+            ? [.. Magica, .. cifra.CifrarBytes(conteudo, MontarAad(tenantId, mensagemId))]
+            : conteudo;
+
+        await File.WriteAllBytesAsync(absoluto, bytesParaGravar, ct);
 
         log.LogInformation(
             "Anexo de {Tamanho} bytes ({Mime}) gravado para a mensagem {MensagemId}.",
@@ -171,7 +186,56 @@ public class ArmazenamentoDeAnexosEmDisco(
             return null;
         }
 
-        return await File.ReadAllBytesAsync(absoluto, ct);
+        var bytes = await File.ReadAllBytesAsync(absoluto, ct);
+
+        if (bytes.Length < Magica.Length || !bytes.AsSpan(0, Magica.Length).SequenceEqual(Magica))
+        {
+            // Sem a marca: anexo legado ou gravado com a cifra dormente —
+            // bytes puros da midia, exatamente como antes desta entrega.
+            return bytes;
+        }
+
+        if (!TentarExtrairAad(caminhoRelativo, out var aad))
+        {
+            log.LogError(
+                "Anexo cifrado com caminho fora do formato esperado, AAD nao derivavel: {Caminho}",
+                caminhoRelativo);
+            throw AtendimentoServiceException.AnexoNaoEncontrado();
+        }
+
+        return cifra.DecifrarBytes(bytes[Magica.Length..], aad);
+    }
+
+    /// <summary>
+    /// O AAD (tenant ‖ mensagem) nao e gravado em lugar nenhum — e derivado do
+    /// proprio caminho relativo (<c>{tenant}/{ano}/{mes}/{mensagem}.ext</c>,
+    /// montado em <see cref="GravarAsync"/>), o mesmo dado que a linha da
+    /// mensagem no banco ja carrega. Mover o arquivo para o caminho de outra
+    /// mensagem muda o AAD derivado e a tag deixa de bater — mesma defesa que
+    /// <see cref="Security.CifraDeSegredoMfa"/> faz para o segredo de MFA.
+    /// </summary>
+    private static bool TentarExtrairAad(string caminhoRelativo, out byte[] aad)
+    {
+        var partes = caminhoRelativo.Replace('\\', '/').Split('/');
+
+        if (partes.Length >= 2 &&
+            Guid.TryParseExact(partes[0], "N", out var tenantId) &&
+            Guid.TryParseExact(Path.GetFileNameWithoutExtension(partes[^1]), "N", out var mensagemId))
+        {
+            aad = MontarAad(tenantId, mensagemId);
+            return true;
+        }
+
+        aad = [];
+        return false;
+    }
+
+    private static byte[] MontarAad(Guid tenantId, Guid mensagemId)
+    {
+        var aad = new byte[32];
+        tenantId.TryWriteBytes(aad.AsSpan(0, 16));
+        mensagemId.TryWriteBytes(aad.AsSpan(16, 16));
+        return aad;
     }
 
     /// <summary>

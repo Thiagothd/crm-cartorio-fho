@@ -41,7 +41,17 @@ public class RespostaInteligenteService(
         try
         {
             var contextoDoGrounding = await MontadorDeContexto.MontarAsync(db, tenantId, ct);
-            var pedido = new PedidoDeIa(contextoDoGrounding, historico, mensagemDoCliente);
+
+            // Blindagem LGPD: mascara CPF/CNPJ/telefone/e-mail/CEP antes de
+            // qualquer texto sair para o provedor — nunca o contexto/catálogo,
+            // que é conteúdo nosso, não dado pessoal de terceiro digitado pelo
+            // cliente. Ver MascaradorDeDadosPessoais para o limite honesto disto.
+            var historicoMascarado = historico
+                .Select(t => t with { Conteudo = MascaradorDeDadosPessoais.Mascarar(t.Conteudo) })
+                .ToList();
+            var mensagemMascarada = MascaradorDeDadosPessoais.Mascarar(mensagemDoCliente);
+
+            var pedido = new PedidoDeIa(contextoDoGrounding, historicoMascarado, mensagemMascarada);
 
             return await orquestrador.ResponderAsync(tenantId, contexto, pedido, ct);
         }

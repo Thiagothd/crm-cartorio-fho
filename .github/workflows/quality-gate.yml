@@ -159,6 +159,10 @@ jobs:
         working-directory: src/backend
         run: dotnet run verificar-automacao.cs -- "$CI_SQL_CONNECTION_STRING"
 
+      - name: Verifica protecao de dados (blindagem LGPD)
+        working-directory: src/backend
+        run: dotnet run verificar-protecao-de-dados.cs -- "$CI_SQL_CONNECTION_STRING"
+
       - name: Destroi o SQL Server descartavel
         if: always()
         shell: bash

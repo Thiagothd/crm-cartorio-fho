@@ -2,8 +2,11 @@
 #:property PublishAot=false
 
 using System.Collections.Concurrent;
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
@@ -56,8 +59,9 @@ var conexao = args.Length > 0
 var construtor = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(construtor, conexao);
 var opcoes = construtor.Options;
+var cifra = FabricaDeCifraDeDados.CriarDormente();
 
-await using (var checagem = new CrmDbContext(opcoes))
+await using (var checagem = new CrmDbContext(opcoes, cifra))
 {
     if (!string.Equals(
             checagem.Database.GetDbConnection().Database,
@@ -79,7 +83,7 @@ Guid tenantId;
 (Guid Id, string Nome, PerfilDeAtendente Perfil)[] atendentes;
 List<Guid> clientesDeTeste = [];
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     tenantId = await db.Tenants.Select(t => t.Id).FirstAsync();
 
@@ -148,8 +152,20 @@ ConversaService Servico(CrmDbContext db, int indiceDoAtendente)
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         new CanalSilencioso(),
         new FilaSilenciosa(),
+        NovoRegistrador(db, tenantId, id, nome, perfil),
         NullLogger<ConversaService>.Instance);
 }
+
+// Blindagem LGPD: instancia real de RegistradorDeAcesso (CLAUDE.md 9 — o
+// verificador chama o servico real). Cache novo a cada chamada: a
+// deduplicacao por janela de 15 min nao deve vazar entre cenarios de
+// concorrencia independentes deste arquivo.
+IRegistradorDeAcesso NovoRegistrador(CrmDbContext db, Guid tenant, Guid id, string nome, PerfilDeAtendente perfil) =>
+    new RegistradorDeAcesso(
+        db,
+        new ContextoFixo(tenant, id, nome, perfil),
+        new HttpContextAccessor(),
+        new MemoryCache(new MemoryCacheOptions()));
 
 // ---------------------------------------------------------------------------
 // TESTE 1 — protocolos simultaneos, via ConversaService.CriarAsync
@@ -169,7 +185,7 @@ var criacoes = Enumerable.Range(0, Simultaneas).Select(async i =>
 
     try
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifra);
         var servico = Servico(db, i);
 
         var conversa = await servico.CriarAsync(
@@ -233,7 +249,7 @@ Console.WriteLine("TESTE 2 — trava de conversa sob concorrencia");
 
 Guid alvo;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await Servico(db, 0).CriarAsync(
         new CriarConversaRequest(clientesDeTeste[Simultaneas], null, null, "Conversa disputada."));
@@ -252,7 +268,7 @@ var disputa = Enumerable.Range(0, Simultaneas).Select(async i =>
 
     try
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifra);
         var resultado = await Servico(db, i).AssumirAsync(alvo);
 
         vencedores.Add(resultado.AtendenteNome ?? "?");
@@ -321,7 +337,7 @@ Console.WriteLine("TESTE 3 — envio simultaneo assume sem furar a trava");
 
 Guid disputada;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await Servico(db, 0).CriarAsync(
         new CriarConversaRequest(clientesDeTeste[Simultaneas + 1], null, null, "Cliente escreveu primeiro."));
@@ -341,7 +357,7 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
 
     try
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifra);
         var (id, nome, _) = atendentes[i % atendentes.Length];
 
         // Perfil Atendente para TODOS, ignorando o perfil semeado de proposito.
@@ -374,6 +390,7 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
             new RespostaInteligenteService(
                 db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance),
             opcoesDaIA,
+            NovoRegistrador(db, tenantId, id, nome, PerfilDeAtendente.Atendente),
             NullLogger<MensagemService>.Instance);
 
         var enviada = await mensagens.EnviarAsync(
@@ -403,7 +420,7 @@ await Task.WhenAll(envios);
 int mensagensGravadas;
 Guid? donoFinal;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     mensagensGravadas = await db.Mensagens
         .CountAsync(m => m.ConversaId == disputada && m.AutorTipo == AutorTipo.Atendente);
@@ -480,7 +497,7 @@ Console.WriteLine("TESTE 4 — IA em voo quando o atendente assume; resposta nao
 
 Guid conversaEmVoo;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await Servico(db, 0).CriarAsync(
         new CriarConversaRequest(clientesDeTeste[Simultaneas + 2], null, null, "Oi"));
@@ -502,7 +519,7 @@ Exception? excecaoDaSimulacao = null;
 
 var tarefaDaIa = Task.Run(async () =>
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     var ctx = new ContextoFixo(tenantId, atendenteQueAssumiu.Id, atendenteQueAssumiu.Nome, PerfilDeAtendente.Atendente);
     var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = true });
 
@@ -516,6 +533,7 @@ var tarefaDaIa = Task.Run(async () =>
         new AnexosEmMemoria(),
         new RespostaInteligenteAtrasada(iaEmVoo, liberaResposta.Task),
         opcoesDaIA,
+        NovoRegistrador(db, tenantId, atendenteQueAssumiu.Id, atendenteQueAssumiu.Nome, PerfilDeAtendente.Atendente),
         NullLogger<MensagemService>.Instance);
 
     try
@@ -532,7 +550,7 @@ var tarefaDaIa = Task.Run(async () =>
 // o teste nao prova nada sobre a corrida.
 await iaEmVoo.Task;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await Servico(db, 0).AssumirAsync(conversaEmVoo);
 }
@@ -546,7 +564,7 @@ int mensagensDaIaGravadas;
 bool emAtendimentoHumanoApos;
 Guid? atendenteApos;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     mensagensDaIaGravadas = await db.Mensagens
         .CountAsync(m => m.ConversaId == conversaEmVoo && m.AutorTipo == AutorTipo.Sistema && m.GeradaPorIa);
@@ -594,7 +612,7 @@ Console.WriteLine();
 Console.WriteLine("TESTE 5 — reabrir retorna conflito funcional quando ja existe conversa ativa");
 
 Guid conversaFechadaComOutraAtiva;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var fechada = await Servico(db, 0).CriarAsync(
         new CriarConversaRequest(clientesDeTeste[Simultaneas + 3], null, null, "Conversa que sera fechada."));
@@ -610,7 +628,7 @@ string? codigoDaReabertura = null;
 Exception? erroDaReabertura = null;
 try
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     await Servico(db, 0).ReabrirAsync(conversaFechadaComOutraAtiva);
 }
 catch (AtendimentoServiceException ex)
@@ -644,7 +662,7 @@ Console.WriteLine("TESTE 6 — criar e reabrir concorrentes devolvem conflito fu
 
 Guid conversaFechadaParaCorrida;
 var clienteDaCorrida = clientesDeTeste[Simultaneas + 4];
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var fechada = await Servico(db, 0).CriarAsync(
         new CriarConversaRequest(clienteDaCorrida, null, null, "Conversa para corrida de reabertura."));
@@ -666,7 +684,7 @@ var criarOuReabrir = new[]
         await largada6.Task;
         try
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifra);
             await Servico(db, 0).ReabrirAsync(conversaFechadaParaCorrida);
             sucessosDaCorrida.Add("reabrir");
         }
@@ -684,7 +702,7 @@ var criarOuReabrir = new[]
         await largada6.Task;
         try
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifra);
             await Servico(db, 1).CriarAsync(
                 new CriarConversaRequest(clienteDaCorrida, null, null, "Criacao concorrente."));
             sucessosDaCorrida.Add("criar");
@@ -704,7 +722,7 @@ largada6.SetResult();
 await Task.WhenAll(criarOuReabrir);
 
 int ativasDaCorrida;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
     ativasDaCorrida = await db.Conversas.CountAsync(c => c.ClienteId == clienteDaCorrida
         && c.Canal == CanalOrigem.Simulado && c.Status == StatusConversa.Ativa);
 
@@ -735,7 +753,7 @@ else
 // A limpeza tambem apanha sobras de execucoes anteriores.
 // ---------------------------------------------------------------------------
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var clientes = db.Clientes
         .Where(c => c.TenantId == tenantId && c.Nome.StartsWith(PrefixoDeTeste))
@@ -780,6 +798,9 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public bool Pode(PermissaoDoSistema permissao) =>
         permissao == PermissaoDoSistema.AtendimentoSimularCliente
         || CatalogoDePermissoes.ConjuntoDaClasse(perfil).Contains(permissao);
+
+    public Guid? AutorizacaoDeAcessoTecnicoId => null;
+    public Guid? EscopoDeConversaId => null;
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e o banco, nao o hub.</summary>
