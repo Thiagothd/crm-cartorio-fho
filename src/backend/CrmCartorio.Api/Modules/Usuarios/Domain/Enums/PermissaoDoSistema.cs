@@ -88,6 +88,6 @@ public enum PermissaoDoSistema
 
     // ----------------------------------------------------------------- Suporte
 
-    /// <summary>Da conta técnica da equipe do projeto: pedir acesso, nunca ler dado sozinha.</summary>
+    /// <summary>Da conta de suporte técnico: pedir acesso, nunca ler dado sozinha.</summary>
     SuporteSolicitarAcesso,
 }

@@ -57,6 +57,20 @@ export function PaginaAcessoAosDados() {
           />
         </div>
 
+        <div className="rounded-md border border-linha bg-superficie px-4 py-3 text-xs text-tinta-media">
+          <p className="font-semibold text-tinta">O que tem nesta tela</p>
+          <p className="mt-1">
+            <span className="font-semibold text-tinta">Proteção ativa</span> resume se a cifra em
+            repouso está ligada neste ambiente. <span className="font-semibold text-tinta">Acesso
+            técnico</span> mostra pedidos de suporte que precisam da sua aprovação (só aparece para
+            quem pode aprovar). <span className="font-semibold text-tinta">Acessos</span> lista, um
+            por um, toda vez que alguém do cartório abriu uma conversa, baixou um anexo ou abriu a
+            ficha completa de um cliente — quem, o quê e quando. <span className="font-semibold
+            text-tinta">Eventos de segurança</span> traz login, ativação de segundo fator e reset de
+            senha. O período escolhido acima filtra as duas tabelas de uma vez.
+          </p>
+        </div>
+
         <PainelDeProtecao />
         <PainelDeAcessosTecnicos />
         <TabelaDeAcessos de={de} ate={ate} />

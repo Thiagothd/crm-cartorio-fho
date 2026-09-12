@@ -32,7 +32,7 @@ public record CriarAtendenteRequest(
     Guid? SetorPadraoId,
     CargoNaServentia Cargo = CargoNaServentia.NaoInformado,
     /// <summary>
-    /// Blindagem LGPD: marca a conta como tecnica da equipe do projeto — nunca lê
+    /// Blindagem LGPD: marca a conta como de suporte tecnico — nunca lê
     /// dado de cliente por permissão concedida direto, só por autorização de
     /// acesso técnico ativa. Ver <see cref="Domain.Entities.Atendente.EhContaTecnica"/>.
     /// </summary>

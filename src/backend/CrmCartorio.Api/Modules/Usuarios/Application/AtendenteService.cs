@@ -456,7 +456,7 @@ public class AtendenteService(
 
         var chavesPedidas = CatalogoDePermissoes.DesserializarLista(request.Chaves);
 
-        // Blindagem LGPD: conta tecnica da equipe do projeto nunca recebe leitura de
+        // Blindagem LGPD: conta de suporte tecnico nunca recebe leitura de
         // dado de cliente por concessao direta — a UNICA leitura permitida
         // vem da autorizacao de acesso tecnico aprovada pelo cartorio (ver
         // Modules/Seguranca, ValidadorDeSessao.CarregarSessaoAsync). Sem

@@ -211,16 +211,35 @@ public class AcessoTecnicoService(
             .FirstOrDefaultAsync(ct);
     }
 
+    /// <summary>
+    /// Duas platéias, um endpoint só. Quem tem <c>seguranca.eventos.ver</c>
+    /// (administrador) vê TODOS os pedidos do tenant — é o painel de
+    /// aprovação. Quem só tem <c>suporte.solicitar_acesso</c> (a própria
+    /// conta técnica) vê SÓ os pedidos que ela mesma fez — é "Meus pedidos"
+    /// na tela de Suporte técnico. Antes desta correção, a conta técnica
+    /// batia sem-permissão aqui (só tinha a segunda chave, não a primeira) e
+    /// nunca via nem o próprio histórico de pedidos.
+    /// </summary>
     public async Task<PaginaDeSeguranca<AutorizacaoDeAcessoTecnicoResponse>> ListarAsync(
         FiltroDeAcessoTecnico filtro, CancellationToken ct = default)
     {
-        GarantirPermissao(PermissaoDoSistema.SegurancaEventosVer);
+        var podeVerTodos = ctx.Pode(PermissaoDoSistema.SegurancaEventosVer);
+        if (!podeVerTodos)
+        {
+            GarantirPermissao(PermissaoDoSistema.SuporteSolicitarAcesso);
+        }
 
         var tenantId = ctx.TenantId;
         var (de, ate, _) = PeriodoDeAnalise.Resolver(filtro.De, filtro.Ate, DateTime.UtcNow);
 
         var consulta = db.AutorizacoesDeAcessoTecnico.AsNoTracking()
             .Where(a => a.TenantId == tenantId && a.SolicitadaEm >= de && a.SolicitadaEm <= ate);
+
+        if (!podeVerTodos)
+        {
+            var atendenteId = ctx.AtendenteId;
+            consulta = consulta.Where(a => a.ContaTecnicaId == atendenteId);
+        }
 
         var total = await consulta.CountAsync(ct);
 

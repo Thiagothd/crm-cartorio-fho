@@ -34,7 +34,7 @@ public class RegistroDeAcesso : EntidadeBase
     /// Identidade de quem leu FORA do modelo Atendente/Tenant comum — mesmo
     /// papel que em <c>EventoDeSeguranca.AtorExterno</c>. Hoje não preenchido
     /// (nenhum leitor externo existe ainda); reservado para a conta técnica
-    /// da equipe do projeto, se um dia ela precisar ser distinta de um Atendente.
+    /// do suporte tecnico, se um dia ela precisar ser distinta de um Atendente.
     /// </summary>
     public string? AtorExterno { get; set; }
 

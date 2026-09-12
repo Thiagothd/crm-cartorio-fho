@@ -5,7 +5,7 @@ namespace CrmCartorio.Api.Modules.Seguranca.Domain.Entities;
 
 /// <summary>
 /// Blindagem LGPD: o pedido, aprovado ou não, para a conta técnica da
-/// equipe do projeto ler dado de cliente por um tempo limitado. "A equipe do projeto pede, o
+/// suporte tecnico ler dado de cliente por um tempo limitado. "O suporte tecnico pede, o
 /// cartório aprova, a faixa avisa, a trilha registra" —
 /// docs/PROTECAO-DE-DADOS.md.
 /// </summary>

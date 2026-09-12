@@ -221,7 +221,7 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         descricao: 'Quem abriu o quê, e o que já está protegido',
         carregar: pagina(() => import('@/pages/pagina-acesso-aos-dados'), 'PaginaAcessoAosDados'),
       }),
-      // suporte.solicitar_acesso é exclusiva da conta técnica da equipe do projeto —
+      // suporte.solicitar_acesso é exclusiva da conta de suporte técnico —
       // excluída de propósito de todo preset comum (CatalogoDePermissoes.cs).
       // Ninguém do cartório vê este item; só a conta técnica, quando logada.
       item({

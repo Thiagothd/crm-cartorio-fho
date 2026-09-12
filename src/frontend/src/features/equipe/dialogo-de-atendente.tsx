@@ -199,7 +199,7 @@ export function DialogoDeAtendente({
           {!atendente ? (
             <div className="flex flex-col gap-1.5 rounded-lg border border-linha px-3 py-2.5">
               <div className="flex items-center justify-between">
-                <Label htmlFor="atendente-conta-tecnica">Conta técnica da equipe do projeto</Label>
+                <Label htmlFor="atendente-conta-tecnica">Conta de suporte técnico</Label>
                 <Switch id="atendente-conta-tecnica" checked={ehContaTecnica} onCheckedChange={setEhContaTecnica} />
               </div>
               <p className="text-xs text-tinta-media">
@@ -210,7 +210,7 @@ export function DialogoDeAtendente({
             </div>
           ) : atendente.ehContaTecnica ? (
             <p className="rounded-lg border border-linha bg-superficie px-3 py-2.5 text-xs text-tinta-media">
-              Esta é uma conta técnica da equipe do projeto — só lê dado de cliente com acesso técnico
+              Esta é uma conta de suporte técnico — só lê dado de cliente com acesso técnico
               aprovado pela tela "Acesso aos dados".
             </p>
           ) : null}

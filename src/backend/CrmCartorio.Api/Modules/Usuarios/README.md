@@ -25,10 +25,10 @@ pendência antiga de "permissão mais fina" (`docs/REQUISITOS.md`, seção 5.5,
 item 13) foi resolvida pelas permissões granulares: já não é preciso mexer em
 código para dar a alguém acesso a uma tela sem dar às outras.
 
-### Conta técnica — a porta de entrada do suporte da equipe do projeto
+### Conta técnica — a porta de entrada do suporte técnico
 
 `Atendente.EhContaTecnica` (2026-09, blindagem LGPD) marca uma conta criada
-pelo próprio cartório em Equipe para o suporte técnico da equipe do projeto — imutável
+pelo próprio cartório em Equipe para o suporte técnico do sistema — imutável
 depois de criada, nunca alternável por uma edição posterior
 (`AtualizarAtendenteRequest` não carrega este campo de propósito). Uma conta
 técnica nasce **sem** nenhuma permissão de leitura de dado: `CriarAsync`
@@ -39,11 +39,14 @@ pela tela de permissões. A única forma de uma conta técnica ler qualquer
 conversa é uma `AutorizacaoDeAcessoTecnico` aprovada, que injeta a permissão
 **na sessão**, nunca na conta — ver
 [Modules/Seguranca/README.md](../Seguranca/README.md), seção "Acesso técnico
-autorizado". `PoliticaDeMfa.ExigeAsync` exige MFA para conta técnica
-incondicionalmente (mesma fronteira do administrador, sem depender de
-`Tenant.MfaObrigatorioParaAdministradores`) — uma credencial que pode virar
-leitura de conversa mediante aprovação não pode ficar protegida só por
-senha.
+autorizado". `PoliticaDeMfa.ExigeAsync` põe a conta técnica na **mesma
+fronteira do administrador**: MFA obrigatório quando
+`Tenant.MfaObrigatorioParaAdministradores` está ligado, não uma exigência
+própria. A primeira versão (2026-09-12, mesmo dia) exigia MFA
+incondicionalmente e deixou a conta impossível de usar no ambiente de teste
+— não havia nenhum administrador com autenticador matriculado para emitir o
+ticket dela. O portão real da leitura é o segundo fator de quem **aprova**
+o acesso, não o login da conta que pede.
 
 ## Permissões granulares
 

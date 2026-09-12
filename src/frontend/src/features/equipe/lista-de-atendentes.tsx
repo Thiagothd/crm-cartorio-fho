@@ -91,7 +91,16 @@ export function ListaDeAtendentes({
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-tinta-fraca" />
+          {/*
+            type="search" + autoComplete="off": sem isto o Chrome tratava esta
+            caixa como o "usuário" do campo de senha dos diálogos de MFA/senha
+            abertos nesta mesma tela e despejava aqui o e-mail salvo no
+            gerenciador de senhas ao abrir o diálogo (bug relatado 2026-09-12).
+          */}
           <Input
+            type="search"
+            name="busca-equipe"
+            autoComplete="off"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Nome ou e-mail"
