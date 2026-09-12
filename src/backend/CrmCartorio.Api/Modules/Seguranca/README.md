@@ -9,9 +9,10 @@ expõe trilhas que já existiam gravadas em outro lugar do sistema
 (`RegistrosDeAcesso`, nova; `EventosDeSeguranca`, do SEC-03 em
 `Modules/Usuarios`) para a tela "Acesso aos dados". A gravação dessa trilha
 não mora aqui — ver a seção seguinte. A segunda, desde o PR4, é o **ciclo de
-vida do acesso técnico autorizado** — o suporte técnico pede, o cartório aprova com
-MFA, e a permissão de leitura entra na sessão só enquanto durar — ver "Acesso
-técnico autorizado" mais abaixo.
+vida do acesso técnico autorizado** — o suporte técnico pede, o cartório
+aprova pela tela (já autenticado, sem passo extra), e a permissão de leitura
+entra na sessão só enquanto durar — ver "Acesso técnico autorizado" mais
+abaixo.
 
 ## Peças
 
@@ -22,7 +23,7 @@ técnico autorizado" mais abaixo.
 | `ISegurancaService` / `SegurancaService` | Leitura paginada, por período, das duas trilhas + o resumo "Proteção ativa" |
 | `EscopoDeAcesso` (Domain) | `Geral` ou `Conversa` — o que uma autorização técnica libera |
 | `AutorizacaoDeAcessoTecnico` (Domain) | Pedido de acesso da conta técnica: motivo, escopo, duração, estado derivado das datas |
-| `IAcessoTecnicoService` / `AcessoTecnicoService` | Solicitar, aprovar (com TOTP), negar, revogar, consultar a autorização ativa |
+| `IAcessoTecnicoService` / `AcessoTecnicoService` | Solicitar, aprovar, negar, revogar, consultar a autorização ativa |
 | `SegurancaController` | `GET /api/seguranca/acessos`, `/eventos`, `/protecao`; `POST/GET .../acesso-tecnico/...` — ver tabela de permissões abaixo |
 
 ## Onde a trilha é gravada, e por quê não é aqui
@@ -123,16 +124,17 @@ conhecer o `Guid` interno, então resolve por protocolo) e duração (teto de
 deriva `Pendente`/`Ativa`/`Expirada`/`Negada`/`Revogada` a partir dos
 timestamps toda vez que lê, o mesmo padrão de `PoliticaDeMfa`.
 
-**Aprovar exige o segundo fator do aprovador.** `AprovarAsync` reaproveita o
-step-up de TOTP que já existia para reset de MFA — nova porta pública
-`IMfaService.ConferirSegundoFatorAsync`, que só encapsula o par
-`ValidarCodigoDeStepUpAsync`/`ExecutarCasDeStepUpAsync` privado de
-`MfaService` (CAS atômico: o código só pode ser consumido uma vez, mesmo sob
-corrida). Negar e revogar **não** pedem TOTP — reduzir acesso nunca é ação
-sensível o bastante para exigir segundo fator, só ampliar é. A aprovação em
-si é atômica (`ExecuteUpdateAsync` guardado por `AprovadaEm == null &&
-NegadaEm == null`) — duas aprovações simultâneas do mesmo pedido não
-duplicam o efeito.
+**Aprovar não pede segundo fator adicional.** A versão original do PR4 fazia
+`AprovarAsync` reaproveitar o step-up de TOTP que já existia para reset de
+MFA (`IMfaService.ConferirSegundoFatorAsync`). Decisão do Thiago em
+2026-09-12: removido — o aprovador já autenticou (senha + MFA, quando a
+política do tenant exige) para abrir o painel, e pedir mais um código só
+para clicar em "Aprovar" foi considerado atrito sem ganho proporcional. A
+trava real é a permissão (`seguranca.acesso_tecnico.aprovar`) + a trilha
+registrada, não um segundo fator por ação. Negar e revogar seguem sem pedir
+nada além da permissão, como sempre. A aprovação em si continua atômica
+(`ExecuteUpdateAsync` guardado por `AprovadaEm == null && NegadaEm == null`)
+— duas aprovações simultâneas do mesmo pedido não duplicam o efeito.
 
 **A autorização vira permissão de sessão, não uma checagem nova em cada
 guarda.** `ValidadorDeSessao.CarregarSessaoAsync` já filtrava por
@@ -216,13 +218,13 @@ registro derrubando a leitura (fail-closed), o login gravando
 `LoginRealizado`, e as três leituras de `SegurancaService` (guarda +
 conteúdo). Cenários 19–33 (PR4): guarda de permissão em Solicitar/Aprovar,
 resolução de protocolo (ausente e inexistente), pedido duplicado pendente
-rejeitado, aprovação recusada sem MFA matriculado e com TOTP errado,
-aprovação bem-sucedida com **TOTP real** gerado via `OtpNet` (matrícula de
-MFA de ponta a ponta pelo próprio `MfaService`, não mockada),
-`ValidadorDeSessao` injetando `AtendimentoVer` sem `ClientesVer` para escopo
-`Conversa`, leitura permitida dentro do escopo e negada para outra conversa,
-revogação sem TOTP com efeito imediato na sessão seguinte, e negação
-impedindo aprovação posterior do mesmo pedido. Cenários 34–41 (PR3, com
+rejeitado, aprovação bem-sucedida **sem nenhum MFA matriculado pelo
+aprovador** (prova de que a decisão de 2026-09-12 de tirar o TOTP da
+aprovação está de pé), `ValidadorDeSessao` injetando `AtendimentoVer` sem
+`ClientesVer` para escopo `Conversa`, leitura permitida dentro do escopo e
+negada para outra conversa, revogação com efeito imediato na sessão
+seguinte, e negação impedindo aprovação posterior do mesmo pedido. Cenários
+34–41 (PR3, com
 chave de desenvolvimento fixa — todo o resto do arquivo continua com a cifra
 dormente): round-trip de `Cifrar`/`Decifrar` e identidade quando dormente;
 `ClienteService.CriarAsync` grava `Documento`/`DataNascimentoCifrada`

@@ -34,7 +34,7 @@ const ROTULO_DO_ESTADO: Record<string, string> = {
  * Tela exclusiva da conta de suporte técnico (`suporte.solicitar_acesso`,
  * excluída de todo preset do cartório). Pedir aqui NUNCA lê dado nenhum —
  * só cria o pedido; a leitura só começa depois de um administrador do
- * cartório aprovar com segundo fator, pela tela "Acesso aos dados".
+ * cartório aprovar, pela tela "Acesso aos dados".
  */
 export function PaginaSuporteTecnico() {
   const [motivo, setMotivo] = useState('')

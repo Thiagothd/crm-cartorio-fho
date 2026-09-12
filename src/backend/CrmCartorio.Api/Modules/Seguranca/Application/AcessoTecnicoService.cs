@@ -4,7 +4,6 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Seguranca.Domain.Entities;
 using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
-using CrmCartorio.Api.Modules.Usuarios.Application;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +13,6 @@ namespace CrmCartorio.Api.Modules.Seguranca.Application;
 public class AcessoTecnicoService(
     CrmDbContext db,
     IContextoDoUsuario ctx,
-    IMfaService mfa,
     IRegistradorDeAcesso registrador,
     IHttpContextAccessor acessor) : IAcessoTecnicoService
 {
@@ -100,8 +98,7 @@ public class AcessoTecnicoService(
         return await MapearAsync(autorizacao, ct);
     }
 
-    public async Task<AutorizacaoDeAcessoTecnicoResponse> AprovarAsync(
-        Guid id, AprovarAcessoTecnicoRequest request, CancellationToken ct = default)
+    public async Task<AutorizacaoDeAcessoTecnicoResponse> AprovarAsync(Guid id, CancellationToken ct = default)
     {
         GarantirPermissao(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar);
 
@@ -114,13 +111,15 @@ public class AcessoTecnicoService(
             throw SegurancaServiceException.AutorizacaoNaoEstaPendente();
         }
 
-        // Segundo fator do APROVADOR — lança UsuariosServiceException
-        // (mfa_obrigatorio_nao_matriculado / codigo_mfa_invalido / mfa_bloqueado)
-        // se não conferir; a mesma disciplina de porteiro único do SEC-03,
-        // reutilizada de outro módulo via IMfaService (interface pública).
-        await mfa.ConferirSegundoFatorAsync(
-            new IdentidadeParaMfa(ctx.TenantId, ctx.AtendenteId), request.CodigoTotp, ct);
-
+        // Decisão do Thiago em 2026-09-12: sem segundo-fator adicional aqui.
+        // O desenho original (PR4 do plano de blindagem LGPD) pedia TOTP do
+        // aprovador como step-up sobre a sessão já aberta — defesa extra
+        // contra sessão roubada. Avaliado e descartado: o ator já autenticou
+        // com senha (+ MFA, quando a política do tenant exige) para entrar
+        // no painel; exigir TOTP de novo só para aprovar foi considerado
+        // atrito sem ganho que compensasse, na prática do cartório. A trava
+        // de permissao (SegurancaAcessoTecnicoAprovar) + a trilha registrada
+        // abaixo continuam de pé.
         var agora = DateTime.UtcNow;
         var validaAte = agora.AddMinutes(autorizacao.DuracaoSolicitadaMinutos);
 

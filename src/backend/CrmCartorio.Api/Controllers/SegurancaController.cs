@@ -46,9 +46,8 @@ public class SegurancaController(ISegurancaService servico, IAcessoTecnicoServic
         Ok(await acessoTecnico.SolicitarAsync(request, ct));
 
     [HttpPost("acesso-tecnico/solicitacoes/{id:guid}/aprovar")]
-    public async Task<ActionResult<AutorizacaoDeAcessoTecnicoResponse>> Aprovar(
-        Guid id, [FromBody] AprovarAcessoTecnicoRequest request, CancellationToken ct) =>
-        Ok(await acessoTecnico.AprovarAsync(id, request, ct));
+    public async Task<ActionResult<AutorizacaoDeAcessoTecnicoResponse>> Aprovar(Guid id, CancellationToken ct) =>
+        Ok(await acessoTecnico.AprovarAsync(id, ct));
 
     [HttpPost("acesso-tecnico/solicitacoes/{id:guid}/negar")]
     public async Task<ActionResult<AutorizacaoDeAcessoTecnicoResponse>> Negar(Guid id, CancellationToken ct) =>

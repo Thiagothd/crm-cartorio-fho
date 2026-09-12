@@ -29,7 +29,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
-using OtpNet;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 
@@ -174,21 +173,10 @@ SegurancaService NovoSegurancaServiceComCifraAtiva(CrmDbContext db, IContextoDoU
 IAutenticacaoService NovoAutenticacao(CrmDbContext db, IContextoDoUsuario ctx) =>
     new AutenticacaoService(db, hash, tokens, cifra, ctx, new NavegadorFalso(), new HttpContextAccessor(), NullLogger<AutenticacaoService>.Instance);
 
-IMfaService NovoMfaService(CrmDbContext db) =>
-    new MfaService(db, hash, cifra, tokens, new NavegadorFalso(), NullLogger<MfaService>.Instance);
-
 AcessoTecnicoService NovoAcessoTecnicoService(CrmDbContext db, IContextoDoUsuario ctx) =>
-    new(db, ctx, NovoMfaService(db),
+    new(db, ctx,
         new RegistradorDeAcesso(db, ctx, new HttpContextAccessor(), cacheDeDeduplicacao),
         new HttpContextAccessor());
-
-/// <summary>Mesma janela +-1 de ValidadorDeTotp — replica CodigoTotp de verificar-autenticacao.cs.</summary>
-string CodigoTotp(string segredoBase32, int deslocamentoDePassos = 0)
-{
-    var totp = new Totp(Base32Encoding.ToBytes(segredoBase32));
-    var instante = DateTime.UtcNow.AddSeconds(deslocamentoDePassos * 30);
-    return totp.ComputeTotp(instante);
-}
 
 async Task<string?> CodigoDaFalhaAsync(Func<Task> acao)
 {
@@ -567,7 +555,6 @@ try
 
     Guid contaTecnicaId;
     Guid aprovadorId;
-    string segredoDoAprovador;
     string protocoloDaConversa;
 
     await using (var db = new CrmDbContext(opcoes, cifraDeDados))
@@ -673,52 +660,25 @@ try
     {
         await using var db = new CrmDbContext(opcoes, cifraDeDados);
         var codigo = await CodigoDaFalhaAsync(() => NovoAcessoTecnicoService(db, contaTecnicaSemAutorizacao)
-            .AprovarAsync(autorizacaoId, new AprovarAcessoTecnicoRequest("000000")));
+            .AprovarAsync(autorizacaoId));
         Checar("25. AprovarAsync sem seguranca.acesso_tecnico.aprovar -> sem_permissao", codigo == "sem_permissao");
     }
 
     // ------------------------------------------------------------ cenario 26
-
-    {
-        await using var db = new CrmDbContext(opcoes, cifraDeDados);
-        var codigo = await CodigoDaFalhaAsync(() => NovoAcessoTecnicoService(db, aprovadorCtx)
-            .AprovarAsync(autorizacaoId, new AprovarAcessoTecnicoRequest("000000")));
-        Checar("26. aprovador SEM MFA matriculado -> mfa_obrigatorio_nao_matriculado", codigo == "mfa_obrigatorio_nao_matriculado");
-    }
-
-    // ---------------------------------------------------- matricula do aprovador
-
-    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
-    {
-        var identidade = new IdentidadeParaMfa(tenantId, aprovadorId);
-        var mfaDoAprovador = NovoMfaService(db);
-        var iniciar = await mfaDoAprovador.IniciarAsync(identidade, new IniciarMfaRequest("SenhaDeTeste123", null), null, default);
-        segredoDoAprovador = iniciar.SegredoBase32;
-
-        // Confirma no passo -1 de proposito (mesmo motivo de verificar-autenticacao.cs):
-        // libera o passo "atual" (deslocamento 0) para os cenarios de aprovacao abaixo,
-        // sem colidir com o anti-replay da propria confirmacao.
-        await mfaDoAprovador.ConfirmarAsync(identidade, new ConfirmarMfaRequest(CodigoTotp(segredoDoAprovador, -1)), null, default);
-    }
-
-    // ------------------------------------------------------------ cenario 27
-
-    {
-        await using var db = new CrmDbContext(opcoes, cifraDeDados);
-        var codigo = await CodigoDaFalhaAsync(() => NovoAcessoTecnicoService(db, aprovadorCtx)
-            .AprovarAsync(autorizacaoId, new AprovarAcessoTecnicoRequest("123456")));
-        Checar("27. aprovador COM MFA, codigo ERRADO -> codigo_mfa_invalido", codigo == "codigo_mfa_invalido");
-    }
-
-    // ------------------------------------------------------------ cenario 28
+    //
+    // Decisao do Thiago em 2026-09-12: AprovarAsync deixou de exigir TOTP do
+    // aprovador (removido do plano original de PR4). O aprovador desta
+    // secao (Administrador comum, SEM MFA matriculado) prova exatamente
+    // isso — aprova mesmo sem nenhum segundo fator configurado, porque a
+    // sessao ja autenticada + a permissao seguranca.acesso_tecnico.aprovar
+    // sao a trava agora.
 
     AutorizacaoDeAcessoTecnicoResponse aprovada;
     {
         await using var db = new CrmDbContext(opcoes, cifraDeDados);
-        aprovada = await NovoAcessoTecnicoService(db, aprovadorCtx)
-            .AprovarAsync(autorizacaoId, new AprovarAcessoTecnicoRequest(CodigoTotp(segredoDoAprovador)));
-        Checar("28. aprovacao com codigo certo -> Ativa", aprovada.Estado == EstadoDeAutorizacao.Ativa);
-        Checar("28b. ValidaAte dentro do teto de 8h", aprovada.ValidaAte is { } v && v <= DateTime.UtcNow.AddHours(8).AddMinutes(1));
+        aprovada = await NovoAcessoTecnicoService(db, aprovadorCtx).AprovarAsync(autorizacaoId);
+        Checar("26. aprovacao NAO exige MFA do aprovador (decisao de 2026-09-12) -> Ativa mesmo sem autenticador", aprovada.Estado == EstadoDeAutorizacao.Ativa);
+        Checar("26b. ValidaAte dentro do teto de 8h", aprovada.ValidaAte is { } v && v <= DateTime.UtcNow.AddHours(8).AddMinutes(1));
     }
 
     // ------------------------------------------------------------ cenario 29
@@ -783,7 +743,7 @@ try
         Checar("33. NegarAsync muda para Negada", negado.Estado == EstadoDeAutorizacao.Negada);
 
         var codigo = await CodigoDaFalhaAsync(() => NovoAcessoTecnicoService(db, aprovadorCtx)
-            .AprovarAsync(pedidoParaNegar.Id, new AprovarAcessoTecnicoRequest(CodigoTotp(segredoDoAprovador))));
+            .AprovarAsync(pedidoParaNegar.Id));
         Checar("33b. nao da para aprovar um pedido ja Negado -> autorizacao_nao_esta_pendente", codigo == "autorizacao_nao_esta_pendente");
     }
 

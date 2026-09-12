@@ -23,8 +23,6 @@ public enum EstadoDeAutorizacao
 /// </param>
 public record SolicitarAcessoTecnicoRequest(string Motivo, EscopoDeAcesso Escopo, string? ConversaProtocolo, int DuracaoMinutos);
 
-public record AprovarAcessoTecnicoRequest(string CodigoTotp);
-
 public record AutorizacaoDeAcessoTecnicoResponse(
     Guid Id,
     Guid ContaTecnicaId,
