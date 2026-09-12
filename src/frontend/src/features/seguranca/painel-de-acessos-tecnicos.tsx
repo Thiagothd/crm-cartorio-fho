@@ -1,23 +1,11 @@
-import { useState } from 'react'
 import { toast } from 'sonner'
 import { Painel } from '@/components/ui/painel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { formatarDataHora } from '@/lib/formatacao'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
-import type { AutorizacaoDeAcessoTecnico } from '@/lib/api/tipos'
 import {
   usarAprovarAcessoTecnico,
   usarNegarAcessoTecnico,
@@ -33,78 +21,35 @@ const ROTULO_DO_ESTADO: Record<string, string> = {
   Revogada: 'Revogada',
 }
 
-function DialogoDeAprovacao({
-  autorizacao,
-  aberto,
-  aoFechar,
-}: {
-  autorizacao: AutorizacaoDeAcessoTecnico | null
-  aberto: boolean
-  aoFechar: () => void
-}) {
-  const [codigo, setCodigo] = useState('')
-  const aprovar = usarAprovarAcessoTecnico()
-
-  async function confirmar() {
-    if (!autorizacao) return
-    try {
-      await aprovar.mutateAsync({ id: autorizacao.id, codigoTotp: codigo })
-      toast.success('Acesso técnico aprovado.')
-      setCodigo('')
-      aoFechar()
-    } catch (falha) {
-      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível aprovar.')
-    }
-  }
-
-  return (
-    <Dialog open={aberto} onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Confirmar aprovação</DialogTitle>
-          <DialogDescription>
-            Digite o código da sua verificação em duas etapas para aprovar este acesso técnico.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="codigo-aprovacao">Código</Label>
-          <EntradaDeCodigoOtp
-            id="codigo-aprovacao"
-            value={codigo}
-            onChange={setCodigo}
-            className="rounded-md border border-linha"
-          />
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={aoFechar}>
-            Cancelar
-          </Button>
-          <Button onClick={confirmar} disabled={codigo.length !== 6 || aprovar.isPending}>
-            {aprovar.isPending ? 'Aprovando…' : 'Aprovar'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /**
  * Seção da tela "Acesso aos dados" — só para quem tem
- * `seguranca.acesso_tecnico.aprovar` (preset Administração). Aprovar exige
- * segundo fator do PRÓPRIO aprovador; negar e revogar não (reduzir/recusar
- * acesso nunca é ação sensível).
+ * `seguranca.acesso_tecnico.aprovar` (preset Administração). Aprovar, negar
+ * e revogar não pedem segundo fator adicional aqui — decisão do Thiago em
+ * 2026-09-12: o ator já autenticou (senha + MFA, quando a política do
+ * tenant exige) para abrir o painel; a trava real é a permissão
+ * `seguranca.acesso_tecnico.aprovar` + a trilha registrada em "Acessos".
  */
 export function PainelDeAcessosTecnicos() {
   const { pode } = usarAutenticacao()
   const { data, isLoading, isError } = usarSolicitacoesDeAcessoTecnico({})
+  const aprovar = usarAprovarAcessoTecnico()
   const negar = usarNegarAcessoTecnico()
   const revogar = usarRevogarAcessoTecnico()
-  const [emAprovacao, setEmAprovacao] = useState<AutorizacaoDeAcessoTecnico | null>(null)
 
   if (!pode('seguranca.acesso_tecnico.aprovar')) {
     return null
+  }
+
+  async function aprovarPedido(id: string) {
+    if (!window.confirm('Aprovar este acesso técnico? O suporte poderá ler os dados no escopo e prazo pedidos.')) {
+      return
+    }
+    try {
+      await aprovar.mutateAsync(id)
+      toast.success('Acesso técnico aprovado.')
+    } catch (falha) {
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível aprovar.')
+    }
   }
 
   async function negarPedido(id: string) {
@@ -128,7 +73,7 @@ export function PainelDeAcessosTecnicos() {
   return (
     <Painel
       titulo="Acessos técnicos"
-      descricao="O suporte técnico pede, o cartório aprova com segundo fator, a trilha registra."
+      descricao="O suporte técnico pede, o cartório aprova, a trilha registra."
     >
       {isLoading ? (
         <Skeleton className="h-32 w-full" />
@@ -159,7 +104,7 @@ export function PainelDeAcessosTecnicos() {
                   <Button size="sm" variant="outline" onClick={() => negarPedido(item.id)} disabled={negar.isPending}>
                     Negar
                   </Button>
-                  <Button size="sm" onClick={() => setEmAprovacao(item)}>
+                  <Button size="sm" onClick={() => aprovarPedido(item.id)} disabled={aprovar.isPending}>
                     Aprovar
                   </Button>
                 </div>
@@ -172,8 +117,6 @@ export function PainelDeAcessosTecnicos() {
           ))}
         </div>
       )}
-
-      <DialogoDeAprovacao autorizacao={emAprovacao} aberto={emAprovacao !== null} aoFechar={() => setEmAprovacao(null)} />
     </Painel>
   )
 }

@@ -341,8 +341,8 @@ export const acessoTecnicoApi = {
   solicitar: (dados: SolicitarAcessoTecnico) =>
     api.post<AutorizacaoDeAcessoTecnico>('/api/seguranca/acesso-tecnico/solicitacoes', dados),
 
-  aprovar: (id: string, codigoTotp: string) =>
-    api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/aprovar`, { codigoTotp }),
+  aprovar: (id: string) =>
+    api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/aprovar`, {}),
 
   negar: (id: string) =>
     api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/negar`),

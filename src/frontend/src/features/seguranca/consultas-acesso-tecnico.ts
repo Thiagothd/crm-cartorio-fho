@@ -35,7 +35,7 @@ export function usarSolicitarAcessoTecnico() {
 export function usarAprovarAcessoTecnico() {
   const invalidar = usarInvalidarAcessoTecnico()
   return useMutation({
-    mutationFn: ({ id, codigoTotp }: { id: string; codigoTotp: string }) => acessoTecnicoApi.aprovar(id, codigoTotp),
+    mutationFn: (id: string) => acessoTecnicoApi.aprovar(id),
     onSuccess: invalidar,
   })
 }

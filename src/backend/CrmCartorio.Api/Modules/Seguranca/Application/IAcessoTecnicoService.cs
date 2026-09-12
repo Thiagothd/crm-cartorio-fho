@@ -11,14 +11,13 @@ public interface IAcessoTecnicoService
     Task<AutorizacaoDeAcessoTecnicoResponse> SolicitarAsync(
         SolicitarAcessoTecnicoRequest request, CancellationToken ct = default);
 
-    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c> + segundo fator do aprovador.</summary>
-    Task<AutorizacaoDeAcessoTecnicoResponse> AprovarAsync(
-        Guid id, AprovarAcessoTecnicoRequest request, CancellationToken ct = default);
+    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c>. O ator já está autenticado na sessão do painel — decisão do Thiago em 2026-09-12 (ver histórico do commit) de não pedir um segundo passo de TOTP em cima de uma sessão já aberta.</summary>
+    Task<AutorizacaoDeAcessoTecnicoResponse> AprovarAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c>. Sem segundo fator: negar nunca amplia acesso.</summary>
+    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c>.</summary>
     Task<AutorizacaoDeAcessoTecnicoResponse> NegarAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c>. Sem segundo fator: reduzir acesso nunca é ação sensível.</summary>
+    /// <summary>Exige <c>seguranca.acesso_tecnico.aprovar</c>.</summary>
     Task<AutorizacaoDeAcessoTecnicoResponse> RevogarAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>Qualquer autenticado do tenant — é o que alimenta a faixa global. Nulo quando não há nada ativo.</summary>
