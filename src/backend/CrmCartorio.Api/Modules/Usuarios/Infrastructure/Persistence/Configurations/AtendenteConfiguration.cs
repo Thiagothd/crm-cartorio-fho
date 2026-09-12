@@ -47,6 +47,9 @@ public class AtendenteConfiguration : IEntityTypeConfiguration<Atendente>
         builder.Property(a => a.Permissoes).HasMaxLength(4000);
         builder.Property(a => a.ModeloDePermissao).HasConversion<byte?>();
 
+        // Blindagem LGPD — mesma disciplina de defaults no banco.
+        builder.Property(a => a.EhContaTecnica).HasDefaultValue(false);
+
         builder.Property(a => a.UltimoAcessoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(a => a.AtualizadoEm).HasColumnType("datetime2(3)");

@@ -25,4 +25,17 @@ public interface IContextoDoUsuario
     /// devolve <c>false</c> para qualquer <see cref="PermissaoDoSistema"/>.
     /// </summary>
     bool Pode(PermissaoDoSistema permissao);
+
+    /// <summary>
+    /// Blindagem LGPD: preenchido só quando esta sessão é de uma conta
+    /// técnica com autorização de acesso técnico ativa neste exato instante
+    /// (resolvido a cada requisição por <c>ValidadorDeSessao</c> — nunca uma
+    /// claim do JWT, porque a autorização pode ser aprovada ou revogada a
+    /// qualquer momento). Toda leitura registrada enquanto isto está
+    /// preenchido carimba o <c>RegistroDeAcesso</c> com este id.
+    /// </summary>
+    Guid? AutorizacaoDeAcessoTecnicoId { get; }
+
+    /// <summary>Preenchido só quando a autorização acima tem escopo de uma conversa específica — nulo em escopo geral.</summary>
+    Guid? EscopoDeConversaId { get; }
 }

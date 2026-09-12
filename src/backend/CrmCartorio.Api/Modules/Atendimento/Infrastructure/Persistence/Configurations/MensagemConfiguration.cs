@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Persistence.Cifra;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
@@ -54,7 +55,13 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
 
         builder.HasKey(m => m.Id);
 
-        builder.Property(m => m.Conteudo).HasMaxLength(4000).IsRequired();
+        // Cifrada em repouso (PR3, blindagem LGPD): conteudo da conversa e o
+        // dado mais sensivel do sistema. .Cifrada() troca a coluna para
+        // nvarchar(max) — o tamanho maximo do TEXTO EM CLARO continua
+        // validado no converter (ver ExtensoesDeCifra), so que na aplicacao,
+        // nao mais no banco (nvarchar(max) nao tem limite fixo pra
+        // ciphertext+overhead cifrado).
+        builder.Property(m => m.Conteudo).IsRequired().Cifrada(4000);
         builder.Property(m => m.AutorTipo).HasConversion<byte>();
         builder.Property(m => m.Tipo).HasConversion<byte>();
         builder.Property(m => m.StatusEntrega).HasConversion<byte>();
@@ -62,7 +69,7 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.IdExternoWhatsapp).HasMaxLength(80).IsUnicode(false);
         builder.Property(m => m.ErroProcessamentoEntrada).HasMaxLength(1000);
 
-        builder.Property(m => m.ArquivoNome).HasMaxLength(260);
+        builder.Property(m => m.ArquivoNome).Cifrada(260);
         builder.Property(m => m.ArquivoTipoMime).HasMaxLength(150).IsUnicode(false);
         builder.Property(m => m.ArquivoCaminho).HasMaxLength(400);
 

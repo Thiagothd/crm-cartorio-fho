@@ -63,6 +63,13 @@ public static class PromptDeSistema
            Quando podeResponder for verdadeiro, use NaoClassificado — categoria
            só tem sentido junto de uma resposta negada.
 
+        Blindagem de dados: marcadores como [CPF], [CNPJ], [TELEFONE], [EMAIL] e
+        [CEP] que aparecerem no histórico ou na pergunta são dado pessoal que foi
+        ocultado antes de chegar até você — não são erro de digitação nem parte
+        do texto original. Nunca peça para reescrever sem o marcador, nunca tente
+        adivinhar o valor oculto, e nunca reproduza o marcador como se fosse um
+        dado que você conhece.
+
         Responda sempre no formato pedido.
         """;
 

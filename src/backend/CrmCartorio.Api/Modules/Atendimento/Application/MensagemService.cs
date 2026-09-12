@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
@@ -5,6 +6,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -21,6 +23,7 @@ public class MensagemService(
     IArmazenamentoDeAnexos anexos,
     IRespostaInteligenteService respostaInteligente,
     IOptions<OpcoesDaIA> opcoesDaIA,
+    IRegistradorDeAcesso registrador,
     ILogger<MensagemService> log) : IMensagemService, IAcoesDeMensagem
 {
     private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
@@ -29,6 +32,9 @@ public class MensagemService(
         Guid conversaId,
         CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoVer);
+        GarantirEscopoDeConversa(conversaId);
+
         var tenantId = ctx.TenantId;
 
         var clienteNome = await db.Conversas.AsNoTracking()
@@ -41,15 +47,17 @@ public class MensagemService(
             throw AtendimentoServiceException.ConversaNaoEncontrada();
         }
 
+        await registrador.RegistrarAsync(TipoDeAcesso.LeituraDeConversa, conversaId: conversaId, ct: ct);
+
         return await ProjecaoDeMensagem
-            .De(
+            .ListarAsync(
                 db,
                 db.Mensagens.AsNoTracking()
                     .Where(m => m.ConversaId == conversaId && m.TenantId == tenantId)
                     .OrderBy(m => m.EnviadaEm)
                     .ThenBy(m => m.Id),
-                clienteNome)
-            .ToListAsync(ct);
+                clienteNome,
+                ct);
     }
 
     public async Task<MensagemResponse> EnviarAsync(
@@ -175,6 +183,9 @@ public class MensagemService(
         Guid mensagemId,
         CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoVer);
+        GarantirEscopoDeConversa(conversaId);
+
         // O WHERE amarra conversa E tenant. Sem isso, adivinhar o id de uma
         // mensagem entregaria o documento de um cliente de outra serventia.
         var alvo = await db.Mensagens.AsNoTracking()
@@ -189,6 +200,13 @@ public class MensagemService(
         {
             throw AtendimentoServiceException.AnexoNaoEncontrado();
         }
+
+        // Registrado ANTES de ler o arquivo, nao depois: se o disco falhar
+        // (AnexoNaoEncontrado, backup restaurado sem a pasta de anexos), o
+        // pedido de acesso ao documento ja aconteceu e deve ficar na trilha
+        // mesmo assim.
+        await registrador.RegistrarAsync(
+            TipoDeAcesso.DownloadDeAnexo, conversaId: conversaId, mensagemId: mensagemId, ct: ct);
 
         var conteudo = await anexos.LerAsync(alvo.ArquivoCaminho, ct)
             ?? throw AtendimentoServiceException.AnexoNaoEncontrado();
@@ -744,6 +762,17 @@ public class MensagemService(
         string? busca,
         CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoVer);
+
+        // Acesso tecnico escopado a UMA conversa nao tem "destino" valido —
+        // qualquer resultado aqui seria, por definicao, outra conversa fora
+        // do escopo aprovado. Nega de cara, nao filtra para lista vazia (que
+        // pareceria bug, nao regra).
+        if (ctx.EscopoDeConversaId is not null)
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+
         var tenantId = ctx.TenantId;
 
         var consulta = db.Conversas.AsNoTracking()
@@ -817,7 +846,23 @@ public class MensagemService(
             .FirstOrDefaultAsync(ct) ?? string.Empty;
 
         return await ProjecaoDeMensagem
-            .De(db, db.Mensagens.AsNoTracking().Where(m => m.Id == mensagemId), clienteNome)
-            .FirstAsync(ct);
+            .ObterUmaAsync(db, db.Mensagens.AsNoTracking().Where(m => m.Id == mensagemId), clienteNome, ct);
+    }
+
+    private void GarantirPermissao(PermissaoDoSistema permissao)
+    {
+        if (!ctx.Pode(permissao))
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+    }
+
+    /// <summary>Mesma trava de <see cref="ConversaService.GarantirEscopoDeConversa"/> — ver lá o porquê.</summary>
+    private void GarantirEscopoDeConversa(Guid conversaId)
+    {
+        if (ctx.EscopoDeConversaId is { } escopo && escopo != conversaId)
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
     }
 }

@@ -1,8 +1,11 @@
 #:project CrmCartorio.Api/CrmCartorio.Api.csproj
 #:property PublishAot=false
 
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
@@ -69,8 +72,9 @@ var conexao = args.Length > 0
 var construtor = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(construtor, conexao);
 var opcoes = construtor.Options;
+var cifra = FabricaDeCifraDeDados.CriarDormente();
 
-await using (var checagem = new CrmDbContext(opcoes))
+await using (var checagem = new CrmDbContext(opcoes, cifra))
 {
     if (!string.Equals(
             checagem.Database.GetDbConnection().Database,
@@ -116,7 +120,7 @@ string? docsEsperados = null;
 string? prazoUnidadeEsperada = null;
 List<(Guid Id, string Nome, int Ordem)> setores;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     tenantId = await db.Tenants.Select(t => t.Id).FirstAsync();
 
@@ -213,7 +217,7 @@ Console.WriteLine($"Etapa final .. {etapaFinalNome}");
 // devolvida em LimparAsync, que roda na entrada e na saida.
 (int? Perguntar, int? Encerrar, int? HoraInicial, int? HoraFinal) configuracaoOriginal;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var tenant = await db.Tenants.AsNoTracking().FirstAsync(t => t.Id == tenantId);
 
@@ -265,7 +269,19 @@ ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome, IEn
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         canal ?? new CanalSilencioso(),
         new FilaSilenciosa(),
+        NovoRegistrador(db, tenantId, quem, nome),
         NullLogger<ConversaService>.Instance);
+
+// Blindagem LGPD: instancia real de RegistradorDeAcesso, nao um dublê — a
+// regra do projeto e' verificador chamar o servico real (CLAUDE.md 9). Cache
+// novo a cada chamada, de proposito: a deduplicacao por janela de 15 min
+// nunca deve interferir entre cenarios independentes deste arquivo.
+IRegistradorDeAcesso NovoRegistrador(CrmDbContext db, Guid tenant, Guid quem, string nome) =>
+    new RegistradorDeAcesso(
+        db,
+        new ContextoFixo(tenant, quem, nome, PerfilDeAtendente.Administrador),
+        new HttpContextAccessor(),
+        new MemoryCache(new MemoryCacheOptions()));
 
 MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
 {
@@ -289,12 +305,13 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
         new AnexosEmMemoria(),
         respostaInteligente,
         opcoesDaIA,
+        NovoRegistrador(db, tenantId, quem, nome),
         NullLogger<MensagemService>.Instance);
 }
 
 async Task<Guid> NovoClienteAsync(string apelido)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     var telefone = $"5538000{++sequencial:D6}";
 
@@ -323,7 +340,7 @@ async Task<Guid> NovoClienteAsync(string apelido)
 
 async Task<List<(AutorTipo Autor, bool Automatica, string Conteudo, StatusEntrega Status)>> FioAsync(Guid conversaId)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     return await db.Mensagens.AsNoTracking()
         .Where(m => m.ConversaId == conversaId)
@@ -341,7 +358,7 @@ Console.WriteLine("TESTE 1 — primeiro contato: menu sai e a resposta certa rot
 
 Guid conversa1;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Triagem acerta"), null, null, "Bom dia!"));
@@ -372,13 +389,13 @@ foreach (var (id, nome, _) in setores)
 // primeira, e o que separa "leu a resposta" de "sempre cai no primeiro setor".
 var setorEsperado = setores[1];
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa1, new SimularMensagemDeClienteRequest("2"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
 
@@ -407,7 +424,7 @@ Checar("pergunta de servico nao deixou marcador sem resolver",
 // pergunta QUAL antes de fechar — mesmo menu que ServicosDoMenuAsync monta.
 List<(Guid Id, string Nome)> servicosDoSetorEsperado;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     servicosDoSetorEsperado = await db.TiposServico.AsNoTracking()
         .Where(t => t.TenantId == tenantId && t.SetorId == setorEsperado.Id && t.Ativo)
@@ -422,13 +439,13 @@ if (servicosDoSetorEsperado.Count > 0)
 {
     var servicoEsperado = servicosDoSetorEsperado[0];
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
             conversa1, new SimularMensagemDeClienteRequest("1"));
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoServico = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
 
@@ -444,7 +461,7 @@ if (servicosDoSetorEsperado.Count > 0)
         confirmacaoDoServico.Conteudo?.Contains('{') != true, confirmacaoDoServico.Conteudo);
 
     // Fase 2E.1: o checklist dispara TAMBEM o menu de continuacao.
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoChecklist = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("aguarda menu de continuacao apos o checklist", depoisDoChecklist.AguardandoMenuDeContinuacao);
@@ -460,7 +477,7 @@ if (servicosDoSetorEsperado.Count > 0)
     // o buraco foi fechado.
     var automaticasAntesDoObrigada = (await FioAsync(conversa1)).Count(m => m.Automatica);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
             conversa1, new SimularMensagemDeClienteRequest("obrigada"));
@@ -471,7 +488,7 @@ if (servicosDoSetorEsperado.Count > 0)
     Checar("\"obrigada\" NAO fica sem resposta (piso da IA)",
         fioAposObrigada.Count(m => m.Automatica) > automaticasAntesDoObrigada);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoObrigada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("flag de menu de continuacao foi limpa", !depoisDoObrigada.AguardandoMenuDeContinuacao);
@@ -505,7 +522,7 @@ if (servicosDoSetorEsperado.Count > 0)
     // real mandou.
     var automaticasAntesDoMenuPreso = (await FioAsync(conversa1)).Count(m => m.Automatica);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
             conversa1, new SimularMensagemDeClienteRequest("quero voltar ao menu inicial"));
@@ -520,7 +537,7 @@ if (servicosDoSetorEsperado.Count > 0)
         respostaAoMenuPreso.Conteudo?.Contains(setorEsperado.Nome) == true,
         respostaAoMenuPreso.Conteudo);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoMenuPreso = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("\"voltar ao menu inicial\" reabriu a triagem (AguardandoTriagem ligada)",
@@ -537,7 +554,7 @@ if (servicosDoSetorEsperado.Count > 0)
     // com setor definido.
     var automaticasAntesDoPedido = (await FioAsync(conversa1)).Count(m => m.Automatica);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
             conversa1, new SimularMensagemDeClienteRequest("quero falar com um atendente"));
@@ -552,7 +569,7 @@ if (servicosDoSetorEsperado.Count > 0)
         respostaAoPedido.Conteudo?.Contains("assumirá sua solicitação") == true,
         respostaAoPedido.Conteudo);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoPedido = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("pedido explicito desliga AguardandoRespostaInteligente (escalou de verdade, desta vez)",
@@ -572,13 +589,13 @@ if (servicosDoSetorEsperado.Count > 0)
     // relatado, espelhado.
     var automaticasAntesDoMenuEmModoHumano = (await FioAsync(conversa1)).Count(m => m.Automatica);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
             conversa1, new SimularMensagemDeClienteRequest("menu"));
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var depoisDoMenu = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa1);
         Checar("BUG-ATD-01: \"menu\" NAO reabre a triagem depois do pedido de atendente (modo humano)",
@@ -600,7 +617,7 @@ Console.WriteLine("TESTE 2 — resposta fora do menu cai para atendimento humano
 
 Guid conversa2;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Triagem erra"), null, null, null));
@@ -616,13 +633,13 @@ await using (var db = new CrmDbContext(opcoes))
 // EmAtendimentoHumano para expor a diferenca. Trocada por uma frase que
 // realmente NAO corresponde a nenhuma opcao e NAO pede atendente, para
 // testar o que o titulo do teste promete: o fallback da IA, sem escalar.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa2, new SimularMensagemDeClienteRequest("preciso de uma informacao qualquer"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa2);
 
@@ -645,7 +662,7 @@ Checar("nenhum marcador sobrou no fallback",
 // ("atendente"/"humano"/"pessoa de verdade"/"falar com alguem" — a palavra
 // solta "alguem" nao basta), entao desde 2026-08-18 ela NAO escala de novo:
 // recebe RespostaSemCorrespondencia, que nunca promete atendente.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa2, new SimularMensagemDeClienteRequest("alguem ai?"));
@@ -673,7 +690,7 @@ Console.WriteLine("TESTE 3 — atendente ja escolheu o setor: nao faz sentido pe
 
 Guid conversa3;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Com setor"), setores[0].Id, null, "Oi"));
@@ -696,7 +713,7 @@ Console.WriteLine("TESTE 4 — mover para a etapa final avisa o cliente");
 
 string protocolo4;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var servico = NovaConversaService(db, atendenteId, atendenteNome);
 
@@ -747,7 +764,7 @@ Console.WriteLine("TESTE 5 — varredura de prazo avisa uma vez e so uma");
 var regraDeTesteId = Guid.CreateVersion7();
 Guid conversa5;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     db.MensagensAutomaticas.Add(new MensagemAutomatica
     {
@@ -761,7 +778,7 @@ await using (var db = new CrmDbContext(opcoes))
     await db.SaveChangesAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var servico = NovaConversaService(db, atendenteId, atendenteNome);
 
@@ -776,7 +793,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 // Empurra o prazo para o passado. E fixture: o que esta sob teste e a varredura,
 // nao a CalculadoraDePrazo.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var passado = DateTime.UtcNow.AddHours(-2);
 
@@ -789,17 +806,17 @@ await using (var db = new CrmDbContext(opcoes))
 int primeiraPassada;
 int segundaPassada;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     primeiraPassada = await NovoVarredor(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     segundaPassada = await NovoVarredor(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa5);
     var fio = await FioAsync(conversa5);
@@ -826,7 +843,7 @@ Console.WriteLine();
 
 Console.WriteLine("TESTE 6 — transferencia entre atendentes");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var servico = NovaConversaService(db, atendenteId, atendenteNome);
 
@@ -860,7 +877,7 @@ Console.WriteLine("TESTE 7 — menu de continuacao, opcao Encerrar");
 
 Guid conversa7;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Encerrar pelo menu"), setores[0].Id, null, "Oi"));
@@ -871,14 +888,14 @@ await using (var db = new CrmDbContext(opcoes))
 // Direto no banco: pula a caminhada por triagem + servico so para chegar no
 // estado "menu de continuacao no ar", que e o unico pre-requisito do que este
 // teste quer provar.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.FirstAsync(x => x.Id == conversa7);
     c.AguardandoMenuDeContinuacao = true;
     await db.SaveChangesAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     // "4" = "Encerrar atendimento", a mesma escolha numerica que o cliente
     // manda no WhatsApp de verdade.
@@ -886,7 +903,7 @@ await using (var db = new CrmDbContext(opcoes))
         conversa7, new SimularMensagemDeClienteRequest("4"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var depoisDoEncerrar = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa7);
 
@@ -930,7 +947,7 @@ Console.WriteLine("TESTE 8 — catalogo da IA inclui setor, documentos e prazo")
 // ACHADO DA AUDITORIA v0.2 (P1-01): DocumentosNecessarios e o Prazo (SLA)
 // existiam no cadastro mas ficavam de fora do grounding — a IA recusava perguntas
 // de documento/prazo mesmo com o dado no banco. Agora o catalogo os inclui.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
     var setoresNoCatalogo = setores.Count(s => contexto.Contains($"({s.Nome})"));
@@ -975,7 +992,7 @@ var tituloVencido = $"{PrefixoDeTeste}conhecimento vencido";
 var conteudoVigente = $"{PrefixoDeTeste}texto do conhecimento vigente {Guid.NewGuid():N}";
 var conteudoVencido = $"{PrefixoDeTeste}texto do conhecimento vencido {Guid.NewGuid():N}";
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     db.ConhecimentosDeIa.Add(new ConhecimentoDeIa
     {
@@ -1000,7 +1017,7 @@ await using (var db = new CrmDbContext(opcoes))
     await db.SaveChangesAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var contexto = await MontadorDeContexto.MontarAsync(db, tenantId, CancellationToken.None);
 
@@ -1023,7 +1040,7 @@ async Task<Guid> NovaConversaParadaAsync(string apelido, int minutosDeSilencio)
 {
     Guid conversaId;
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
             new CriarConversaRequest(await NovoClienteAsync(apelido), null, null, null));
@@ -1031,7 +1048,7 @@ async Task<Guid> NovaConversaParadaAsync(string apelido, int minutosDeSilencio)
         conversaId = criada.Id;
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifra))
     {
         await db.Conversas.Where(c => c.Id == conversaId)
             .ExecuteUpdateAsync(s => s
@@ -1045,7 +1062,7 @@ async Task<Guid> NovaConversaParadaAsync(string apelido, int minutosDeSilencio)
 
 async Task ConfigurarEncerramentoAsync(int? perguntar, int? encerrar, int? horaInicial, int? horaFinal)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     await db.Tenants.Where(t => t.Id == tenantId)
         .ExecuteUpdateAsync(s => s
@@ -1057,14 +1074,14 @@ async Task ConfigurarEncerramentoAsync(int? perguntar, int? encerrar, int? horaI
 
 async Task<Conversa> RecarregarAsync(Guid conversaId)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     return await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversaId);
 }
 
 /// <summary>O que o CLIENTE recebeu — so mensagem automatica, sem anotacao interna.</summary>
 async Task<string[]> TextosDaConversaAsync(Guid conversaId)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     return await db.Mensagens.AsNoTracking()
         .Where(m => m.ConversaId == conversaId && m.EhAutomatica)
@@ -1087,7 +1104,7 @@ bool AbriuAtendimento(string[] textos) =>
 
 async Task<Cliente> ClienteDaConversaAsync(Guid conversaId)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     var clienteId = await db.Conversas.AsNoTracking()
         .Where(c => c.Id == conversaId)
@@ -1111,12 +1128,12 @@ var conversa9 = await NovaConversaParadaAsync("Parada", 60);
 int primeiraPassada9;
 int segundaPassada9;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     primeiraPassada9 = await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     segundaPassada9 = await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1150,24 +1167,24 @@ var conversa10Sim = await NovaConversaParadaAsync("Confirma", 60);
 var conversa10Nao = await NovaConversaParadaAsync("Recusa", 60);
 var conversa10Assim = await NovaConversaParadaAsync("Assim", 60);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa10Sim, new SimularMensagemDeClienteRequest("sim, pode encerrar"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa10Nao, new SimularMensagemDeClienteRequest("nao, ainda preciso"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa10Assim, new SimularMensagemDeClienteRequest("assim que eu tiver os documentos eu volto"));
@@ -1205,21 +1222,21 @@ Console.WriteLine("TESTE 11 — sem resposta dentro do prazo, a conversa encerra
 
 var conversa11 = await NovaConversaParadaAsync("Silencio", 60);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
 
 // Empurra a pergunta para tras do limite de espera. E fixture: o que esta sob teste
 // e a segunda fase, nao a passagem do tempo.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.Conversas.Where(c => c.Id == conversa11)
         .ExecuteUpdateAsync(s => s
             .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1257,7 +1274,7 @@ Console.WriteLine("TESTE 12 — cliente que volta depois de encerrada cai em ate
 Guid clienteQueVolta;
 string protocoloAntigo;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var encerrada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa11);
     clienteQueVolta = encerrada.ClienteId;
@@ -1266,7 +1283,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 Guid conversaNova;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     // CriarAsync so recusa segundo atendimento quando ha um ABERTO. Com a anterior
     // encerrada pela varredura, esta chamada e exatamente o que o webhook faria.
@@ -1301,7 +1318,7 @@ var conversaNaoLida = await NovaConversaParadaAsync("Nao lida", 60);
 var conversaSimulada = await NovaConversaParadaAsync("Simulada", 60);
 var conversaSoIa = await NovaConversaParadaAsync("So IA", 60);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     // SLA em andamento — decisao de 2026-08-23: nao bloqueia mais a pergunta.
     // O protocolo continua intacto (soft-close), so o CANAL de WhatsApp fecha.
@@ -1356,7 +1373,7 @@ await using (var db = new CrmDbContext(opcoes))
     await db.SaveChangesAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1379,7 +1396,7 @@ await ConfigurarEncerramentoAsync(null, null, null, null);
 
 int passadaDesligada;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     passadaDesligada = await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1401,7 +1418,7 @@ await ConfigurarEncerramentoAsync(20, 30, inicioFechado, fimFechado);
 
 int passadaForaDaJanela;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     passadaForaDaJanela = await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1423,19 +1440,19 @@ Console.WriteLine("TESTE 14 — conversa reaberta nao volta a fechar sozinha na 
 
 var conversa14 = await NovaConversaParadaAsync("Reaberta", 60);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.Conversas.Where(c => c.Id == conversa14)
         .ExecuteUpdateAsync(s => s
             .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1443,7 +1460,7 @@ await using (var db = new CrmDbContext(opcoes))
 Checar("encerrou antes de reabrir",
     (await RecarregarAsync(conversa14)).Status == StatusConversa.Encerrada);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome).ReabrirAsync(conversa14);
 }
@@ -1454,7 +1471,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("reabrir limpou o carimbo", reaberta.PerguntaDeEncerramentoEnviadaEm is null);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1480,7 +1497,7 @@ Console.WriteLine("TESTE 15 — sem texto: nao pergunta; mas na 2a fase encerra 
 var conversa15 = await NovaConversaParadaAsync("Sem texto", 60);
 
 // Desativa os dois textos, como se o cartório parceiro os tivesse desligado pela tela.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId
@@ -1489,7 +1506,7 @@ await using (var db = new CrmDbContext(opcoes))
         .ExecuteUpdateAsync(s => s.SetProperty(m => m.Ativo, false));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1500,14 +1517,14 @@ Checar("sem texto da pergunta, nada e marcado (encerrar em silencio seria pior)"
 // Agora simula o caso real: a pergunta JA tinha saido, e a regra foi desativada
 // depois. A segunda fase precisa fechar assim mesmo — deixar a conversa presa nesse
 // limbo e exatamente o bug que a varredura existe para desfazer.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.Conversas.Where(c => c.Id == conversa15)
         .ExecuteUpdateAsync(s => s
             .SetProperty(c => c.PerguntaDeEncerramentoEnviadaEm, DateTime.UtcNow.AddMinutes(-45)));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
@@ -1515,7 +1532,7 @@ await using (var db = new CrmDbContext(opcoes))
 Checar("com a pergunta ja feita, a falta de texto NAO impede o encerramento",
     (await RecarregarAsync(conversa15)).Status == StatusConversa.Encerrada);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId
@@ -1618,7 +1635,7 @@ Console.WriteLine("TESTE 18 — o pedido de nome no primeiro contato");
 var telefoneSemNome = $"5538000{++sequencial:D6}";
 Guid conversaSemNome;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     conversaSemNome = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1646,7 +1663,7 @@ Console.WriteLine();
 
 Console.WriteLine("TESTE 19 — nome capturado aparece nas boas-vindas");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1680,7 +1697,7 @@ Console.WriteLine("TESTE 20 — \"quero uma certidão\" nao vira nome de cliente
 var telefoneRecusa = $"5538000{++sequencial:D6}";
 Guid conversaRecusa;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     conversaRecusa = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1688,7 +1705,7 @@ await using (var db = new CrmDbContext(opcoes))
             TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1718,7 +1735,7 @@ Console.WriteLine("TESTE 21 — \"menu\" cancela o pedido de nome");
 var telefoneMenu = $"5538000{++sequencial:D6}";
 Guid conversaMenu;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     conversaMenu = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1726,7 +1743,7 @@ await using (var db = new CrmDbContext(opcoes))
             TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1752,7 +1769,7 @@ Console.WriteLine("TESTE 22 — perfil com nome nao ve diferenca nenhuma");
 var telefoneComNome = $"5538000{++sequencial:D6}";
 Guid conversaComNome;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     conversaComNome = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1783,7 +1800,7 @@ Console.WriteLine();
 
 Console.WriteLine("TESTE 23 — gatilho desativado nao deixa o contato mudo");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.PedidoDeNome)
@@ -1793,7 +1810,7 @@ await using (var db = new CrmDbContext(opcoes))
 var telefoneSemRegra = $"5538000{++sequencial:D6}";
 Guid conversaSemRegra;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     conversaSemRegra = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1812,7 +1829,7 @@ await using (var db = new CrmDbContext(opcoes))
         (await ClienteDaConversaAsync(conversaSemRegra)).NomePerguntadoEm is null);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.PedidoDeNome)
@@ -1821,7 +1838,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 // Quem ignorou a pergunta uma vez nao e interrogado de novo no atendimento
 // seguinte — e por isso que NomePerguntadoEm existe.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.Conversas.Where(c => c.Id == conversaRecusa)
         .ExecuteUpdateAsync(s => s
@@ -1831,7 +1848,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 Guid segundaConversa;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     segundaConversa = await NovoRecebimento(db).ReceberAsync(
         tenantId,
@@ -1937,7 +1954,7 @@ Console.WriteLine("TESTE 25 — Human Takeover: pedir humano -> assumir -> liber
 
 Guid conversa25;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Human Takeover"), null, null, "Oi"));
@@ -1955,13 +1972,13 @@ await using (var db = new CrmDbContext(opcoes))
 
 // 1) Cliente pede humano — a fila humana comeca AQUI, antes de qualquer
 // atendente assumir.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa25, new SimularMensagemDeClienteRequest("quero falar com um atendente"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
     Checar("pedido de humano liga EmAtendimentoHumano", c.EmAtendimentoHumano);
@@ -1973,7 +1990,7 @@ await using (var db = new CrmDbContext(opcoes))
 // tem que ficar muda.
 var automaticasAntesDaFila = (await FioAsync(conversa25)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa25, new SimularMensagemDeClienteRequest("alguem ai?"));
@@ -1983,13 +2000,13 @@ Checar("nenhuma mensagem automatica nova enquanto espera na fila humana",
     (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDaFila);
 
 // 3) Assumir.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var resumo = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa25);
     Checar("assumir preenche AtendenteId", resumo.AtendenteId == atendenteId);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
     Checar("EmAtendimentoHumano continua true depois de assumir", c.EmAtendimentoHumano);
@@ -1998,7 +2015,7 @@ await using (var db = new CrmDbContext(opcoes))
 // 4) Cliente escreve com atendente na conversa — automacao muda.
 var automaticasAntesDoAssumir = (await FioAsync(conversa25)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa25, new SimularMensagemDeClienteRequest("uma duvida rapida"));
@@ -2008,12 +2025,12 @@ Checar("nenhuma mensagem automatica nova com atendente ja atribuido",
     (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDoAssumir);
 
 // 5) Liberar — A VIRADA CRITICA da hipotese original.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome).LiberarAsync(conversa25);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
     Checar("Liberar zera AtendenteId", c.AtendenteId is null);
@@ -2025,7 +2042,7 @@ await using (var db = new CrmDbContext(opcoes))
 // dono) — automacao continua muda.
 var automaticasAntesDoLiberar = (await FioAsync(conversa25)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa25, new SimularMensagemDeClienteRequest("ainda estou aqui"));
@@ -2035,7 +2052,7 @@ Checar("nenhuma mensagem automatica nova depois de Liberar (a prova central do B
     (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDoLiberar);
 
 // 7) Assume de novo e transfere.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa25);
     var transferida = await NovaConversaService(db, atendenteId, atendenteNome).TransferirAsync(
@@ -2044,7 +2061,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("transferir muda o responsavel", transferida.AtendenteId == outroAtendenteId);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
     Checar("EmAtendimentoHumano continua true depois de transferir", c.EmAtendimentoHumano);
@@ -2053,7 +2070,7 @@ await using (var db = new CrmDbContext(opcoes))
 // 8) Cliente escreve depois da transferencia — automacao continua muda.
 var automaticasAntesDaTransferencia = (await FioAsync(conversa25)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, outroAtendenteId, outroAtendenteNome).SimularRecebimentoAsync(
         conversa25, new SimularMensagemDeClienteRequest("obrigado"));
@@ -2062,7 +2079,7 @@ await using (var db = new CrmDbContext(opcoes))
 Checar("nenhuma mensagem automatica nova depois de Transferir",
     (await FioAsync(conversa25)).Count(m => m.Automatica) == automaticasAntesDaTransferencia);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa25);
     Checar("MensagensNaoLidas segue contando as mensagens do cliente normalmente",
@@ -2080,7 +2097,7 @@ Console.WriteLine("TESTE 26 — Human Takeover: auto-assume ao responder da fila
 
 Guid conversa26;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Auto-assume"), setores[0].Id, null, "Oi"));
@@ -2090,7 +2107,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("conversa nasce sem atendente (fila)", criada.AtendenteId is null);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
     Checar("conversa nasce fora do modo humano (automatica)", !c.EmAtendimentoHumano);
@@ -2098,7 +2115,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 // Responde SEM clicar em Assumir — MensagemService.EnviarAsync assume
 // implicitamente (PrepararEnvioAsync reusa AssumirAsync).
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var resposta = await NovaMensagemService(db, atendenteId, atendenteNome).EnviarAsync(
         conversa26, new EnviarMensagemRequest("Ja te ajudo!"));
@@ -2106,7 +2123,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("mensagem manual saiu como Atendente", resposta.AutorTipo == AutorTipo.Atendente);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
     Checar("responder da fila assume implicitamente", c.AtendenteId == atendenteId);
@@ -2116,7 +2133,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 var automaticasAntesDoAutoAssume = (await FioAsync(conversa26)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
         conversa26, new SimularMensagemDeClienteRequest("perfeito, obrigado"));
@@ -2126,13 +2143,13 @@ Checar("nenhuma automacao depois de responder direto da fila",
     (await FioAsync(conversa26)).Count(m => m.Automatica) == automaticasAntesDoAutoAssume);
 
 // Encerra e confere que o modo humano desliga junto com o resto do ciclo.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome).EncerrarAsync(
         conversa26, new EncerrarConversaRequest(null));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
     Checar("EncerrarAsync desliga EmAtendimentoHumano", !c.EmAtendimentoHumano);
@@ -2142,13 +2159,13 @@ await using (var db = new CrmDbContext(opcoes))
 }
 
 // Reabre — religa o modo humano, atribuido a quem reabriu.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var reaberta = await NovaConversaService(db, outroAtendenteId, outroAtendenteNome).ReabrirAsync(conversa26);
     Checar("reabrir atribui a quem reabriu", reaberta.AtendenteId == outroAtendenteId);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa26);
     Checar("reabrir religa EmAtendimentoHumano", c.EmAtendimentoHumano);
@@ -2156,7 +2173,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 var automaticasAntesDaReabertura = (await FioAsync(conversa26)).Count(m => m.Automatica);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemService(db, outroAtendenteId, outroAtendenteNome).SimularRecebimentoAsync(
         conversa26, new SimularMensagemDeClienteRequest("voltei"));
@@ -2181,7 +2198,7 @@ Console.WriteLine("TESTE 26B — Assumir idempotente repara modo humano sem dupl
 
 Guid conversa26B;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Assumir idempotente"), setores[0].Id, null, "Oi"));
@@ -2193,7 +2210,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("cenario normal comeca fora do modo humano", !antes.EmAtendimentoHumano);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var assumida = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa26B);
     var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa26B);
@@ -2204,7 +2221,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 int mensagensDeAssuncaoAntesDoReparo;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     mensagensDeAssuncaoAntesDoReparo = await db.Mensagens.AsNoTracking()
         .CountAsync(m => m.ConversaId == conversa26B
@@ -2219,7 +2236,7 @@ await using (var db = new CrmDbContext(opcoes))
     Checar("fixture monta explicitamente a inconsistencia", !inconsistente.EmAtendimentoHumano);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var reparada = await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa26B);
     var depois = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa26B);
@@ -2247,7 +2264,7 @@ Console.WriteLine("TESTE 27 — Human Takeover: IA armada nunca e chamada em mod
 
 Guid conversa27Sim;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("IA armada simulacao"), setores[0].Id, null, "Oi"));
@@ -2262,7 +2279,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 var orquestradorSim = new OrquestradorContador();
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaMensagemServiceComIaArmada(db, atendenteId, atendenteNome, orquestradorSim).SimularRecebimentoAsync(
         conversa27Sim, new SimularMensagemDeClienteRequest("me ajuda com uma duvida qualquer"));
@@ -2271,7 +2288,7 @@ await using (var db = new CrmDbContext(opcoes))
 Checar("simulacao: orquestrador de IA nao foi chamado em modo humano", orquestradorSim.Chamadas == 0,
     $"Chamadas={orquestradorSim.Chamadas}");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var count = await db.ChamadasDeIa.AsNoTracking().CountAsync(c => c.ConversaId == conversa27Sim);
     Checar("simulacao: nenhuma linha em ChamadasDeIa para esta conversa", count == 0, $"linhas={count}");
@@ -2282,7 +2299,7 @@ await using (var db = new CrmDbContext(opcoes))
 Guid clienteWhatsAppId;
 var telefoneWhatsApp27 = "55380009" + Random.Shared.Next(10000, 99999);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     clienteWhatsAppId = await NovoClienteAsync("IA armada webhook");
 
@@ -2296,7 +2313,7 @@ await using (var db = new CrmDbContext(opcoes))
 
     // O webhook resolve a conversa pelo TELEFONE do cliente, nao pelo Id —
     // precisa bater com MensagemDoCanal.TelefoneE164 abaixo.
-    await using var dbCliente = new CrmDbContext(opcoes);
+    await using var dbCliente = new CrmDbContext(opcoes, cifra);
     var cliente = await dbCliente.Clientes.FirstAsync(x => x.Id == clienteWhatsAppId);
     cliente.TelefoneWhatsapp = telefoneWhatsApp27;
     await dbCliente.SaveChangesAsync();
@@ -2306,7 +2323,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 var orquestradorWebhook = new OrquestradorContador();
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoRecebimentoComIaArmada(db, orquestradorWebhook, new NotificadorSilencioso()).ReceberAsync(
         tenantId,
@@ -2329,7 +2346,7 @@ Console.WriteLine("TESTE 28 — Human Takeover: persistencia e SignalR continuam
 
 Guid conversa28;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Observabilidade"), setores[0].Id, null, "Oi"));
@@ -2343,14 +2360,14 @@ await using (var db = new CrmDbContext(opcoes))
 }
 
 var naoLidasAntes = 0;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     naoLidasAntes = (await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa28)).MensagensNaoLidas;
 }
 
 var notificador28 = new NotificadorContador();
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var ctx = new ContextoFixo(tenantId, atendenteId, atendenteNome, PerfilDeAtendente.Administrador);
     var servico = new MensagemService(
@@ -2362,6 +2379,7 @@ await using (var db = new CrmDbContext(opcoes))
             db, new OrquestradorNuncaChamado(), Options.Create(new OpcoesDaIA { Habilitada = false }),
             NullLogger<RespostaInteligenteService>.Instance),
         Options.Create(new OpcoesDaIA { Habilitada = false }),
+        NovoRegistrador(db, tenantId, atendenteId, atendenteNome),
         NullLogger<MensagemService>.Instance);
 
     await servico.SimularRecebimentoAsync(conversa28, new SimularMensagemDeClienteRequest("teste de observabilidade"));
@@ -2370,7 +2388,7 @@ await using (var db = new CrmDbContext(opcoes))
 Checar("SignalR (MensagemRecebidaAsync) continua disparando em modo humano", notificador28.MensagensRecebidas == 1,
     $"MensagensRecebidas={notificador28.MensagensRecebidas}");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var c = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa28);
     Checar("MensagensNaoLidas incrementou normalmente", c.MensagensNaoLidas == naoLidasAntes + 1,
@@ -2393,7 +2411,7 @@ Console.WriteLine("TESTE 29 — Human Takeover: atendimento novo depois de encer
 Guid clienteQueVoltaAtd01;
 var telefoneQueVolta = "55380009" + Random.Shared.Next(10000, 99999);
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     clienteQueVoltaAtd01 = await NovoClienteAsync("Volta depois de encerrado");
 
@@ -2406,7 +2424,7 @@ await using (var db = new CrmDbContext(opcoes))
     c.Canal = CanalOrigem.WhatsApp;
     await db.SaveChangesAsync();
 
-    await using var dbCliente = new CrmDbContext(opcoes);
+    await using var dbCliente = new CrmDbContext(opcoes, cifra);
     var cliente = await dbCliente.Clientes.FirstAsync(x => x.Id == clienteQueVoltaAtd01);
     cliente.TelefoneWhatsapp = telefoneQueVolta;
     await dbCliente.SaveChangesAsync();
@@ -2417,7 +2435,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 // Mesmo telefone, mensagem nova, pelo WEBHOOK — ResolverConversaAsync nao
 // reaproveita conversa Encerrada, entao isto cria um atendimento NOVO.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var orquestrador = new OrquestradorContador();
 
@@ -2425,7 +2443,7 @@ await using (var db = new CrmDbContext(opcoes))
         tenantId,
         new MensagemDoCanal(telefoneQueVolta, null, "Oi de novo", TipoMensagem.Texto, $"wamid.testeatd01.{Guid.NewGuid():N}"));
 
-    await using var dbConfere = new CrmDbContext(opcoes);
+    await using var dbConfere = new CrmDbContext(opcoes, cifra);
     var nova = await dbConfere.Conversas.AsNoTracking().FirstAsync(x => x.Id == novaConversaId);
 
     Checar("atendimento novo nasce SEM modo humano (automatico)", !nova.EmAtendimentoHumano);
@@ -2444,7 +2462,7 @@ Console.WriteLine();
 
 Console.WriteLine("TESTE 30 — Human Takeover: varredura de inatividade (fase 2) nao encerra conversa em modo humano");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.Tenants.Where(t => t.Id == tenantId)
         .ExecuteUpdateAsync(s => s
@@ -2456,7 +2474,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 Guid conversa30Humana, conversa30Automatica;
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var humana = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Inatividade em modo humano"), setores[0].Id, null, "Oi"));
@@ -2483,12 +2501,12 @@ await using (var db = new CrmDbContext(opcoes))
     await db.SaveChangesAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovoVarredorDeInatividade(db).ExecutarAsync();
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var humana = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa30Humana);
     var automatica = await db.Conversas.AsNoTracking().FirstAsync(x => x.Id == conversa30Automatica);
@@ -2512,7 +2530,7 @@ Console.WriteLine("TESTE 31 — EncerrarAsync avisa o cliente (gatilho 15), so p
 var canal31 = new CanalContador();
 
 Guid conversa31;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Encerrado pelo atendente"), setores[0].Id, null, null));
@@ -2528,13 +2546,13 @@ await using (var db = new CrmDbContext(opcoes))
             .SetProperty(c => c.AtendenteId, atendenteId));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome, canal31).EncerrarAsync(
         conversa31, new EncerrarConversaRequest("Motivo interno de teste — nunca deveria chegar ao cliente"));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31);
     var automaticas = await db.Mensagens.AsNoTracking()
@@ -2568,7 +2586,7 @@ Console.WriteLine("TESTE 31b — conversa SIMULADA nao enfileira nada ao ser enc
 var canal31b = new CanalContador();
 
 Guid conversa31b;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     // Canal fica Simulado (o default de CriarAsync) — de proposito, sem ajuste.
     var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31b).CriarAsync(
@@ -2580,13 +2598,13 @@ await using (var db = new CrmDbContext(opcoes))
         .ExecuteUpdateAsync(s => s.SetProperty(c => c.AtendenteId, atendenteId));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome, canal31b).EncerrarAsync(
         conversa31b, new EncerrarConversaRequest(null));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31b);
     var automaticas = await db.Mensagens.AsNoTracking()
@@ -2605,7 +2623,7 @@ Console.WriteLine("TESTE 31c — sem regra ativa do gatilho 15, o encerramento a
 var canal31c = new CanalContador();
 
 // Desativa o texto do 15, como se o cartório parceiro o tivesse desligado pela tela.
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
@@ -2613,7 +2631,7 @@ await using (var db = new CrmDbContext(opcoes))
 }
 
 Guid conversa31c;
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var criada = await NovaConversaService(db, atendenteId, atendenteNome, canal31c).CriarAsync(
         new CriarConversaRequest(await NovoClienteAsync("Sem texto do gatilho 15"), setores[0].Id, null, null));
@@ -2625,13 +2643,13 @@ await using (var db = new CrmDbContext(opcoes))
             .SetProperty(c => c.AtendenteId, atendenteId));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await NovaConversaService(db, atendenteId, atendenteNome, canal31c).EncerrarAsync(
         conversa31c, new EncerrarConversaRequest(null));
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var conversa = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa31c);
 
@@ -2641,7 +2659,7 @@ await using (var db = new CrmDbContext(opcoes))
         canal31c.MensagensEnviadas.Count == 0 && canal31c.ChamadasDeEnviarPendentes == 0);
 }
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     await db.MensagensAutomaticas
         .Where(m => m.TenantId == tenantId && m.Gatilho == GatilhoDeMensagem.EncerramentoPeloAtendente)
@@ -2659,7 +2677,7 @@ Checar("varredura automatica continua no gatilho EncerramentoPorInatividade (13)
 Console.WriteLine();
 Console.WriteLine("TESTE 31e — ReabrirAsync nao redispara o gatilho 15");
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     var antesDeReabrir = await db.Mensagens.AsNoTracking()
         .CountAsync(m => m.ConversaId == conversa31 && m.EhAutomatica);
@@ -2708,7 +2726,7 @@ return problemas == 0 ? 0 : 1;
 /// </remarks>
 async Task<int> LimparAsync()
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
 
     // --- 1. Conversas do proprio verificador -------------------------------
     //
@@ -2848,6 +2866,7 @@ MensagemService NovaMensagemServiceComIaArmada(
         new AnexosEmMemoria(),
         respostaInteligente,
         opcoesDaIA,
+        NovoRegistrador(db, tenantId, quem, nome),
         NullLogger<MensagemService>.Instance);
 }
 
@@ -2872,7 +2891,7 @@ RecebimentoParaTeste NovoRecebimentoComIaArmada(
 
     return new RecebimentoParaTeste(
         new RecebimentoDeWhatsApp(
-            db, anexos, notificador, sinalizador, NullLogger<RecebimentoDeWhatsApp>.Instance),
+            db, anexos, notificador, sinalizador, cifra, NullLogger<RecebimentoDeWhatsApp>.Instance),
         new ProcessadorDeEntradaWhatsapp(
             db, automaticas, notificador, canal, resposta, opcoesDaIA,
             NullLogger<ProcessadorDeEntradaWhatsapp>.Instance));
@@ -2896,7 +2915,7 @@ RecebimentoParaTeste NovoRecebimento(CrmDbContext db)
 
     return new RecebimentoParaTeste(
         new RecebimentoDeWhatsApp(
-            db, new AnexosEmMemoria(), notificador, sinalizador,
+            db, new AnexosEmMemoria(), notificador, sinalizador, cifra,
             NullLogger<RecebimentoDeWhatsApp>.Instance),
         new ProcessadorDeEntradaWhatsapp(
             db, automaticas, notificador, new CanalSilencioso(), resposta, opcoesDaIA,
@@ -2942,6 +2961,9 @@ file sealed class ContextoFixo(Guid tenantId, Guid atendenteId, string nome, Per
     public bool Pode(PermissaoDoSistema permissao) =>
         permissao == PermissaoDoSistema.AtendimentoSimularCliente
         || CatalogoDePermissoes.ConjuntoDaClasse(perfil).Contains(permissao);
+
+    public Guid? AutorizacaoDeAcessoTecnicoId => null;
+    public Guid? EscopoDeConversaId => null;
 }
 
 /// <summary>Sem SignalR aqui: o que esta sob teste e a automacao, nao o hub.</summary>

@@ -159,7 +159,7 @@ public class MfaService(
 
         // Pre-checagem SO para mensagem mais util — o porteiro final abaixo
         // reconfere a mesma coisa no instante do commit.
-        if (await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct))
+        if (await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct, atendente.EhContaTecnica))
         {
             throw UsuariosServiceException.MfaObrigatorioNaoPodeSerDesativado();
         }
@@ -294,7 +294,7 @@ public class MfaService(
     {
         var atendente = await CarregarAsync(identidade, ct);
 
-        var obrigatorio = await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct);
+        var obrigatorio = await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct, atendente.EhContaTecnica);
 
         int? restantes = atendente.MfaAtivo
             ? await db.CodigosDeRecuperacaoMfa.CountAsync(c => c.AtendenteId == atendente.Id && c.UsadoEm == null, ct)
@@ -689,6 +689,38 @@ public class MfaService(
         await tx.CommitAsync(ct);
 
         log.LogInformation("MFA de {Alvo} resetado por {Ator}: {Motivo}", atendenteIdAlvo, ator.AtendenteId, request.Motivo);
+    }
+
+    /// <inheritdoc cref="IMfaService.ConferirSegundoFatorAsync"/>
+    public async Task ConferirSegundoFatorAsync(IdentidadeParaMfa ator, string? codigo, CancellationToken ct = default)
+    {
+        var atendente = await db.Atendentes.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == ator.AtendenteId && a.TenantId == ator.TenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        if (!atendente.Ativo || !atendente.MfaAtivo)
+        {
+            throw UsuariosServiceException.MfaObrigatorioNaoMatriculado();
+        }
+
+        var agora = DateTime.UtcNow;
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atendente.Id, codigo, agora, ct);
+        var tokenVersionEsperada = atendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atendente.Id, atendente.TenantId, tokenVersionEsperada,
+            ehTotp, (codigo ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
+        {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
+        }
+
+        await tx.CommitAsync(ct);
     }
 
     /// <remarks>

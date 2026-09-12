@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Persistence.Cifra;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
@@ -20,7 +21,9 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.Property(c => c.Protocolo).HasMaxLength(20).IsRequired().IsUnicode(false);
         builder.Property(c => c.Status).HasConversion<byte>();
         builder.Property(c => c.Canal).HasConversion<byte>();
-        builder.Property(c => c.MotivoEncerramento).HasMaxLength(500);
+        // Cifrado em repouso (PR3): texto livre digitado pelo atendente ao
+        // encerrar — pode conter dado pessoal do cliente.
+        builder.Property(c => c.MotivoEncerramento).Cifrada(500);
         builder.Property(c => c.IniciadaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.UltimaMensagemEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.PrazoIniciadoEm).HasColumnType("datetime2(3)");

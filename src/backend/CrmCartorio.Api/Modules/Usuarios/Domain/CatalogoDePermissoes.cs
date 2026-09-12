@@ -142,6 +142,12 @@ public static class CatalogoDePermissoes
             "Emitir ticket de matrícula e resetar a verificação em duas etapas de alguém.", "Equipe e segurança"),
         D(PermissaoDoSistema.SegurancaEventosVer, "seguranca.eventos.ver", "Ver o histórico de segurança",
             "Ver os eventos de segurança registrados do cartório.", "Equipe e segurança", ehTela: true),
+        D(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar, "seguranca.acesso_tecnico.aprovar", "Aprovar acesso técnico da equipe do projeto",
+            "Aprovar, negar ou revogar um pedido de acesso técnico — exige verificação em duas etapas.", "Equipe e segurança"),
+
+        // -------------------------------------------------------------- Suporte
+        D(PermissaoDoSistema.SuporteSolicitarAcesso, "suporte.solicitar_acesso", "Abrir a tela de Suporte técnico",
+            "Pedir acesso técnico temporário, com motivo — nunca lê dado sozinha.", "Suporte", ehTela: true),
     ];
 
     private static readonly Dictionary<PermissaoDoSistema, Definicao> PorChave =
@@ -264,14 +270,24 @@ public static class CatalogoDePermissoes
     ];
 
     /// <summary>Tudo, exceto <see cref="PermissaoDoSistema.AtendimentoSimularCliente"/> — de propósito, ver o enum.</summary>
+    /// <summary>
+    /// Tudo, exceto <see cref="PermissaoDoSistema.AtendimentoSimularCliente"/>
+    /// (ver o enum) e <see cref="PermissaoDoSistema.SuporteSolicitarAcesso"/> —
+    /// blindagem LGPD: essa chave só faz sentido para a conta técnica da
+    /// equipe do projeto (atribuída direto na criação, nunca por preset); um
+    /// Administrador comum do cartório não "pede acesso técnico a si mesmo".
+    /// </summary>
     private static readonly PermissaoDoSistema[] Administracao =
     [
-        .. Enum.GetValues<PermissaoDoSistema>().Where(p => p != PermissaoDoSistema.AtendimentoSimularCliente),
+        .. Enum.GetValues<PermissaoDoSistema>().Where(p =>
+            p != PermissaoDoSistema.AtendimentoSimularCliente
+            && p != PermissaoDoSistema.SuporteSolicitarAcesso),
     ];
 
+    /// <summary>Mesma exclusão de <see cref="Administracao"/> e pelo mesmo motivo — "vê tudo" não inclui a tela da conta técnica.</summary>
     private static readonly PermissaoDoSistema[] Auditoria =
     [
-        .. Todas.Where(d => d.EhTela).Select(d => d.Chave),
+        .. Todas.Where(d => d.EhTela && d.Chave != PermissaoDoSistema.SuporteSolicitarAcesso).Select(d => d.Chave),
         PermissaoDoSistema.RelatoriosEquipe,
         PermissaoDoSistema.RelatoriosSaudeIa,
         PermissaoDoSistema.RelatoriosSaudeWhatsapp,

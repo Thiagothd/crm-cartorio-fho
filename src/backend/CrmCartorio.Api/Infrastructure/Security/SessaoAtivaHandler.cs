@@ -60,6 +60,7 @@ public class SessaoAtivaHandler(IValidadorDeSessao validador, PermissoesDaRequis
         if (sessao is not null)
         {
             permissoes.Definir(sessao.Permissoes);
+            permissoes.DefinirAcessoTecnico(sessao.AutorizacaoDeAcessoTecnicoId, sessao.EscopoDeConversaId);
             context.Succeed(requirement);
         }
     }

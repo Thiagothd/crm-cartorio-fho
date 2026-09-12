@@ -25,7 +25,8 @@ var conexao = args.Length > 0
 var builder = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(builder, conexao);
 var opcoes = builder.Options;
-await using (var seguranca = new CrmDbContext(opcoes))
+var cifra = FabricaDeCifraDeDados.CriarDormente();
+await using (var seguranca = new CrmDbContext(opcoes, cifra))
 {
     if (!string.Equals(seguranca.Database.GetDbConnection().Database, "CRM_Cartorio_Dev", StringComparison.OrdinalIgnoreCase))
         throw new InvalidOperationException("Recusado: o verificador so escreve em CRM_Cartorio_Dev.");
@@ -49,7 +50,7 @@ var anexos = new AnexosFake();
 Guid tenantId, clienteId, conversaId;
 var ids = new List<Guid>();
 
-await using (var db = new CrmDbContext(opcoes))
+await using (var db = new CrmDbContext(opcoes, cifra))
 {
     tenantId = await db.Tenants.Select(t => t.Id).FirstAsync();
     var cliente = new Cliente { TenantId = tenantId, Nome = "[TESTE WA-OUT-01]", TelefoneWhatsapp = $"559{Random.Shared.NextInt64(100000000, 999999999)}" };
@@ -61,7 +62,7 @@ await using (var db = new CrmDbContext(opcoes))
 
 async Task<Guid> NovaMensagem(StatusEntrega status = StatusEntrega.Pendente, bool automatica = true, DateTime? iniciada = null, DateTime? disparada = null)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     var m = new Mensagem { TenantId = tenantId, ConversaId = conversaId, AutorTipo = automatica ? AutorTipo.Sistema : AutorTipo.Atendente,
         AtendenteId = automatica ? null : await db.Atendentes.Where(a => a.TenantId == tenantId).Select(a => (Guid?)a.Id).FirstAsync(),
         Conteudo = $"[TESTE WA-OUT-01] {Guid.NewGuid():N}", EhAutomatica = automatica, StatusEntrega = status,
@@ -74,14 +75,14 @@ async Task Disputar(Guid id, int quantidade, GatewayFake gateway, bool pendentes
 {
     await Task.WhenAll(Enumerable.Range(0, quantidade).Select(async _ =>
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifra);
         if (pendentes) await Novo(db, gateway).EnviarPendentesAsync(conversaId);
         else await Novo(db, gateway).EnviarAsync(id);
     }));
 }
 async Task<Mensagem> Ler(Guid id)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     return await db.Mensagens.AsNoTracking().SingleAsync(m => m.Id == id);
 }
 
@@ -114,12 +115,12 @@ try
 
     var barreira = await NovaMensagem(StatusEntrega.Enviando, iniciada: DateTime.UtcNow, disparada: DateTime.UtcNow);
     var posterior = await NovaMensagem(); gw = new(); await Disputar(posterior, 0, gw); // mantem ids usados
-    await using (var db = new CrmDbContext(opcoes)) await Novo(db, gw).EnviarPendentesAsync(conversaId);
+    await using (var db = new CrmDbContext(opcoes, cifra)) await Novo(db, gw).EnviarPendentesAsync(conversaId);
     Checar("automatica posterior nao ultrapassa anterior Enviando", gw.Envios == 0 && (await Ler(posterior)).StatusEntrega == StatusEntrega.Pendente);
 
-    await using (var db = new CrmDbContext(opcoes)) await db.Conversas.Where(c => c.Id == conversaId).ExecuteUpdateAsync(s => s.SetProperty(c => c.EmAtendimentoHumano, true));
+    await using (var db = new CrmDbContext(opcoes, cifra)) await db.Conversas.Where(c => c.Id == conversaId).ExecuteUpdateAsync(s => s.SetProperty(c => c.EmAtendimentoHumano, true));
     id = await NovaMensagem(automatica: false); gw = new(); await Disputar(id, 1, gw);
-    await using (var db = new CrmDbContext(opcoes)) Checar("Human Takeover permanece funcional", gw.Envios == 1 && await db.Conversas.Where(c => c.Id == conversaId).Select(c => c.EmAtendimentoHumano).SingleAsync());
+    await using (var db = new CrmDbContext(opcoes, cifra)) Checar("Human Takeover permanece funcional", gw.Envios == 1 && await db.Conversas.Where(c => c.Id == conversaId).Select(c => c.EmAtendimentoHumano).SingleAsync());
 
     id = await NovaMensagem(); gw = new GatewayFake { FalharDepoisDoDisparo = true }; await Disputar(id, 1, gw);
     var ambiguo = await Ler(id);
@@ -135,7 +136,7 @@ try
 }
 finally
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifra);
     await db.Mensagens.Where(m => ids.Contains(m.Id)).ExecuteDeleteAsync();
     await db.Conversas.Where(c => c.Id == conversaId).ExecuteDeleteAsync();
     await db.Clientes.Where(c => c.Id == clienteId).ExecuteDeleteAsync();

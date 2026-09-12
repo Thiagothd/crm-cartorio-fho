@@ -2,6 +2,16 @@
 
 O contato final que manda mensagem para o cartório. **Não é usuário do sistema.**
 
+## Abrir a ficha exige `clientes.ver`, e fica registrado
+
+Desde a blindagem LGPD (2026-09): `ClienteService.ObterAsync` exige
+`PermissaoDoSistema.ClientesVer` e grava uma linha em `RegistrosDeAcesso`
+(`Infrastructure/Auditoria/IRegistradorDeAcesso`) a cada ficha aberta —
+visível ao cartório na tela "Acesso aos dados". `ListarAsync` (a lista
+paginada) não ganhou a mesma guarda nesta rodada — o que expõe CPF/RG/
+filiação é o detalhe da ficha, não a lista. Detalhe completo em
+[`Modules/Seguranca/README.md`](../Seguranca/README.md).
+
 ## O telefone é a identidade
 
 `TelefoneWhatsapp` é obrigatório e único por tenant, guardado em E.164 sem
@@ -24,6 +34,35 @@ digitação.
 A tela confere o DV e mostra **aviso em âmbar** quando não fecha — sem bloquear o
 salvamento. As duas camadas dizem a mesma coisa de propósito: uma avisa, nenhuma
 recusa. Mudar uma sem a outra faz o cadastro parecer quebrado.
+
+## Documento e demais campos sensíveis são cifrados em repouso (PR3)
+
+`Documento`, `Rg`, `OrgaoEmissor`, `UfOrgaoEmissor`, `Profissao`,
+`Nacionalidade`, `Naturalidade`, `NomeDoPai`, `NomeDaMae`,
+`RepresentanteLegal`, `Email`, `TelefoneAlternativo`, `Cep`, `Logradouro`,
+`Numero`, `Complemento`, `Bairro`, `Observacoes` e `DataNascimento`
+(guardada como `DataNascimentoCifrada`, coluna nova — a `DataNascimento`
+antiga fica órfã, nunca mais lida) passam por
+`Infrastructure/Persistence/Cifra/ConversorCifrado` — transparente para todo
+o resto do serviço: `Aplicar`/`Mapear` continuam lendo e escrevendo texto
+em claro, a cifra acontece só na fronteira com o banco.
+
+**Ficam em claro, de propósito:** `Nome`, `TelefoneWhatsapp`, `RazaoSocial`
+(identidade do canal e busca "contém" do balcão), `Cidade`/`Uf` (filtro de
+listagem, geografia grosseira). Não são o que o cartório parceiro pediu para esconder —
+CPF, filiação, endereço e a conversa são.
+
+**Busca por documento muda de forma quando a cifra está ativa.** Com a
+cifra dormente (todo ambiente hoje — ver `docs/PROTECAO-DE-DADOS.md`), a
+busca por CPF/CNPJ continua igual a sempre (`Contains` sobre a coluna em
+claro). Quando a cifra ativar num ambiente, `Documento` passa a guardar
+ciphertext — "contém" nele não acha mais nada. A busca por **CPF/CNPJ
+completo** passa a usar `DocumentoHash` (índice cego HMAC,
+`Infrastructure/Security/IndiceCego`) e continua achando por igualdade
+exata; busca por **documento parcial deixa de existir** — é o limite
+conhecido e documentado dessa forma de cifra, não um bug. `ClienteService.ListarAsync`
+decide sozinho qual caminho usar, olhando `IProvedorDeChaveDeDados.CifraAtiva`
+— nenhuma tela precisa saber disso.
 
 ## CNPJ preenche sozinho; CPF não
 

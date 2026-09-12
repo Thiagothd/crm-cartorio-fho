@@ -7,7 +7,8 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "install:chromium": "playwright install chromium"
+    "install:chromium": "playwright install chromium",
+    "capturas": "playwright test --config=playwright.capturas.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

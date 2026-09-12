@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
@@ -6,6 +7,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
+using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -20,6 +22,9 @@ public partial class ClienteService(
     IHttpClientFactory httpFactory,
     IMemoryCache cache,
     IOptions<OpcoesDoCanalWhatsApp> opcoesDoCanal,
+    IRegistradorDeAcesso registrador,
+    IProvedorDeChaveDeDados provedorDeChave,
+    IndiceCego indiceCego,
     ILogger<ClienteService> log) : IClienteService
 {
     private readonly OpcoesDoCanalWhatsApp _opcoesDoCanal = opcoesDoCanal.Value;
@@ -80,11 +85,24 @@ public partial class ClienteService(
             var busca = filtro.Busca.Trim();
             var soDigitos = SomenteDigitos(busca);
 
+            // Documento cifrado (PR3): "contains" na coluna so acha alguma
+            // coisa enquanto a cifra estiver dormente (coluna ainda em
+            // claro). Com a cifra ativa, a coluna guarda ciphertext — a
+            // unica busca por documento que sobrevive e por igualdade exata
+            // via indice cego, e so para CPF/CNPJ completo (11/14 digitos).
+            // Ver Modules/Clientes/README.md.
+            var documentoCompleto = soDigitos.Length is 11 or 14;
+            var hashDeBusca = documentoCompleto && provedorDeChave.CifraAtiva
+                ? indiceCego.Calcular(tenantId, soDigitos)
+                : null;
+            var buscaPorDocumentoEmClaro = hashDeBusca is null && soDigitos.Length > 0 && !provedorDeChave.CifraAtiva;
+
             consulta = consulta.Where(c =>
                 c.Nome.Contains(busca) ||
                 (c.RazaoSocial != null && c.RazaoSocial.Contains(busca)) ||
                 (soDigitos.Length > 0 && c.TelefoneWhatsapp.Contains(soDigitos)) ||
-                (soDigitos.Length > 0 && c.Documento != null && c.Documento.Contains(soDigitos)));
+                (hashDeBusca != null && c.DocumentoHash == hashDeBusca) ||
+                (buscaPorDocumentoEmClaro && c.Documento != null && c.Documento.Contains(soDigitos)));
         }
 
         var total = await consulta.CountAsync(ct);
@@ -139,9 +157,13 @@ public partial class ClienteService(
 
     public async Task<ClienteResponse> ObterAsync(Guid id, CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.ClientesVer);
+
         var cliente = await db.Clientes.AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
             ?? throw ClientesServiceException.NaoEncontrado();
+
+        await registrador.RegistrarAsync(TipoDeAcesso.LeituraDeFichaDeCliente, clienteId: id, ct: ct);
 
         var total = await db.Conversas.CountAsync(x => x.ClienteId == id, ct);
         var ativa = await db.Conversas.AnyAsync(
@@ -169,6 +191,7 @@ public partial class ClienteService(
         };
 
         Aplicar(cliente, limpos);
+        cliente.DocumentoHash = CalcularHashDeDocumento(limpos.Documento);
 
         db.Clientes.Add(cliente);
         await db.SaveChangesAsync(ct);
@@ -192,6 +215,7 @@ public partial class ClienteService(
         await GarantirTelefoneLivreAsync(limpos.TelefoneWhatsapp, id, ct);
 
         Aplicar(cliente, limpos);
+        cliente.DocumentoHash = CalcularHashDeDocumento(limpos.Documento);
         cliente.Ativo = limpos.Ativo;
 
         await db.SaveChangesAsync(ct);
@@ -342,6 +366,18 @@ public partial class ClienteService(
             throw ClientesServiceException.SemPermissao();
         }
     }
+
+    /// <summary>
+    /// Nulo enquanto a cifra estiver dormente (nenhuma chave configurada) —
+    /// nesse caso a busca por documento continua pela coluna em claro (ver
+    /// ListarAsync). Calculado sempre que a cifra estiver ativa, mesmo sem
+    /// busca nenhuma pendente, para o indice já existir quando alguém
+    /// precisar procurar por este documento depois.
+    /// </summary>
+    private string? CalcularHashDeDocumento(string? documento) =>
+        string.IsNullOrWhiteSpace(documento) || !provedorDeChave.CifraAtiva
+            ? null
+            : indiceCego.Calcular(ctx.TenantId, documento);
 
     // ------------------------------------------------------------- auxiliares
 

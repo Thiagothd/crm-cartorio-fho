@@ -26,6 +26,10 @@ public class ContextoDoUsuario(IHttpContextAccessor acessor, PermissoesDaRequisi
     /// </summary>
     public bool Pode(PermissaoDoSistema permissao) => permissoes.Pode(permissao);
 
+    public Guid? AutorizacaoDeAcessoTecnicoId => permissoes.AutorizacaoDeAcessoTecnicoId;
+
+    public Guid? EscopoDeConversaId => permissoes.EscopoDeConversaId;
+
     private ClaimsLidas Ler()
     {
         var usuario = acessor.HttpContext?.User;

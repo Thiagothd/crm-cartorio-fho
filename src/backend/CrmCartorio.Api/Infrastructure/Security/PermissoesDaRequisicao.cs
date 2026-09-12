@@ -27,4 +27,21 @@ public class PermissoesDaRequisicao
     public void Definir(IReadOnlySet<PermissaoDoSistema> conjunto) => _conjunto = conjunto;
 
     public bool Pode(PermissaoDoSistema permissao) => _conjunto?.Contains(permissao) ?? false;
+
+    /// <summary>
+    /// Blindagem LGPD: preenchido só quando a sessão é de uma conta técnica
+    /// (<c>Atendente.EhContaTecnica</c>) COM autorização de acesso técnico
+    /// ativa — ver <see cref="ValidadorDeSessao"/>. <see cref="EscopoDeConversaId"/>
+    /// só vem preenchido quando o escopo da autorização é uma conversa
+    /// específica; nulo em escopo geral.
+    /// </summary>
+    public Guid? AutorizacaoDeAcessoTecnicoId { get; private set; }
+
+    public Guid? EscopoDeConversaId { get; private set; }
+
+    public void DefinirAcessoTecnico(Guid? autorizacaoId, Guid? escopoDeConversaId)
+    {
+        AutorizacaoDeAcessoTecnicoId = autorizacaoId;
+        EscopoDeConversaId = escopoDeConversaId;
+    }
 }

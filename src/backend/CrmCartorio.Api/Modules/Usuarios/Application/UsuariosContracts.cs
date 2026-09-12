@@ -30,7 +30,13 @@ public record CriarAtendenteRequest(
     string Senha,
     PerfilDeAtendente Perfil,
     Guid? SetorPadraoId,
-    CargoNaServentia Cargo = CargoNaServentia.NaoInformado);
+    CargoNaServentia Cargo = CargoNaServentia.NaoInformado,
+    /// <summary>
+    /// Blindagem LGPD: marca a conta como tecnica da equipe do projeto — nunca lê
+    /// dado de cliente por permissão concedida direto, só por autorização de
+    /// acesso técnico ativa. Ver <see cref="Domain.Entities.Atendente.EhContaTecnica"/>.
+    /// </summary>
+    bool EhContaTecnica = false);
 
 public record AtualizarAtendenteRequest(
     string Nome,
@@ -71,7 +77,9 @@ public record AtendenteResponse(
     /// menu — o backend continua sendo quem decide de verdade em cada
     /// endpoint (ctx.Pode), esconder aqui e so conforto de navegacao.
     /// </summary>
-    IReadOnlyList<string> Permissoes);
+    IReadOnlyList<string> Permissoes,
+    /// <summary>Blindagem LGPD — decidido só na criação, nunca editável depois.</summary>
+    bool EhContaTecnica = false);
 
 /// <summary>Projecao minima para o seletor de "transferir para" do balcao — nunca e-mail, perfil ou ultimo acesso.</summary>
 public record AtendenteOpcaoResponse(Guid Id, string Nome);

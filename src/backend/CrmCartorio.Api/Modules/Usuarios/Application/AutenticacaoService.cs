@@ -15,8 +15,17 @@ public class AutenticacaoService(
     ICifraDeSegredoMfa cifra,
     IContextoDoUsuario ctx,
     ICookieDeDispositivoConfiavel cookieDeDispositivo,
+    IHttpContextAccessor acessor,
     ILogger<AutenticacaoService> log) : IAutenticacaoService
 {
+    /// <summary>
+    /// Blindagem LGPD (2026-09): IP de quem concluiu o login, so para o
+    /// EventoDeSeguranca LoginRealizado. Nulo em contexto sem HTTP real
+    /// (verificadores) — o evento e' gravado do mesmo jeito, so sem IP.
+    /// </summary>
+    private string? ObterIp() =>
+        acessor.HttpContext is { } http ? ResolvedorDeIpDoCliente.Resolver(http) : null;
+
     /// <summary>SEC-02: falhas de SENHA seguidas que fecham um ciclo e abrem um bloqueio.</summary>
     private const int LimiteDeFalhasDeSenha = 5;
 
@@ -101,7 +110,7 @@ public class AutenticacaoService(
                 .Select(a => new
                 {
                     a.TenantId, a.TokenVersion, a.MfaAtivo, a.Perfil, a.Cargo, a.Ativo,
-                    a.RematriculaObrigatoriaAposEmergencia
+                    a.RematriculaObrigatoriaAposEmergencia, a.EhContaTecnica
                 })
                 .FirstOrDefaultAsync(ct);
 
@@ -111,7 +120,8 @@ public class AutenticacaoService(
                 throw UsuariosServiceException.CredenciaisInvalidas();
             }
 
-            var politicaExige = await PoliticaDeMfa.ExigeAsync(db, estado.TenantId, estado.Perfil, estado.Cargo, ct);
+            var politicaExige = await PoliticaDeMfa.ExigeAsync(
+                db, estado.TenantId, estado.Perfil, estado.Cargo, ct, estado.EhContaTecnica);
 
             // CORRECAO (bloqueador B19, sexta revisao independente): a
             // exigencia de rematricula depois de um reset de emergencia
@@ -175,6 +185,10 @@ public class AutenticacaoService(
                 var (token, expiraEm) = tokens.Gerar(atendente);
 
                 log.LogInformation("Login de {AtendenteId} ({Nome})", atendente.Id, atendente.Nome);
+
+                await RegistrarEventoAsync(
+                    estado.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
+                    TipoDeEventoDeSeguranca.LoginRealizado, ObterIp(), motivo: null, ct);
 
                 return new LoginEtapa1Response(false, new LoginResponse(
                     token, expiraEm,
@@ -318,6 +332,10 @@ public class AutenticacaoService(
         log.LogInformation(
             "Login (dispositivo confiavel, sem segundo fator) de {AtendenteId} ({Nome})",
             atendente.Id, atendente.Nome);
+
+        await RegistrarEventoAsync(
+            tenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
+            TipoDeEventoDeSeguranca.LoginRealizado, ObterIp(), motivo: null, ct);
 
         return new LoginEtapa1Response(false, new LoginResponse(
             token, expiraEmToken,
@@ -510,6 +528,10 @@ public class AutenticacaoService(
         var (token, expiraEm) = tokens.Gerar(atendente);
 
         log.LogInformation("Login (MFA) de {AtendenteId} ({Nome})", atendente.Id, atendente.Nome);
+
+        await RegistrarEventoAsync(
+            desafio.TenantId, atendente.Id, atorAtendenteId: null, atorExterno: null,
+            TipoDeEventoDeSeguranca.LoginRealizado, ObterIp(), motivo: null, ct);
 
         return new LoginResponse(
             token, expiraEm,

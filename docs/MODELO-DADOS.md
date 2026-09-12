@@ -3,7 +3,10 @@
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
 > (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I/2K" nas
 > seções abaixo.
-> **Última atualização:** 2026-09-04
+> **Última atualização:** 2026-09-12 — blindagem LGPD PR3: colunas cifradas em
+> repouso marcadas onde aparecem (Cliente, Conversa, Mensagem, HistoricoEtapa);
+> `Cliente.DocumentoHash`/`DataNascimentoCifrada` novas. Ver
+> [PROTECAO-DE-DADOS.md](PROTECAO-DE-DADOS.md).
 >
 > DDL correspondente em [`sql/001-schema.sql`](../sql/001-schema.sql).
 > Os scripts aprovados foram aplicados somente em `CRM_Cartorio_Dev`. Nenhum
@@ -179,19 +182,23 @@ Contato final que manda mensagem. **Não é usuário do sistema.**
 | Nome | string(200) | sim | Nome do perfil do WhatsApp até ser corrigido |
 | Tipo | enum | sim | `Fisica` / `Juridica` |
 | TelefoneWhatsapp | string(20) | sim | E.164, só dígitos. **Único por tenant** |
-| TelefoneAlternativo | string(20) | não | Telefone fixo ou de recado |
-| Documento | string(14) | não | CPF/CNPJ, conforme `Tipo` |
-| Email | string(160) | não | |
-| Rg / OrgaoEmissor / UfOrgaoEmissor | string | não | Identidade de pessoa física |
-| DataNascimento | date | não | |
+| TelefoneAlternativo | string(20) | não | Telefone fixo ou de recado. Cifrado em repouso (PR3) |
+| Documento | string(14) | não | CPF/CNPJ, conforme `Tipo`. **Cifrado em repouso (PR3)** quando a cifra estiver ativa — ver `DocumentoHash` |
+| DocumentoHash | char(64) | não | **PR3, 2026-09-12.** Índice cego (HMAC) de `Documento`, só dígitos — sustenta busca por igualdade exata quando a cifra está ativa; nulo enquanto dormente ou sem documento |
+| Email | string(160) | não | Cifrado em repouso (PR3) |
+| Rg / OrgaoEmissor / UfOrgaoEmissor | string | não | Identidade de pessoa física. Cifrados em repouso (PR3) |
+| DataNascimento | date | não | **Coluna órfã desde PR3 (2026-09-12)** — o campo `Cliente.DataNascimento` do código passou a ler/gravar `DataNascimentoCifrada` (nova, abaixo); esta coluna original fica no banco sem ninguém ler, até uma migração de limpeza futura |
+| DataNascimentoCifrada | string (nvarchar(max)) | não | **PR3.** Data em ISO (`yyyy-MM-dd`), cifrada — é o que `Cliente.DataNascimento` de fato usa hoje |
 | EstadoCivil | enum | sim | Valor neutro `NaoInformado` quando ainda não coletado |
 | RegimeDeBens | enum | sim | Só permanece preenchido quando `EstadoCivil = Casado` |
-| Profissao / Nacionalidade / Naturalidade | string | não | Qualificação da parte |
-| NomeDoPai / NomeDaMae | string(200) | não | Filiação |
-| RazaoSocial / RepresentanteLegal | string(200) | não | Pessoa jurídica |
-| Cep / Logradouro / Numero / Complemento | string | não | Endereço |
-| Bairro / Cidade / Uf | string | não | Endereço |
-| Observacoes | string(1000) | não | |
+| Profissao / Nacionalidade / Naturalidade | string | não | Qualificação da parte. Cifrados em repouso (PR3) |
+| NomeDoPai / NomeDaMae | string(200) | não | Filiação. Cifrados em repouso (PR3) |
+| RazaoSocial | string(200) | não | Pessoa jurídica — fica em claro (busca "contém" do balcão) |
+| RepresentanteLegal | string(200) | não | Pessoa jurídica. Cifrado em repouso (PR3) |
+| Cep / Logradouro / Numero / Complemento | string | não | Endereço. Cifrados em repouso (PR3) |
+| Bairro | string | não | Endereço. Cifrado em repouso (PR3) |
+| Cidade / Uf | string | não | Endereço — ficam em claro (filtro de listagem, geografia grosseira) |
+| Observacoes | string(1000) | não | Cifrado em repouso (PR3) |
 | FotoPerfilUrl | string(500) | não | URL da foto de perfil no WhatsApp (temporária) |
 | FotoPerfilAtualizadaEm | datetime2(3) | não | Instante UTC da última consulta/atualização |
 | NomePerguntadoEm | datetime2(3) | não | **Fase 2I.** Quando o sistema perguntou a este contato como quer ser chamado. Fato datado, não estado — serve a uma coisa só: não perguntar duas vezes |
@@ -376,7 +383,7 @@ Entidade central. É onde mora a trava.
 | AvisoDeVencimentoEnviadoEm | datetime2(3) | não | Quando o aviso de prazo vencido saiu |
 | EncerradaEm | datetime2(3) | não | |
 | EncerradaPorAtendenteId | Guid | não | FK → Atendente |
-| MotivoEncerramento | string(500) | não | Opcional (pendência 10) |
+| MotivoEncerramento | string(500) | não | Opcional (pendência 10). Cifrado em repouso (PR3) |
 | ReabertaEm | datetime2(3) | não | |
 | ReabertaPorAtendenteId | Guid | não | FK → Atendente |
 | **RowVersion** | rowversion | sim | **Concorrência otimista** |
@@ -401,7 +408,7 @@ reencontraria a mesma conversa em alerta a cada volta.
 | ConversaId | Guid | sim | FK → Conversa |
 | AutorTipo | enum | sim | `Cliente` / `Atendente` / `Sistema` |
 | AtendenteId | Guid | não | FK → Atendente. **Obrigatório quando `AutorTipo = Atendente`** |
-| Conteudo | string(4000) | sim | |
+| Conteudo | string(4000) | sim | Cifrado em repouso (PR3) — nvarchar(max) na coluna física |
 | Tipo | enum | sim | `Texto` na Fase 1; `Imagem`/`Documento`/`Audio`/`Video` desde a Fase 2C |
 | StatusEntrega | enum | sim | `Pendente` / `Enviada` / `Entregue` / `Lida` / `Falha` |
 | EhAutomatica | bool | sim | Gerada por regra ou pela IA, não escrita por gente. Ver abaixo |
@@ -463,7 +470,7 @@ Trilha de mudanças de etapa e setor. **Só cresce — nunca editado, nunca apag
 | SetorNovoId | Guid | não | FK → Setor |
 | AtendenteId | Guid | não | FK → Atendente. Nulo = automático |
 | OcorridoEm | datetime2(3) | sim | |
-| Observacao | string(500) | não | |
+| Observacao | string(500) | não | Cifrado em repouso (PR3) |
 
 ### 3.11 MensagemAutomatica
 

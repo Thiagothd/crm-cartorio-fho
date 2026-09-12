@@ -2,6 +2,7 @@
 #:property PublishAot=false
 
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
@@ -29,8 +30,9 @@ using Microsoft.EntityFrameworkCore;
 var construtor = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(construtor, "Server=nao-conecta;Database=x;Trusted_Connection=True;");
 var opcoes = construtor.Options;
+var cifra = FabricaDeCifraDeDados.CriarDormente();
 
-using var db = new CrmDbContext(opcoes);
+using var db = new CrmDbContext(opcoes, cifra);
 
 var tenantId = Guid.Parse("0199b2c0-0000-7000-8000-000000000001");
 var atendenteId = Guid.NewGuid();

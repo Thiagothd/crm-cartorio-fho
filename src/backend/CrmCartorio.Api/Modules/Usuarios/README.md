@@ -25,6 +25,26 @@ pendência antiga de "permissão mais fina" (`docs/REQUISITOS.md`, seção 5.5,
 item 13) foi resolvida pelas permissões granulares: já não é preciso mexer em
 código para dar a alguém acesso a uma tela sem dar às outras.
 
+### Conta técnica — a porta de entrada do suporte da equipe do projeto
+
+`Atendente.EhContaTecnica` (2026-09, blindagem LGPD) marca uma conta criada
+pelo próprio cartório em Equipe para o suporte técnico da equipe do projeto — imutável
+depois de criada, nunca alternável por uma edição posterior
+(`AtualizarAtendenteRequest` não carrega este campo de propósito). Uma conta
+técnica nasce **sem** nenhuma permissão de leitura de dado: `CriarAsync`
+força o preset "Suporte técnico" (`suporte.solicitar_acesso`, só), e
+`DefinirPermissoesAsync` recusa depois qualquer tentativa de conceder
+`atendimento.*`/`clientes.*`/`relatorios.*` a ela — mesmo que alguém tente
+pela tela de permissões. A única forma de uma conta técnica ler qualquer
+conversa é uma `AutorizacaoDeAcessoTecnico` aprovada, que injeta a permissão
+**na sessão**, nunca na conta — ver
+[Modules/Seguranca/README.md](../Seguranca/README.md), seção "Acesso técnico
+autorizado". `PoliticaDeMfa.ExigeAsync` exige MFA para conta técnica
+incondicionalmente (mesma fronteira do administrador, sem depender de
+`Tenant.MfaObrigatorioParaAdministradores`) — uma credencial que pode virar
+leitura de conversa mediante aprovação não pode ficar protegida só por
+senha.
+
 ## Permissões granulares
 
 Desde 2026-09-08, o que cada atendente acessa é decidido por

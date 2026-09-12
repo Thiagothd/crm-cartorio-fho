@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Persistence.Cifra;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Infrastructure.Persistence;
@@ -16,6 +17,11 @@ public static class ConfiguracaoDoBanco
 {
     public static void Configurar(DbContextOptionsBuilder opcoes, string? connectionString)
     {
+        // Ver ChaveDeCacheDeModeloDeCrm: sem isto, o model cacheado por tipo
+        // de DbContext ignoraria qual ICifraDeDados construiu esta instancia
+        // (PR3, cifra em repouso).
+        opcoes.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, ChaveDeCacheDeModeloDeCrm>();
+
         opcoes.UseSqlServer(connectionString, sql =>
         {
             sql.CommandTimeout(30);

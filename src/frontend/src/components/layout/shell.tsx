@@ -10,6 +10,7 @@ import { ContextoDoContainerDeAcoes } from './contexto-de-acoes-da-pagina'
 import { ProvedorDaBuscaGlobal } from './contexto-de-busca-global'
 import { ProvedorDoRail, usarRail } from './contexto-do-rail'
 import { EstadoDaInterface } from '@/components/ui/estado-da-interface'
+import { FaixaDeAcessoTecnico } from '@/features/seguranca/faixa-de-acesso-tecnico'
 
 /** `/atendimentos/:id` — a conversa já tem cabeçalho e navegação próprios. */
 function ehRotaDeConversa(pathname: string) {
@@ -139,6 +140,7 @@ function MolduraDoShell({ children }: { children: ReactNode }) {
             também perde os mesmos 192px, e este wrapper já é `min-w-0 flex-1` —
             a largura vem de fora, condição segura para `container-type`. */}
         <div className="@container/conteudo flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <FaixaDeAcessoTecnico />
           <CabecalhoGlobal ocultoNoCelular={emConversa} aoRegistrarContainerDeAcoes={setContainerDeAcoes} />
 
           <ContextoDoContainerDeAcoes.Provider value={containerDeAcoes}>
