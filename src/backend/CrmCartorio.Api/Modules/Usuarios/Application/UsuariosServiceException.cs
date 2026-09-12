@@ -136,13 +136,13 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
             "So um administrador que tambem seja Titular pode alterar as permissoes de outro Titular.", 403);
 
     /// <summary>
-    /// Blindagem LGPD: conta tecnica da equipe do projeto nunca le dado de cliente por
+    /// Blindagem LGPD: conta de suporte tecnico nunca le dado de cliente por
     /// concessao direta — a unica leitura permitida vem de uma autorizacao de
     /// acesso tecnico aprovada pelo cartorio (Modules/Seguranca).
     /// </summary>
     public static UsuariosServiceException ContaTecnicaNaoRecebeLeituraDeDado() =>
         new("conta_tecnica_nao_recebe_leitura_de_dado",
-            "Conta tecnica da equipe do projeto nao pode receber permissao de atendimento, clientes ou relatorios diretamente — a leitura so acontece com acesso tecnico autorizado pelo cartorio.",
+            "Conta de suporte tecnico nao pode receber permissao de atendimento, clientes ou relatorios diretamente — a leitura so acontece com acesso tecnico autorizado pelo cartorio.",
             403);
 
     // ------------------------------------------------------- Exclusao de atendente

@@ -269,7 +269,7 @@ public static class FerramentaDeCifraDeDadosLegados
                    OR (Complemento IS NOT NULL AND Complemento NOT LIKE {PadraoDoPrefixo})
                    OR (Bairro IS NOT NULL AND Bairro NOT LIKE {PadraoDoPrefixo})
                    OR (Observacoes IS NOT NULL AND Observacoes NOT LIKE {PadraoDoPrefixo})
-                   OR (DataNascimento IS NOT NULL AND DataNascimento NOT LIKE {PadraoDoPrefixo})
+                   OR (DataNascimentoCifrada IS NOT NULL AND DataNascimentoCifrada NOT LIKE {PadraoDoPrefixo})
                 ORDER BY Id
                 """).ToListAsync();
 

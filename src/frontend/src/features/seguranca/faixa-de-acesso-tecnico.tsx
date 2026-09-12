@@ -4,7 +4,7 @@ import { acessoTecnicoApi } from '@/lib/api/endpoints'
 import { formatarHora } from '@/lib/formatacao'
 
 /**
- * Blindagem LGPD: "a equipe do projeto pede, o cartório aprova, a faixa avisa, a
+ * Blindagem LGPD: "o suporte técnico pede, o cartório aprova, a faixa avisa, a
  * trilha registra" — docs/PROTECAO-DE-DADOS.md. Visível a QUALQUER usuário
  * autenticado do tenant enquanto houver acesso técnico aprovado e ainda
  * dentro do prazo — nunca só a quem administra.
@@ -33,7 +33,7 @@ export function FaixaDeAcessoTecnico() {
     <div className="flex items-center gap-2 border-b border-linha bg-superficie px-3 py-2 text-xs text-tinta-media md:px-6">
       <ShieldAlert className="h-4 w-4 shrink-0" strokeWidth={1.6} />
       <p className="min-w-0 truncate">
-        <span className="font-semibold text-tinta">Acesso técnico da equipe do projeto ativo</span> até{' '}
+        <span className="font-semibold text-tinta">Acesso do suporte técnico ativo</span> até{' '}
         {formatarHora(data.validaAte)} — {data.motivo}
       </p>
     </div>

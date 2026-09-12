@@ -26,37 +26,58 @@ export function PainelDeProtecao() {
   return (
     <Painel
       titulo="Proteção ativa"
-      descricao="O que já está em vigor agora, sem precisar ler código ou documentação."
+      descricao="Resumo do que protege os dados dos seus clientes hoje, neste cartório."
     >
       {isLoading ? (
         <Skeleton className="h-20 w-full" />
       ) : isError || !data ? (
         <EstadoDaInterface tipo="erro" titulo="Não foi possível carregar" descricao="Tente novamente em instantes." />
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="col-span-2 flex items-center gap-3 rounded-md border border-linha bg-superficie px-3 py-3 sm:col-span-1">
-            {data.cifraAtiva ? (
-              <Lock className="h-5 w-5 shrink-0 text-tinta" strokeWidth={1.6} />
-            ) : (
-              <LockOpen className="h-5 w-5 shrink-0 text-tinta-media" strokeWidth={1.6} />
-            )}
-            <div>
-              <p className="text-xs text-tinta-media">Cifra em repouso</p>
-              <p className="text-sm font-semibold text-tinta">
-                {data.cifraAtiva ? 'Ativa' : 'Ainda não ativa'}
-              </p>
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="col-span-2 flex items-center gap-3 rounded-md border border-linha bg-superficie px-3 py-3 sm:col-span-1">
+              {data.cifraAtiva ? (
+                <Lock className="h-5 w-5 shrink-0 text-tinta" strokeWidth={1.6} />
+              ) : (
+                <LockOpen className="h-5 w-5 shrink-0 text-tinta-media" strokeWidth={1.6} />
+              )}
+              <div>
+                <p className="text-xs text-tinta-media">Cifra em repouso</p>
+                <p className="text-sm font-semibold text-tinta">
+                  {data.cifraAtiva ? 'Ativa' : 'Ainda não ativa'}
+                </p>
+              </div>
             </div>
+
+            {data.cifraAtiva && data.cifraDesde ? (
+              <Cartao rotulo="Ativa desde" valor={formatarDataHora(data.cifraDesde)} />
+            ) : null}
+
+            {data.cifraAtiva && data.versaoDaChave ? (
+              <Cartao rotulo="Versão da chave" valor={data.versaoDaChave} />
+            ) : null}
+
+            <Cartao rotulo="Acessos registrados" valor={formatarNumero(data.totalDeRegistrosDeAcesso)} />
           </div>
 
-          {data.cifraAtiva && data.cifraDesde ? (
-            <Cartao rotulo="Ativa desde" valor={formatarDataHora(data.cifraDesde)} />
-          ) : null}
-
-          {data.cifraAtiva && data.versaoDaChave ? (
-            <Cartao rotulo="Versão da chave" valor={data.versaoDaChave} />
-          ) : null}
-
-          <Cartao rotulo="Acessos registrados" valor={formatarNumero(data.totalDeRegistrosDeAcesso)} />
+          <dl className="grid gap-1.5 text-xs text-tinta-media sm:grid-cols-[auto_1fr] sm:gap-x-3">
+            <dt className="font-semibold text-tinta">Cifra em repouso</dt>
+            <dd>
+              {data.cifraAtiva
+                ? 'O texto das conversas e os dados sensíveis da ficha (CPF, RG, filiação, endereço, data de nascimento) estão gravados cifrados no banco. Quem abre o banco ou o backup direto vê só texto embaralhado — a leitura legível só acontece pelo sistema, com permissão e registro.'
+                : 'O texto das conversas e os dados sensíveis da ficha ainda estão gravados em texto legível no banco. O sistema já sabe cifrar; falta a chave ser configurada no servidor deste ambiente. Até lá, a proteção em vigor é a trilha de acesso abaixo.'}
+            </dd>
+            {data.cifraAtiva ? (
+              <>
+                <dt className="font-semibold text-tinta">Ativa desde</dt>
+                <dd>Quando o conteúdo que já existia foi convertido para cifrado. Tudo gravado depois disso já nasce cifrado.</dd>
+                <dt className="font-semibold text-tinta">Versão da chave</dt>
+                <dd>Identificador da chave em uso. Muda só quando a chave é trocada — nunca precisa ser lembrado por ninguém.</dd>
+              </>
+            ) : null}
+            <dt className="font-semibold text-tinta">Acessos registrados</dt>
+            <dd>Total de vezes, desde o início, que alguém abriu uma conversa, baixou um anexo ou abriu a ficha completa de um cliente. Cada um aparece na tabela de acessos abaixo.</dd>
+          </dl>
         </div>
       )}
     </Painel>

@@ -128,7 +128,7 @@ export function PainelDeAcessosTecnicos() {
   return (
     <Painel
       titulo="Acessos técnicos"
-      descricao="A equipe do projeto pede, o cartório aprova com segundo fator, a trilha registra."
+      descricao="O suporte técnico pede, o cartório aprova com segundo fator, a trilha registra."
     >
       {isLoading ? (
         <Skeleton className="h-32 w-full" />

@@ -170,7 +170,6 @@ function RedirecionarConversaAntiga() {
 }
 
 export function Rotas() {
-  const PaginaAtendimento = componentesPorRota.get('/atendimentos')!
   const PaginaIndicadores = componentesPorRota.get('/indicadores')!
   const PaginaMensagens = componentesPorRota.get('/automacao/mensagens')!
   const PaginaIa = componentesPorRota.get('/automacao/ia')!
@@ -213,10 +212,19 @@ export function Rotas() {
         {todosOsItens().map((item) => {
           const Componente = componentesPorRota.get(item.rota)!
 
+          // `/atendimentos` e `/atendimentos/:id` sao UMA rota com segmento
+          // opcional, nao duas. Como dois <Route> separados (ate 2026-09-12),
+          // abrir uma conversa trocava de elemento de rota e REMONTAVA a
+          // PaginaInbox — todo estado local, inclusive o filtro escolhido
+          // (Minhas, Todas...), voltava ao padrao de entrada ("Fila") a cada
+          // conversa aberta. Segmento opcional mantem o mesmo elemento montado:
+          // "Fila" continua sendo o padrao AO ENTRAR na tela, e so ao entrar.
+          const path = item.rota === '/atendimentos' ? '/atendimentos/:id?' : item.rota
+
           return (
             <Route
               key={item.rota}
-              path={item.rota}
+              path={path}
               element={
                 <ExigePermissao permissao={item.permissao}>
                   <PaginaSobDemanda>
@@ -227,17 +235,6 @@ export function Rotas() {
             />
           )
         })}
-
-        <Route
-          path="/atendimentos/:id"
-          element={
-            <ExigeAutenticacao>
-              <PaginaSobDemanda>
-                <PaginaAtendimento />
-              </PaginaSobDemanda>
-            </ExigeAutenticacao>
-          }
-        />
 
         {/* As quatro seções de Indicadores vivem na URL, não em estado local —
             F5 e link compartilhado abrem na mesma aba. Fora de `navegacao.ts`

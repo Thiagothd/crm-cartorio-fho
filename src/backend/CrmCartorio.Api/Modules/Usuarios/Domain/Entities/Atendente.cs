@@ -168,7 +168,7 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     // --------------------------------------------- Acesso tecnico autorizado
 
     /// <summary>
-    /// Blindagem LGPD: esta conta e da equipe do projeto, nao do cartorio — por padrao
+    /// Blindagem LGPD: esta conta e do suporte tecnico, nao do cartorio — por padrao
     /// nao le nenhum dado de cliente. So ganha leitura enquanto houver uma
     /// <see cref="Seguranca.Domain.Entities.AutorizacaoDeAcessoTecnico"/> ATIVA,
     /// aprovada pelo proprio cartorio (ver

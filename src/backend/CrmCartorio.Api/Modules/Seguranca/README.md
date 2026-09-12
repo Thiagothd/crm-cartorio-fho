@@ -9,7 +9,7 @@ expõe trilhas que já existiam gravadas em outro lugar do sistema
 (`RegistrosDeAcesso`, nova; `EventosDeSeguranca`, do SEC-03 em
 `Modules/Usuarios`) para a tela "Acesso aos dados". A gravação dessa trilha
 não mora aqui — ver a seção seguinte. A segunda, desde o PR4, é o **ciclo de
-vida do acesso técnico autorizado** — a equipe do projeto pede, o cartório aprova com
+vida do acesso técnico autorizado** — o suporte técnico pede, o cartório aprova com
 MFA, e a permissão de leitura entra na sessão só enquanto durar — ver "Acesso
 técnico autorizado" mais abaixo.
 
@@ -99,15 +99,15 @@ A permissão granular já estava no catálogo (`CatalogoDePermissoes.cs`, bloco
 "Equipe e segurança") desde as permissões granulares, sem nenhum endpoint que
 a usasse. Este módulo é o primeiro a checá-la de verdade.
 
-## Acesso técnico autorizado — a equipe do projeto pede, o cartório aprova
+## Acesso técnico autorizado — o suporte técnico pede, o cartório aprova
 
 Responde à pergunta seguinte de "quem lê a conversa": e quando é o próprio
-suporte da equipe do projeto que precisa olhar, para investigar um problema relatado
+suporte técnico que precisa olhar, para investigar um problema relatado
 pelo cartório? A resposta é a mesma trilha do PR2, com um portão na frente:
 sem autorização ativa, nem o suporte técnico enxerga uma linha de conversa.
 
 **Conta técnica.** `Atendente.EhContaTecnica` marca uma conta criada pelo
-próprio cartório em Equipe para o suporte da equipe do projeto. Ela nasce **sem**
+próprio cartório em Equipe para o suporte técnico do sistema. Ela nasce **sem**
 nenhuma permissão de leitura de dado — só `suporte.solicitar_acesso`
 (preset "Suporte técnico"). `AtendenteService.DefinirPermissoesAsync` recusa
 conceder qualquer `atendimento.*`/`clientes.*`/`relatorios.*` a uma conta

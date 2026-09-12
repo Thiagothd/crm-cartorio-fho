@@ -15,6 +15,7 @@ import {
 import { atendentesApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import type { Atendente } from '@/lib/api/tipos'
+import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 
 /**
  * SEC-03 — emitir ticket de matrícula privilegiada ou resetar o MFA de outra
@@ -22,6 +23,7 @@ import type { Atendente } from '@/lib/api/tipos'
  * roubado de um administrador não basta sozinho para nenhuma das duas.
  */
 export function DialogoDeMfa({ atendente, aoFechar }: { atendente: Atendente | null; aoFechar: () => void }) {
+  const emailDoAtor = usarAutenticacao().atendente?.email ?? ''
   const [senhaDoAtor, setSenhaDoAtor] = useState('')
   const [codigoDoAtor, setCodigoDoAtor] = useState('')
   const [motivo, setMotivo] = useState('')
@@ -110,6 +112,24 @@ export function DialogoDeMfa({ atendente, aoFechar }: { atendente: Atendente | n
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {/*
+              Campo de usuário oculto, só para o gerenciador de senhas do
+              navegador: um <input type=password> sem "usuário" ao lado faz o
+              Chrome eleger o input de texto visível mais próximo (a busca da
+              lista de atendentes) e preencher o e-mail salvo lá. Este campo
+              dá ao Chrome o par certo — e-mail do PRÓPRIO ator — e nunca é
+              enviado a lugar nenhum.
+            */}
+            <input
+              type="email"
+              name="username"
+              autoComplete="username"
+              value={emailDoAtor}
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="mfa-senha-ator">Sua senha</Label>
               <Input

@@ -1,7 +1,7 @@
 namespace CrmCartorio.Api.Modules.Seguranca.Application;
 
 /// <summary>
-/// Blindagem LGPD: "a equipe do projeto pede, o cartório aprova, a faixa avisa, a
+/// Blindagem LGPD: "o suporte técnico pede, o cartório aprova, a faixa avisa, a
 /// trilha registra". Ver docs/PROTECAO-DE-DADOS.md e
 /// Modules/Seguranca/README.md.
 /// </summary>

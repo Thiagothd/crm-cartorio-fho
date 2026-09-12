@@ -142,7 +142,7 @@ public static class CatalogoDePermissoes
             "Emitir ticket de matrícula e resetar a verificação em duas etapas de alguém.", "Equipe e segurança"),
         D(PermissaoDoSistema.SegurancaEventosVer, "seguranca.eventos.ver", "Ver o histórico de segurança",
             "Ver os eventos de segurança registrados do cartório.", "Equipe e segurança", ehTela: true),
-        D(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar, "seguranca.acesso_tecnico.aprovar", "Aprovar acesso técnico da equipe do projeto",
+        D(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar, "seguranca.acesso_tecnico.aprovar", "Aprovar acesso do suporte técnico",
             "Aprovar, negar ou revogar um pedido de acesso técnico — exige verificação em duas etapas.", "Equipe e segurança"),
 
         // -------------------------------------------------------------- Suporte
@@ -274,7 +274,7 @@ public static class CatalogoDePermissoes
     /// Tudo, exceto <see cref="PermissaoDoSistema.AtendimentoSimularCliente"/>
     /// (ver o enum) e <see cref="PermissaoDoSistema.SuporteSolicitarAcesso"/> —
     /// blindagem LGPD: essa chave só faz sentido para a conta técnica da
-    /// equipe do projeto (atribuída direto na criação, nunca por preset); um
+    /// suporte técnico (atribuída direto na criação, nunca por preset); um
     /// Administrador comum do cartório não "pede acesso técnico a si mesmo".
     /// </summary>
     private static readonly PermissaoDoSistema[] Administracao =
