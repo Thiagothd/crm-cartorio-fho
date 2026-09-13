@@ -126,14 +126,14 @@ var cifra = new CifraDeSegredoMfa(opcoesDeMfa);
 // descartavel — e o equivalente a "navegador novo, sem cookie nenhum", que e
 // exatamente o pressuposto de todos os cenarios anteriores a esta feature.
 IAutenticacaoService NovoAutenticacao(CrmDbContext db, Guid atorId, ICookieDeDispositivoConfiavel? navegador = null) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), navegador ?? new NavegadorFalso(), new HttpContextAccessor(), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), navegador ?? new NavegadorFalso(), new HttpContextAccessor(), new ValidadorDeSessao(db), NullLogger<AutenticacaoService>.Instance);
 
 // Mesma coisa, mas para um tenant ISOLADO — AlterarSenhaAsync filtra por
 // `ctx.AtendenteId && ctx.TenantId`, entao o AutenticacaoService acima
 // (fechado no `tenantId` COMPARTILHADO) nunca enxerga conta de tenant
 // isolado.
 IAutenticacaoService NovoAutenticacaoParaTenant(CrmDbContext db, Guid atorId, Guid tenantAlvo) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), new NavegadorFalso(), new HttpContextAccessor(), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), new NavegadorFalso(), new HttpContextAccessor(), new ValidadorDeSessao(db), NullLogger<AutenticacaoService>.Instance);
 
 IAtendenteService NovoAtendenteService(CrmDbContext db, Guid atorId) =>
     new AtendenteService(db, new ContextoFixo(tenantId, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
@@ -145,7 +145,7 @@ IAtendenteService NovoAtendenteServiceParaTenant(CrmDbContext db, Guid atorId, G
     new AtendenteService(db, new ContextoFixo(tenantAlvo, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
 
 IMfaService NovoMfaService(CrmDbContext db, ICookieDeDispositivoConfiavel? navegador = null) =>
-    new MfaService(db, hash, cifra, tokens, navegador ?? new NavegadorFalso(), NullLogger<MfaService>.Instance);
+    new MfaService(db, hash, cifra, tokens, navegador ?? new NavegadorFalso(), new ValidadorDeSessao(db), NullLogger<MfaService>.Instance);
 
 /// <summary>
 /// SEC-03 (revisao independente do PR #46, bloqueador 9) —
@@ -963,6 +963,7 @@ try
                 new ContextoFixo(tenantId, Guid.NewGuid(), "Teste", PerfilDeAtendente.Atendente),
                 new NavegadorFalso(),
                 new HttpContextAccessor(),
+                new ValidadorDeSessao(db),
                 NullLogger<AutenticacaoService>.Instance);
 
             try { await servico.AutenticarAsync(new LoginRequest(email, senha)); }

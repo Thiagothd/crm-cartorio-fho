@@ -86,6 +86,25 @@ que o último call site migrou — se você está lendo isto num checkout onde
 elas ainda existem, é sinal de que a Etapa 4 do plano de migração não
 terminou nalgum módulo.
 
+**O que vai para o FRONTEND é uma fonte diferente — e precisa ser a MESMA
+regra.** `AtendenteResponse.Permissoes` (o que `pode(chave)` do frontend
+enxerga) é montado por `MapeadorDeSessao.MapearAtendenteAsync`, chamado no
+login, na conclusão do MFA e em `GET /api/autenticacao/sessao` (o refresh
+que roda quando a aba volta a ficar visível). **Achado em 2026-09-12:** essa
+função sempre devolvia `CatalogoDePermissoes.ChavesEfetivas(atendente.Permissoes,
+atendente.Perfil)` — o conjunto ESTÁTICO da coluna — nunca o conjunto que
+`ValidadorDeSessao.CarregarSessaoAsync` calcula por requisição (que acrescenta
+`AtendimentoVer`/`ClientesVer` quando uma conta técnica tem acesso técnico
+ativo, ver `Modules/Seguranca/README.md`). O backend sempre autorizava a
+leitura de verdade — todo `[Authorize]` já passa por `SessaoAtivaHandler` →
+`ValidadorDeSessao` a cada requisição — mas a LISTA que o frontend usa para
+decidir se mostra o item de menu e libera a rota nunca refletia isso: uma
+conta técnica aprovada não tinha nenhuma tela até a conversa, só a API.
+Corrigido: `MapearAtendenteAsync` agora recebe `IValidadorDeSessao` e usa
+`sessaoResolvida.Permissoes` (a mesma fonte dos guardas HTTP) em vez de
+recalcular a partir da coluna. Verificado em `verificar-protecao-de-dados.cs`,
+cenário 30c.
+
 **A meta-permissão (`equipe.permissoes`)** decide quem pode ajustar o que
 outro atendente acessa (`AtendenteService.DefinirPermissoesAsync`). Seis
 travas, nesta ordem:
