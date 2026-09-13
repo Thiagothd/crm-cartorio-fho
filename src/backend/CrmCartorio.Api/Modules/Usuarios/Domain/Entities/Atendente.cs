@@ -164,4 +164,19 @@ public class Atendente : EntidadeBase, IEntidadeDeTenant
     /// alterar silenciosamente o que alguem ja cadastrado pode fazer.
     /// </summary>
     public ModeloDePermissao? ModeloDePermissao { get; set; }
+
+    // --------------------------------------------- Acesso tecnico autorizado
+
+    /// <summary>
+    /// Blindagem LGPD: esta conta e do suporte tecnico, nao do cartorio — por padrao
+    /// nao le nenhum dado de cliente. So ganha leitura enquanto houver uma
+    /// <see cref="Seguranca.Domain.Entities.AutorizacaoDeAcessoTecnico"/> ATIVA,
+    /// aprovada pelo proprio cartorio (ver
+    /// <c>ValidadorDeSessao.CarregarSessaoAsync</c>). MFA obrigatorio; recusada
+    /// pela mesma trava de <see cref="AtendenteService.DefinirPermissoesAsync"/>
+    /// que impede conceder atendimento.*/clientes.*/relatorios.* a uma conta
+    /// assim — a leitura so pode vir da autorizacao, nunca de permissao
+    /// concedida direto.
+    /// </summary>
+    public bool EhContaTecnica { get; set; }
 }

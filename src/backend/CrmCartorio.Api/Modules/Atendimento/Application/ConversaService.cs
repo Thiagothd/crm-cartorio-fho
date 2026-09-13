@@ -1,10 +1,12 @@
 using CrmCartorio.Api.Domain.Common;
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +21,7 @@ public class ConversaService(
     IDisparadorDeMensagemAutomatica automaticas,
     IEnviadorDeCanal canal,
     IFilaDeEnvioDoCanal fila,
+    IRegistradorDeAcesso registrador,
     ILogger<ConversaService> log) : IConversaService
 {
     // ---------------------------------------------------------------- leitura
@@ -27,10 +30,19 @@ public class ConversaService(
         FiltroDeConversas filtro,
         CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoVer);
+
         var tenantId = ctx.TenantId;
         var agora = DateTime.UtcNow;
 
         var consulta = db.Conversas.AsNoTracking().Where(c => c.TenantId == tenantId);
+
+        // Blindagem LGPD: acesso tecnico escopado a uma conversa nunca lista
+        // as outras — nem o protocolo, nem o nome do cliente delas.
+        if (ctx.EscopoDeConversaId is { } escopoDaListagem)
+        {
+            consulta = consulta.Where(c => c.Id == escopoDaListagem);
+        }
 
         if (filtro.Status is { } status)
         {
@@ -139,17 +151,27 @@ public class ConversaService(
 
     public async Task<ConversaDetalheResponse> ObterAsync(Guid id, CancellationToken ct = default)
     {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoVer);
+        GarantirEscopoDeConversa(id);
+
         var conversa = await ObterResumoAsync(id, ct);
 
+        // Registrado so aqui, nunca em ObterResumoAsync: aquele metodo e
+        // reaproveitado internamente por toda mutacao (assumir, mover,
+        // encerrar...) para montar a resposta, e nao e alcancavel por
+        // nenhuma rota HTTP sozinho — registrar la duplicaria a trilha a
+        // cada acao, sem nenhuma leitura nova de conteudo ter acontecido.
+        await registrador.RegistrarAsync(TipoDeAcesso.LeituraDeConversa, conversaId: id, ct: ct);
+
         var mensagens = await ProjecaoDeMensagem
-            .De(
+            .ListarAsync(
                 db,
                 db.Mensagens.AsNoTracking()
                     .Where(m => m.ConversaId == id && m.TenantId == ctx.TenantId)
                     .OrderBy(m => m.EnviadaEm)
                     .ThenBy(m => m.Id),
-                conversa.ClienteNome)
-            .ToListAsync(ct);
+                conversa.ClienteNome,
+                ct);
 
         var historico = await db.HistoricoEtapas.AsNoTracking()
             .Where(h => h.ConversaId == id && h.TenantId == ctx.TenantId)
@@ -925,6 +947,28 @@ public class ConversaService(
         if (conversa.Status != StatusConversa.Ativa)
         {
             throw AtendimentoServiceException.ConversaEncerrada();
+        }
+    }
+
+    private void GarantirPermissao(PermissaoDoSistema permissao)
+    {
+        if (!ctx.Pode(permissao))
+        {
+            throw AtendimentoServiceException.SemPermissao();
+        }
+    }
+
+    /// <summary>
+    /// Blindagem LGPD: quando a sessão é de acesso técnico escopado a UMA
+    /// conversa (<see cref="IContextoDoUsuario.EscopoDeConversaId"/>), nega
+    /// qualquer conversa diferente dela — mesmo com AtendimentoVer no
+    /// conjunto. Sessão comum (EscopoDeConversaId nulo) nunca é afetada.
+    /// </summary>
+    private void GarantirEscopoDeConversa(Guid conversaId)
+    {
+        if (ctx.EscopoDeConversaId is { } escopo && escopo != conversaId)
+        {
+            throw AtendimentoServiceException.SemPermissao();
         }
     }
 

@@ -54,6 +54,7 @@ export function usarCriarAtendente() {
       perfil: PerfilDeAtendente
       cargo: CargoNaServentia
       setorPadraoId?: string | null
+      ehContaTecnica?: boolean
     }) => atendentesApi.criar(dados),
     onSuccess: invalidar,
   })

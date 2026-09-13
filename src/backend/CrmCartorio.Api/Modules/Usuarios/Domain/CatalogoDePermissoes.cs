@@ -142,6 +142,12 @@ public static class CatalogoDePermissoes
             "Emitir ticket de matrícula e resetar a verificação em duas etapas de alguém.", "Equipe e segurança"),
         D(PermissaoDoSistema.SegurancaEventosVer, "seguranca.eventos.ver", "Ver o histórico de segurança",
             "Ver os eventos de segurança registrados do cartório.", "Equipe e segurança", ehTela: true),
+        D(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar, "seguranca.acesso_tecnico.aprovar", "Aprovar acesso do suporte técnico",
+            "Aprovar, negar ou revogar um pedido de acesso técnico.", "Equipe e segurança"),
+
+        // -------------------------------------------------------------- Suporte
+        D(PermissaoDoSistema.SuporteSolicitarAcesso, "suporte.solicitar_acesso", "Abrir a tela de Suporte técnico",
+            "Pedir acesso técnico temporário, com motivo — nunca lê dado sozinha.", "Suporte", ehTela: true),
     ];
 
     private static readonly Dictionary<PermissaoDoSistema, Definicao> PorChave =
@@ -151,6 +157,17 @@ public static class CatalogoDePermissoes
         Todas.ToDictionary(d => d.ChaveTexto, d => d.Chave);
 
     public static Definicao Descrever(PermissaoDoSistema chave) => PorChave[chave];
+
+    /// <summary>
+    /// TODAS as chaves do catálogo, sem exceção — usado só pela ampliação de
+    /// acesso técnico com escopo <c>Geral</c> (decisão do Thiago em
+    /// 2026-09-13: aprovado com escopo Geral, a conta técnica passa a
+    /// enxergar todas as telas e funções, não só Atendimento/Clientes como
+    /// antes). Diferente de <see cref="ConjuntoDaClasse"/>(Administração),
+    /// que deliberadamente NÃO inclui <see cref="PermissaoDoSistema.SuporteSolicitarAcesso"/>
+    /// — aqui a lista é literal, "tudo" quer dizer tudo.
+    /// </summary>
+    public static IReadOnlySet<PermissaoDoSistema> TodasAsChaves() => Todas.Select(d => d.Chave).ToHashSet();
 
     /// <summary>Como <see cref="Desserializar"/>, mas a partir de uma lista de chaves de texto já separadas (o corpo de <c>DefinirPermissoesRequest</c>).</summary>
     public static IReadOnlySet<PermissaoDoSistema> DesserializarLista(IEnumerable<string> chavesTexto) =>
@@ -189,17 +206,22 @@ public static class CatalogoDePermissoes
     }
 
     /// <summary>
-    /// O conjunto efetivo (chave de texto, ordenado) de um atendente — NULL
-    /// segue a Classe da conta, texto explícito vence. É isto que
-    /// <see cref="Application.AtendenteResponse.Permissoes"/> expõe ao
-    /// frontend; a MESMA regra que <see cref="ContextoDoUsuario"/> e
-    /// <see cref="ValidadorDeSessao"/> aplicam do lado do backend.
+    /// O conjunto ESTÁTICO (chave de texto, ordenado) de um atendente — NULL
+    /// segue a Classe da conta, texto explícito vence. NÃO inclui a
+    /// ampliação dinâmica de acesso técnico que <see cref="ValidadorDeSessao"/>
+    /// calcula por requisição — quem monta a sessão devolvida ao frontend
+    /// (<see cref="Application.MapeadorDeSessao"/>) usa
+    /// <see cref="ValidadorDeSessao"/> e só cai aqui como reserva; usar isto
+    /// direto para responder ao cliente reproduz o bug corrigido em
+    /// 2026-09-12 (conta técnica aprovada sem nenhuma tela para ler a
+    /// conversa — ver o comentário em <see cref="Application.MapeadorDeSessao"/>).
     /// </summary>
-    public static IReadOnlyList<string> ChavesEfetivas(string? permissoes, PerfilDeAtendente perfil)
-    {
-        var conjunto = permissoes is null ? ConjuntoDaClasse(perfil) : Desserializar(permissoes);
-        return [.. conjunto.Select(c => PorChave[c].ChaveTexto).OrderBy(c => c, StringComparer.Ordinal)];
-    }
+    public static IReadOnlyList<string> ChavesEfetivas(string? permissoes, PerfilDeAtendente perfil) =>
+        ChavesDoConjunto(permissoes is null ? ConjuntoDaClasse(perfil) : Desserializar(permissoes));
+
+    /// <summary>Mesma ordenação/tradução de <see cref="ChavesEfetivas"/>, a partir de um conjunto já resolvido (estático ou ampliado por acesso técnico).</summary>
+    public static IReadOnlyList<string> ChavesDoConjunto(IReadOnlySet<PermissaoDoSistema> conjunto) =>
+        [.. conjunto.Select(c => PorChave[c].ChaveTexto).OrderBy(c => c, StringComparer.Ordinal)];
 
     /// <summary>
     /// O conjunto derivado da Classe da conta — usado quando
@@ -264,14 +286,24 @@ public static class CatalogoDePermissoes
     ];
 
     /// <summary>Tudo, exceto <see cref="PermissaoDoSistema.AtendimentoSimularCliente"/> — de propósito, ver o enum.</summary>
+    /// <summary>
+    /// Tudo, exceto <see cref="PermissaoDoSistema.AtendimentoSimularCliente"/>
+    /// (ver o enum) e <see cref="PermissaoDoSistema.SuporteSolicitarAcesso"/> —
+    /// blindagem LGPD: essa chave só faz sentido para a conta técnica da
+    /// suporte técnico (atribuída direto na criação, nunca por preset); um
+    /// Administrador comum do cartório não "pede acesso técnico a si mesmo".
+    /// </summary>
     private static readonly PermissaoDoSistema[] Administracao =
     [
-        .. Enum.GetValues<PermissaoDoSistema>().Where(p => p != PermissaoDoSistema.AtendimentoSimularCliente),
+        .. Enum.GetValues<PermissaoDoSistema>().Where(p =>
+            p != PermissaoDoSistema.AtendimentoSimularCliente
+            && p != PermissaoDoSistema.SuporteSolicitarAcesso),
     ];
 
+    /// <summary>Mesma exclusão de <see cref="Administracao"/> e pelo mesmo motivo — "vê tudo" não inclui a tela da conta técnica.</summary>
     private static readonly PermissaoDoSistema[] Auditoria =
     [
-        .. Todas.Where(d => d.EhTela).Select(d => d.Chave),
+        .. Todas.Where(d => d.EhTela && d.Chave != PermissaoDoSistema.SuporteSolicitarAcesso).Select(d => d.Chave),
         PermissaoDoSistema.RelatoriosEquipe,
         PermissaoDoSistema.RelatoriosSaudeIa,
         PermissaoDoSistema.RelatoriosSaudeWhatsapp,

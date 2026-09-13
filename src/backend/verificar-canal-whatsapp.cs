@@ -2,8 +2,10 @@
 #:property PublishAot=false
 #:package Microsoft.EntityFrameworkCore.InMemory@10.0.9
 
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
+using Microsoft.AspNetCore.Http;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
@@ -619,11 +621,12 @@ Checar(
     "Falha ao registrar webhook interrompe o fluxo antes de consultar ou conectar",
     recusouWebhook && handlerWebhookRecusado.Chamadas.Count == 2);
 
+var (provedorDeChave, cifra) = FabricaDeCifraDeDados.CriarParDormente();
 var nomeBancoPareamento = $"verificar-pareamento-{Guid.NewGuid():N}";
 var opcoesDoPareamento = new DbContextOptionsBuilder<CrmDbContext>()
     .UseInMemoryDatabase(nomeBancoPareamento)
     .Options;
-await using var dbPareamento = new CrmDbContext(opcoesDoPareamento);
+await using var dbPareamento = new CrmDbContext(opcoesDoPareamento, cifra);
 var tenantPareamento = new Tenant
 {
     RazaoSocial = "Tenant do pareamento",
@@ -678,7 +681,7 @@ var gatewayPareamentoFechado = new GatewayFake
     EstadoAoGarantir = new EstadoDaInstancia("close", null),
     AoIniciar = () =>
     {
-        using var verificacao = new CrmDbContext(opcoesDoPareamento);
+        using var verificacao = new CrmDbContext(opcoesDoPareamento, cifra);
         vinculoPersistidoAntesDoQr = verificacao.Tenants.AsNoTracking()
             .Where(t => t.Id == tenantPareamento.Id)
             .Select(t => t.WhatsappInstancia)
@@ -767,7 +770,7 @@ var opcoesDoBanco = new DbContextOptionsBuilder<CrmDbContext>()
     .UseInMemoryDatabase($"verificar-canal-{Guid.NewGuid():N}")
     .Options;
 
-await using var db = new CrmDbContext(opcoesDoBanco);
+await using var db = new CrmDbContext(opcoesDoBanco, cifra);
 
 var tenant = new Tenant
 {
@@ -1026,6 +1029,8 @@ var clienteService = new ClienteService(
     new HttpClientFactoryFake(),
     cache,
     Options.Create(canalDeTeste),
+    new RegistradorDeAcesso(db, new ContextoFake(tenant.Id), new HttpContextAccessor(), cache),
+    provedorDeChave, new IndiceCego(provedorDeChave),
     NullLogger<ClienteService>.Instance);
 
 var fotoBloqueada = await clienteService.ObterFotoPerfilAsync(clienteBloqueado.Id);
@@ -1315,6 +1320,8 @@ file sealed class ContextoFake(Guid tenantId) : IContextoDoUsuario
     public string Nome => "Verificador";
     public PerfilDeAtendente Perfil => PerfilDeAtendente.Administrador;
     public bool Pode(PermissaoDoSistema permissao) => true;
+    public Guid? AutorizacaoDeAcessoTecnicoId => null;
+    public Guid? EscopoDeConversaId => null;
 }
 
 file sealed class HttpClientFactoryFake : IHttpClientFactory

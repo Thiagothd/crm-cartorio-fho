@@ -172,6 +172,9 @@ export type ChaveDePermissao =
   | 'equipe.permissoes'
   | 'equipe.mfa_administrar'
   | 'seguranca.eventos.ver'
+  | 'seguranca.acesso_tecnico.aprovar'
+  // Suporte
+  | 'suporte.solicitar_acesso'
 
 /** Espelho de `ModeloDePermissao` — rótulo do último preset aplicado, nunca a verdade (ver `Atendente.permissoes`). */
 export type ModeloDePermissao =
@@ -202,6 +205,8 @@ export interface Atendente {
   modelo: ModeloDePermissao | null
   /** O conjunto EFETIVO de chaves — já resolvido pelo backend (NULL na base vira o preset da Classe). */
   permissoes: ChaveDePermissao[]
+  /** Blindagem LGPD — decidido só na criação, nunca editável depois. */
+  ehContaTecnica: boolean
 }
 
 export interface Tenant {
@@ -1210,4 +1215,129 @@ export interface AnaliseDaIa {
   lacunasDeCatalogo: LacunaDeCatalogo[]
   insights: InsightDaIa[]
   rodadasMedidasDesde: string | null
+}
+
+// Acesso aos dados (blindagem LGPD) -----------------------------------------
+
+/** Espelho de `TipoDeAcesso` (Domain/Enums) — o que uma linha da trilha registra. */
+export type TipoDeAcesso =
+  | 'LeituraDeConversa'
+  | 'DownloadDeAnexo'
+  | 'LeituraDeFichaDeCliente'
+  | 'AcessoTecnicoSolicitado'
+  | 'AcessoTecnicoAprovado'
+  | 'AcessoTecnicoNegado'
+  | 'AcessoTecnicoRevogado'
+  | 'ChaveDeDadosRotacionada'
+  | 'CifraDeLegadoConcluida'
+
+/** Uma linha da tela "Acesso aos dados" — nomes já resolvidos, nunca conteúdo. */
+export interface RegistroDeAcesso {
+  id: string
+  ocorridoEm: string
+  tipo: TipoDeAcesso
+  atendenteNome: string | null
+  atorExterno: string | null
+  conversaProtocolo: string | null
+  clienteNome: string | null
+  temAnexo: boolean
+  autorizacaoDeAcessoTecnicoId: string | null
+  ipDeOrigem: string | null
+}
+
+export interface FiltroDeAcessos {
+  de?: string
+  ate?: string
+  atendenteId?: string
+  conversaId?: string
+  pagina?: number
+  tamanho?: number
+}
+
+/** Espelho de `TipoDeEventoDeSeguranca` (SEC-03) — fato registrado em `EventosDeSeguranca`. */
+export type TipoDeEventoDeSeguranca =
+  | 'MfaAtivado'
+  | 'MfaDesativado'
+  | 'CodigoDeRecuperacaoUsado'
+  | 'CodigosDeRecuperacaoRegenerados'
+  | 'ResetAdministrativo'
+  | 'ResetDeEmergencia'
+  | 'BloqueioDeMfaPorFalhas'
+  | 'TicketDeMatriculaEmitido'
+  | 'TicketDeBootstrapEmitido'
+  | 'PoliticaDeMfaAtivada'
+  | 'TicketDeRematriculaReemitido'
+  | 'PermissoesAlteradas'
+  | 'LoginRealizado'
+
+export interface EventoDeSeguranca {
+  id: string
+  ocorridoEm: string
+  tipo: TipoDeEventoDeSeguranca
+  atendenteNome: string | null
+  atorAtendenteNome: string | null
+  atorExterno: string | null
+  ipDeOrigem: string | null
+  motivo: string | null
+}
+
+export interface FiltroDeEventos {
+  de?: string
+  ate?: string
+  pagina?: number
+  tamanho?: number
+}
+
+/** O bloco "Proteção ativa" da tela — o que já está em vigor, sem exigir leitura de código. */
+export interface ProtecaoAtiva {
+  cifraAtiva: boolean
+  versaoDaChave: string | null
+  cifraDesde: string | null
+  totalDeRegistrosDeAcesso: number
+}
+
+// Acesso técnico autorizado ---------------------------------------------------
+
+/** Espelho de `EscopoDeAcesso` (Domain/Enums). */
+export type EscopoDeAcesso = 'Geral' | 'Conversa'
+
+/** Espelho de `EstadoDeAutorizacao` (Application) — sempre derivado, nunca uma coluna. */
+export type EstadoDeAutorizacao = 'Pendente' | 'Ativa' | 'Expirada' | 'Negada' | 'Revogada'
+
+export interface SolicitarAcessoTecnico {
+  motivo: string
+  escopo: EscopoDeAcesso
+  /** Só quando `escopo` é `'Conversa'` — protocolo, não o id interno (ver backend). */
+  conversaProtocolo?: string | null
+  duracaoMinutos: number
+}
+
+export interface AutorizacaoDeAcessoTecnico {
+  id: string
+  contaTecnicaId: string
+  contaTecnicaNome: string
+  motivo: string
+  escopo: EscopoDeAcesso
+  conversaId: string | null
+  conversaProtocolo: string | null
+  duracaoSolicitadaMinutos: number
+  solicitadaEm: string
+  estado: EstadoDeAutorizacao
+  aprovadaPorNome: string | null
+  validaAte: string | null
+  negadaPorNome: string | null
+  revogadaPorNome: string | null
+}
+
+export interface FiltroDeAcessoTecnico {
+  de?: string
+  ate?: string
+  pagina?: number
+  tamanho?: number
+}
+
+/** O que a faixa global mostra a QUALQUER usuário do tenant — nunca detalhe sensível. */
+export interface AcessoTecnicoAtivo {
+  validaAte: string
+  motivo: string
 }

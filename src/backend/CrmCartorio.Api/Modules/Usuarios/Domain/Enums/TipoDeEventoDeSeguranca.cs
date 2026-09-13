@@ -38,5 +38,15 @@ public enum TipoDeEventoDeSeguranca : byte
     /// este log existe para guardar; o estado atual já está na própria
     /// coluna. Ver Modules/Usuarios/README.md, "Permissões granulares".
     /// </summary>
-    PermissoesAlteradas = 12
+    PermissoesAlteradas = 12,
+
+    /// <summary>
+    /// Blindagem LGPD (2026-09): login concluído com sucesso — sem MFA, por
+    /// dispositivo confiável, ou pelo segundo fator completo. Antes desta
+    /// entrega, login nunca virava evento de segurança nem gravava IP. Falha
+    /// de senha/código continua NÃO virando evento aqui — o backoff por
+    /// conta já existe, e uma tabela alimentada por tentativa errada seria
+    /// alvo fácil de enchimento por quem só quer forçar o rodízio dela.
+    /// </summary>
+    LoginRealizado = 13
 }

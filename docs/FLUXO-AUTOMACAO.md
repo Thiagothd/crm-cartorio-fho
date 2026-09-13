@@ -356,9 +356,13 @@ na §8.1 abaixo.
   `TipoServico` ativo. O setor entrou em 2026-08-18 — sem ele, "quais os
   serviços de notas?" não tinha como ser respondido: a lista de nomes chegava
   sem nenhuma pista de a qual setor cada um pertence, e a IA, corretamente,
-  recusava adivinhar. **Não** inclui `DocumentosNecessarios` nem prazo — esses
-  só aparecem nas mensagens automáticas estruturadas (`{DocumentosNecessarios}`,
-  `{PrazoServico}`), não no grounding da IA.
+  recusava adivinhar. **Desde então também inclui, quando cadastrados,
+  `DocumentosNecessarios` e o `Prazo`** (SLA de `PrazoServico`, convertido de
+  horas para a unidade de balcão) — antes ficavam de fora e a IA recusava
+  perguntas de documento/prazo mesmo com o dado no banco; só chegavam ao
+  cliente por marcador em mensagem automática roteirizada. Correção de doc,
+  2026-09-11: esta seção dizia o oposto (que o grounding não incluía os dois
+  campos) — o código (`MontadorDeContexto.cs`) já os inclui.
 - **Respostas rápidas ativas**, com `{NomeCartorio}` resolvido e qualquer
   outro marcador removido (não fazem sentido fora de uma conversa específica).
 - **Histórico da própria troca**: mensagens do cliente (exceto a primeiríssima,

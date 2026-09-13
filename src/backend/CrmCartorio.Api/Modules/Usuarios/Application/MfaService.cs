@@ -16,6 +16,7 @@ public class MfaService(
     ICifraDeSegredoMfa cifra,
     IGeradorDeToken tokens,
     ICookieDeDispositivoConfiavel cookieDeDispositivo,
+    IValidadorDeSessao validador,
     ILogger<MfaService> log) : IMfaService
 {
     private const int QuantidadeDeCodigosDeRecuperacao = 10;
@@ -159,7 +160,7 @@ public class MfaService(
 
         // Pre-checagem SO para mensagem mais util — o porteiro final abaixo
         // reconfere a mesma coisa no instante do commit.
-        if (await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct))
+        if (await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct, atendente.EhContaTecnica))
         {
             throw UsuariosServiceException.MfaObrigatorioNaoPodeSerDesativado();
         }
@@ -294,7 +295,7 @@ public class MfaService(
     {
         var atendente = await CarregarAsync(identidade, ct);
 
-        var obrigatorio = await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct);
+        var obrigatorio = await PoliticaDeMfa.ExigeAsync(db, atendente.TenantId, atendente.Perfil, atendente.Cargo, ct, atendente.EhContaTecnica);
 
         int? restantes = atendente.MfaAtivo
             ? await db.CodigosDeRecuperacaoMfa.CountAsync(c => c.AtendenteId == atendente.Id && c.UsadoEm == null, ct)
@@ -691,6 +692,38 @@ public class MfaService(
         log.LogInformation("MFA de {Alvo} resetado por {Ator}: {Motivo}", atendenteIdAlvo, ator.AtendenteId, request.Motivo);
     }
 
+    /// <inheritdoc cref="IMfaService.ConferirSegundoFatorAsync"/>
+    public async Task ConferirSegundoFatorAsync(IdentidadeParaMfa ator, string? codigo, CancellationToken ct = default)
+    {
+        var atendente = await db.Atendentes.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == ator.AtendenteId && a.TenantId == ator.TenantId, ct)
+            ?? throw UsuariosServiceException.AtendenteNaoEncontrado();
+
+        if (!atendente.Ativo || !atendente.MfaAtivo)
+        {
+            throw UsuariosServiceException.MfaObrigatorioNaoMatriculado();
+        }
+
+        var agora = DateTime.UtcNow;
+        var (ehTotp, passoValidado) = await ValidarCodigoDeStepUpAsync(atendente.Id, codigo, agora, ct);
+        var tokenVersionEsperada = atendente.TokenVersion;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var casOk = await ExecutarCasDeStepUpAsync(
+            atendente.Id, atendente.TenantId, tokenVersionEsperada,
+            ehTotp, (codigo ?? string.Empty).Trim(), passoValidado, agora, ct);
+
+        if (!casOk)
+        {
+            await tx.RollbackAsync(ct);
+            await BloqueioDeMfa.RegistrarFalhaAsync(db, atendente.Id, agora, ct);
+            throw UsuariosServiceException.CodigoMfaInvalido();
+        }
+
+        await tx.CommitAsync(ct);
+    }
+
     /// <remarks>
     /// SEC-03 (regra final 3) — transacional, SERIALIZABLE: entre a checagem
     /// de "todo mundo matriculado" e o UPDATE que liga a politica, ninguem novo
@@ -759,7 +792,7 @@ public class MfaService(
 
             return new LoginResponse(
                 string.Empty, DateTime.MinValue,
-                await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtendente, ct),
+                await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtendente, validador, ct),
                 await MapeadorDeSessao.ObterTenantAsync(db, ator.TenantId, ct));
         }
 
@@ -785,7 +818,7 @@ public class MfaService(
 
         return new LoginResponse(
             token, expiraEm,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtualizado, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtualizado, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, ator.TenantId, ct));
     }
 
@@ -1073,7 +1106,7 @@ public class MfaService(
 
         var sessao = new LoginResponse(
             token, expiraJwt,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, identidade.TenantId, ct));
 
         return new ConfirmarMfaResponse(

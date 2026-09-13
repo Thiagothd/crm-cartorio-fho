@@ -73,6 +73,7 @@ export function DialogoDeAtendente({
   const [cargo, setCargo] = useState<CargoNaServentia>('NaoInformado')
   const [setorPadraoId, setSetorPadraoId] = useState(SEM_SETOR)
   const [ativo, setAtivo] = useState(true)
+  const [ehContaTecnica, setEhContaTecnica] = useState(false)
   const [erroDeEmail, setErroDeEmail] = useState<string | null>(null)
 
   const criar = usarCriarAtendente()
@@ -95,6 +96,7 @@ export function DialogoDeAtendente({
     setCargo(atendente?.cargo ?? 'NaoInformado')
     setSetorPadraoId(atendente?.setorPadraoId ?? SEM_SETOR)
     setAtivo(atendente?.ativo ?? true)
+    setEhContaTecnica(atendente?.ehContaTecnica ?? false)
     setErroDeEmail(null)
   }, [aberto, atendente])
 
@@ -109,7 +111,7 @@ export function DialogoDeAtendente({
       if (atendente) {
         await atualizar.mutateAsync({ id: atendente.id, nome, email, perfil, cargo, setorPadraoId: setor, ativo })
       } else {
-        await criar.mutateAsync({ nome, email, senha, perfil, cargo, setorPadraoId: setor })
+        await criar.mutateAsync({ nome, email, senha, perfil, cargo, setorPadraoId: setor, ehContaTecnica })
       }
 
       toast.success(atendente ? 'Atendente atualizado.' : 'Atendente cadastrado.')
@@ -192,6 +194,25 @@ export function DialogoDeAtendente({
                 Gere uma senha forte e entregue por canal fora de banda, ou digite uma provisória.
               </p>
             </div>
+          ) : null}
+
+          {!atendente ? (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-linha px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="atendente-conta-tecnica">Conta de suporte técnico</Label>
+                <Switch id="atendente-conta-tecnica" checked={ehContaTecnica} onCheckedChange={setEhContaTecnica} />
+              </div>
+              <p className="text-xs text-tinta-media">
+                Blindagem LGPD: nasce sem nenhuma permissão de ler conversa, ficha ou relatório —
+                só ganha acesso temporário quando um administrador aprovar um pedido, pela tela
+                "Acesso aos dados". Decisão de agora — não pode ser mudada depois de salvar.
+              </p>
+            </div>
+          ) : atendente.ehContaTecnica ? (
+            <p className="rounded-lg border border-linha bg-superficie px-3 py-2.5 text-xs text-tinta-media">
+              Esta é uma conta de suporte técnico — só lê dado de cliente com acesso técnico
+              aprovado pela tela "Acesso aos dados".
+            </p>
           ) : null}
 
           <fieldset className="flex flex-col gap-2">

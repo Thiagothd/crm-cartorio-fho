@@ -64,6 +64,19 @@ public interface IMfaService
     Task ResetarAsync(IdentidadeParaMfa ator, Guid atendenteIdAlvo, ResetarMfaRequest request, string? ip, CancellationToken ct = default);
 
     /// <summary>
+    /// Blindagem LGPD — step-up de segundo fator para uma ação sensível de
+    /// OUTRO módulo (hoje: aprovar acesso técnico autorizado,
+    /// <c>Modules/Seguranca</c>). Mesma disciplina de porteiro único do resto
+    /// do SEC-03: valida e CONSOME o código na mesma transação — nunca
+    /// reaproveitável. Lança <see cref="UsuariosServiceException"/> com os
+    /// mesmos códigos do restante deste serviço
+    /// (<c>mfa_obrigatorio_nao_matriculado</c> se o ator não tem MFA ativo,
+    /// <c>codigo_mfa_invalido</c>, <c>mfa_bloqueado</c>) — o chamador não
+    /// precisa reinterpretar um vocabulário de erro novo.
+    /// </summary>
+    Task ConferirSegundoFatorAsync(IdentidadeParaMfa ator, string? codigo, CancellationToken ct = default);
+
+    /// <summary>
     /// Liga <c>Tenants.MfaObrigatorioParaAdministradores</c>. Aborta se houver
     /// privilegiado sem MFA. Devolve sessao NOVA para o proprio ator — o flip
     /// tambem sobe o TokenVersion dele.

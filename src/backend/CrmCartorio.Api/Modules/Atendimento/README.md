@@ -2,6 +2,36 @@
 
 O coração do produto. Tudo que envolve a conversa de um cliente com o cartório.
 
+## Ler exige `atendimento.ver`, e fica registrado
+
+Desde a blindagem LGPD (2026-09): `ConversaService.ListarAsync`/`ObterAsync`,
+`MensagemService.ListarAsync`/`ObterAnexoAsync` e `AcoesDeMensagem.DestinosAsync`
+exigem `PermissaoDoSistema.AtendimentoVer` — antes filtravam só por
+`TenantId`, e qualquer atendente ativo do cartório, com qualquer conjunto de
+permissões, conseguia ler qualquer conversa pela API. Abrir o detalhe de uma
+conversa e baixar um anexo também gravam uma linha em `RegistrosDeAcesso`
+(`Infrastructure/Auditoria/IRegistradorDeAcesso`) — visível ao cartório na
+tela "Acesso aos dados". Detalhe completo em
+[`Modules/Seguranca/README.md`](../Seguranca/README.md).
+
+## `Mensagem.Conteudo`/`ArquivoNome` e `Conversa.MotivoEncerramento` são cifrados em repouso (PR3)
+
+Mesma blindagem LGPD, mesma transparência: o serviço lê e escreve texto em
+claro o tempo todo, e `Infrastructure/Persistence/Cifra/ConversorCifrado`
+cifra na fronteira com o banco. Hoje dormente em todo ambiente — ver
+`docs/PROTECAO-DE-DADOS.md`.
+
+**Cuidado que essa cifra exigiu:** `ProjecaoDeMensagem` resolve a prévia da
+mensagem citada com um `Substring` — antes, esse corte acontecia DENTRO da
+consulta LINQ (traduzido para SQL). Uma vez que `Conteudo` passa a ser
+cifrado, um `SUBSTRING` gerado em SQL cortaria bytes do *ciphertext*, não do
+texto em claro — devolveria lixo sempre que a cifra estivesse ativa. Por
+isso `ProjecaoDeMensagem.De` agora projeta o conteúdo **inteiro**, e o corte
+para a prévia (160 caracteres) acontece em memória, depois do
+`ToListAsync`/`FirstAsync` — `ListarAsync`/`ObterUmaAsync`, não `De`
+diretamente (que continua público só para `verificar-traducao.cs` chamar
+`ToQueryString()` sem executar).
+
 ## Entidades
 
 | Entidade | Papel |

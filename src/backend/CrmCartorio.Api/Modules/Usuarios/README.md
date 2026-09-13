@@ -25,6 +25,29 @@ pendência antiga de "permissão mais fina" (`docs/REQUISITOS.md`, seção 5.5,
 item 13) foi resolvida pelas permissões granulares: já não é preciso mexer em
 código para dar a alguém acesso a uma tela sem dar às outras.
 
+### Conta técnica — a porta de entrada do suporte técnico
+
+`Atendente.EhContaTecnica` (2026-09, blindagem LGPD) marca uma conta criada
+pelo próprio cartório em Equipe para o suporte técnico do sistema — imutável
+depois de criada, nunca alternável por uma edição posterior
+(`AtualizarAtendenteRequest` não carrega este campo de propósito). Uma conta
+técnica nasce **sem** nenhuma permissão de leitura de dado: `CriarAsync`
+força o preset "Suporte técnico" (`suporte.solicitar_acesso`, só), e
+`DefinirPermissoesAsync` recusa depois qualquer tentativa de conceder
+`atendimento.*`/`clientes.*`/`relatorios.*` a ela — mesmo que alguém tente
+pela tela de permissões. A única forma de uma conta técnica ler qualquer
+conversa é uma `AutorizacaoDeAcessoTecnico` aprovada, que injeta a permissão
+**na sessão**, nunca na conta — ver
+[Modules/Seguranca/README.md](../Seguranca/README.md), seção "Acesso técnico
+autorizado". `PoliticaDeMfa.ExigeAsync` põe a conta técnica na **mesma
+fronteira do administrador**: MFA obrigatório quando
+`Tenant.MfaObrigatorioParaAdministradores` está ligado, não uma exigência
+própria. A primeira versão (2026-09-12, mesmo dia) exigia MFA
+incondicionalmente e deixou a conta impossível de usar no ambiente de teste
+— não havia nenhum administrador com autenticador matriculado para emitir o
+ticket dela. O portão real da leitura é o segundo fator de quem **aprova**
+o acesso, não o login da conta que pede.
+
 ## Permissões granulares
 
 Desde 2026-09-08, o que cada atendente acessa é decidido por
@@ -62,6 +85,25 @@ SQL, sem casar `equipe.ver` dentro de `equipe.ver_algo`.
 que o último call site migrou — se você está lendo isto num checkout onde
 elas ainda existem, é sinal de que a Etapa 4 do plano de migração não
 terminou nalgum módulo.
+
+**O que vai para o FRONTEND é uma fonte diferente — e precisa ser a MESMA
+regra.** `AtendenteResponse.Permissoes` (o que `pode(chave)` do frontend
+enxerga) é montado por `MapeadorDeSessao.MapearAtendenteAsync`, chamado no
+login, na conclusão do MFA e em `GET /api/autenticacao/sessao` (o refresh
+que roda quando a aba volta a ficar visível). **Achado em 2026-09-12:** essa
+função sempre devolvia `CatalogoDePermissoes.ChavesEfetivas(atendente.Permissoes,
+atendente.Perfil)` — o conjunto ESTÁTICO da coluna — nunca o conjunto que
+`ValidadorDeSessao.CarregarSessaoAsync` calcula por requisição (que acrescenta
+`AtendimentoVer`/`ClientesVer` quando uma conta técnica tem acesso técnico
+ativo, ver `Modules/Seguranca/README.md`). O backend sempre autorizava a
+leitura de verdade — todo `[Authorize]` já passa por `SessaoAtivaHandler` →
+`ValidadorDeSessao` a cada requisição — mas a LISTA que o frontend usa para
+decidir se mostra o item de menu e libera a rota nunca refletia isso: uma
+conta técnica aprovada não tinha nenhuma tela até a conversa, só a API.
+Corrigido: `MapearAtendenteAsync` agora recebe `IValidadorDeSessao` e usa
+`sessaoResolvida.Permissoes` (a mesma fonte dos guardas HTTP) em vez de
+recalcular a partir da coluna. Verificado em `verificar-protecao-de-dados.cs`,
+cenário 30c.
 
 **A meta-permissão (`equipe.permissoes`)** decide quem pode ajustar o que
 outro atendente acessa (`AtendenteService.DefinirPermissoesAsync`). Seis

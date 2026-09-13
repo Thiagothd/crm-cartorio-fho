@@ -202,8 +202,7 @@ public class VarredorDePrazos(
                 .FirstOrDefaultAsync(ct) ?? string.Empty;
 
             var resposta = await ProjecaoDeMensagem
-                .De(db, db.Mensagens.AsNoTracking().Where(m => m.Id == mensagem.Id), clienteNome)
-                .FirstAsync(ct);
+                .ObterUmaAsync(db, db.Mensagens.AsNoTracking().Where(m => m.Id == mensagem.Id), clienteNome, ct);
 
             var projecao = await ProjecaoDeConversa
                 .De(db, db.Conversas.AsNoTracking().Where(c => c.Id == conversa.Id))

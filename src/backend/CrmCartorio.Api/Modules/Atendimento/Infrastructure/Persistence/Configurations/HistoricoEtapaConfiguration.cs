@@ -1,3 +1,4 @@
+using CrmCartorio.Api.Infrastructure.Persistence.Cifra;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
@@ -16,7 +17,8 @@ public class HistoricoEtapaConfiguration : IEntityTypeConfiguration<HistoricoEta
         builder.HasKey(h => h.Id);
 
         builder.Property(h => h.TipoMudanca).HasConversion<byte>();
-        builder.Property(h => h.Observacao).HasMaxLength(500);
+        // Cifrada em repouso (PR3): observacao livre de transferencia/mudanca de etapa.
+        builder.Property(h => h.Observacao).Cifrada(500);
         builder.Property(h => h.OcorridoEm).HasColumnType("datetime2(3)");
         builder.Property(h => h.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(h => h.AtualizadoEm).HasColumnType("datetime2(3)");

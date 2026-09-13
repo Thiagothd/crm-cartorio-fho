@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
+using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
 using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,22 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// Sessão vigente de um atendente, já com as permissões resolvidas — ou
 /// <c>null</c> quando o token não corresponde a uma sessão ativa.
 /// </summary>
-public sealed record SessaoDoAtendente(IReadOnlySet<PermissaoDoSistema> Permissoes);
+/// <param name="AutorizacaoDeAcessoTecnicoId">
+/// Blindagem LGPD: preenchido só quando o atendente é conta técnica
+/// (<c>EhContaTecnica</c>) e tem uma autorização ATIVA neste instante — e só
+/// então <paramref name="Permissoes"/> vem ampliado: escopo <c>Conversa</c>
+/// acrescenta só <c>AtendimentoVer</c> (restrito àquela conversa, via
+/// <see cref="EscopoDeConversaId"/>); escopo <c>Geral</c> vira
+/// <see cref="CatalogoDePermissoes.TodasAsChaves"/> — decisão do Thiago em
+/// 2026-09-13, todas as telas e funções, não só Atendimento/Clientes. Sem
+/// autorização ativa, conta técnica segue só com o preset fixo dela (hoje:
+/// <c>suporte.solicitar_acesso</c>).
+/// </param>
+/// <param name="EscopoDeConversaId">Preenchido só quando a autorização acima tem escopo de uma conversa específica.</param>
+public sealed record SessaoDoAtendente(
+    IReadOnlySet<PermissaoDoSistema> Permissoes,
+    Guid? AutorizacaoDeAcessoTecnicoId = null,
+    Guid? EscopoDeConversaId = null);
 
 /// <summary>
 /// SEC-01: confere se a sessao carregada nas claims de um JWT ja validado
@@ -59,7 +75,7 @@ public class ValidadorDeSessao(CrmDbContext db) : IValidadorDeSessao
         // — Permissoes/Perfil viajam de graca no mesmo round-trip do SEC-01.
         var estado = await db.Atendentes.AsNoTracking()
             .Where(a => a.Id == atendenteId && a.TenantId == tenantId)
-            .Select(a => new { a.Ativo, a.TokenVersion, a.Perfil, a.Permissoes })
+            .Select(a => new { a.Ativo, a.TokenVersion, a.Perfil, a.Permissoes, a.EhContaTecnica })
             .FirstOrDefaultAsync(ct);
 
         if (estado is null || !estado.Ativo || estado.TokenVersion != tokenVersionDaClaim)
@@ -71,6 +87,50 @@ public class ValidadorDeSessao(CrmDbContext db) : IValidadorDeSessao
             ? CatalogoDePermissoes.ConjuntoDaClasse(estado.Perfil)
             : CatalogoDePermissoes.Desserializar(estado.Permissoes);
 
-        return new SessaoDoAtendente(conjunto);
+        if (!estado.EhContaTecnica)
+        {
+            return new SessaoDoAtendente(conjunto);
+        }
+
+        // Blindagem LGPD: conta tecnica so ganha leitura enquanto houver uma
+        // autorizacao ATIVA neste instante — resolvida a cada requisicao,
+        // nunca guardada na claim do JWT (a autorizacao pode ser aprovada ou
+        // revogada a qualquer momento, e o token da conta tecnica nao seria
+        // reemitido so por isso).
+        var agora = DateTime.UtcNow;
+        var autorizacaoAtiva = await db.AutorizacoesDeAcessoTecnico.AsNoTracking()
+            .Where(a => a.ContaTecnicaId == atendenteId
+                     && a.TenantId == tenantId
+                     && a.AprovadaEm != null
+                     && a.RevogadaEm == null
+                     && a.ValidaAte != null && a.ValidaAte > agora)
+            .OrderByDescending(a => a.AprovadaEm)
+            .Select(a => new { a.Id, a.Escopo, a.ConversaId })
+            .FirstOrDefaultAsync(ct);
+
+        if (autorizacaoAtiva is null)
+        {
+            return new SessaoDoAtendente(conjunto);
+        }
+
+        var escopoDeConversaId = autorizacaoAtiva.Escopo == EscopoDeAcesso.Conversa
+            ? autorizacaoAtiva.ConversaId
+            : null;
+
+        // Escopo Conversa ganha SÓ AtendimentoVer — é uma sessão de suporte
+        // sobre UM atendimento, não motivo para abrir a ficha do cliente
+        // (CPF, RG, filiação) nem o resto do sistema. Escopo Geral ganha
+        // TUDO — decisão do Thiago em 2026-09-13: o pedido "Geral" já é a
+        // autorização ampla (sem conversa específica nomeada), então uma vez
+        // aprovado a conta técnica passa a enxergar todas as telas e funções
+        // do sistema, igual um administrador, enquanto durar a autorização.
+        // A versão anterior (2026-09-12) limitava Geral a AtendimentoVer +
+        // ClientesVer — revisado por ser restritivo demais na prática de
+        // suporte real.
+        var conjuntoAmpliado = escopoDeConversaId is not null
+            ? conjunto.Append(PermissaoDoSistema.AtendimentoVer).ToHashSet()
+            : CatalogoDePermissoes.TodasAsChaves();
+
+        return new SessaoDoAtendente(conjuntoAmpliado, autorizacaoAtiva.Id, escopoDeConversaId);
     }
 }

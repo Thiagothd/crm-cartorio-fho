@@ -16,8 +16,14 @@ import type {
   DescartesDoCanal,
   ConfirmarMfaResposta,
   DesafioMfa,
+  AcessoTecnicoAtivo,
+  AutorizacaoDeAcessoTecnico,
   DestinoDeEncaminhamento,
   EmpresaConsultada,
+  EventoDeSeguranca,
+  FiltroDeAcessoTecnico,
+  FiltroDeAcessos,
+  FiltroDeEventos,
   EncerramentoAutomatico,
   EnderecoConsultado,
   Etapa,
@@ -40,7 +46,9 @@ import type {
   PerfilDeAtendente,
   ModeloDePermissao,
   PermissoesDoAtendente,
+  ProtecaoAtiva,
   RegenerarCodigosResposta,
+  RegistroDeAcesso,
   RegrasDoCanal,
   Relatorio,
   RelatorioDeAtendentes,
@@ -50,6 +58,7 @@ import type {
   ResumoDoPainel,
   Sessao,
   Setor,
+  SolicitarAcessoTecnico,
   SituacaoDaIa,
   SituacaoDoCanal,
   TesteDeEnvioDoCanal,
@@ -314,6 +323,42 @@ export const whatsappApi = {
   descartes: () => api.get<DescartesDoCanal>('/api/whatsapp/descartes'),
 }
 
+// Acesso aos dados (blindagem LGPD) -----------------------------------------
+
+export const segurancaApi = {
+  acessos: (filtro: FiltroDeAcessos) =>
+    api.get<Paginado<RegistroDeAcesso>>(`/api/seguranca/acessos${montarQuery({ ...filtro })}`),
+
+  eventos: (filtro: FiltroDeEventos) =>
+    api.get<Paginado<EventoDeSeguranca>>(`/api/seguranca/eventos${montarQuery({ ...filtro })}`),
+
+  protecao: () => api.get<ProtecaoAtiva>('/api/seguranca/protecao'),
+}
+
+// Acesso técnico autorizado ---------------------------------------------------
+
+export const acessoTecnicoApi = {
+  solicitar: (dados: SolicitarAcessoTecnico) =>
+    api.post<AutorizacaoDeAcessoTecnico>('/api/seguranca/acesso-tecnico/solicitacoes', dados),
+
+  aprovar: (id: string) =>
+    api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/aprovar`, {}),
+
+  negar: (id: string) =>
+    api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/negar`),
+
+  revogar: (id: string) =>
+    api.post<AutorizacaoDeAcessoTecnico>(`/api/seguranca/acesso-tecnico/solicitacoes/${id}/revogar`),
+
+  /** `undefined` quando não há nada ativo (o backend devolve 204, sem corpo). */
+  ativa: () => api.get<AcessoTecnicoAtivo | undefined>('/api/seguranca/acesso-tecnico/ativa'),
+
+  listar: (filtro: FiltroDeAcessoTecnico) =>
+    api.get<Paginado<AutorizacaoDeAcessoTecnico>>(
+      `/api/seguranca/acesso-tecnico/solicitacoes${montarQuery({ ...filtro })}`,
+    ),
+}
+
 // Setores e etapas ----------------------------------------------------------
 
 export const setoresApi = {
@@ -510,6 +555,8 @@ export const atendentesApi = {
     perfil: PerfilDeAtendente
     cargo: CargoNaServentia
     setorPadraoId?: string | null
+    /** Blindagem LGPD — decidido só aqui, nunca editável depois. */
+    ehContaTecnica?: boolean
   }) => api.post<Atendente>('/api/atendentes', dados),
 
   atualizar: (

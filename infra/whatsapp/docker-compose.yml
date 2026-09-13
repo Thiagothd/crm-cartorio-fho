@@ -5,8 +5,13 @@
 # Meta (CNPJ verificado + numero dedicado), que estao travados em terceiro.
 # Ver docs/DEPLOY-WHATSAPP.md e o bloco de mudanca de direcao no CLAUDE.md.
 #
-# Tudo aqui roda no proprio servidor: nenhum dado de conversa sai para nuvem de
-# terceiro. E a mesma soberania de dado que o produto vende como diferencial.
+# O gateway e o banco de sessao (Postgres/Redis deste compose) rodam no proprio
+# servidor. Isso NAO significa que nenhum dado de conversa sai do servidor: a
+# Resposta Inteligente (Modulo RespostaInteligente) envia o texto da conversa ao
+# provedor de IA (Anthropic), e o tunel Cloudflare termina TLS na borda deles.
+# Inventario completo, cifra e o que e mascarado antes de sair: ver
+# docs/PROTECAO-DE-DADOS.md. Corrigido em 2026-09-11 — a versao anterior desta
+# linha afirmava "nenhum dado sai para nuvem de terceiro", o que era falso.
 
 name: crm-cartorio-whatsapp
 

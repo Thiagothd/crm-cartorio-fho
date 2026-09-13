@@ -63,6 +63,7 @@ var conexao = args.Length > 0
 var construtor = new DbContextOptionsBuilder<CrmDbContext>();
 ConfiguracaoDoBanco.Configurar(construtor, conexao);
 var opcoes = construtor.Options;
+var cifraDeDados = FabricaDeCifraDeDados.CriarDormente();
 
 // SEC-03 (bloqueador 13) — mesma connection string, mas com o interceptor de
 // falha injetada plugado. So existe aqui, neste verificador — nunca na
@@ -75,7 +76,7 @@ DbContextOptions<CrmDbContext> OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca ti
     return builder.Options;
 }
 
-await using (var seguranca = new CrmDbContext(opcoes))
+await using (var seguranca = new CrmDbContext(opcoes, cifraDeDados))
 {
     if (!string.Equals(seguranca.Database.GetDbConnection().Database, "CRM_Cartorio_Dev", StringComparison.OrdinalIgnoreCase))
     {
@@ -125,14 +126,14 @@ var cifra = new CifraDeSegredoMfa(opcoesDeMfa);
 // descartavel — e o equivalente a "navegador novo, sem cookie nenhum", que e
 // exatamente o pressuposto de todos os cenarios anteriores a esta feature.
 IAutenticacaoService NovoAutenticacao(CrmDbContext db, Guid atorId, ICookieDeDispositivoConfiavel? navegador = null) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), navegador ?? new NavegadorFalso(), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantId, atorId, "Teste", PerfilDeAtendente.Atendente), navegador ?? new NavegadorFalso(), new HttpContextAccessor(), new ValidadorDeSessao(db), NullLogger<AutenticacaoService>.Instance);
 
 // Mesma coisa, mas para um tenant ISOLADO — AlterarSenhaAsync filtra por
 // `ctx.AtendenteId && ctx.TenantId`, entao o AutenticacaoService acima
 // (fechado no `tenantId` COMPARTILHADO) nunca enxerga conta de tenant
 // isolado.
 IAutenticacaoService NovoAutenticacaoParaTenant(CrmDbContext db, Guid atorId, Guid tenantAlvo) =>
-    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), new NavegadorFalso(), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, new ContextoFixo(tenantAlvo, atorId, "Teste", PerfilDeAtendente.Atendente), new NavegadorFalso(), new HttpContextAccessor(), new ValidadorDeSessao(db), NullLogger<AutenticacaoService>.Instance);
 
 IAtendenteService NovoAtendenteService(CrmDbContext db, Guid atorId) =>
     new AtendenteService(db, new ContextoFixo(tenantId, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
@@ -144,7 +145,7 @@ IAtendenteService NovoAtendenteServiceParaTenant(CrmDbContext db, Guid atorId, G
     new AtendenteService(db, new ContextoFixo(tenantAlvo, atorId, "Admin", PerfilDeAtendente.Administrador), hash);
 
 IMfaService NovoMfaService(CrmDbContext db, ICookieDeDispositivoConfiavel? navegador = null) =>
-    new MfaService(db, hash, cifra, tokens, navegador ?? new NavegadorFalso(), NullLogger<MfaService>.Instance);
+    new MfaService(db, hash, cifra, tokens, navegador ?? new NavegadorFalso(), new ValidadorDeSessao(db), NullLogger<MfaService>.Instance);
 
 /// <summary>
 /// SEC-03 (revisao independente do PR #46, bloqueador 9) —
@@ -196,7 +197,7 @@ int LerVersaoDaClaim(string jwt) =>
 
 async Task<Atendente> Ler(Guid id)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     return await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == id);
 }
 
@@ -208,7 +209,7 @@ const string SenhaRuim = "SenhaErrada000";
 /// <summary>Conta nova, destravada, so para o cenario que a pediu.</summary>
 async Task<(Guid Id, string Email)> NovaConta(string rotulo, bool ativo = true)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     var conta = new Atendente
     {
         TenantId = tenantId,
@@ -230,7 +231,7 @@ async Task<(Guid Id, string Email)> NovaConta(string rotulo, bool ativo = true)
 /// </summary>
 async Task<string?> Tentar(string email, string senha)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     try
     {
         var resposta = await NovoAutenticacao(db, Guid.NewGuid())
@@ -262,7 +263,7 @@ async Task<int> Falhar(string email, int vezes)
 /// </summary>
 async Task ExpirarBloqueio(Guid id)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     await db.Atendentes.Where(a => a.Id == id)
         .ExecuteUpdateAsync(s => s.SetProperty(
             a => a.BloqueadoAte, DateTime.UtcNow.AddMinutes(-1)));
@@ -286,7 +287,7 @@ async Task<(Guid Id, string Email)> NovaContaPrivilegiada(
     string rotulo, PerfilDeAtendente perfil = PerfilDeAtendente.Administrador,
     CargoNaServentia cargo = CargoNaServentia.NaoInformado, bool ativo = true)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     var conta = new Atendente
     {
         TenantId = tenantId,
@@ -323,7 +324,7 @@ async Task<string> EmitirTicketCruAsync(Guid atendenteId, int tokenVersionDoAlvo
 {
     var tokenEmClaro = SegredosAleatoriosMfa.NovoToken();
 
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     db.DesafiosDeMfa.Add(new DesafioDeMfa
     {
         TenantId = tenantId,
@@ -366,7 +367,7 @@ async Task<(Guid Id, string Email, string SegredoBase32, IReadOnlyList<string> C
         var tokenVersionAtual = (await Ler(id)).TokenVersion;
         var ticket = await EmitirTicketCruAsync(id, tokenVersionAtual);
 
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         var mfa = NovoMfaService(db);
 
         var sessaoDeMatricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -380,7 +381,7 @@ async Task<(Guid Id, string Email, string SegredoBase32, IReadOnlyList<string> C
         return (id, email, iniciado.SegredoBase32, confirmado.CodigosDeRecuperacao);
     }
 
-    await using var dbDireto = new CrmDbContext(opcoes);
+    await using var dbDireto = new CrmDbContext(opcoes, cifraDeDados);
     var identidade = new IdentidadeParaMfa(tenantId, id);
     var mfaDireto = NovoMfaService(dbDireto);
 
@@ -400,7 +401,7 @@ async Task<(Guid Id, string Email, string SegredoBase32, IReadOnlyList<string> C
 /// <summary>Etapa 1 pelo servico real.</summary>
 async Task<LoginEtapa1Response> EtapaUm(string email, string senha, ICookieDeDispositivoConfiavel? navegador = null)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     return await NovoAutenticacao(db, Guid.NewGuid(), navegador).AutenticarAsync(new LoginRequest(email, senha));
 }
 
@@ -408,7 +409,7 @@ async Task<LoginEtapa1Response> EtapaUm(string email, string senha, ICookieDeDis
 async Task<string?> EtapaDois(
     string desafio, string codigo, ICookieDeDispositivoConfiavel? navegador = null, bool confiarNesteDispositivo = false)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     try
     {
         var resposta = await NovoAutenticacao(db, Guid.NewGuid(), navegador)
@@ -442,7 +443,7 @@ async Task<int> FalharMfa(string desafio, int vezes)
 
 async Task ExpirarBloqueioDeMfa(Guid id)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     await db.Atendentes.Where(a => a.Id == id)
         .ExecuteUpdateAsync(s => s.SetProperty(a => a.MfaBloqueadoAte, DateTime.UtcNow.AddMinutes(-1)));
 }
@@ -457,7 +458,7 @@ async Task<string?> LoginComMfaComCodigoFixo(string email, string senha, string 
 
 async Task<DesafioDeMfa?> LerDesafioPorTexto(string desafioEmClaro)
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
     var hashDoDesafio = SegredosAleatoriosMfa.Sha256Hex(desafioEmClaro);
     return await db.DesafiosDeMfa.AsNoTracking().SingleOrDefaultAsync(d => d.HashDoDesafio == hashDoDesafio);
 }
@@ -477,7 +478,7 @@ try
     var ativoAtual = true;
     var senhaAtual = "SenhaInicial123";
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         tenantId = await db.Tenants.Select(t => t.Id).FirstAsync();
 
@@ -504,7 +505,7 @@ try
 
     var estado1 = await Ler(atendenteId);
     var (token1, _) = tokens.Gerar(estado1);
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("1. JWT valido + versao correta -> autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(token1)) is not null);
@@ -517,14 +518,14 @@ try
     var (tokenAntesDaTroca, _) = tokens.Gerar(estadoAntesDaTroca);
     var versaoAntesDaTroca = LerVersaoDaClaim(tokenAntesDaTroca);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         await NovoAutenticacao(db, atendenteId)
             .AlterarSenhaAsync(new AlterarSenhaRequest(senhaAtual, "SenhaNova456xyz"));
     }
     senhaAtual = "SenhaNova456xyz";
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("2. JWT antigo apos troca da propria senha -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaTroca) is null);
@@ -537,14 +538,14 @@ try
     var (tokenAntesDoAdmin, _) = tokens.Gerar(estadoAntesDoAdmin);
     var versaoAntesDoAdmin = LerVersaoDaClaim(tokenAntesDoAdmin);
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         await NovoAtendenteService(db, Guid.NewGuid())
             .RedefinirSenhaAsync(atendenteId, new RedefinirSenhaRequest("SenhaAdmin789xyz"));
     }
     senhaAtual = "SenhaAdmin789xyz";
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("3. JWT antigo apos redefinicao pelo administrador -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDoAdmin) is null);
@@ -558,13 +559,13 @@ try
     var versaoAntesDoPerfil = LerVersaoDaClaim(tokenAntesDoPerfil);
 
     perfilAtual = PerfilDeAtendente.Supervisor;
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         await NovoAtendenteService(db, Guid.NewGuid())
             .AtualizarAsync(atendenteId, RequisicaoDeAtualizacao());
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("4. JWT antigo apos alteracao de Perfil -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDoPerfil) is null);
@@ -578,13 +579,13 @@ try
     var versaoAntesDaDesativacao = LerVersaoDaClaim(tokenAntesDaDesativacao);
 
     ativoAtual = false;
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         await NovoAtendenteService(db, Guid.NewGuid())
             .AtualizarAsync(atendenteId, RequisicaoDeAtualizacao());
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("5. JWT antigo apos desativacao -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
@@ -592,7 +593,7 @@ try
 
     // ------------------------------------------------------------- cenario 6
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("6. Atendente inexistente -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(Guid.NewGuid(), tenantId, 1) is null);
@@ -601,7 +602,7 @@ try
     // ------------------------------------------------------------- cenario 7
 
     var estadoAtualParaTenant = await Ler(atendenteId);
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("7. Tenant da claim incompativel -> nao autorizado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, Guid.NewGuid(), estadoAtualParaTenant.TokenVersion) is null);
@@ -612,13 +613,13 @@ try
     // login novo funciona, com a versao atual
 
     ativoAtual = true;
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         await NovoAtendenteService(db, Guid.NewGuid())
             .AtualizarAsync(atendenteId, RequisicaoDeAtualizacao());
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("8a. Reativado: token de antes da desativacao continua invalido",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
@@ -629,14 +630,14 @@ try
         versaoAposReativar >= versaoAntesDaDesativacao);
 
     LoginResponse loginNovo;
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         var etapa1DaReativacao = await NovoAutenticacao(db, atendenteId)
             .AutenticarAsync(new LoginRequest(emailAtual, senhaAtual));
         loginNovo = etapa1DaReativacao.Sessao!;
     }
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("8c. Login novo apos reativacao funciona e emite versao atual",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)) is not null);
@@ -648,7 +649,7 @@ try
 
     const int Concorrentes = 10;
     Guid atendenteConcorrenciaId;
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         var concorrencia = new Atendente
         {
@@ -669,7 +670,7 @@ try
 
     await Task.WhenAll(Enumerable.Range(0, Concorrentes).Select(async i =>
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         await NovoAtendenteService(db, Guid.NewGuid())
             .RedefinirSenhaAsync(atendenteConcorrenciaId, new RedefinirSenhaRequest($"SenhaConcorrente{i}Abc"));
     }));
@@ -689,7 +690,7 @@ try
     // upgrade recusados com token revogado, conexao aberta sobrevivendo a
     // revogacao — SEC-01B) sera validado no ambiente TESTE.
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("10. Validador compartilhado por REST/SignalR recusa TokenVersion revogado",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, versaoAntesDaDesativacao) is null);
@@ -697,7 +698,7 @@ try
 
     // ------------------------------------------------------------- cenario 11
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         Checar("11. Token valido continua funcionando normalmente",
             await NovoValidador(db).CarregarSessaoAsync(atendenteId, tenantId, LerVersaoDaClaim(loginNovo.Token)) is not null);
@@ -708,7 +709,7 @@ try
     // avalia [Authorize]/policy padrao para rota marcada [AllowAnonymous]).
     // Chamar o servico real por baixo confirma que nada quebrou funcionalmente.
 
-    await using (var db = new CrmDbContext(opcoes))
+    await using (var db = new CrmDbContext(opcoes, cifraDeDados))
     {
         var serventia = await NovoAutenticacao(db, Guid.NewGuid()).ObterServentiaPublicaAsync();
         Checar("12. Endpoint AllowAnonymous (serventia publica) continua funcionando",
@@ -925,7 +926,7 @@ try
         Checar("22a. conta esta de fato bloqueada antes da redefinicao",
             (await Ler(id)).BloqueadoAte is not null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid())
                 .RedefinirSenhaAsync(id, new RedefinirSenhaRequest("SenhaDoAdmin987"));
@@ -956,11 +957,13 @@ try
         async Task<int> ContarHashes(string email, string senha)
         {
             var espiao = new HashEspiao(hash);
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var servico = new AutenticacaoService(
                 db, espiao, tokens, cifra,
                 new ContextoFixo(tenantId, Guid.NewGuid(), "Teste", PerfilDeAtendente.Atendente),
                 new NavegadorFalso(),
+                new HttpContextAccessor(),
+                new ValidadorDeSessao(db),
                 NullLogger<AutenticacaoService>.Instance);
 
             try { await servico.AutenticarAsync(new LoginRequest(email, senha)); }
@@ -992,7 +995,7 @@ try
 
         async Task<(string Codigo, string Mensagem, int Status)> Recusa(string email, string senha)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoAutenticacao(db, Guid.NewGuid())
@@ -1266,7 +1269,7 @@ try
         var (id, email, segredo, _) = await NovaContaComMfaAtivo("senha trocada invalida desafio");
         var etapa1 = await EtapaUm(email, SenhaBoa);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, id).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaNovaXyz123"));
         }
@@ -1282,7 +1285,7 @@ try
         var (id, email, segredo, _) = await NovaContaComMfaAtivo("desativacao invalida desafio", perfil: PerfilDeAtendente.Atendente);
         var etapa1 = await EtapaUm(email, SenhaBoa);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(id,
                 new AtualizarAtendenteRequest("Nome", email, PerfilDeAtendente.Atendente, null, false));
@@ -1301,7 +1304,7 @@ try
         var (adminId, _, adminSegredo, _) = await NovaContaComMfaAtivo("admin que reseta (38)");
         var etapa1 = await EtapaUm(email, SenhaBoa);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).ResetarAsync(
                 new IdentidadeParaMfa(tenantId, adminId), id,
@@ -1434,7 +1437,7 @@ try
         var (id, email, segredo, codigos) = await NovaContaComMfaAtivo("jwt sozinho nao muda mfa");
         var identidade = new IdentidadeParaMfa(tenantId, id);
 
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         var mfa = NovoMfaService(db);
 
         async Task<bool> Recusado(Func<Task> acao)
@@ -1463,7 +1466,7 @@ try
     {
         var (id, email, segredo, codigos) = await NovaContaComMfaAtivo("nao desativa sob obrigatoriedade");
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await db.Tenants.Where(t => t.Id == tenantId)
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.MfaObrigatorioParaAdministradores, true));
@@ -1471,7 +1474,7 @@ try
 
         try
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var identidade = new IdentidadeParaMfa(tenantId, id);
             UsuariosServiceException? falha = null;
 
@@ -1487,7 +1490,7 @@ try
         }
         finally
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             await db.Tenants.Where(t => t.Id == tenantId)
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.MfaObrigatorioParaAdministradores, false));
         }
@@ -1502,7 +1505,7 @@ try
         var (adminId, _, adminSegredo, _) = await NovaContaComMfaAtivo("admin que reseta (46)");
         var versaoAntes = (await Ler(id)).TokenVersion;
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).ResetarAsync(
                 new IdentidadeParaMfa(tenantId, adminId), id,
@@ -1514,7 +1517,7 @@ try
             estado is { MfaAtivo: false, MfaSegredoCifrado: null });
         Checar("46b. reset sobe TokenVersion", estado.TokenVersion > versaoAntes);
 
-        await using (var db2 = new CrmDbContext(opcoes))
+        await using (var db2 = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("46c. codigos de recuperacao anteriores foram apagados",
                 !await db2.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == id));
@@ -1537,7 +1540,7 @@ try
         var (idAdminTitular, _, segredoAdminTitular, _) = await NovaContaComMfaAtivo(
             "admin+titular (47)", cargo: CargoNaServentia.Titular);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -1552,7 +1555,7 @@ try
                 falha?.Codigo == "apenas_titular_reseta_titular");
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).ResetarAsync(
                 new IdentidadeParaMfa(tenantId, idAdminTitular), idTitular,
@@ -1569,7 +1572,7 @@ try
     {
         var (id, email) = await NovaContaPrivilegiada("matricula sem ticket");
 
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         UsuariosServiceException? falha = null;
         try
         {
@@ -1590,7 +1593,7 @@ try
         var (idOutro, emailOutro) = await NovaContaPrivilegiada("ticket vinculo errado");
 
         Guid tenantDoTicket; int tokenVersionDoAlvo;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var alvo = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == idAlvo);
             tenantDoTicket = alvo.TenantId;
@@ -1598,7 +1601,7 @@ try
         }
 
         var ticketEmClaro = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             db.DesafiosDeMfa.Add(new DesafioDeMfa
             {
@@ -1612,7 +1615,7 @@ try
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -1626,7 +1629,7 @@ try
                 falha?.Codigo == "ticket_invalido");
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafio = await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
                 new MatricularPrivilegiadoRequest(emailAlvo, SenhaBoa, ticketEmClaro), null, default);
@@ -1634,7 +1637,7 @@ try
             Checar("49b. ticket vinculado ao AtendenteId certo funciona", desafio.Desafio.Length > 0);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -1657,13 +1660,13 @@ try
         var (id, email) = await NovaContaPrivilegiada("matricula completa via ticket");
 
         int tokenVersion;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             tokenVersion = (await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == id)).TokenVersion;
         }
 
         var ticketEmClaro = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             db.DesafiosDeMfa.Add(new DesafioDeMfa
             {
@@ -1678,21 +1681,21 @@ try
         }
 
         DesafioMfaResponse desafioDeMatricula;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             desafioDeMatricula = await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
                 new MatricularPrivilegiadoRequest(email, SenhaBoa, ticketEmClaro), null, default);
         }
 
         IniciarMfaResponse iniciado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciado = await NovoMfaService(db).IniciarViaDesafioAsync(
                 new IniciarViaDesafioRequest(desafioDeMatricula.Desafio), default);
         }
 
         ConfirmarMfaResponse confirmado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             confirmado = await NovoMfaService(db).ConfirmarViaDesafioAsync(
                 new ConfirmarViaDesafioRequest(desafioDeMatricula.Desafio, CodigoTotp(iniciado.SegredoBase32)), null, default);
@@ -1706,7 +1709,7 @@ try
         var estado = await Ler(id);
         Checar("50c. MFA fica ativo apos a matricula via ticket", estado.MfaAtivo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -1730,7 +1733,7 @@ try
     {
         var (idAtor, _, segredoAtor, _) = await NovaContaComMfaAtivo("ator do flip abortado");
 
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         UsuariosServiceException? falha = null;
         try
         {
@@ -1745,7 +1748,7 @@ try
             && falha.Detalhes.TryGetValue("contasPendentes", out var pendentes)
             && pendentes is IReadOnlyList<string> lista && lista.Count > 0);
 
-        await using var confirmacao = new CrmDbContext(opcoes);
+        await using var confirmacao = new CrmDbContext(opcoes, cifraDeDados);
         Checar("51b. a politica CONTINUA desligada apos o aborto",
             !await confirmacao.Tenants.AsNoTracking()
                 .Where(t => t.Id == tenantId).Select(t => t.MfaObrigatorioParaAdministradores).SingleAsync());
@@ -1757,7 +1760,7 @@ try
 
     {
         Guid tenantIsolado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -1777,7 +1780,7 @@ try
         // helper fecha por closure.
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculadaNoIsolado(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado,
@@ -1823,14 +1826,14 @@ try
         var tokenVersionOutroAntes = (await Ler(outroAdmin.Id)).TokenVersion;
 
         LoginResponse sessaoDoFlip;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             sessaoDoFlip = await NovoMfaService(db).AtivarObrigatoriedadeAsync(
                 new IdentidadeParaMfa(tenantIsolado, ator.Id),
                 new AtivarObrigatoriedadeRequest(SenhaBoa, CodigoTotp(ator.Segredo), "todos matriculados — teste"), null, default);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("52a. flip liga a politica quando todos estao matriculados",
                 await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado)
@@ -1848,7 +1851,7 @@ try
         Checar("52d. TokenVersion de OUTRO administrador afetado tambem subiu (revogacao em massa)",
             tokenVersionOutroDepois > tokenVersionOutroAntes);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("52e. sessao ANTIGA do outro administrador (TokenVersion velha) nao vale mais",
                 await NovoValidador(db).CarregarSessaoAsync(outroAdmin.Id, tenantIsolado, tokenVersionOutroAntes) is null);
@@ -1859,7 +1862,7 @@ try
         // exatamente no mesmo caminho de MfaObrigatorioNaoMatriculado.
 
         Guid idNovoAdmin; string emailNovoAdmin;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var novo = new Atendente
             {
@@ -1877,7 +1880,7 @@ try
             emailNovoAdmin = novo.Email;
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -1952,7 +1955,7 @@ try
 
         async Task<(string? Codigo, IniciarMfaResponse? Resposta)> TentarIniciarComJwtESenha(Guid id, string senha)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 var resposta = await NovoMfaService(db).IniciarAsync(
@@ -1999,7 +2002,7 @@ try
         // correto, MfaAtivo vira true, 10 codigos de recuperacao emitidos, e
         // TODAS as protecoes de sempre (anti-replay, TokenVersion) continuam
         // valendo — nada disto foi simplificado.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var confirmadoAdmin = await NovoMfaService(db).ConfirmarAsync(
                 new IdentidadeParaMfa(tenantId, idAdmin),
@@ -2011,7 +2014,7 @@ try
         Checar("55i. Administrador esta com MfaAtivo=true apos a confirmacao voluntaria",
             (await Ler(idAdmin)).MfaAtivo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var confirmadoTitular = await NovoMfaService(db).ConfirmarAsync(
                 new IdentidadeParaMfa(tenantId, idTitular),
@@ -2028,7 +2031,7 @@ try
         // para confirmar — o anti-replay de troca de autenticador (exige
         // CodigoAtual/step-up) e coberto pelos cenarios 27 e 44, que este
         // cenario nao duplica.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falhaSemSegredoPendente = null;
             try
@@ -2050,7 +2053,7 @@ try
 
     async Task<string?> TentarMatricularComTicket(string email, string ticket, string? senha = null)
     {
-        await using var db = new CrmDbContext(opcoes);
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
         try
         {
             await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
@@ -2068,7 +2071,7 @@ try
         var (idAlvo, emailAlvo) = await NovaContaPrivilegiada("bloqueador2 - outro tenant");
 
         Guid tenantEstranho;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2083,7 +2086,7 @@ try
 
         var tokenVersionAlvo = (await Ler(idAlvo)).TokenVersion;
         var tokenDeOutroTenant = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             db.DesafiosDeMfa.Add(new DesafioDeMfa
             {
@@ -2113,7 +2116,7 @@ try
         var tokenVersionSenha = (await Ler(idSenha)).TokenVersion;
         var ticketComSenhaAntiga = await EmitirTicketCruAsync(idSenha, tokenVersionSenha);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, idSenha).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaTrocada999xy"));
         }
@@ -2130,7 +2133,7 @@ try
         var tokenVersionPerfil = (await Ler(idPerfil)).TokenVersion;
         var ticketComPerfilAntigo = await EmitirTicketCruAsync(idPerfil, tokenVersionPerfil);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idPerfil,
                 new AtualizarAtendenteRequest("Nome", emailPerfil, PerfilDeAtendente.Supervisor, null, true, CargoNaServentia.Titular));
@@ -2150,7 +2153,7 @@ try
         var tokenVersionInativo = (await Ler(idInativo)).TokenVersion;
         var ticketDeContaQueSeraDesativada = await EmitirTicketCruAsync(idInativo, tokenVersionInativo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idInativo,
                 new AtualizarAtendenteRequest("Nome", emailInativo, PerfilDeAtendente.Administrador, null, false));
@@ -2183,7 +2186,7 @@ try
         var tokenVersionCargoAntes = (await Ler(idCargo)).TokenVersion;
         var ticketDeQuemDeixouDeSerTitular = await EmitirTicketCruAsync(idCargo, tokenVersionCargoAntes);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idCargo,
                 new AtualizarAtendenteRequest("Nome", emailCargo, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
@@ -2207,7 +2210,7 @@ try
         var primeiroTicket = await EmitirTicketCruAsync(idDuploTicket, tokenVersionDuplo);
         var segundoTicket = await EmitirTicketCruAsync(idDuploTicket, tokenVersionDuplo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -2237,7 +2240,7 @@ try
 
         async Task<bool> TentarConcorrente()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
@@ -2255,7 +2258,7 @@ try
         Checar("57. mesmo ticket disputado por 5 requisicoes simultaneas: exatamente 1 recebe desafio",
             resultados.Count(r => r) == 1);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var quantosDesafiosDeMatricula = await db.DesafiosDeMfa
                 .CountAsync(d => d.AtendenteId == idAlvo && d.Tipo == TipoDeDesafioMfa.MatriculaPrivilegiada);
@@ -2278,7 +2281,7 @@ try
         // que nao e o caso (contas reais de demonstracao). Entao este cenario
         // roda num tenant ISOLADO, como o 52.
         Guid tenantIsolado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2293,7 +2296,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculadaNoIsolado58(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado,
@@ -2331,7 +2334,7 @@ try
         var alvo58 = await ContaMatriculadaNoIsolado58("alvo do reset");
         var ator58 = await ContaMatriculadaNoIsolado58("ator do reset e do flip");
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             // Passo -1 ja foi consumido pela confirmacao da matricula do ator
             // (ContaMatriculadaNoIsolado58) — o anti-replay exige passo
@@ -2346,7 +2349,7 @@ try
         Checar("58a. politica obrigatoria ligada no tenant isolado",
             await (new Func<Task<bool>>(async () =>
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 return await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado)
                     .Select(t => t.MfaObrigatorioParaAdministradores).SingleAsync();
             }))());
@@ -2356,7 +2359,7 @@ try
         // segredo, que continua o mesmo; so a sessao antiga do ator morreu).
         // Passo 0 ja foi consumido pelo flip acima — usa +1 (proximo passo
         // livre para este ator).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).ResetarAsync(
                 new IdentidadeParaMfa(tenantIsolado, ator58.Id), alvo58.Id,
@@ -2368,7 +2371,7 @@ try
         Checar("58b. MfaAtivo=false apos o reset", !estadoAlvo58.MfaAtivo);
         Checar("58c. segredo apagado", estadoAlvo58.MfaSegredoCifrado is null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("58d. recovery codes apagados",
                 !await db.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == alvo58.Id));
@@ -2379,7 +2382,7 @@ try
 
         // Login com senha correta e RECUSADO — a politica exige MFA e a conta
         // nao esta mais matriculada.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -2397,7 +2400,7 @@ try
         // tenant COMPARTILHADO) porque o alvo pertence ao tenant ISOLADO.
         var tokenVersionAlvoPosReset = (await Ler(alvo58.Id)).TokenVersion;
         var novoTicket = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             db.DesafiosDeMfa.Add(new DesafioDeMfa
             {
@@ -2411,7 +2414,7 @@ try
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -2434,7 +2437,7 @@ try
         var (idAtor, _, segredoAtor, _) = await NovaContaComMfaAtivo("ator do flip (cenario 59)");
 
         Guid tenantIsolado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2449,7 +2452,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculadaNoIsolado59(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado,
@@ -2490,7 +2493,7 @@ try
         // 1. Abre a etapa 1 do login do ALVO — desafio nasce com o
         // TokenVersion de AGORA (antes do flip).
         LoginEtapa1Response etapa1Do59;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             etapa1Do59 = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(alvo59.Email, SenhaBoa));
@@ -2501,7 +2504,7 @@ try
         // 2. ANTES da etapa 2, liga a politica pelo fluxo real — sobe
         // TokenVersion de TODOS os Administrador/Titular do tenant isolado,
         // alvo incluido.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             // Passo -1 ja foi consumido pela confirmacao da matricula do ator
             // (ContaMatriculadaNoIsolado59) — usa o passo "atual" (livre).
@@ -2513,7 +2516,7 @@ try
 
         // 3/4. O codigo TOTP CORRETO no desafio ANTIGO nao emite JWT — a
         // revogacao de TokenVersion do flip invalidou o desafio.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             // Passo -1 ja foi consumido pela confirmacao da matricula do alvo
             // (ContaMatriculadaNoIsolado59) — usa o passo "atual" (nunca usado
@@ -2540,7 +2543,7 @@ try
         var (idPrimeiro, emailPrimeiro) = await NovaContaPrivilegiada("bootstrap - primeiro titular");
 
         Guid tenantIsoladoBootstrap;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2558,7 +2561,7 @@ try
         // cenarios) alguem matriculado — o teste precisa controlar isto.
         Guid idPrimeiroIsolado;
         string emailPrimeiroIsolado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -2576,7 +2579,7 @@ try
             emailPrimeiroIsolado = conta.Email;
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60a. SEM privilegiado matriculado no tenant -> elegivel para o primeiro ticket",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailPrimeiroIsolado)
@@ -2591,7 +2594,7 @@ try
         // reflexao (bloqueador 9 — o metodo nao e mais publico) — exatamente
         // como um DesafioDeMfa.HashDoDesafio real.
         var ticketDoBootstrap = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var resultado = await TentarRegistrarTicketViaReflexaoAsync(
                 db, emailPrimeiroIsolado, SegredosAleatoriosMfa.Sha256Hex(ticketDoBootstrap),
@@ -2605,7 +2608,7 @@ try
         // do bootstrap funciona identico a um ticket normal.
         IniciarMfaResponse iniciadoBootstrap;
         DesafioMfaResponse sessaoBootstrap;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             sessaoBootstrap = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -2622,7 +2625,7 @@ try
         // FECHA SOZINHO — mesmo para uma conta DIFERENTE, ainda sem MFA.
         Guid idSegundoIsolado;
         string emailSegundoIsolado;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -2640,14 +2643,14 @@ try
             emailSegundoIsolado = conta.Email;
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60c. DEPOIS de existir Administrador/Titular com MFA ativo -> bootstrap RECUSA (auto-fechamento)",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailSegundoIsolado)
                     == ElegibilidadeDeBootstrap.JaExistePrivilegiadoMatriculado);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60d. e-mail inexistente -> ContaInexistente",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, $"nao-existe-{Guid.NewGuid():N}@teste.local")
@@ -2655,7 +2658,7 @@ try
         }
 
         var (idInativoBootstrap, emailInativoBootstrap) = await NovaContaPrivilegiada("bootstrap - inativo", ativo: false);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60e. conta inativa -> ContaInativa",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailInativoBootstrap)
@@ -2664,14 +2667,14 @@ try
 
         var (idComumBootstrap, emailComumBootstrap) = await NovaContaPrivilegiada(
             "bootstrap - nao privilegiado", perfil: PerfilDeAtendente.Atendente);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60f. conta NAO privilegiada -> NaoPrivilegiada",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailComumBootstrap)
                     == ElegibilidadeDeBootstrap.NaoPrivilegiada);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("60g. conta que JA tem MFA ativo -> MfaJaAtivo",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailPrimeiroIsolado)
@@ -2691,7 +2694,7 @@ try
 
     {
         Guid tenantIsolado61;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2706,7 +2709,7 @@ try
 
         async Task<(Guid Id, string Email)> ContaNoIsolado61(string rotulo, CargoNaServentia cargo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado61,
@@ -2726,7 +2729,7 @@ try
         // 61a — Substituto -> Titular sobe TokenVersion (fronteira false->true).
         var (idA, emailA) = await ContaNoIsolado61("61a", CargoNaServentia.Substituto);
         var v0A = (await Ler(idA)).TokenVersion;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idA,
                 new AtualizarAtendenteRequest("Nome", emailA, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
@@ -2737,7 +2740,7 @@ try
         // 61b — Titular -> Substituto sobe TokenVersion (fronteira true->false).
         var (idB, emailB) = await ContaNoIsolado61("61b", CargoNaServentia.Titular);
         var v0B = (await Ler(idB)).TokenVersion;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idB,
                 new AtualizarAtendenteRequest("Nome", emailB, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
@@ -2751,7 +2754,7 @@ try
         var (idC, emailC) = await ContaNoIsolado61("61c", CargoNaServentia.Titular);
         var v0C = (await Ler(idC)).TokenVersion;
         var tokenEmClaro61c = SegredosAleatoriosMfa.NovoToken();
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             db.DesafiosDeMfa.Add(new DesafioDeMfa
             {
@@ -2765,19 +2768,19 @@ try
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idC,
                 new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
         }
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idC,
                 new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
         }
 
         UsuariosServiceException? falha61c = null;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             try
             {
@@ -2795,13 +2798,13 @@ try
         var (tokenD, _) = tokens.Gerar(estadoAntesD);
         var versaoAntesD = LerVersaoDaClaim(tokenD);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idD,
                 new AtualizarAtendenteRequest("Nome", emailD, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("61d. JWT emitido antes da promocao por Cargo deixa de ser valido",
                 await NovoValidador(db).CarregarSessaoAsync(idD, tenantIsolado61, versaoAntesD) is null);
@@ -2812,7 +2815,7 @@ try
         // Precisa de tenant PROPRIO: ligar a politica exige TODOS os
         // Administrador/Titular ja matriculados.
         Guid tenantIsolado61e;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -2827,7 +2830,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> AtorMatriculadoNoIsolado61e(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado61e,
@@ -2864,7 +2867,7 @@ try
 
         var ator61e = await AtorMatriculadoNoIsolado61e("ator do flip (61e)");
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).AtivarObrigatoriedadeAsync(
                 new IdentidadeParaMfa(tenantIsolado61e, ator61e.Id),
@@ -2873,7 +2876,7 @@ try
         }
 
         Guid idE; string emailE;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -2895,7 +2898,7 @@ try
         // Login normal enquanto ainda NAO privilegiado — a politica so exige
         // MFA de quem e privilegiado, entao entra numa etapa so, com JWT.
         LoginEtapa1Response etapa1AntesDaPromocao;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             etapa1AntesDaPromocao = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(emailE, SenhaBoa));
@@ -2905,19 +2908,19 @@ try
 
         var versaoAntesDaPromocaoE = LerVersaoDaClaim(etapa1AntesDaPromocao.Sessao!.Token);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61e).AtualizarAsync(idE,
                 new AtualizarAtendenteRequest("Nome", emailE, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("61e. sessao antiga (de antes da promocao por Cargo) nao vale mais",
                 await NovoValidador(db).CarregarSessaoAsync(idE, tenantIsolado61e, versaoAntesDaPromocaoE) is null);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -2936,14 +2939,14 @@ try
             "61f - promovido depois do desafio aberto", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Substituto);
 
         LoginEtapa1Response etapa1F;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             etapa1F = await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(emailF, SenhaBoa));
         }
         Checar("61f-preparo. desafio de 2o fator aberto (conta ja tinha MFA, Cargo=Substituto)",
             etapa1F.RequerMfa && etapa1F.Desafio is not null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idF,
                 new AtualizarAtendenteRequest("Nome", emailF, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
@@ -2956,7 +2959,7 @@ try
         // a fronteira nao muda de lado -> TokenVersion NAO sobe.
         var (idG, emailG) = await ContaNoIsolado61("61g", CargoNaServentia.Substituto);
         var v0G = (await Ler(idG)).TokenVersion;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado61).AtualizarAsync(idG,
                 new AtualizarAtendenteRequest("Nome", emailG, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.EscreventeAutorizado));
@@ -2983,19 +2986,19 @@ try
         var (idA, emailA) = await NovaContaPrivilegiada("bloqueador5 - promovido por Perfil", perfil: PerfilDeAtendente.Atendente);
 
         IniciarMfaResponse iniciadoA;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoA = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idA), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idA,
                 new AtualizarAtendenteRequest("Nome", emailA, PerfilDeAtendente.Administrador, null, true));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -3016,19 +3019,19 @@ try
         var (idB, emailB) = await NovaContaPrivilegiada("bloqueador5 - promovido por Cargo", perfil: PerfilDeAtendente.Atendente);
 
         IniciarMfaResponse iniciadoB;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoB = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idB), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idB,
                 new AtualizarAtendenteRequest("Nome", emailB, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Titular));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -3056,7 +3059,7 @@ try
             var (idC, emailC) = await NovaContaPrivilegiada($"bloqueador5 - corrida {i}", perfil: PerfilDeAtendente.Atendente);
 
             IniciarMfaResponse iniciadoC;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 iniciadoC = await NovoMfaService(db).IniciarAsync(
                     new IdentidadeParaMfa(tenantId, idC), new IniciarMfaRequest(SenhaBoa, null), null, default);
@@ -3066,7 +3069,7 @@ try
 
             async Task<bool> TentarConfirmar()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 try
                 {
                     await NovoMfaService(db).ConfirmarAsync(
@@ -3081,7 +3084,7 @@ try
 
             async Task PromoverAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idC,
                     new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Administrador, null, true));
             }
@@ -3109,14 +3112,14 @@ try
         var (idD, emailD, segredoD, _) = await NovaContaComMfaAtivo("bloqueador5 - troca de autenticador");
 
         IniciarMfaResponse iniciadoTrocaD;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoTrocaD = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idD), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoD)), null, default);
         }
 
         ConfirmarMfaResponse confirmadoTrocaD;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             confirmadoTrocaD = await NovoMfaService(db).ConfirmarAsync(
                 new IdentidadeParaMfa(tenantId, idD), new ConfirmarMfaRequest(CodigoTotp(iniciadoTrocaD.SegredoBase32, -1)), null, default);
@@ -3134,7 +3137,7 @@ try
 
     {
         Guid tenantIsolado63a;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -3149,7 +3152,7 @@ try
 
         // Alvo do bootstrap: privilegiado, sem MFA, elegivel no comeco.
         Guid idAlvo63a; string emailAlvo63a;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -3167,7 +3170,7 @@ try
             emailAlvo63a = conta.Email;
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("63a-preparo. verificacao inicial: alvo Elegivel para bootstrap",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, emailAlvo63a)
@@ -3178,7 +3181,7 @@ try
         // verificacao inicial e a confirmacao no CLI), OUTRO privilegiado do
         // MESMO tenant conclui a propria matricula de MFA — o bootstrap
         // deveria ter se auto-fechado.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -3216,7 +3219,7 @@ try
         // atomico privado (TentarRegistrarTicketAsync), via reflexao, com um
         // hash gerado aqui mesmo no teste — nenhum metodo publico gera nem
         // registra ticket (bloqueador 9).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var resultado = await TentarRegistrarTicketViaReflexaoAsync(
                 db, emailAlvo63a, SegredosAleatoriosMfa.Sha256Hex(SegredosAleatoriosMfa.NovoToken()),
@@ -3226,7 +3229,7 @@ try
                 resultado == ElegibilidadeDeBootstrap.JaExistePrivilegiadoMatriculado);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("63a-pos. nenhum ticket de bootstrap foi gravado para o alvo",
                 !await db.DesafiosDeMfa.AnyAsync(d => d.AtendenteId == idAlvo63a && d.Tipo == TipoDeDesafioMfa.Ticket));
@@ -3240,7 +3243,7 @@ try
 
     {
         Guid tenantIsolado63b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -3254,7 +3257,7 @@ try
         tenantIdsDeTeste.Add(tenantIsolado63b);
 
         Guid idAlvo63b; string emailAlvo63b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -3274,7 +3277,7 @@ try
 
         // Auto-fechamento JA verdadeiro ANTES de disparar as tentativas
         // concorrentes: outro privilegiado do mesmo tenant ja matriculado.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -3310,7 +3313,7 @@ try
 
         async Task<bool> TentarEmitirTicketBootstrap()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var resultado = await TentarRegistrarTicketViaReflexaoAsync(
                 db, emailAlvo63b, SegredosAleatoriosMfa.Sha256Hex(SegredosAleatoriosMfa.NovoToken()),
                 "teste concorrente 63b", "teste@verificador");
@@ -3322,7 +3325,7 @@ try
         Checar("63b. 5 tentativas concorrentes DEPOIS do auto-fechamento: nenhuma produz ticket",
             resultados63b.All(r => !r));
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("63b-pos. nenhum ticket de bootstrap foi gravado para o alvo",
                 !await db.DesafiosDeMfa.AnyAsync(d => d.AtendenteId == idAlvo63b && d.Tipo == TipoDeDesafioMfa.Ticket));
@@ -3347,7 +3350,7 @@ try
         for (var i = 0; i < trials63c; i++)
         {
             Guid tenantTrial;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var tenant = new Tenant
                 {
@@ -3361,7 +3364,7 @@ try
             tenantIdsDeTeste.Add(tenantTrial);
 
             Guid idAlvo; string emailAlvo;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var conta = new Atendente
                 {
@@ -3384,7 +3387,7 @@ try
             // sequencia) e o evento que fecha a elegibilidade do tenant,
             // disparado AO MESMO TEMPO que a tentativa de emissao.
             Guid idFechamento; string emailFechamento; string ticketDeFechamento;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var conta = new Atendente
                 {
@@ -3416,7 +3419,7 @@ try
 
             async Task<ElegibilidadeDeBootstrap> TentarEmitirAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 return await TentarRegistrarTicketViaReflexaoAsync(
                     db, emailAlvo, SegredosAleatoriosMfa.Sha256Hex(SegredosAleatoriosMfa.NovoToken()),
                     $"corrida real 63c-{i}", "teste@verificador");
@@ -3424,7 +3427,7 @@ try
 
             async Task FecharElegibilidadeAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 var mfa = NovoMfaService(db);
                 var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
                     new MatricularPrivilegiadoRequest(emailFechamento, SenhaBoa, ticketDeFechamento), null, default);
@@ -3439,7 +3442,7 @@ try
 
             var resultadoEmissao = await tarefaEmitir;
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var ticketExiste = await db.DesafiosDeMfa
                     .AnyAsync(d => d.AtendenteId == idAlvo && d.Tipo == TipoDeDesafioMfa.Ticket);
@@ -4050,19 +4053,19 @@ try
         var versaoAntesDaRevogacaoA = LerVersaoDaClaim(tokenAntesDaRevogacaoA);
 
         IniciarMfaResponse iniciadoA;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoA = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idA), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
         var codigoA = CodigoTotp(iniciadoA.SegredoBase32);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, idA).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaNova66a#1"));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -4084,19 +4087,19 @@ try
         var (idB, emailB, segredoB, _) = await NovaContaComMfaAtivo("bloqueador8 - troca, senha muda");
 
         IniciarMfaResponse iniciadoB;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoB = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idB), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoB)), null, default);
         }
         var codigoB = CodigoTotp(iniciadoB.SegredoBase32, -1);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, idB).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaNova66b#1"));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -4119,20 +4122,20 @@ try
         var (idC, emailC, segredoC, _) = await NovaContaComMfaAtivo("bloqueador8 - troca, Perfil muda");
 
         IniciarMfaResponse iniciadoC;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoC = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idC), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoC)), null, default);
         }
         var codigoC = CodigoTotp(iniciadoC.SegredoBase32, -1);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idC,
                 new AtualizarAtendenteRequest("Nome", emailC, PerfilDeAtendente.Supervisor, null, true));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -4154,20 +4157,20 @@ try
             "bloqueador8 - troca, fronteira de Cargo", perfil: PerfilDeAtendente.Atendente, cargo: CargoNaServentia.Titular);
 
         IniciarMfaResponse iniciadoD;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoD = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idD), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoD)), null, default);
         }
         var codigoD = CodigoTotp(iniciadoD.SegredoBase32, -1);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAtendenteService(db, Guid.NewGuid()).AtualizarAsync(idD,
                 new AtualizarAtendenteRequest("Nome", emailD, PerfilDeAtendente.Atendente, null, true, CargoNaServentia.Substituto));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -4186,7 +4189,7 @@ try
         // cerimonia antiga recusada. Precisa de tenant isolado (o flip exige
         // TODOS os privilegiados ja matriculados).
         Guid tenantIsolado66e;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -4200,7 +4203,7 @@ try
         tenantIdsDeTeste.Add(tenantIsolado66e);
 
         Guid idE; string emailE; string segredoE;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -4240,7 +4243,7 @@ try
         // Passo -1 ja consumido na matricula acima; passo 0 esta livre para
         // o step-up do IniciarAsync (troca de autenticador).
         IniciarMfaResponse iniciadoE;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoE = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantIsolado66e, idE), new IniciarMfaRequest(SenhaBoa, CodigoTotp(segredoE)), null, default);
@@ -4248,7 +4251,7 @@ try
         var codigoE = CodigoTotp(iniciadoE.SegredoBase32, -1);
 
         // Passo 1 (o proximo livre) para o step-up do proprio flip.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).AtivarObrigatoriedadeAsync(
                 new IdentidadeParaMfa(tenantIsolado66e, idE),
@@ -4256,7 +4259,7 @@ try
                 null, default);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -4276,14 +4279,14 @@ try
         var (idF, emailF) = await NovaContaPrivilegiada("bloqueador8 - regressao, sem mudanca", perfil: PerfilDeAtendente.Atendente);
 
         IniciarMfaResponse iniciadoF;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoF = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idF), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
 
         ConfirmarMfaResponse confirmadoF;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             confirmadoF = await NovoMfaService(db).ConfirmarAsync(
                 new IdentidadeParaMfa(tenantId, idF), new ConfirmarMfaRequest(CodigoTotp(iniciadoF.SegredoBase32)), null, default);
@@ -4305,7 +4308,7 @@ try
             var (idG, emailG) = await NovaContaPrivilegiada($"bloqueador8 - corrida {i}", perfil: PerfilDeAtendente.Atendente);
 
             IniciarMfaResponse iniciadoG;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 iniciadoG = await NovoMfaService(db).IniciarAsync(
                     new IdentidadeParaMfa(tenantId, idG), new IniciarMfaRequest(SenhaBoa, null), null, default);
@@ -4314,7 +4317,7 @@ try
 
             async Task<bool> TentarConfirmarAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 try
                 {
                     await NovoMfaService(db).ConfirmarAsync(
@@ -4329,7 +4332,7 @@ try
 
             async Task TrocarSenhaAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 await NovoAutenticacao(db, idG).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, $"SenhaCorrida66g#{i}"));
             }
 
@@ -4354,7 +4357,7 @@ try
         // porteiro de MFA (ConfirmarAsync, ja provado em 66a) recusam,
         // independentemente — duas camadas, nao uma so. Reusa o JWT
         // capturado ANTES da troca de senha em 66a.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("66h. JWT emitido ANTES da revogacao (66a) tambem nao vale mais (camada de sessao, independente do gate de MFA)",
                 await NovoValidador(db).CarregarSessaoAsync(idA, tenantId, versaoAntesDaRevogacaoA) is null);
@@ -4389,7 +4392,7 @@ try
 
             async Task<bool> TentarIniciarAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 try
                 {
                     await NovoMfaService(db).IniciarAsync(
@@ -4404,7 +4407,7 @@ try
 
             async Task TrocarSenhaAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 await NovoAutenticacao(db, idX).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, $"SenhaCorrida67a#{i}"));
             }
 
@@ -4441,7 +4444,7 @@ try
 
             async Task<bool> TentarIniciarTrocaAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 try
                 {
                     await NovoMfaService(db).IniciarAsync(
@@ -4456,7 +4459,7 @@ try
 
             async Task TrocarSenhaAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 await NovoAutenticacao(db, idY).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, $"SenhaCorrida67b#{i}"));
             }
 
@@ -4496,7 +4499,7 @@ try
             var ticketZ = await EmitirTicketCruAsync(idZ, tokenVersionZ);
 
             DesafioMfaResponse sessaoZ;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 sessaoZ = await NovoMfaService(db).IniciarMatriculaPrivilegiadaAsync(
                     new MatricularPrivilegiadoRequest(emailZ, SenhaBoa, ticketZ), null, default);
@@ -4504,7 +4507,7 @@ try
 
             async Task<bool> TentarIniciarViaDesafioAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 try
                 {
                     await NovoMfaService(db).IniciarViaDesafioAsync(new IniciarViaDesafioRequest(sessaoZ.Desafio), default);
@@ -4518,7 +4521,7 @@ try
 
             async Task TrocarSenhaAsync()
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 await NovoAutenticacao(db, idZ).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, $"SenhaCorrida67c#{i}"));
             }
 
@@ -4549,7 +4552,7 @@ try
         // a TokenVersion no momento da geracao.
         var (idW, emailW) = await NovaContaPrivilegiada("bloqueador10 - regressao sem corrida", perfil: PerfilDeAtendente.Atendente);
         IniciarMfaResponse respostaW;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             respostaW = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idW), new IniciarMfaRequest(SenhaBoa, null), null, default);
@@ -4576,7 +4579,7 @@ try
         // MfaAtivo=false por desativacao voluntaria — nunca pode acontecer,
         // em nenhuma das duas ordens de vitoria.
         Guid tenantIsolado68a;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -4591,7 +4594,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada68a(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado68a,
@@ -4631,7 +4634,7 @@ try
 
         async Task<bool> TentarDesativarAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).DesativarAsync(
@@ -4647,7 +4650,7 @@ try
 
         async Task<bool> TentarAtivarPoliticaAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).AtivarObrigatoriedadeAsync(
@@ -4668,7 +4671,7 @@ try
         var desativouOk68a = await tarefaDesativar68a;
         var ativouOk68a = await tarefaAtivar68a;
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var estadoDesativa = await Ler(desativa68a.Id);
             var politicaLigada = await db.Tenants.AsNoTracking()
@@ -4686,7 +4689,7 @@ try
         // Titular), corrida real: se o ator perde o Cargo Titular antes do
         // commit final, o ticket NAO pode sair.
         Guid tenantIsolado68b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -4700,7 +4703,7 @@ try
         tenantIdsDeTeste.Add(tenantIsolado68b);
 
         Guid idAtor68b; string emailAtor68b; string segredoAtor68b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -4739,7 +4742,7 @@ try
         }
 
         Guid idAlvo68b; string emailAlvo68b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -4762,7 +4765,7 @@ try
 
         async Task<bool> TentarEmitirTicketAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).EmitirTicketAsync(
@@ -4778,7 +4781,7 @@ try
 
         async Task DemoverAtorAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             await NovoAtendenteServiceParaTenant(db, Guid.NewGuid(), tenantIsolado68b).AtualizarAsync(idAtor68b,
                 new AtualizarAtendenteRequest("Nome", emailAtor68b, PerfilDeAtendente.Administrador, null, true, CargoNaServentia.Substituto));
         }
@@ -4789,7 +4792,7 @@ try
 
         var emitiuOk68b = await tarefaTicket68b;
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var ticketExiste68b = await db.DesafiosDeMfa
                 .AnyAsync(d => d.AtendenteId == idAlvo68b && d.Tipo == TipoDeDesafioMfa.Ticket);
@@ -4802,7 +4805,7 @@ try
         // operacao antiga (autorizada sob a senha/TokenVersion velha) nunca
         // pode commitar depois da troca.
         Guid tenantIsolado68c;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -4816,7 +4819,7 @@ try
         tenantIdsDeTeste.Add(tenantIsolado68c);
 
         Guid idAtor68c; string emailAtor68c; string segredoAtor68c;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -4855,7 +4858,7 @@ try
 
         var (idAlvo68c, emailAlvo68c, segredoAlvo68c, _) = await NovaContaComMfaAtivo("68c - alvo do reset", perfil: PerfilDeAtendente.Atendente);
         // Move o alvo para o tenant isolado — mais simples criar direto la.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await db.Atendentes.Where(a => a.Id == idAlvo68c).ExecuteUpdateAsync(s => s.SetProperty(a => a.TenantId, tenantIsolado68c));
         }
@@ -4864,7 +4867,7 @@ try
 
         async Task<bool> TentarResetarAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).ResetarAsync(
@@ -4880,7 +4883,7 @@ try
 
         async Task TrocarSenhaDoAtorAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             await NovoAutenticacaoParaTenant(db, idAtor68c, tenantIsolado68c)
                 .AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaCorrida68c#1"));
         }
@@ -4891,7 +4894,7 @@ try
 
         var resetouOk68c = await tarefaReset68c;
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var estadoAlvo68c = await Ler(idAlvo68c);
             var resetouDeFato = !estadoAlvo68c.MfaAtivo;
@@ -4908,7 +4911,7 @@ try
 
         async Task<bool> TentarDesativarD68dAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).DesativarAsync(
@@ -4924,7 +4927,7 @@ try
 
         async Task TrocarSenhaD68dAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             await NovoAutenticacao(db, idD68d).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaCorrida68d#1"));
         }
 
@@ -4934,7 +4937,7 @@ try
 
         var desativouOkD68d = await tarefaDesativarD68d;
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var quantosEventosMfaDesativado = await db.EventosDeSeguranca
                 .CountAsync(e => e.AtendenteId == idD68d && e.Tipo == TipoDeEventoDeSeguranca.MfaDesativado);
@@ -4957,7 +4960,7 @@ try
         var (idA69, emailA69) = await NovaContaPrivilegiada("bloqueador13 - falha MfaAtivado", perfil: PerfilDeAtendente.Atendente);
 
         IniciarMfaResponse iniciado69a;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciado69a = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idA69), new IniciarMfaRequest(SenhaBoa, null), null, default);
@@ -4966,7 +4969,7 @@ try
         var codigo69a = CodigoTotp(iniciado69a.SegredoBase32);
 
         Exception? falha69a = null;
-        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.MfaAtivado)))
+        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.MfaAtivado), cifraDeDados))
         {
             try
             {
@@ -4990,7 +4993,7 @@ try
         Checar("69a. o segredo pendente ORIGINAL continua intacto (rollback desfez a limpeza)",
             estado69a.MfaSegredoPendenteCifrado is not null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var temRecoveryCodesNovos = await db.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == idA69);
             Checar("69a. nenhum recovery code novo ficou gravado",
@@ -5000,7 +5003,7 @@ try
         // Sem a falha (db normal), a MESMA cerimonia — nunca marcada como
         // concluida pelo tentativa anterior, que reverteu por completo —
         // ainda funciona normalmente.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var confirmadoDeVerdade = await NovoMfaService(db).ConfirmarAsync(
                 new IdentidadeParaMfa(tenantId, idA69), new ConfirmarMfaRequest(codigo69a), null, default);
@@ -5015,7 +5018,7 @@ try
         var codigoDeRecuperacao69b = codigosB69[0];
 
         LoginEtapa1Response etapa1_69b;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             etapa1_69b = await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(emailB69, SenhaBoa));
         }
@@ -5025,7 +5028,7 @@ try
         var estadoAntes69b = await Ler(idB69);
 
         Exception? falha69b = null;
-        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado)))
+        await using (var dbComFalha = new CrmDbContext(OpcoesComFalhaDeEvento(TipoDeEventoDeSeguranca.CodigoDeRecuperacaoUsado), cifraDeDados))
         {
             try
             {
@@ -5041,14 +5044,14 @@ try
         Checar("69b. falha injetada ao persistir CodigoDeRecuperacaoUsado: a chamada de fato lanca excecao",
             falha69b is not null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var quantosUsados = await db.CodigosDeRecuperacaoMfa.CountAsync(c => c.AtendenteId == idB69 && c.UsadoEm != null);
             Checar("69b. nenhum recovery code fica consumido quando o evento falha",
                 quantosUsados == 0);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioAindaAberto = await db.DesafiosDeMfa.AnyAsync(d =>
                 d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(etapa1_69b.Desafio!.Desafio) && d.ConsumidoEm == null);
@@ -5062,7 +5065,7 @@ try
 
         // Sem a falha, o MESMO desafio + o MESMO codigo de recuperacao (nunca
         // consumido de verdade pela tentativa anterior) ainda completa o login.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var loginDeVerdade = await NovoAutenticacao(db, Guid.NewGuid()).ConcluirLoginMfaAsync(
                 new ConcluirLoginMfaRequest(etapa1_69b.Desafio!.Desafio, codigoDeRecuperacao69b));
@@ -5087,7 +5090,7 @@ try
         var ticket70a = await EmitirTicketCruAsync(idPriv70, estadoAntes70a.TokenVersion);
 
         ConfirmarMfaResponse confirmado70a;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessao70a = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -5108,14 +5111,14 @@ try
 
         // 70b — codigo incorreto.
         var (idB70, emailB70) = await NovaContaPrivilegiada("bloqueador14 - codigo incorreto", perfil: PerfilDeAtendente.Atendente);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idB70), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
         var estadoAntesB70 = await Ler(idB70);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5136,18 +5139,18 @@ try
         // 70c — challenge/TokenVersion invalido (senha mudou entre iniciar e confirmar).
         var (idC70, emailC70) = await NovaContaPrivilegiada("bloqueador14 - tokenversion invalido", perfil: PerfilDeAtendente.Atendente);
         IniciarMfaResponse iniciadoC70;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoC70 = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idC70), new IniciarMfaRequest(SenhaBoa, null), null, default);
         }
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, idC70).AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaNova70c#1"));
         }
         var estadoAntesC70 = await Ler(idC70);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5168,7 +5171,7 @@ try
         // 70d — confirmacao concorrente: so quem de fato conclui grava UltimoAcessoEm.
         var (idD70, emailD70) = await NovaContaPrivilegiada("bloqueador14 - concorrencia", perfil: PerfilDeAtendente.Atendente);
         IniciarMfaResponse iniciadoD70;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             iniciadoD70 = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantId, idD70), new IniciarMfaRequest(SenhaBoa, null), null, default);
@@ -5177,7 +5180,7 @@ try
 
         async Task<bool> TentarConfirmarD70()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).ConfirmarAsync(
@@ -5213,7 +5216,7 @@ try
             var tokenVersion = (await Ler(id)).TokenVersion;
             var ticket = await EmitirTicketCruAsync(id, tokenVersion);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var mfa = NovoMfaService(db);
             var sessao = await mfa.IniciarMatriculaPrivilegiadaAsync(
                 new MatricularPrivilegiadoRequest(email, SenhaBoa, ticket), null, default);
@@ -5224,7 +5227,7 @@ try
 
         async Task<UsuariosServiceException?> TentarConfirmarViaDesafio71(string desafio, string codigo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).ConfirmarViaDesafioAsync(new ConfirmarViaDesafioRequest(desafio, codigo), null, default);
@@ -5241,7 +5244,7 @@ try
         var falha71_1 = await TentarConfirmarViaDesafio71(t71_1.Sessao.Desafio, "000000");
         Checar("71-1. codigo errado e recusado", falha71_1?.Codigo == "codigo_mfa_invalido");
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
                 .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_1.Sessao.Desafio));
@@ -5252,7 +5255,7 @@ try
 
         // 71-2 — apos 1 erro, o codigo CORRETO ainda funciona (mesma conta do 71-1).
         ConfirmarMfaResponse confirmado71_2;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             confirmado71_2 = await NovoMfaService(db).ConfirmarViaDesafioAsync(
                 new ConfirmarViaDesafioRequest(t71_1.Sessao.Desafio, CodigoTotp(t71_1.Iniciado.SegredoBase32, -1)), null, default);
@@ -5270,7 +5273,7 @@ try
         }
         Checar("71-3. 5 tentativas com codigo errado sao todas recusadas", todosRecusados71_3);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
                 .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_3.Sessao.Desafio));
@@ -5291,7 +5294,7 @@ try
         }
 
         ConfirmarMfaResponse confirmado71_5;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             confirmado71_5 = await NovoMfaService(db).ConfirmarViaDesafioAsync(
                 new ConfirmarViaDesafioRequest(t71_5.Sessao.Desafio, CodigoTotp(t71_5.Iniciado.SegredoBase32, -1)), null, default);
@@ -5299,7 +5302,7 @@ try
         Checar("71-5. a 5a tentativa (correta, apos 4 erros) conclui",
             !string.IsNullOrEmpty(confirmado71_5.Sessao.Token));
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
                 .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_5.Sessao.Desafio));
@@ -5313,7 +5316,7 @@ try
 
         async Task<bool> TentarConfirmarConcorrente71_6()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             try
             {
                 await NovoMfaService(db).ConfirmarViaDesafioAsync(
@@ -5330,7 +5333,7 @@ try
         Checar("71-6. 5 confirmacoes concorrentes (mesmo desafio/codigo) — exatamente 1 conclui",
             resultados71_6.Count(r => r) == 1);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioDb = await db.DesafiosDeMfa.AsNoTracking()
                 .SingleAsync(d => d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(t71_6.Sessao.Desafio));
@@ -5339,7 +5342,7 @@ try
         }
 
         // 71-7 — challenge esgotado nao pode reiniciar a cerimonia via IniciarViaDesafioAsync.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5422,7 +5425,7 @@ try
         }
 
         Guid tenantIsolado73;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -5437,7 +5440,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada73(string rotulo, CargoNaServentia cargo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado73,
@@ -5490,14 +5493,14 @@ try
         // MfaJaAtivo (o alvo em si ja tem MFA ativo), nao por
         // JaExistePrivilegiadoMatriculado — mas o efeito e o mesmo: bootstrap
         // fechado, sem caminho para emitir um novo ticket para o Titular.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("73-deadlock-a. bootstrap normal ja fechado para o Titular (MfaAtivo=true no banco, apesar dele ter perdido o autenticador)",
                 await FerramentaDeBootstrapMfa.VerificarElegibilidadeAsync(db, titularPreso73.Email)
                     == ElegibilidadeDeBootstrap.MfaJaAtivo);
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5517,7 +5520,7 @@ try
         // qualquer privilegiado sem MFA, e o break-glass, la na frente, vai
         // desligar o do Titular). E o cenario real: a serventia ja exige MFA
         // de privilegiados antes de alguem perder o proprio autenticador.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoMfaService(db).AtivarObrigatoriedadeAsync(
                 new IdentidadeParaMfa(tenantIsolado73, outroAdmin73.Id),
@@ -5529,7 +5532,7 @@ try
         // etapa 1) usando o segredo antigo do Titular, ANTES do break-glass —
         // para o teste 4 provar de verdade que fica invalido.
         LoginEtapa1Response etapa1AntesDoBreakGlass73;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             etapa1AntesDoBreakGlass73 = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(titularPreso73.Email, SenhaBoa));
@@ -5545,7 +5548,7 @@ try
         // 2 — break-glass remove os fatores de forma auditada.
         var tokenNovoDeRematricula73 = SegredosAleatoriosMfa.NovoToken();
         ElegibilidadeDeEmergencia resultadoBreakGlass73;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             resultadoBreakGlass73 = await TentarResetarDeEmergenciaViaReflexaoAsync(
                 db, titularPreso73.Email, SegredosAleatoriosMfa.Sha256Hex(tokenNovoDeRematricula73),
@@ -5559,7 +5562,7 @@ try
         Checar("73-2b. MFA removido (MfaAtivo=false, segredo apagado)",
             !estadoPosBreakGlass73.MfaAtivo && estadoPosBreakGlass73.MfaSegredoCifrado is null);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("73-2c. recovery codes apagados",
                 !await db.CodigosDeRecuperacaoMfa.AnyAsync(c => c.AtendenteId == titularPreso73.Id));
@@ -5569,7 +5572,7 @@ try
             estadoPosBreakGlass73.TokenVersion > tokenVersionAntesDoBreakGlass73);
 
         // 3 — sessao/token ANTIGO fica invalido.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("73-3. JWT/sessao emitido ANTES do break-glass fica invalido",
                 await NovoValidador(db).CarregarSessaoAsync(titularPreso73.Id, tenantIsolado73, versaoAntigaTitular73) is null);
@@ -5578,7 +5581,7 @@ try
         // 4 — artefatos antigos (o desafio de 2o fator aberto antes) nao
         // funcionam mais: nem com o codigo do segredo ANTIGO (MfaAtivo=false
         // agora), nem de nenhum outro jeito — o desafio foi consumido.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var desafioAntigoAindaAberto = await db.DesafiosDeMfa.AnyAsync(d =>
                 d.HashDoDesafio == SegredosAleatoriosMfa.Sha256Hex(etapa1AntesDoBreakGlass73.Desafio!.Desafio)
@@ -5591,7 +5594,7 @@ try
         // volta a logar. A politica obrigatoria ja foi ligada antes do
         // break-glass (usando o OUTRO Administrador, que nunca foi tocado) —
         // agora prova que, ate a rematricula, a conta fica mesmo sem login.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5605,7 +5608,7 @@ try
         }
 
         IniciarMfaResponse iniciadoRematricula73;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -5618,7 +5621,7 @@ try
         Checar("73-5. nova matricula segura E POSSIVEL, usando o ticket que o proprio break-glass emitiu",
             (await Ler(titularPreso73.Id)).MfaAtivo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var loginDepoisDaRematricula = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(titularPreso73.Email, SenhaBoa));
@@ -5628,7 +5631,7 @@ try
         }
 
         // 7 — ResetDeEmergencia existe EXATAMENTE uma vez.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var eventos = await db.EventosDeSeguranca
                 .Where(e => e.AtendenteId == titularPreso73.Id && e.Tipo == TipoDeEventoDeSeguranca.ResetDeEmergencia)
@@ -5654,7 +5657,7 @@ try
         Checar("73-9. o outro Administrador (nao-Titular) continua com MFA intacto — nunca foi tocado pelo break-glass",
             (await Ler(outroAdmin73.Id)).MfaAtivo);
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("73-pos. a politica obrigatoria do tenant continua ligada (break-glass nunca a desliga silenciosamente)",
                 await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado73)
@@ -5677,7 +5680,7 @@ try
         // that nao e o que o teste pretende provar.
         async Task<Guid> NovoTenante74(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var tenant = new Tenant
             {
                 RazaoSocial = $"[TESTE SEC-03] Tenant isolado — break-glass elegibilidade ({rotulo})",
@@ -5691,7 +5694,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada74(Guid tenantId, string rotulo, CargoNaServentia cargo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantId,
@@ -5730,7 +5733,7 @@ try
         /// <summary>Privilegiada, ATIVA, mas NUNCA passou pelo ticket — MfaAtivo continua false.</summary>
         async Task<(Guid Id, string Email)> ContaSemMfa74(Guid tenantId, string rotulo, CargoNaServentia cargo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantId,
@@ -5751,7 +5754,7 @@ try
         // nunca se matriculou tem bootstrap/ticket normal a disposicao).
         var tenant74a = await NovoTenante74("74a");
         var semMfa74a = await ContaSemMfa74(tenant74a, "74a - privilegiada sem MFA", CargoNaServentia.Titular);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("74a. alvo sem MFA ativo -> ContaSemMfaAtivo (nao e caso de break-glass)",
                 await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, semMfa74a.Email)
@@ -5763,7 +5766,7 @@ try
         var tenant74b = await NovoTenante74("74b");
         var titular74b = await ContaMatriculada74(tenant74b, "74b - Titular com saida normal", CargoNaServentia.Titular);
         var outroTitularApto74b = await ContaMatriculada74(tenant74b, "74b - outro Titular apto", CargoNaServentia.Titular);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("74b. alvo Titular com outro Administrador+Titular apto -> ExisteAtorAptoParaResetNormal",
                 await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, titular74b.Email)
@@ -5775,7 +5778,7 @@ try
         var tenant74c = await NovoTenante74("74c");
         var admin74c = await ContaMatriculada74(tenant74c, "74c - Administrador com saida normal", CargoNaServentia.Substituto);
         var outroAdminApto74c = await ContaMatriculada74(tenant74c, "74c - outro Administrador apto", CargoNaServentia.Substituto);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("74c. alvo nao-Titular com outro Administrador apto (nao precisa ser Titular) -> ExisteAtorAptoParaResetNormal",
                 await FerramentaDeResetDeEmergencia.VerificarElegibilidadeAsync(db, admin74c.Email)
@@ -5787,7 +5790,7 @@ try
         var tenant74d = await NovoTenante74("74d");
         var admin74d = await ContaMatriculada74(tenant74d, "74d - Administrador preso", CargoNaServentia.Substituto);
         var outroSemMfa74d = await ContaSemMfa74(tenant74d, "74d - outro Administrador sem MFA (nao apto)", CargoNaServentia.Substituto);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             _ = outroSemMfa74d;
             Checar("74d. outro Administrador presente mas SEM MFA ativo nao bloqueia -> continua Elegivel",
@@ -5820,7 +5823,7 @@ try
         }
 
         Guid tenantIsolado75;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -5836,7 +5839,7 @@ try
         // Titular SOLITARIO no tenant — nenhum outro privilegiado, entao a
         // elegibilidade do break-glass nao esbarra em ExisteAtorAptoParaResetNormal.
         Guid contaId75; string email75; string segredo75;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -5874,7 +5877,7 @@ try
             segredo75 = iniciado.SegredoBase32;
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("75-preparo. politica obrigatoria do tenant continua DESLIGADA (controle do cenario)",
                 !await db.Tenants.AsNoTracking().Where(t => t.Id == tenantIsolado75)
@@ -5883,7 +5886,7 @@ try
 
         var tokenNovoDeRematricula75 = SegredosAleatoriosMfa.NovoToken();
         ElegibilidadeDeEmergencia resultadoBreakGlass75;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             resultadoBreakGlass75 = await TentarResetarDeEmergenciaViaReflexaoAsync75(
                 db, email75, SegredosAleatoriosMfa.Sha256Hex(tokenNovoDeRematricula75),
@@ -5901,7 +5904,7 @@ try
         // O NUCLEO do bloqueador B19: politica do tenant DESLIGADA, mas o
         // login so-senha AINDA ASSIM tem que ser recusado — e o sinalizador
         // por conta, nao a politica, quem decide aqui.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -5916,7 +5919,7 @@ try
 
         // Rematricula com o ticket que o proprio break-glass emitiu.
         IniciarMfaResponse iniciadoRematricula75;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -5935,7 +5938,7 @@ try
         // SO DEPOIS da rematricula o login volta a funcionar — e volta a
         // exigir MFA de novo (nunca vira login so-senha so porque a politica
         // esta desligada: MfaAtivo=true sempre pede o segundo fator).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var loginDepoisDaRematricula75 = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(email75, SenhaBoa));
@@ -6346,7 +6349,7 @@ try
 
         async Task<Guid> NovoTenante77(string rotulo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var tenant = new Tenant
             {
                 RazaoSocial = $"[TESTE SEC-03] Tenant isolado — reemissao ({rotulo})",
@@ -6360,7 +6363,7 @@ try
 
         async Task<(Guid Id, string Email, string Segredo)> ContaMatriculada77(Guid tenantId, string rotulo, CargoNaServentia cargo)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantId,
@@ -6405,7 +6408,7 @@ try
         // 1 — abre a emergencia (break-glass).
         var tokenTicketAntigo77 = SegredosAleatoriosMfa.NovoToken();
         var hashTicketAntigo77 = SegredosAleatoriosMfa.Sha256Hex(tokenTicketAntigo77);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var resultado = await TentarResetarDeEmergenciaViaReflexaoAsync77(
                 db, titular77.Email, hashTicketAntigo77, "cenario 77 — abre a emergencia", "teste@verificador");
@@ -6417,7 +6420,7 @@ try
             !estadoAposBreakGlass77.MfaAtivo && estadoAposBreakGlass77.RematriculaObrigatoriaAposEmergencia);
 
         // 2 — "ticket antigo perdido/expirado": login continua bloqueado.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try { await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa)); }
@@ -6427,7 +6430,7 @@ try
         }
 
         // Elegibilidade da REEMISSAO, exposta publicamente (sem reflexao).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("77-3. FerramentaDeReemissaoDeTicketDeEmergencia reconhece a emergencia aberta como Elegivel",
                 await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, titular77.Email)
@@ -6437,7 +6440,7 @@ try
         // 3 — reemissao.
         var tokenTicketNovo77 = SegredosAleatoriosMfa.NovoToken();
         ElegibilidadeDeReemissaoDeTicket resultadoReemissao77;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             resultadoReemissao77 = await TentarReemitirTicketViaReflexaoAsync77(
                 db, titular77.Email, SegredosAleatoriosMfa.Sha256Hex(tokenTicketNovo77),
@@ -6454,7 +6457,7 @@ try
             estadoAposReemissao77.RematriculaObrigatoriaAposEmergencia);
 
         // 5 — login CONTINUA bloqueado (reemissao nunca libera login por si so).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try { await NovoAutenticacao(db, Guid.NewGuid()).AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa)); }
@@ -6464,7 +6467,7 @@ try
         }
 
         // 6 — ticket ANTIGO invalidado pela reemissao.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falha = null;
             try
@@ -6477,7 +6480,7 @@ try
                 falha?.Codigo == "ticket_invalido");
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("77-8b. o desafio do ticket antigo esta marcado ConsumidoEm (nao so silenciosamente ignorado)",
                 await db.DesafiosDeMfa.AnyAsync(d => d.HashDoDesafio == hashTicketAntigo77 && d.ConsumidoEm != null));
@@ -6485,7 +6488,7 @@ try
 
         // 7 — ticket NOVO matricula normalmente.
         IniciarMfaResponse iniciadoRematricula77;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -6502,7 +6505,7 @@ try
             !estadoPosRematricula77.RematriculaObrigatoriaAposEmergencia);
 
         // 8 — login volta.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var loginPosRematricula77 = await NovoAutenticacao(db, Guid.NewGuid())
                 .AutenticarAsync(new LoginRequest(titular77.Email, SenhaBoa));
@@ -6512,7 +6515,7 @@ try
 
         // 9 — auditoria: evento proprio, exatamente uma vez, identidade das
         // duas pessoas sem nenhum segredo/ticket/codigo nos campos.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var eventosDeReemissao = await db.EventosDeSeguranca
                 .Where(e => e.AtendenteId == titular77.Id && e.Tipo == TipoDeEventoDeSeguranca.TicketDeRematriculaReemitido)
@@ -6541,7 +6544,7 @@ try
         // criterio do break-glass — cenario 74b/74c espelhado aqui).
         var tenant77b = await NovoTenante77("ator apto — alvo Titular");
         var titular77b = await ContaMatriculada77(tenant77b, "77b - Titular preso", CargoNaServentia.Titular);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await TentarResetarDeEmergenciaViaReflexaoAsync77(
                 db, titular77b.Email, SegredosAleatoriosMfa.Sha256Hex(SegredosAleatoriosMfa.NovoToken()),
@@ -6550,7 +6553,7 @@ try
         // Outro Administrador+Titular com MFA aparece DEPOIS do break-glass —
         // prova que a reemissao reconfere o estado ATUAL, nao um instantaneo antigo.
         await ContaMatriculada77(tenant77b, "77b - outro Titular apto (surge depois)", CargoNaServentia.Titular);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("77-15. reemissao RECUSA quando surge um ator apto ao reset normal (mesmo com emergencia aberta)",
                 await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, titular77b.Email)
@@ -6562,7 +6565,7 @@ try
         var tenant77c = await NovoTenante77("nunca passou por break-glass");
         Guid contaComum77c;
         string emailComum77c;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -6580,7 +6583,7 @@ try
             contaComum77c = conta.Id;
             emailComum77c = conta.Email;
         }
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("77-16. reemissao RECUSA para conta que NUNCA passou por break-glass (MfaAtivo=false, flag=false)",
                 await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, emailComum77c)
@@ -6592,7 +6595,7 @@ try
         // reemissao tambem recusa (nao ha o que reemitir).
         var contaNormalMatriculada77d = await ContaMatriculada77(
             await NovoTenante77("matriculada normal"), "77d - matriculada sem emergencia", CargoNaServentia.Titular);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             Checar("77-17. reemissao RECUSA para conta matriculada normalmente (MfaAtivo=true, nunca teve emergencia)",
                 await FerramentaDeReemissaoDeTicketDeEmergencia.VerificarElegibilidadeAsync(db, contaNormalMatriculada77d.Email)
@@ -6626,7 +6629,7 @@ try
 
         async Task<DispositivoConfiavel?> LerDispositivoDe(Guid atendenteId)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             return await db.DispositivosConfiaveis.AsNoTracking()
                 .Where(d => d.AtendenteId == atendenteId)
                 .OrderByDescending(d => d.CriadoEm)
@@ -6635,7 +6638,7 @@ try
 
         async Task<int> ContarDispositivosDe(Guid atendenteId)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             return await db.DispositivosConfiaveis.CountAsync(d => d.AtendenteId == atendenteId && d.RevogadoEm == null);
         }
 
@@ -6756,7 +6759,7 @@ try
             await LoginPeloNavegador(contaTenant78.Email, contaTenant78.SegredoBase32, navegadorTenant, confiar: true);
 
             Guid tenantIntruso;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var tenant = new Tenant
                 {
@@ -6769,7 +6772,7 @@ try
             }
             tenantIdsDeTeste.Add(tenantIntruso);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaTenant78.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(d => d.TenantId, tenantIntruso));
@@ -6784,7 +6787,7 @@ try
             var navegador = new NavegadorFalso();
             await LoginPeloNavegador(contaExpirada.Email, contaExpirada.SegredoBase32, navegador, confiar: true);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaExpirada.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(d => d.ExpiraEm, DateTime.UtcNow.AddMinutes(-1)));
@@ -6799,7 +6802,7 @@ try
             var navegador = new NavegadorFalso();
             await LoginPeloNavegador(contaRevogada.Email, contaRevogada.SegredoBase32, navegador, confiar: true);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await db.DispositivosConfiaveis.Where(d => d.AtendenteId == contaRevogada.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(d => d.RevogadoEm, DateTime.UtcNow));
@@ -6817,7 +6820,7 @@ try
             var navegador = new NavegadorFalso();
             await LoginPeloNavegador(contaSenha.Email, contaSenha.SegredoBase32, navegador, confiar: true);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await NovoAutenticacao(db, contaSenha.Id)
                     .AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "OutraSenhaBoa456"));
@@ -6834,7 +6837,7 @@ try
             var navegador = new NavegadorFalso();
             await LoginPeloNavegador(contaRematricula.Email, contaRematricula.SegredoBase32, navegador, confiar: true);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await db.Atendentes.Where(a => a.Id == contaRematricula.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(a => a.RematriculaObrigatoriaAposEmergencia, true));
@@ -6867,7 +6870,7 @@ try
 
             var identidade = new IdentidadeParaMfa(tenantId, contaEsquecer.Id);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var situacao = await NovoMfaService(db).ObterSituacaoAsync(identidade);
                 Checar("78x. a situacao de MFA conta os dispositivos confiaveis ativos",
@@ -6876,7 +6879,7 @@ try
 
             int revogados;
             var navegadorQueChamou = navegadorA.Clonar();
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 revogados = await NovoMfaService(db, navegadorQueChamou).EsquecerDispositivosConfiaveisAsync(identidade);
             }
@@ -6902,7 +6905,7 @@ try
             await LoginPeloNavegador(contaStepUp.Email, contaStepUp.SegredoBase32, navegador, confiar: true);
 
             var recusou = false;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 try
                 {
@@ -6919,7 +6922,7 @@ try
 
         // -- o token em claro nunca encosta no banco --------------------------
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var todosOsHashes = await db.DispositivosConfiaveis.AsNoTracking()
                 .Where(d => ids.Contains(d.AtendenteId))
@@ -7145,7 +7148,7 @@ try
 
         async Task<int> ContarNaTelaAsync()
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             return (await NovoMfaService(db).ObterSituacaoAsync(identidade80)).DispositivosConfiaveisAtivos;
         }
 
@@ -7157,7 +7160,7 @@ try
         Checar("80a. concedido o dispositivo, a situacao mostra 1 ativo", await ContarNaTelaAsync() == 1);
 
         // 2) Troca a senha pelo servico real — sobe TokenVersion (SEC-01).
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await NovoAutenticacao(db, conta80.Id)
                 .AlterarSenhaAsync(new AlterarSenhaRequest(SenhaBoa, "SenhaTrocada80x"));
@@ -7174,7 +7177,7 @@ try
         // A linha continua existindo no banco (nao ha faxina automatica); o
         // que mudou e so ela ter deixado de ser CONTADA como ativa. Sem esta
         // checagem, um "0" vindo de um DELETE acidental passaria por correto.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var aindaExiste = await db.DispositivosConfiaveis
                 .AsNoTracking()
@@ -7220,7 +7223,7 @@ try
         }
 
         Guid tenantIsolado81;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -7238,7 +7241,7 @@ try
         // para quem ja tinha MFA e perdeu o acesso a ele.
         Guid contaId81;
         string email81;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -7279,7 +7282,7 @@ try
 
         var tokenDeRematricula81 = SegredosAleatoriosMfa.NovoToken();
         ElegibilidadeDeEmergencia resultadoBreakGlass81;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             resultadoBreakGlass81 = await TentarResetarDeEmergenciaViaReflexaoAsync81(
                 db, email81, SegredosAleatoriosMfa.Sha256Hex(tokenDeRematricula81),
@@ -7296,7 +7299,7 @@ try
         // O NUCLEO deste cenario: mesmo com a REGRA NOVA permitindo qualquer
         // perfil ativar voluntariamente, esta conta especifica — em
         // rematricula obrigatoria — continua RECUSADA no fluxo voluntario.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falhaIniciar = null;
             try
@@ -7317,7 +7320,7 @@ try
         // (defesa em profundidade — o porteiro final de ConfirmarNucleoAsync
         // reconfere isto independente do que IniciarAsync deixou passar),
         // confirmar sem ticket tambem tem que falhar.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await db.Atendentes.Where(a => a.Id == contaId81)
                 .ExecuteUpdateAsync(s => s
@@ -7326,7 +7329,7 @@ try
                     .SetProperty(a => a.MfaPendenteTokenVersion, estadoPosBreakGlass81.TokenVersion));
         }
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             UsuariosServiceException? falhaConfirmar = null;
             try
@@ -7346,7 +7349,7 @@ try
         // A rematricula LEGITIMA (com o ticket que o break-glass emitiu)
         // continua funcionando normalmente — a trava e so contra o atalho
         // voluntario, nunca contra o fluxo que ela existe para exigir.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var mfa = NovoMfaService(db);
             var sessaoRematricula = await mfa.IniciarMatriculaPrivilegiadaAsync(
@@ -7368,7 +7371,7 @@ try
         // volta a poder usar o fluxo voluntario normalmente no futuro (troca
         // de autenticador, step-up de sempre) — a trava era so temporaria,
         // presa ao sinalizador, nunca ao fato de ser Administrador.
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var trocaVoluntaria = await NovoMfaService(db).IniciarAsync(
                 new IdentidadeParaMfa(tenantIsolado81, contaId81),
@@ -7405,7 +7408,7 @@ try
 
         async Task<bool> PodeAsync82(Guid id, PermissaoDoSistema permissao)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var atendente = await db.Atendentes.AsNoTracking().SingleAsync(a => a.Id == id);
             var conjunto = atendente.Permissoes is null
                 ? CatalogoDePermissoes.ConjuntoDaClasse(atendente.Perfil)
@@ -7422,7 +7425,7 @@ try
             await PodeAsync82(idAdm82, PermissaoDoSistema.EquipePermissoes)
             && !await PodeAsync82(idAdm82, PermissaoDoSistema.AtendimentoSimularCliente));
 
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await db.Atendentes.Where(a => a.Id == idAtend82).ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.Permissoes, CatalogoDePermissoes.Serializar([PermissaoDoSistema.EquipeVer])));
@@ -7437,7 +7440,7 @@ try
         // proxima leitura via CarregarSessaoAsync.
         var estadoAntes82 = await Ler(idAtend82);
         var (token82, _) = tokens.Gerar(estadoAntes82);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             await db.Atendentes.Where(a => a.Id == idAtend82).ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.Permissoes, CatalogoDePermissoes.Serializar([PermissaoDoSistema.RelatoriosVer])));
@@ -7445,7 +7448,7 @@ try
         var estadoDepois82 = await Ler(idAtend82);
         Checar("82-3a. TokenVersion nao muda so por trocar Permissoes",
             estadoDepois82.TokenVersion == estadoAntes82.TokenVersion);
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var sessao82 = await NovoValidador(db).CarregarSessaoAsync(idAtend82, tenantId, LerVersaoDaClaim(token82));
             Checar("82-3b. o MESMO token antigo (nao revogado) ja enxerga o conjunto NOVO, sem novo login",
@@ -7465,7 +7468,7 @@ try
             !holderVazio82.Definido && !holderVazio82.Pode(PermissaoDoSistema.AtendimentoVer));
 
         Guid tenantIsolado82;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -7479,7 +7482,7 @@ try
         tenantIdsDeTeste.Add(tenantIsolado82);
 
         Guid idOutroTenant82;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var conta = new Atendente
             {
@@ -7496,7 +7499,7 @@ try
             idOutroTenant82 = conta.Id;
             ids.Add(conta.Id);
         }
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var sessaoDoTenantErrado82 = await NovoValidador(db).CarregarSessaoAsync(idOutroTenant82, tenantId, 0);
             Checar("82-6. atendente de outro tenant, consultado com o TenantId errado, nao acha ninguem -> sessao nula",
@@ -7512,7 +7515,7 @@ try
         Console.WriteLine("Cenario 83 — equipe.permissoes: as travas.");
 
         Guid tenantIsolado83;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -7530,7 +7533,7 @@ try
             CargoNaServentia cargo = CargoNaServentia.NaoInformado,
             IReadOnlySet<PermissaoDoSistema>? permissoes = null)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado83,
@@ -7575,7 +7578,7 @@ try
                 "ator sem equipe.permissoes", PerfilDeAtendente.Administrador, permissoes: semEquipePermissoes83);
             var idAlvo83a = await ContaNoIsolado83("alvo 83-1", PerfilDeAtendente.Atendente);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAtorSemPermissao83, PerfilDeAtendente.Administrador, semEquipePermissoes83)
                 .DefinirPermissoesAsync(idAlvo83a, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7586,7 +7589,7 @@ try
         {
             var idSelf83 = await ContaNoIsolado83("edita a si mesmo", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var codigo = await CodigoDoErro83(() => ServicoComo83(db, idSelf83, PerfilDeAtendente.Administrador, todasMenosSimular83)
                 .DefinirPermissoesAsync(idSelf83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7603,7 +7606,7 @@ try
             var idAtorLimitado83 = await ContaNoIsolado83("ator com poucas permissoes", PerfilDeAtendente.Administrador, permissoes: permissoesLimitadas83);
             var idAlvo83c = await ContaNoIsolado83("alvo 83-3", PerfilDeAtendente.Atendente);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAtorLimitado83, PerfilDeAtendente.Administrador, permissoesLimitadas83)
                 .DefinirPermissoesAsync(idAlvo83c, new DefinirPermissoesRequest(null, ["clientes.ver", "whatsapp.parear"]), null));
 
@@ -7619,7 +7622,7 @@ try
         {
             var idUnicoAdmin83 = await ContaNoIsolado83("unico com equipe.permissoes", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var codigo = await CodigoDoErro83(() => ServicoComo83(db, idUnicoAdmin83, PerfilDeAtendente.Administrador, todasMenosSimular83)
                 .DefinirPermissoesAsync(idUnicoAdmin83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7629,7 +7632,7 @@ try
             _ = codigo;
 
             var idOutroAtor83d = await ContaNoIsolado83("outro ator, sem contar como admin", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
-            await using var db2 = new CrmDbContext(opcoes);
+            await using var db2 = new CrmDbContext(opcoes, cifraDeDados);
             var codigo2 = await CodigoDoErro83(() => ServicoComo83(db2, idOutroAtor83d, PerfilDeAtendente.Administrador, todasMenosSimular83)
                 .DefinirPermissoesAsync(idUnicoAdmin83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7665,7 +7668,7 @@ try
         // administradores no tenant inteiro.
         {
             Guid tenantIsolado83e;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var tenant = new Tenant
                 {
@@ -7680,7 +7683,7 @@ try
 
             async Task<Guid> ContaNoIsolado83e(string rotulo)
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 var conta = new Atendente
                 {
                     TenantId = tenantIsolado83e,
@@ -7702,7 +7705,7 @@ try
 
             async Task<bool> TentarTirarDoOutro83(Guid atorId, Guid alvoId)
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 var ctxAtor = new ContextoFixo(tenantIsolado83e, atorId, "Ator83-5", PerfilDeAtendente.Administrador, todasMenosSimular83);
                 var codigo = await CodigoDoErro83(() => new AtendenteService(db, ctxAtor, hash)
                     .DefinirPermissoesAsync(alvoId, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
@@ -7729,7 +7732,7 @@ try
             var idTitular83 = await ContaNoIsolado83("Titular", PerfilDeAtendente.Administrador, CargoNaServentia.Titular, todasMenosSimular83);
             var idAdminComum83 = await ContaNoIsolado83("Administrador comum (nao-Titular)", PerfilDeAtendente.Administrador, permissoes: todasMenosSimular83);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var codigo = await CodigoDoErro83(() => ServicoComo83(db, idAdminComum83, PerfilDeAtendente.Administrador, todasMenosSimular83)
                 .DefinirPermissoesAsync(idTitular83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7737,7 +7740,7 @@ try
                 codigo == "apenas_titular_altera_permissao_de_titular");
 
             var idOutroTitular83 = await ContaNoIsolado83("outro Titular", PerfilDeAtendente.Administrador, CargoNaServentia.Titular, todasMenosSimular83);
-            await using var db2 = new CrmDbContext(opcoes);
+            await using var db2 = new CrmDbContext(opcoes, cifraDeDados);
             var codigo2 = await CodigoDoErro83(() => ServicoComo83(db2, idOutroTitular83, PerfilDeAtendente.Administrador, todasMenosSimular83)
                 .DefinirPermissoesAsync(idTitular83, new DefinirPermissoesRequest(null, ["clientes.ver"]), null));
 
@@ -7753,7 +7756,7 @@ try
             var idAlvo83g = await ContaNoIsolado83("alvo 83-7/8", PerfilDeAtendente.Atendente);
             var estadoAntes83g = await Ler(idAlvo83g);
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 await ServicoComo83(db, idAtor83g, PerfilDeAtendente.Administrador, todasMenosSimular83)
                     .DefinirPermissoesAsync(idAlvo83g, new DefinirPermissoesRequest(ModeloDePermissao.Catalogo,
@@ -7767,7 +7770,7 @@ try
             Checar("83-7b. ModeloDePermissao gravado como rotulo do preset aplicado",
                 estadoDepois83g.ModeloDePermissao == ModeloDePermissao.Catalogo);
 
-            await using var dbEvento = new CrmDbContext(opcoes);
+            await using var dbEvento = new CrmDbContext(opcoes, cifraDeDados);
             var evento83g = await dbEvento.EventosDeSeguranca.AsNoTracking()
                 .Where(e => e.AtendenteId == idAlvo83g && e.Tipo == TipoDeEventoDeSeguranca.PermissoesAlteradas)
                 .SingleAsync();
@@ -7784,7 +7787,7 @@ try
         Console.WriteLine("Cenario 84 — equipe.excluir: as travas da exclusao fisica.");
 
         Guid tenantIsolado84;
-        await using (var db = new CrmDbContext(opcoes))
+        await using (var db = new CrmDbContext(opcoes, cifraDeDados))
         {
             var tenant = new Tenant
             {
@@ -7803,7 +7806,7 @@ try
 
         async Task<Guid> ContaNoIsolado84(string rotulo, IReadOnlySet<PermissaoDoSistema>? permissoes = null)
         {
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var conta = new Atendente
             {
                 TenantId = tenantIsolado84,
@@ -7838,7 +7841,7 @@ try
             var idAtorSemPermissao84 = await ContaNoIsolado84("ator sem equipe.excluir", semExcluir84);
             var idAlvo84a = await ContaNoIsolado84("alvo 84-1", todasMenosSimular84);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var ctx = new ContextoFixo(tenantIsolado84, idAtorSemPermissao84, "Ator84-1", PerfilDeAtendente.Administrador, semExcluir84);
             var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAlvo84a));
 
@@ -7849,7 +7852,7 @@ try
         {
             var idSelf84 = await ContaNoIsolado84("exclui a si mesmo", todasMenosSimular84);
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var ctx = new ContextoFixo(tenantIsolado84, idSelf84, "Ator84-2", PerfilDeAtendente.Administrador, todasMenosSimular84);
             var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idSelf84));
 
@@ -7864,7 +7867,7 @@ try
         // isolado da corrida 83-5).
         {
             Guid tenantIsolado84c;
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var tenant = new Tenant
                 {
@@ -7879,7 +7882,7 @@ try
 
             async Task<Guid> ContaNoIsolado84c(string rotulo, IReadOnlySet<PermissaoDoSistema> permissoes)
             {
-                await using var db = new CrmDbContext(opcoes);
+                await using var db = new CrmDbContext(opcoes, cifraDeDados);
                 var conta = new Atendente
                 {
                     TenantId = tenantIsolado84c,
@@ -7902,7 +7905,7 @@ try
             // fato o UNICO administrador do tenant.
             var idOutroAtor84 = await ContaNoIsolado84c("outro ator, sem equipe.permissoes", semEquipePermissoes84);
 
-            await using var dbExcluir84c = new CrmDbContext(opcoes);
+            await using var dbExcluir84c = new CrmDbContext(opcoes, cifraDeDados);
             var ctx = new ContextoFixo(tenantIsolado84c, idOutroAtor84, "Ator84-3", PerfilDeAtendente.Administrador, semEquipePermissoes84);
             var codigo = await CodigoDoErro84(() => new AtendenteService(dbExcluir84c, ctx, hash).ExcluirAsync(idUnicoAdmin84));
 
@@ -7921,7 +7924,7 @@ try
             var idOutraConta84 = await ContaNoIsolado84("conta afetada pelo evento", todasMenosSimular84);
             var idAtorExcluidor84 = await ContaNoIsolado84("ator que tenta excluir", todasMenosSimular84);
 
-            await using (var dbSetup = new CrmDbContext(opcoes))
+            await using (var dbSetup = new CrmDbContext(opcoes, cifraDeDados))
             {
                 dbSetup.EventosDeSeguranca.Add(new EventoDeSeguranca
                 {
@@ -7934,7 +7937,7 @@ try
                 await dbSetup.SaveChangesAsync();
             }
 
-            await using var db = new CrmDbContext(opcoes);
+            await using var db = new CrmDbContext(opcoes, cifraDeDados);
             var ctx = new ContextoFixo(tenantIsolado84, idAtorExcluidor84, "Ator84-4", PerfilDeAtendente.Administrador, todasMenosSimular84);
             var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAutorDeTerceiro84));
 
@@ -7949,7 +7952,7 @@ try
             var idAlvo84e = await ContaNoIsolado84("sem historico algum", todasMenosSimular84);
             var idAtorExcluidor84e = await ContaNoIsolado84("ator que exclui de verdade", todasMenosSimular84);
 
-            await using (var dbSetup = new CrmDbContext(opcoes))
+            await using (var dbSetup = new CrmDbContext(opcoes, cifraDeDados))
             {
                 // Evento SOBRE a propria conta do alvo (nao como autor de
                 // terceiro) — deve ser limpo junto, nao bloquear a exclusao.
@@ -7964,14 +7967,14 @@ try
                 await dbSetup.SaveChangesAsync();
             }
 
-            await using (var db = new CrmDbContext(opcoes))
+            await using (var db = new CrmDbContext(opcoes, cifraDeDados))
             {
                 var ctx = new ContextoFixo(tenantIsolado84, idAtorExcluidor84e, "Ator84-5", PerfilDeAtendente.Administrador, todasMenosSimular84);
                 var codigo = await CodigoDoErro84(() => new AtendenteService(db, ctx, hash).ExcluirAsync(idAlvo84e));
                 Checar("84-5a. sem historico algum -> exclusao aceita", codigo is null);
             }
 
-            await using var dbVerifica = new CrmDbContext(opcoes);
+            await using var dbVerifica = new CrmDbContext(opcoes, cifraDeDados);
             var sobrouAtendente84e = await dbVerifica.Atendentes.AsNoTracking().AnyAsync(a => a.Id == idAlvo84e);
             var sobrouEvento84e = await dbVerifica.EventosDeSeguranca.AsNoTracking().AnyAsync(e => e.AtendenteId == idAlvo84e);
 
@@ -7982,7 +7985,7 @@ try
 }
 finally
 {
-    await using var db = new CrmDbContext(opcoes);
+    await using var db = new CrmDbContext(opcoes, cifraDeDados);
 
     // SEC-03: as tres tabelas novas referenciam Atendentes com FK Restrict —
     // precisam sair primeiro, ou o DELETE de Atendentes falha.
@@ -8140,4 +8143,7 @@ file sealed class ContextoFixo(
 
     public bool Pode(PermissaoDoSistema permissao) =>
         (permissoes ?? CatalogoDePermissoes.ConjuntoDaClasse(perfil)).Contains(permissao);
+
+    public Guid? AutorizacaoDeAcessoTecnicoId => null;
+    public Guid? EscopoDeConversaId => null;
 }

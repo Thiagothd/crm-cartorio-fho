@@ -1,5 +1,6 @@
 using CrmCartorio.Api.Infrastructure.Identity;
 using CrmCartorio.Api.Infrastructure.Security;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -66,7 +67,26 @@ public class AtendimentoHub(IValidadorDeSessao validador) : Hub
             return;
         }
 
-        await Groups.AddToGroupAsync(Context.ConnectionId, GrupoDoTenant(tenantId));
+        // Blindagem LGPD (2026-09): todo evento deste hub carrega conteudo de
+        // conversa (MensagemResponse completa, ou ConversaResumoResponse com
+        // PreviaUltimaMensagem/nome/telefone do cliente — ver
+        // NotificadorDeAtendimento). Quem nao tem AtendimentoVer simplesmente
+        // nao entra no grupo: a conexao continua valida (nao aborta), so nao
+        // recebe nada deste canal. Nao ha aqui uma "versao sem conteudo" do
+        // evento para servir esse publico — a tela de Atendimento inteira ja
+        // e' inacessivel sem essa permissao.
+        //
+        // Conta tecnica com acesso tecnico ESCOPADO A UMA CONVERSA
+        // (EscopoDeConversaId preenchido) tambem NAO entra: o grupo e' unico
+        // por TENANT, nao por conversa — entrar empurraria o conteudo de
+        // TODAS as conversas do cartorio, furando o proprio escopo que a
+        // autorizacao existe para limitar. Essa conta so le pela tela
+        // (ConversaService.ObterAsync ja confere o escopo), sem
+        // atualizacao ao vivo — limitacao aceita, nao lacuna.
+        if (sessao.Permissoes.Contains(PermissaoDoSistema.AtendimentoVer) && sessao.EscopoDeConversaId is null)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, GrupoDoTenant(tenantId));
+        }
 
         await base.OnConnectedAsync();
     }

@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Anthropic;
 using CrmCartorio.Api.Infrastructure.Automacao;
+using CrmCartorio.Api.Infrastructure.Auditoria;
 using CrmCartorio.Api.Infrastructure.Identity;
 using CrmCartorio.Api.Infrastructure.Anexos;
 using CrmCartorio.Api.Infrastructure.Persistence;
@@ -20,6 +21,7 @@ using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Cota;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
 using CrmCartorio.Api.Modules.RespostaInteligente.Infrastructure;
+using CrmCartorio.Api.Modules.Seguranca.Application;
 using CrmCartorio.Api.Modules.Servicos.Application;
 using CrmCartorio.Api.Modules.Tenants.Application;
 using CrmCartorio.Api.Modules.Usuarios.Application;
@@ -78,6 +80,21 @@ if (args.Contains("--reemitir-ticket-de-emergencia"))
     return await FerramentaDeReemissaoDeTicketDeEmergencia.ExecutarAsync(configuracaoDeReemissao);
 }
 
+// PR3 da blindagem LGPD — re-cifra em repouso toda linha legada depois que
+// alguem com acesso ao servidor provisiona ProtecaoDeDados:Chaves. Mesma
+// disciplina dos tres comandos acima (execucao unica, nunca modo do
+// servidor). Ver FerramentaDeCifraDeDadosLegados.
+if (args.Contains("--cifrar-dados-legados"))
+{
+    var configuracaoDeCifra = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", optional: true)
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json", optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+
+    return await FerramentaDeCifraDeDadosLegados.ExecutarAsync(configuracaoDeCifra);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- configuracao
@@ -91,6 +108,8 @@ builder.Services.Configure<OpcoesDoCanalWhatsApp>(
 builder.Services.Configure<OpcoesDaIA>(builder.Configuration.GetSection(OpcoesDaIA.Secao));
 builder.Services.Configure<OpcoesDeAnexos>(builder.Configuration.GetSection("Anexos"));
 builder.Services.Configure<OpcoesDeMfa>(builder.Configuration.GetSection(OpcoesDeMfa.Secao));
+builder.Services.Configure<OpcoesDeProtecaoDeDados>(
+    builder.Configuration.GetSection(OpcoesDeProtecaoDeDados.Secao));
 builder.Services.Configure<OpcoesDaCentralDeIa>(builder.Configuration.GetSection(OpcoesDaCentralDeIa.Secao));
 
 var opcoesJwt = builder.Configuration.GetSection(OpcoesDeJwt.Secao).Get<OpcoesDeJwt>() ?? new OpcoesDeJwt();
@@ -122,6 +141,15 @@ if (builder.Environment.IsEnvironment("Teste")
 }
 
 // ---------------------------------------------------------------- persistencia
+
+// PR3 da blindagem LGPD (cifra em repouso). Registrado ANTES do DbContext:
+// AddDbContext resolve parametros extras do construtor pelo container, e
+// CrmDbContext pede ICifraDeDados. Fica seguro subir sem nenhuma chave
+// configurada — ver OpcoesDeProtecaoDeDados para o porque disso ser
+// deliberado, nao uma omissao.
+builder.Services.AddSingleton<IProvedorDeChaveDeDados, ProvedorDeChaveEmConfiguracao>();
+builder.Services.AddSingleton<ICifraDeDados, CifraDeDados>();
+builder.Services.AddSingleton<IndiceCego>();
 
 builder.Services.AddDbContext<CrmDbContext>(opcoes =>
     ConfiguracaoDoBanco.Configurar(opcoes, builder.Configuration.GetConnectionString("SqlServer")));
@@ -162,6 +190,9 @@ builder.Services.AddScoped<IRespostaRapidaService, RespostaRapidaService>();
 builder.Services.AddScoped<ITipoServicoService, TipoServicoService>();
 builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddScoped<IGeradorDeProtocolo, GeradorDeProtocolo>();
+builder.Services.AddScoped<IRegistradorDeAcesso, RegistradorDeAcesso>();
+builder.Services.AddScoped<ISegurancaService, SegurancaService>();
+builder.Services.AddScoped<IAcessoTecnicoService, AcessoTecnicoService>();
 builder.Services.AddScoped<IConversaService, ConversaService>();
 builder.Services.AddScoped<IMensagemService, MensagemService>();
 
@@ -473,6 +504,26 @@ var app = builder.Build();
             "segunda sonda concorrente. Reduza o timeout ou aumente o teto da sonda (DisjuntorDoGemini).",
             opcoesGeminiNoBoot.TimeoutSegundos, timeoutEfetivoSegundos,
             DisjuntorDoGemini.TempoMaximoDeSondaPadrao.TotalSeconds);
+    }
+}
+
+// PR3 da blindagem LGPD: nunca trava o boot (ver OpcoesDeProtecaoDeDados) —
+// so avisa no log qual dos dois estados o binario subiu. "Dormente" e o
+// estado normal ate alguem com acesso ao servidor provisionar a chave.
+{
+    var provedorDeChaveNoBoot = app.Services.GetRequiredService<IProvedorDeChaveDeDados>();
+
+    if (provedorDeChaveNoBoot.CifraAtiva)
+    {
+        app.Logger.LogInformation(
+            "Cifra em repouso ATIVA (ProtecaoDeDados:VersaoCorrente={VersaoCorrente}).",
+            provedorDeChaveNoBoot.VersaoCorrente);
+    }
+    else
+    {
+        app.Logger.LogInformation(
+            "Cifra em repouso DORMENTE — ProtecaoDeDados sem chave configurada. " +
+            "Colunas marcadas .Cifrada() gravam em claro ate o provisionamento manual da chave.");
     }
 }
 
