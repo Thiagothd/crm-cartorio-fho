@@ -195,17 +195,22 @@ public static class CatalogoDePermissoes
     }
 
     /// <summary>
-    /// O conjunto efetivo (chave de texto, ordenado) de um atendente — NULL
-    /// segue a Classe da conta, texto explícito vence. É isto que
-    /// <see cref="Application.AtendenteResponse.Permissoes"/> expõe ao
-    /// frontend; a MESMA regra que <see cref="ContextoDoUsuario"/> e
-    /// <see cref="ValidadorDeSessao"/> aplicam do lado do backend.
+    /// O conjunto ESTÁTICO (chave de texto, ordenado) de um atendente — NULL
+    /// segue a Classe da conta, texto explícito vence. NÃO inclui a
+    /// ampliação dinâmica de acesso técnico que <see cref="ValidadorDeSessao"/>
+    /// calcula por requisição — quem monta a sessão devolvida ao frontend
+    /// (<see cref="Application.MapeadorDeSessao"/>) usa
+    /// <see cref="ValidadorDeSessao"/> e só cai aqui como reserva; usar isto
+    /// direto para responder ao cliente reproduz o bug corrigido em
+    /// 2026-09-12 (conta técnica aprovada sem nenhuma tela para ler a
+    /// conversa — ver o comentário em <see cref="Application.MapeadorDeSessao"/>).
     /// </summary>
-    public static IReadOnlyList<string> ChavesEfetivas(string? permissoes, PerfilDeAtendente perfil)
-    {
-        var conjunto = permissoes is null ? ConjuntoDaClasse(perfil) : Desserializar(permissoes);
-        return [.. conjunto.Select(c => PorChave[c].ChaveTexto).OrderBy(c => c, StringComparer.Ordinal)];
-    }
+    public static IReadOnlyList<string> ChavesEfetivas(string? permissoes, PerfilDeAtendente perfil) =>
+        ChavesDoConjunto(permissoes is null ? ConjuntoDaClasse(perfil) : Desserializar(permissoes));
+
+    /// <summary>Mesma ordenação/tradução de <see cref="ChavesEfetivas"/>, a partir de um conjunto já resolvido (estático ou ampliado por acesso técnico).</summary>
+    public static IReadOnlyList<string> ChavesDoConjunto(IReadOnlySet<PermissaoDoSistema> conjunto) =>
+        [.. conjunto.Select(c => PorChave[c].ChaveTexto).OrderBy(c => c, StringComparer.Ordinal)];
 
     /// <summary>
     /// O conjunto derivado da Classe da conta — usado quando

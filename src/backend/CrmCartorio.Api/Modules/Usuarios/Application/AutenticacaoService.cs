@@ -16,6 +16,7 @@ public class AutenticacaoService(
     IContextoDoUsuario ctx,
     ICookieDeDispositivoConfiavel cookieDeDispositivo,
     IHttpContextAccessor acessor,
+    IValidadorDeSessao validador,
     ILogger<AutenticacaoService> log) : IAutenticacaoService
 {
     /// <summary>
@@ -192,7 +193,7 @@ public class AutenticacaoService(
 
                 return new LoginEtapa1Response(false, new LoginResponse(
                     token, expiraEm,
-                    await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+                    await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
                     await MapeadorDeSessao.ObterTenantAsync(db, estado.TenantId, ct)), null);
             }
 
@@ -339,7 +340,7 @@ public class AutenticacaoService(
 
         return new LoginEtapa1Response(false, new LoginResponse(
             token, expiraEmToken,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, tenantId, ct)), null);
     }
 
@@ -535,7 +536,7 @@ public class AutenticacaoService(
 
         return new LoginResponse(
             token, expiraEm,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, desafio.TenantId, ct));
     }
 
@@ -554,7 +555,7 @@ public class AutenticacaoService(
         return new LoginResponse(
             string.Empty,
             DateTime.MinValue,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, atendente.TenantId, ct));
     }
 

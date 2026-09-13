@@ -171,7 +171,7 @@ SegurancaService NovoSegurancaService(CrmDbContext db, IContextoDoUsuario ctx) =
 SegurancaService NovoSegurancaServiceComCifraAtiva(CrmDbContext db, IContextoDoUsuario ctx) => new(db, ctx, provedorDeChaveAtiva);
 
 IAutenticacaoService NovoAutenticacao(CrmDbContext db, IContextoDoUsuario ctx) =>
-    new AutenticacaoService(db, hash, tokens, cifra, ctx, new NavegadorFalso(), new HttpContextAccessor(), NullLogger<AutenticacaoService>.Instance);
+    new AutenticacaoService(db, hash, tokens, cifra, ctx, new NavegadorFalso(), new HttpContextAccessor(), new ValidadorDeSessao(db), NullLogger<AutenticacaoService>.Instance);
 
 AcessoTecnicoService NovoAcessoTecnicoService(CrmDbContext db, IContextoDoUsuario ctx) =>
     new(db, ctx,
@@ -709,6 +709,20 @@ try
         var carimbado = await verificacao.RegistrosDeAcesso.AnyAsync(
             r => r.ConversaId == conversaId && r.AutorizacaoDeAcessoTecnicoId == autorizacaoId);
         Checar("30b. RegistroDeAcesso carimbado com a AutorizacaoDeAcessoTecnicoId", carimbado);
+
+        // Achado de 2026-09-12: o backend sempre autorizava a leitura (30 e
+        // 30b acima ja provavam isso), mas a LISTA de permissoes devolvida ao
+        // FRONTEND (login/GET sessao) vinha de CatalogoDePermissoes.ChavesEfetivas
+        // sobre a coluna estatica — nunca incluia o AtendimentoVer que
+        // ValidadorDeSessao acrescenta por causa da autorizacao ativa. Sem
+        // "atendimento.ver" nessa lista, pode('atendimento.ver') no frontend
+        // nunca liberava nem o item de menu nem a rota /atendimentos: a conta
+        // tecnica aprovada nao tinha NENHUMA tela ate a conversa, so a API.
+        var contaTecnicaEntidade = await verificacao.Atendentes.AsNoTracking().FirstAsync(a => a.Id == contaTecnicaId);
+        var sessaoParaFrontend = await MapeadorDeSessao.MapearAtendenteAsync(
+            verificacao, contaTecnicaEntidade, new ValidadorDeSessao(verificacao), default);
+        Checar("30c. a lista de permissoes devolvida ao frontend (login/sessao) inclui atendimento.ver com autorizacao ativa",
+            sessaoParaFrontend.Permissoes.Contains("atendimento.ver"));
     }
 
     // ------------------------------------------------------------ cenario 31

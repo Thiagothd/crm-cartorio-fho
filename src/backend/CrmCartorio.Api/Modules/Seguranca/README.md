@@ -221,10 +221,14 @@ resolução de protocolo (ausente e inexistente), pedido duplicado pendente
 rejeitado, aprovação bem-sucedida **sem nenhum MFA matriculado pelo
 aprovador** (prova de que a decisão de 2026-09-12 de tirar o TOTP da
 aprovação está de pé), `ValidadorDeSessao` injetando `AtendimentoVer` sem
-`ClientesVer` para escopo `Conversa`, leitura permitida dentro do escopo e
-negada para outra conversa, revogação com efeito imediato na sessão
-seguinte, e negação impedindo aprovação posterior do mesmo pedido. Cenários
-34–41 (PR3, com
+`ClientesVer` para escopo `Conversa`, a lista de permissões que
+`MapeadorDeSessao` devolve ao FRONTEND (login/`GET sessao`) incluindo
+`atendimento.ver` com a autorização ativa (cenário 30c — regressão do achado
+"conta técnica aprovada sem nenhuma tela para ler a conversa", ver
+`Modules/Usuarios/README.md`), leitura permitida dentro do escopo e negada
+para outra conversa, revogação com efeito imediato na sessão seguinte, e
+negação impedindo aprovação posterior do mesmo pedido. Cenários 34–41 (PR3,
+com
 chave de desenvolvimento fixa — todo o resto do arquivo continua com a cifra
 dormente): round-trip de `Cifrar`/`Decifrar` e identidade quando dormente;
 `ClienteService.CriarAsync` grava `Documento`/`DataNascimentoCifrada`

@@ -16,6 +16,7 @@ public class MfaService(
     ICifraDeSegredoMfa cifra,
     IGeradorDeToken tokens,
     ICookieDeDispositivoConfiavel cookieDeDispositivo,
+    IValidadorDeSessao validador,
     ILogger<MfaService> log) : IMfaService
 {
     private const int QuantidadeDeCodigosDeRecuperacao = 10;
@@ -791,7 +792,7 @@ public class MfaService(
 
             return new LoginResponse(
                 string.Empty, DateTime.MinValue,
-                await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtendente, ct),
+                await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtendente, validador, ct),
                 await MapeadorDeSessao.ObterTenantAsync(db, ator.TenantId, ct));
         }
 
@@ -817,7 +818,7 @@ public class MfaService(
 
         return new LoginResponse(
             token, expiraEm,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtualizado, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atorAtualizado, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, ator.TenantId, ct));
     }
 
@@ -1105,7 +1106,7 @@ public class MfaService(
 
         var sessao = new LoginResponse(
             token, expiraJwt,
-            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, ct),
+            await MapeadorDeSessao.MapearAtendenteAsync(db, atendente, validador, ct),
             await MapeadorDeSessao.ObterTenantAsync(db, identidade.TenantId, ct));
 
         return new ConfirmarMfaResponse(
