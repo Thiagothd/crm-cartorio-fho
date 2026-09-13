@@ -761,6 +761,33 @@ try
         Checar("33b. nao da para aprovar um pedido ja Negado -> autorizacao_nao_esta_pendente", codigo == "autorizacao_nao_esta_pendente");
     }
 
+    // ------------------------------------------------------------ cenario 33c
+    //
+    // Decisao do Thiago em 2026-09-13: escopo Geral, uma vez aprovado, passa
+    // a liberar TODAS as chaves do catalogo (nao so AtendimentoVer/ClientesVer
+    // como na versao original do PR4) — a conta tecnica enxerga qualquer tela
+    // do sistema enquanto durar a autorizacao. Escopo Conversa (cenarios
+    // 25-33 acima) continua restrito a AtendimentoVer.
+
+    {
+        await using var db = new CrmDbContext(opcoes, cifraDeDados);
+        var pedidoGeral = await NovoAcessoTecnicoService(db, contaTecnicaSemAutorizacao)
+            .SolicitarAsync(new SolicitarAcessoTecnicoRequest("investigacao ampla", EscopoDeAcesso.Geral, null, 30));
+
+        var aprovadoGeral = await NovoAcessoTecnicoService(db, aprovadorCtx).AprovarAsync(pedidoGeral.Id);
+        Checar("33c. escopo Geral aprovado -> Ativa", aprovadoGeral.Estado == EstadoDeAutorizacao.Ativa);
+
+        var sessaoGeral = await new ValidadorDeSessao(db).CarregarSessaoAsync(contaTecnicaId, tenantId, 1);
+        Checar("33d. escopo Geral acrescenta TODAS as chaves do catalogo, nao so AtendimentoVer/ClientesVer",
+            sessaoGeral is not null && sessaoGeral.Permissoes.SetEquals(CatalogoDePermissoes.TodasAsChaves()));
+        Checar("33e. ... inclui, por exemplo, equipe.ver — tela que Conversa (cenarios 25-33) nunca libera",
+            sessaoGeral is not null && sessaoGeral.Permissoes.Contains(PermissaoDoSistema.EquipeVer));
+        Checar("33f. EscopoDeConversaId continua nulo em escopo Geral (nao restringe a NENHUMA conversa especifica)",
+            sessaoGeral is not null && sessaoGeral.EscopoDeConversaId is null);
+
+        await NovoAcessoTecnicoService(db, aprovadorCtx).RevogarAsync(pedidoGeral.Id);
+    }
+
     // =====================================================================
     // PR3 — cifra em repouso (cenarios 34+)
     // =====================================================================

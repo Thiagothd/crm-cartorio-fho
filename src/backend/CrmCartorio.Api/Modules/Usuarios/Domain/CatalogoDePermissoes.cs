@@ -143,7 +143,7 @@ public static class CatalogoDePermissoes
         D(PermissaoDoSistema.SegurancaEventosVer, "seguranca.eventos.ver", "Ver o histórico de segurança",
             "Ver os eventos de segurança registrados do cartório.", "Equipe e segurança", ehTela: true),
         D(PermissaoDoSistema.SegurancaAcessoTecnicoAprovar, "seguranca.acesso_tecnico.aprovar", "Aprovar acesso do suporte técnico",
-            "Aprovar, negar ou revogar um pedido de acesso técnico — exige verificação em duas etapas.", "Equipe e segurança"),
+            "Aprovar, negar ou revogar um pedido de acesso técnico.", "Equipe e segurança"),
 
         // -------------------------------------------------------------- Suporte
         D(PermissaoDoSistema.SuporteSolicitarAcesso, "suporte.solicitar_acesso", "Abrir a tela de Suporte técnico",
@@ -157,6 +157,17 @@ public static class CatalogoDePermissoes
         Todas.ToDictionary(d => d.ChaveTexto, d => d.Chave);
 
     public static Definicao Descrever(PermissaoDoSistema chave) => PorChave[chave];
+
+    /// <summary>
+    /// TODAS as chaves do catálogo, sem exceção — usado só pela ampliação de
+    /// acesso técnico com escopo <c>Geral</c> (decisão do Thiago em
+    /// 2026-09-13: aprovado com escopo Geral, a conta técnica passa a
+    /// enxergar todas as telas e funções, não só Atendimento/Clientes como
+    /// antes). Diferente de <see cref="ConjuntoDaClasse"/>(Administração),
+    /// que deliberadamente NÃO inclui <see cref="PermissaoDoSistema.SuporteSolicitarAcesso"/>
+    /// — aqui a lista é literal, "tudo" quer dizer tudo.
+    /// </summary>
+    public static IReadOnlySet<PermissaoDoSistema> TodasAsChaves() => Todas.Select(d => d.Chave).ToHashSet();
 
     /// <summary>Como <see cref="Desserializar"/>, mas a partir de uma lista de chaves de texto já separadas (o corpo de <c>DefinirPermissoesRequest</c>).</summary>
     public static IReadOnlySet<PermissaoDoSistema> DesserializarLista(IEnumerable<string> chavesTexto) =>

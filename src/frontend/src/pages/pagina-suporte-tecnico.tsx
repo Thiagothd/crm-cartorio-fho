@@ -100,7 +100,7 @@ export function PaginaSuporteTecnico() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Conversa">Uma conversa</SelectItem>
-                    <SelectItem value="Geral">Geral (qualquer conversa/ficha)</SelectItem>
+                    <SelectItem value="Geral">Geral (acesso total ao sistema)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
