@@ -12,10 +12,14 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// </summary>
 /// <param name="AutorizacaoDeAcessoTecnicoId">
 /// Blindagem LGPD: preenchido só quando o atendente é conta técnica
-/// (<c>EhContaTecnica</c>) e tem uma autorização ATIVA neste instante — e
-/// só então <paramref name="Permissoes"/> já vem com <c>AtendimentoVer</c>/
-/// <c>ClientesVer</c> acrescentados. Sem autorização ativa, conta técnica
-/// segue só com o preset fixo dela (hoje: <c>suporte.solicitar_acesso</c>).
+/// (<c>EhContaTecnica</c>) e tem uma autorização ATIVA neste instante — e só
+/// então <paramref name="Permissoes"/> vem ampliado: escopo <c>Conversa</c>
+/// acrescenta só <c>AtendimentoVer</c> (restrito àquela conversa, via
+/// <see cref="EscopoDeConversaId"/>); escopo <c>Geral</c> vira
+/// <see cref="CatalogoDePermissoes.TodasAsChaves"/> — decisão do Thiago em
+/// 2026-09-13, todas as telas e funções, não só Atendimento/Clientes. Sem
+/// autorização ativa, conta técnica segue só com o preset fixo dela (hoje:
+/// <c>suporte.solicitar_acesso</c>).
 /// </param>
 /// <param name="EscopoDeConversaId">Preenchido só quando a autorização acima tem escopo de uma conversa específica.</param>
 public sealed record SessaoDoAtendente(
@@ -115,11 +119,17 @@ public class ValidadorDeSessao(CrmDbContext db) : IValidadorDeSessao
 
         // Escopo Conversa ganha SÓ AtendimentoVer — é uma sessão de suporte
         // sobre UM atendimento, não motivo para abrir a ficha do cliente
-        // (CPF, RG, filiação). Escopo Geral ganha os dois: é a autorização
-        // ampla, pensada para investigação que pode precisar da ficha.
+        // (CPF, RG, filiação) nem o resto do sistema. Escopo Geral ganha
+        // TUDO — decisão do Thiago em 2026-09-13: o pedido "Geral" já é a
+        // autorização ampla (sem conversa específica nomeada), então uma vez
+        // aprovado a conta técnica passa a enxergar todas as telas e funções
+        // do sistema, igual um administrador, enquanto durar a autorização.
+        // A versão anterior (2026-09-12) limitava Geral a AtendimentoVer +
+        // ClientesVer — revisado por ser restritivo demais na prática de
+        // suporte real.
         var conjuntoAmpliado = escopoDeConversaId is not null
             ? conjunto.Append(PermissaoDoSistema.AtendimentoVer).ToHashSet()
-            : conjunto.Append(PermissaoDoSistema.AtendimentoVer).Append(PermissaoDoSistema.ClientesVer).ToHashSet();
+            : CatalogoDePermissoes.TodasAsChaves();
 
         return new SessaoDoAtendente(conjuntoAmpliado, autorizacaoAtiva.Id, escopoDeConversaId);
     }

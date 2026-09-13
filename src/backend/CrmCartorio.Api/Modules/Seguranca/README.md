@@ -145,11 +145,20 @@ conjunto de permissões da sessão, e preenche
 guardas do PR2 (`ConversaService`, `MensagemService`, `ClienteService`) não
 sabem que acesso técnico existe — continuam checando `atendimento.ver`/
 `clientes.ver` do jeito que sempre checaram. **Decisão deliberada de escopo
-mínimo:** `Conversa` libera só `AtendimentoVer` — nunca `ClientesVer`. Uma
-investigação sobre um atendimento específico não precisa (e não deveria)
-destravar a ficha completa do cliente, com CPF/RG/filiação. Quem quiser
-investigar algo que exige a ficha pede escopo `Geral`, que é visível na
-faixa e na trilha como pedido mais amplo.
+mínimo em `Conversa`:** libera só `AtendimentoVer`, restrito à conversa
+nomeada — nunca `ClientesVer` nem o resto do sistema. Uma investigação sobre
+um atendimento específico não precisa (e não deveria) destravar a ficha
+completa do cliente, com CPF/RG/filiação, muito menos Equipe ou
+Configurações.
+
+**`Geral` é a autorização ampla — decisão do Thiago em 2026-09-13: libera
+TODAS as chaves do catálogo** (`CatalogoDePermissoes.TodasAsChaves()`), não
+só `AtendimentoVer`/`ClientesVer` como na versão original do PR4
+(2026-09-12). Quem aprova um pedido `Geral` está aprovando acesso total,
+temporário, equivalente a um administrador — a faixa e a trilha continuam
+avisando e registrando do mesmo jeito, e é exatamente por isso que o
+seletor de escopo na tela de pedido existe: quem só precisa investigar UM
+atendimento deveria pedir `Conversa`, não `Geral`.
 
 **Todo `RegistroDeAcesso` gerado sob uma autorização carrega o
 `AutorizacaoDeAcessoTecnicoId`** — a tabela de acessos mostra "via acesso

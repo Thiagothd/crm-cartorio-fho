@@ -94,7 +94,7 @@ export function PainelDeAcessosTecnicos() {
                 </div>
                 <p className="mt-1 text-xs text-tinta-media">{item.motivo}</p>
                 <p className="mt-1 text-xs text-tinta-media">
-                  {item.escopo === 'Conversa' ? `Conversa ${item.conversaProtocolo ?? '—'}` : 'Escopo geral'}
+                  {item.escopo === 'Conversa' ? `Conversa ${item.conversaProtocolo ?? '—'}` : 'Acesso total (todas as telas)'}
                   {item.estado === 'Ativa' && item.validaAte ? ` · até ${formatarDataHora(item.validaAte)}` : ''}
                 </p>
               </div>
