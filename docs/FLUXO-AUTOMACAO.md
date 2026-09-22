@@ -5,8 +5,9 @@
 > inatividade; Fase 2I — pedido de nome quando o WhatsApp não traz um; Fase
 > 2J — dois provedores de IA, Gemini principal e Haiku de contingência; Fase
 > 2K — aviso ao cliente quando o atendente encerra pelo painel, e assinatura
-> de autoria no texto que sai pelo WhatsApp).
-> **Última atualização:** 2026-09-04
+> de autoria no texto que sai pelo WhatsApp; chaves gerais de liga/desliga
+> por tenant, §1.1).
+> **Última atualização:** 2026-09-22
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -43,6 +44,40 @@ Três mecanismos garantem isso, em camadas, do mais específico para o mais gera
 > ANTES de tudo, inclusive antes da pergunta de encerramento pendente) e o
 > README do módulo Atendimento, seção "Human Takeover", para o detalhe
 > completo.
+
+### 1.1 Chaves gerais do cartório — desde 2026-09-22
+
+Duas colunas em `Tenant` (migração `sql/049`), ligadas e desligadas **pela
+tela**, valendo na próxima mensagem — sem deploy:
+
+| Chave | Onde fica o interruptor | Porta única que respeita | Desligada |
+| --- | --- | --- | --- |
+| `MensagensAutomaticasHabilitadas` | Automação → Mensagens → Automáticas (topo) | `DisparadorDeMensagemAutomatica.EnfileirarAsync` | **Nenhum** dos 15 gatilhos dispara — inclusive o bot de triagem (pedido de nome, boas-vindas com menu de setores, menu de serviços, despedida). O cliente manda "oi" e não recebe nada |
+| `RespostaInteligenteHabilitada` | Automação → IA → Situação (topo) | `RespostaInteligenteService.ResponderAsync` | Devolve o mesmo `PodeResponder=false` de "IA desligada ou sem provedor" — o piso de sempre (§8, gatilho 11; pedido explícito escala) continua valendo |
+
+**A chave de mensagens automáticas é a exceção consciente à regra do §1.**
+Decisão do Thiago: quem desliga tem de saber que o cliente fica sem resposta
+automática nenhuma, e a tela diz isso com todas as letras (aviso permanente
+enquanto desligada, e confirmação antes de desligar). A conversa continua
+entrando na fila e o atendente responde normalmente. O efeito é idêntico a
+desativar **todas** as linhas de `MensagemAutomatica` uma a uma — estado que o
+fluxo já suportava, porque cada aplicador liga a próxima flag de espera
+(`AguardandoTriagem`, `AguardandoNome`...) só se algo foi gerado. Granularidade
+por regra continua no `Ativo` de cada mensagem.
+
+Consequências nos varredores: o de prazos (§3, gatilhos 3/4) ignora o tenant
+desligado ao montar os candidatos — sem isso reivindicaria e desfaria o
+marcador de cada conversa a cada passada; o de inatividade (§10) não **pergunta**
+com a chave desligada, mas a fase 2 continua fechando (em silêncio) conversa
+que já tinha sido perguntada antes — fechar é o efeito, a mensagem é cortesia.
+
+A chave da IA **substitui** o antigo `RespostaInteligente:Habilitada` do
+appsettings, que deixou de existir em `OpcoesDaIA`. O appsettings continua
+decidindo só infraestrutura: sem provedor com chave (`OpcoesDaIA.EstaConfigurada`),
+não há IA, esteja a chave do tenant como estiver. As duas nascem ligadas
+(`DEFAULT (1)`) — o comportamento de antes da migração. Permissão para mudar:
+`automacao.mensagens.editar` e `ia.conhecimento.editar`, respectivamente.
+Coberto por `verificar-automacao.cs`, TESTE 32.
 
 ---
 
@@ -106,7 +141,8 @@ o cartório parceiro não poderia reescrever sozinho pela tela.
 
 `DisparadorDeMensagemAutomatica.EnfileirarAsync` não falha quando não há regra
 cadastrada para um gatilho — devolve lista vazia em silêncio. É o cartório parceiro
-desligando aquele aviso pela tela (`Ativo=false`), não um erro.
+desligando aquele aviso pela tela (`Ativo=false`), não um erro. Com a chave
+geral do tenant desligada (§1.1), devolve lista vazia para **todo** gatilho.
 
 ---
 
@@ -918,6 +954,7 @@ num lado exige mexer no outro.
 | Prompt da IA | `Modules/RespostaInteligente/Application/PromptDeSistema.cs` |
 | Grounding da IA | `Modules/RespostaInteligente/Application/MontadorDeContexto.cs` |
 | Opções da IA (chave, modelo, teto diário) | `Modules/RespostaInteligente/Application/OpcoesDaIA.cs` |
+| Chaves gerais do tenant (liga/desliga pela tela, §1.1) | `Modules/Tenants/Domain/Entities/Tenant.cs`, `Modules/Tenants/Application/TenantService.cs`, `src/frontend/src/features/configuracoes/chave-geral.tsx` |
 | Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (rota de simulação, hoje só usada pelo verificador), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
 | Assinatura de autoria no texto de saída (atendente/IA) | `Modules/CanalWhatsApp/Application/AssinaturaDeAutoria.cs` |
 | Cobertura automatizada | `src/backend/verificar-automacao.cs`, `src/backend/verificar-canal-whatsapp.cs` |

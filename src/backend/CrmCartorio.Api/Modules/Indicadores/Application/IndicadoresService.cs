@@ -656,7 +656,12 @@ public class IndicadoresService(
             var inativas = await db.MensagensAutomaticas.AsNoTracking()
                 .CountAsync(m => m.TenantId == tenantId && !m.Ativo, ct);
 
-            automacao = new SaudeDaAutomacaoResponse(ativas, inativas);
+            var habilitadas = await db.Tenants.AsNoTracking()
+                .Where(t => t.Id == tenantId)
+                .Select(t => (bool?)t.MensagensAutomaticasHabilitadas)
+                .FirstOrDefaultAsync(ct) ?? true;
+
+            automacao = new SaudeDaAutomacaoResponse(ativas, inativas, habilitadas);
         }
 
         return new SaudeDaOperacaoResponse(whatsapp, ia, automacao);

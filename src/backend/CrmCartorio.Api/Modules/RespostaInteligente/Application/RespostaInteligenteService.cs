@@ -1,5 +1,6 @@
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
@@ -40,6 +41,23 @@ public class RespostaInteligenteService(
 
         try
         {
+            // Chave geral do tenant (Tenant.RespostaInteligenteHabilitada), pela
+            // tela — substitui o antigo RespostaInteligente:Habilitada do
+            // appsettings. Mesmo retorno de "IA desligada" logo acima: quem
+            // chamou cai no piso de sempre (RespostaSemCorrespondencia / pedido
+            // de atendente), nunca deixa o cliente sem caminho. Dentro do try
+            // para manter o contrato "nunca lanca" se o banco falhar aqui. Tenant
+            // sem linha cai no DEFAULT da coluna (ligado).
+            var habilitadaNoTenant = await db.Tenants.AsNoTracking()
+                .Where(t => t.Id == tenantId)
+                .Select(t => (bool?)t.RespostaInteligenteHabilitada)
+                .FirstOrDefaultAsync(ct) ?? true;
+
+            if (!habilitadaNoTenant)
+            {
+                return new RespostaDaIA(false, string.Empty, "IA desligada pela serventia.");
+            }
+
             var contextoDoGrounding = await MontadorDeContexto.MontarAsync(db, tenantId, ct);
 
             // Blindagem LGPD: mascara CPF/CNPJ/telefone/e-mail/CEP antes de

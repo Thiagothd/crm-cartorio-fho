@@ -466,7 +466,7 @@ export const visaoGeral = {
   saude: {
     whatsApp: { habilitado: true, conectado: true, estado: 'open' },
     ia: { habilitada: true, estaConfigurada: true, modelo: 'Claude Haiku 4.5', limiteDiario: 300, usadoHoje: 42 },
-    automacao: { regrasAtivas: 8, regrasInativas: 2 },
+    automacao: { regrasAtivas: 8, regrasInativas: 2, habilitadas: true },
   },
 }
 

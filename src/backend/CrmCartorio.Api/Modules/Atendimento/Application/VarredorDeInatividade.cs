@@ -100,11 +100,16 @@ public class VarredorDeInatividade(
         // Sem texto cadastrado nao ha pergunta — e sem pergunta a fase 2 nunca
         // acontece, porque ela so ve conversa que ja recebeu o marcador. E o
         // comportamento certo: encerrar em silencio, sem nunca ter avisado, seria
-        // pior do que nao encerrar.
+        // pior do que nao encerrar. Chave geral de mensagens automaticas
+        // desligada conta como "sem texto": o disparador nao geraria a pergunta,
+        // e reivindicar para desfazer a cada passada so gastaria transacao. A
+        // fase 2 NAO e barrada — conversa ja perguntada antes de desligar ainda
+        // fecha (em silencio, a despedida e cortesia), em vez de ficar no limbo.
         var temRegra = await db.MensagensAutomaticas.AsNoTracking()
             .AnyAsync(m => m.TenantId == configuracao.TenantId
                         && m.Ativo
-                        && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento, ct);
+                        && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
+                        && db.Tenants.Any(t => t.Id == m.TenantId && t.MensagensAutomaticasHabilitadas), ct);
 
         if (!temRegra)
         {

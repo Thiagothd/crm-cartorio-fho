@@ -251,7 +251,6 @@ static ProvedorGemini MontarGemini(OpcoesDaIA opcoesDaIA, string nivelDeRaciocin
 {
     var opcoes = new OpcoesDaIA
     {
-        Habilitada = true,
         Gemini = new OpcoesDoGemini
         {
             Habilitado = true,
@@ -271,7 +270,6 @@ static ProvedorAnthropic MontarAnthropic(OpcoesDaIA opcoesDaIA)
 {
     var opcoes = new OpcoesDaIA
     {
-        Habilitada = true,
         Anthropic = new OpcoesDoAnthropic
         {
             Habilitado = true,

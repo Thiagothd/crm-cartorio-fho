@@ -89,3 +89,35 @@ test('a prévia do encerramento acompanha o campo, e Salvar só acende com mudan
   await expect(page.getByText('depois de 1h30')).toBeVisible()
   await expect(salvar).toBeEnabled()
 })
+
+test('a chave geral das automáticas pede confirmação para desligar e avisa que a triagem sai junto', async ({
+  page,
+}) => {
+  const estado = await instalarApiMock(page)
+  await page.goto('/automacao/mensagens/automaticas')
+
+  const chave = page.getByRole('switch', { name: 'Mensagens automáticas' })
+  await expect(chave).toBeChecked()
+
+  // Desligar abre a confirmação; cancelar não grava nada.
+  await chave.click()
+  const dialogo = page.getByRole('dialog')
+  await expect(dialogo.getByText('Desligar todas as mensagens automáticas?')).toBeVisible()
+  await expect(dialogo.getByText(/não recebe resposta nenhuma/)).toBeVisible()
+  await dialogo.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(chave).toBeChecked()
+  expect(estado.chavesGerais.mensagensAutomaticasHabilitadas).toBe(true)
+
+  // Confirmando, grava e o aviso de "o cliente manda oi e não recebe nada" fica no topo.
+  await chave.click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Desligar mensagens' }).click()
+  await expect(chave).not.toBeChecked()
+  await expect(page.getByRole('status').filter({ hasText: 'Todas as mensagens automáticas estão desligadas.' })).toBeVisible()
+  expect(estado.chavesGerais.mensagensAutomaticasHabilitadas).toBe(false)
+
+  // Religar é imediato, sem confirmação.
+  await chave.click()
+  await expect(chave).toBeChecked()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  expect(estado.chavesGerais.mensagensAutomaticasHabilitadas).toBe(true)
+})

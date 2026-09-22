@@ -58,6 +58,8 @@ public record EconomiaResponse(
     decimal PercentualDeEconomia);
 
 /// <summary>Estado completo da Resposta Inteligente para o painel <c>/automacao/ia</c>.</summary>
+/// <param name="Habilitada">Chave geral do cartório (<c>Tenant.RespostaInteligenteHabilitada</c>), ligada pela tela.</param>
+/// <param name="EstaConfigurada">Há provedor com chave no servidor (<see cref="OpcoesDaIA.EstaConfigurada"/>).</param>
 public record SituacaoDaIaResponse(
     bool Habilitada,
     bool EstaConfigurada,

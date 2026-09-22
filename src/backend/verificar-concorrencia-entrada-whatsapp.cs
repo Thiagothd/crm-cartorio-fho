@@ -73,7 +73,7 @@ ProcessadorDeEntradaWhatsapp NovoProcessador(CrmDbContext db, IRespostaInteligen
         notificador,
         canal ?? new CanalSilencioso(),
         ia,
-        Options.Create(new OpcoesDaIA { Habilitada = true }),
+        Options.Create(new OpcoesDaIA()),
         NullLogger<ProcessadorDeEntradaWhatsapp>.Instance);
 
 async Task<(Guid ClienteId, Guid ConversaId)> CriarConversaAsync(

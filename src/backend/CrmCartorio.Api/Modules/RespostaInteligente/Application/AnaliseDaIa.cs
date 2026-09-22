@@ -86,9 +86,17 @@ public class AnaliseDaIa(
     {
         var situacao = await situacaoDaIa.ObterAsync(null, null, ct);
 
-        if (!situacao.Habilitada || !situacao.EstaConfigurada)
+        // Os dois "desligada" tem remedio diferente: a chave geral o proprio
+        // cartorio religa pela tela; falta de provedor e infraestrutura.
+        if (!situacao.Habilitada)
         {
-            return new SituacaoAgoraDaIaResponse("Desligada", null);
+            return new SituacaoAgoraDaIaResponse(
+                "Desligada", "Desligada pela serventia — a IA não responde ninguém; o cliente pode pedir um atendente.");
+        }
+
+        if (!situacao.EstaConfigurada)
+        {
+            return new SituacaoAgoraDaIaResponse("Desligada", "Nenhum provedor de IA configurado no servidor.");
         }
 
         if (situacao.Gemini.Status == "Contingencia")

@@ -23,6 +23,16 @@ identifica o tenant e é gravado pela tela de pareamento. Cada ambiente usa uma
 instância própria (`cartorio-piloto` em produção e `cartorio-teste` em teste);
 uma mesma instância nunca pode pertencer a dois tenants.
 
+## Chaves gerais de automação
+
+`MensagensAutomaticasHabilitadas` e `RespostaInteligenteHabilitada` (migração
+`sql/049`, ambas `DEFAULT (1)`) são o liga/desliga geral do cartório, pela
+tela. Este slice só as guarda e expõe (`GET /api/serventia/chaves-gerais`, um
+`PUT` por chave, cada um com a permissão de edição da área); quem as respeita
+são as portas únicas de cada recurso — `DisparadorDeMensagemAutomatica` e
+`RespostaInteligenteService`. Comportamento completo em
+`docs/FLUXO-AUTOMACAO.md`, §1.1.
+
 ## Fase 3
 
 O cadastro de tenant hoje é feito pelo seed. O onboarding automático — incluindo

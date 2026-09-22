@@ -3551,7 +3551,8 @@ try
         processo.StartInfo.EnvironmentVariables["ASPNETCORE_ENVIRONMENT"] = "Development";
         processo.StartInfo.EnvironmentVariables["ASPNETCORE_URLS"] = baseUrl;
         processo.StartInfo.EnvironmentVariables["CanalWhatsApp__Habilitado"] = "false";
-        processo.StartInfo.EnvironmentVariables["RespostaInteligente__Habilitada"] = "false";
+        processo.StartInfo.EnvironmentVariables["RespostaInteligente__Gemini__Habilitado"] = "false";
+        processo.StartInfo.EnvironmentVariables["RespostaInteligente__Anthropic__Habilitado"] = "false";
 
         var saidaErro = new System.Text.StringBuilder();
         processo.OutputDataReceived += (_, e) => { };
@@ -3835,7 +3836,8 @@ try
                     processoTeste.StartInfo.EnvironmentVariables["Mfa__Chaves__1"] =
                         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
                     processoTeste.StartInfo.EnvironmentVariables["CanalWhatsApp__Habilitado"] = "false";
-                    processoTeste.StartInfo.EnvironmentVariables["RespostaInteligente__Habilitada"] = "false";
+                    processoTeste.StartInfo.EnvironmentVariables["RespostaInteligente__Gemini__Habilitado"] = "false";
+                    processoTeste.StartInfo.EnvironmentVariables["RespostaInteligente__Anthropic__Habilitado"] = "false";
                     processoTeste.StartInfo.EnvironmentVariables["Automacao__VarrerPrazos"] = "false";
 
                     var erroDoTeste = new System.Text.StringBuilder();

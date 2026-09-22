@@ -287,11 +287,11 @@ MensagemService NovaMensagemService(CrmDbContext db, Guid quem, string nome)
 {
     var ctx = new ContextoFixo(tenantId, quem, nome, PerfilDeAtendente.Administrador);
 
-    // Habilitada=false: o servico real de RespostaInteligente cai direto no
+    // Sem provedor configurado: o servico real de RespostaInteligente cai direto no
     // "nao respondeu" sem tentar rede nenhuma (mesma contingencia de producao),
     // entao o verificador exercita o caminho de sempre — triagem sem
     // correspondencia escala para humano — sem precisar de chave da Anthropic.
-    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+    var opcoesDaIA = Options.Create(new OpcoesDaIA());
     var respostaInteligente = new RespostaInteligenteService(
         db, new OrquestradorNuncaChamado(), opcoesDaIA, NullLogger<RespostaInteligenteService>.Instance);
 
@@ -495,7 +495,7 @@ if (servicosDoSetorEsperado.Count > 0)
 
         // ACHADO AO VIVO, 2026-08-18: ate aqui, "obrigada" (nao e pedido de
         // atendente) escalava do mesmo jeito que um pedido explicito, so porque
-        // a IA (Habilitada=false neste verificador) nunca "sabe responder". A
+        // a IA (sem provedor configurado neste verificador) nunca "sabe responder". A
         // conversa precisa continuar OUVINDO a IA, nao desistir dela so porque
         // esta mensagem em especifico nao tinha o que responder.
         Checar("\"obrigada\" NAO desiste da IA — continua aguardando",
@@ -942,7 +942,7 @@ Console.WriteLine("TESTE 8 — catalogo da IA inclui setor, documentos e prazo")
 // tabelionato de notas" e a IA nao soube responder — o catalogo listava nome e
 // descricao de cada TipoServico, mas nunca o setor, entao nao havia como a IA
 // filtrar por setor sem inventar. Testa direto o texto que MontadorDeContexto
-// monta, sem precisar da chamada real a Anthropic (Habilitada=false).
+// monta, sem precisar da chamada real a Anthropic (sem provedor configurado).
 //
 // ACHADO DA AUDITORIA v0.2 (P1-01): DocumentosNecessarios e o Prazo (SLA)
 // existiam no cadastro mas ficavam de fora do grounding — a IA recusava perguntas
@@ -2376,9 +2376,9 @@ await using (var db = new CrmDbContext(opcoes, cifra))
         new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
         new CanalSilencioso(), new AnexosEmMemoria(),
         new RespostaInteligenteService(
-            db, new OrquestradorNuncaChamado(), Options.Create(new OpcoesDaIA { Habilitada = false }),
+            db, new OrquestradorNuncaChamado(), Options.Create(new OpcoesDaIA()),
             NullLogger<RespostaInteligenteService>.Instance),
-        Options.Create(new OpcoesDaIA { Habilitada = false }),
+        Options.Create(new OpcoesDaIA()),
         NovoRegistrador(db, tenantId, atendenteId, atendenteNome),
         NullLogger<MensagemService>.Instance);
 
@@ -2694,6 +2694,121 @@ await using (var db = new CrmDbContext(opcoes, cifra))
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 32 — chaves gerais do tenant (049). Desligar mensagens automaticas cala
+// TODOS os gatilhos, inclusive o bot de triagem: o cliente manda "oi" pelo
+// webhook real e nao recebe nada, e nenhuma flag de espera fica ligada
+// esperando resposta a um menu que nunca saiu. Desligar a IA faz
+// ResponderAsync devolver o "IA desligada" de sempre SEM chamar o
+// orquestrador, mesmo com provedor configurado. As duas chaves voltam a
+// ligada no finally — o tenant e o de demonstracao.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 32 — chaves gerais: mensagens automaticas e Resposta Inteligente desligadas pela serventia");
+
+try
+{
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await db.Tenants.Where(t => t.Id == tenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.MensagensAutomaticasHabilitadas, false)
+                .SetProperty(t => t.RespostaInteligenteHabilitada, false));
+    }
+
+    var telefone32 = $"5538000{++sequencial:D6}";
+    Guid conversa32;
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa32 = await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone32, ".", $"{PrefixoDeTeste}oi",
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-1"));
+    }
+
+    {
+        var conversa = await RecarregarAsync(conversa32);
+        var textos = await TextosDaConversaAsync(conversa32);
+
+        Checar("chave desligada: primeiro contato nao gera NENHUMA automatica (nem nome, nem menu)",
+            textos.Length == 0, $"automaticas={textos.Length}");
+        Checar("chave desligada: AguardandoNome nao liga (a pergunta nao saiu)", !conversa.AguardandoNome);
+        Checar("chave desligada: AguardandoTriagem nao liga (o menu nao saiu)", !conversa.AguardandoTriagem);
+        Checar("chave desligada: contato nao fica carimbado como ja perguntado",
+            (await ClienteDaConversaAsync(conversa32)).NomePerguntadoEm is null);
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone32, ".", $"{PrefixoDeTeste}alguem ai?",
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-2"));
+    }
+
+    Checar("chave desligada: segunda mensagem tambem nao gera automatica (nem o piso sem correspondencia)",
+        (await TextosDaConversaAsync(conversa32)).Length == 0);
+
+    // A IA desligada pelo tenant, com provedor CONFIGURADO: prova que quem
+    // barra e a chave do banco, nao a falta de chave no appsettings.
+    var orquestrador32 = new OrquestradorContador();
+    var opcoesArmadas32 = Options.Create(new OpcoesDaIA
+    {
+        Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
+    });
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var ia = new RespostaInteligenteService(
+            db, orquestrador32, opcoesArmadas32, NullLogger<RespostaInteligenteService>.Instance);
+
+        var resposta = await ia.ResponderAsync(tenantId, [], "quanto custa uma procuracao?");
+
+        Checar("IA desligada pela serventia: PodeResponder=false (cai no piso humano)", !resposta.PodeResponder,
+            resposta.Motivo);
+        Checar("IA desligada pela serventia: orquestrador nao e chamado", orquestrador32.Chamadas == 0,
+            $"Chamadas={orquestrador32.Chamadas}");
+    }
+
+    // Religa as duas e confere que o caminho volta — a chave e so um gate, nao
+    // apaga cadastro nenhum.
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await db.Tenants.Where(t => t.Id == tenantId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.MensagensAutomaticasHabilitadas, true)
+                .SetProperty(t => t.RespostaInteligenteHabilitada, true));
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var conversa = await db.Conversas.FirstAsync(c => c.Id == conversa32);
+        var geradas = await new DisparadorDeMensagemAutomatica(db, NullLogger<DisparadorDeMensagemAutomatica>.Instance)
+            .EnfileirarAsync(conversa, GatilhoDeMensagem.NovoAtendimento);
+
+        Checar("chave religada: o mesmo gatilho volta a gerar mensagem", geradas.Count > 0,
+            $"geradas={geradas.Count}");
+
+        var ia = new RespostaInteligenteService(
+            db, orquestrador32, opcoesArmadas32, NullLogger<RespostaInteligenteService>.Instance);
+        await ia.ResponderAsync(tenantId, [], "quanto custa uma procuracao?");
+
+        Checar("IA religada: orquestrador volta a ser chamado", orquestrador32.Chamadas == 1,
+            $"Chamadas={orquestrador32.Chamadas}");
+    }
+}
+finally
+{
+    await using var db = new CrmDbContext(opcoes, cifra);
+    await db.Tenants.Where(t => t.Id == tenantId)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(t => t.MensagensAutomaticasHabilitadas, true)
+            .SetProperty(t => t.RespostaInteligenteHabilitada, true));
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
@@ -2836,8 +2951,8 @@ VarredorDeInatividade NovoVarredorDeInatividade(CrmDbContext db) =>
         NullLogger<VarredorDeInatividade>.Instance);
 
 // Variante de NovaMensagemService para os testes de Human Takeover
-// (BUG-ATD-01): a IA fica REALMENTE "armada" (Habilitada=true, com uma chave
-// falsa so para passar EstaConfigurada) em vez de desligada. Se o gate do
+// (BUG-ATD-01): a IA fica REALMENTE "armada" (com uma chave falsa so para
+// passar EstaConfigurada, e a chave geral do tenant no DEFAULT ligado) em vez de desligada. Se o gate do
 // modo humano falhar e a automacao tentar responder mesmo assim, o
 // orquestrador passado (normalmente OrquestradorContador) e quem prova isso
 // — nao dependemos de "a IA estava desligada de qualquer jeito" como o resto
@@ -2849,7 +2964,6 @@ MensagemService NovaMensagemServiceComIaArmada(
 
     var opcoesDaIA = Options.Create(new OpcoesDaIA
     {
-        Habilitada = true,
         Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
     });
 
@@ -2878,7 +2992,6 @@ RecebimentoParaTeste NovoRecebimentoComIaArmada(
 {
     var opcoesDaIA = Options.Create(new OpcoesDaIA
     {
-        Habilitada = true,
         Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-fake-armada-para-teste" }
     });
 
@@ -2905,7 +3018,7 @@ RecebimentoParaTeste NovoRecebimentoComIaArmada(
 // de verdade custou estas dez linhas.
 RecebimentoParaTeste NovoRecebimento(CrmDbContext db)
 {
-    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+    var opcoesDaIA = Options.Create(new OpcoesDaIA());
 
     var notificador = new NotificadorSilencioso();
     var sinalizador = new SinalizadorDeEntradaWhatsapp();
@@ -3057,7 +3170,7 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
 
 /// <summary>
 /// Nunca deveria ser chamado nestes testes — o OpcoesDaIA usado aqui e sempre
-/// Habilitada=false, e RespostaInteligenteService.ResponderAsync ja retorna cedo
+/// sem provedor configurado, e RespostaInteligenteService.ResponderAsync ja retorna cedo
 /// nesse caso, antes de tocar no orquestrador. Existe so para preencher o
 /// parametro do construtor; se algum dia for chamado de verdade, o teste deve
 /// falhar alto, nao silenciosamente.
@@ -3066,7 +3179,7 @@ file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
 {
     public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
-            "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+            "OrquestradorDeProvedores nao deveria ser chamado sem provedor de IA configurado.");
 }
 
 /// <summary>

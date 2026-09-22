@@ -75,8 +75,12 @@ public class VarredorDePrazos(
         // serventia que decidiu nao avisar prazo automaticamente seria varrida a cada
         // passada para nao gerar nada — ou, pior, teria o marcador gravado sem
         // mensagem, e os avisos nunca sairiam se ela mudasse de ideia depois.
+        // A chave geral (Tenant.MensagensAutomaticasHabilitadas) entra pelo mesmo
+        // motivo: o disparador ja a respeita, mas sem este filtro cada passada
+        // reivindicaria e desfaria o marcador de todas as conversas dela.
         var tenantsComRegra = await db.MensagensAutomaticas.AsNoTracking()
-            .Where(m => m.Ativo && m.Gatilho == gatilho)
+            .Where(m => m.Ativo && m.Gatilho == gatilho
+                     && db.Tenants.Any(t => t.Id == m.TenantId && t.MensagensAutomaticasHabilitadas))
             .Select(m => m.TenantId)
             .Distinct()
             .ToListAsync(ct);

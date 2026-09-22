@@ -120,7 +120,7 @@ var opcoesDeMfa = Options.Create(new OpcoesDeMfa
     Chaves = new Dictionary<string, string> { ["1"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)) }
 });
 var cifra = new CifraDeSegredoMfa(opcoesDeMfa);
-var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+var opcoesDaIA = Options.Create(new OpcoesDaIA());
 
 // UM cache compartilhado por toda a execucao do verificador — mesmo papel do
 // singleton que Program.cs registra via AddMemoryCache(). A deduplicacao de
@@ -1149,11 +1149,11 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
     public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
 }
 
-/// <summary>Nunca deveria ser chamado — OpcoesDaIA aqui e sempre Habilitada=false.</summary>
+/// <summary>Nunca deveria ser chamado — OpcoesDaIA aqui nunca tem provedor configurado.</summary>
 file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
 {
     public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
-        throw new InvalidOperationException("OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+        throw new InvalidOperationException("OrquestradorDeProvedores nao deveria ser chamado sem provedor de IA configurado.");
 }
 
 file sealed class EvolutionClientNuncaChamado : IEvolutionClient

@@ -21,3 +21,14 @@ public record SalvarEncerramentoAutomaticoRequest(
     int? MinutosParaEncerrar,
     int? HoraInicial,
     int? HoraFinal);
+
+/// <summary>
+/// Chaves gerais de automacao do tenant. Desligar mensagens automaticas cala
+/// TODOS os gatilhos, inclusive o bot de triagem; desligar a IA faz a mensagem
+/// cair no piso de sempre (atendimento humano). Nenhuma das duas apaga cadastro.
+/// </summary>
+public record ChavesGeraisResponse(
+    bool MensagensAutomaticasHabilitadas,
+    bool RespostaInteligenteHabilitada);
+
+public record SalvarChaveGeralRequest(bool Habilitada);

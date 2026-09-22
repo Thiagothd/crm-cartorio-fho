@@ -3,7 +3,9 @@
 > **Status:** aprovado para a Fase 1 e implementado. Ampliado pela Fase 2
 > (piloto não oficial) — ver marcações "Fase 2A/2B/2C/2D/2E/2H/2I/2K" nas
 > seções abaixo.
-> **Última atualização:** 2026-09-12 — blindagem LGPD PR3: colunas cifradas em
+> **Última atualização:** 2026-09-22 — `Tenant.MensagensAutomaticasHabilitadas`
+> e `Tenant.RespostaInteligenteHabilitada` (chaves gerais pela tela, `sql/049`).
+> Antes, 2026-09-12 — blindagem LGPD PR3: colunas cifradas em
 > repouso marcadas onde aparecem (Cliente, Conversa, Mensagem, HistoricoEtapa);
 > `Cliente.DocumentoHash`/`DataNascimentoCifrada` novas. Ver
 > [PROTECAO-DE-DADOS.md](PROTECAO-DE-DADOS.md).
@@ -94,6 +96,8 @@ Cartório cliente. Na Fase 1 existe um registro; a estrutura já é multi-tenant
 | MinutosParaEncerrarSemResposta | int | não | **Fase 2H.** Minutos após a pergunta até encerrar sem resposta. Nulo = recurso desligado |
 | EncerramentoHoraInicial | int | não | **Fase 2H.** Hora (0–23) inicial da janela em que a pergunta pode sair. Nulo = qualquer hora |
 | EncerramentoHoraFinal | int | não | **Fase 2H.** Hora (0–23) final da janela. Nulo = qualquer hora |
+| MensagensAutomaticasHabilitadas | bool | sim | **`sql/049`, 2026-09-22.** Chave geral de todas as mensagens automáticas, inclusive o bot de triagem. `DEFAULT (1)` |
+| RespostaInteligenteHabilitada | bool | sim | **`sql/049`, 2026-09-22.** Chave geral da IA pela tela — substitui `RespostaInteligente:Habilitada` do appsettings. `DEFAULT (1)` |
 | Ativo | bool | sim | |
 | CriadoEm / AtualizadoEm | datetime2(3) | sim | |
 
@@ -103,6 +107,12 @@ isso ainda" ou "desligado"), não zero disfarçado. Os dois minutos são
 tudo-ou-nada (ambos nulos ou ambos preenchidos), assim como as duas horas —
 validado em `TenantService`. Comportamento completo em
 [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) §10.
+
+As duas chaves gerais são `bool` não nulo, ao contrário dos campos de
+encerramento: não existe "ninguém decidiu" aqui — nascer ligada é exatamente o
+comportamento de antes da coluna existir. Desligar não apaga cadastro nenhum;
+granularidade por regra continua em `MensagemAutomatica.Ativo`. Comportamento
+completo em [FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md) §1.1.
 
 Os três campos de conta/número oficial são o ponto de encaixe da Cloud API e
 ficam nulos no piloto não oficial. `WhatsappInstancia` já é usado pela Evolution:

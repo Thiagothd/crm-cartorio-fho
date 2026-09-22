@@ -85,7 +85,6 @@ OpcoesDaIA NovasOpcoes(
     int cooldownMaximoSegundos = 900,
     int limiteRpmDeDescoberta = 5) => new()
     {
-        Habilitada = true,
         LimiteDiario = limiteDiario,
         Gemini = new OpcoesDoGemini
         {

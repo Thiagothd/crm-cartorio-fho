@@ -40,4 +40,25 @@ public class ServentiaController(ITenantService servico) : ControllerBase
         [FromBody] SalvarEncerramentoAutomaticoRequest request,
         CancellationToken ct) =>
         Ok(await servico.DefinirEncerramentoAutomaticoAsync(request, ct));
+
+    /// <summary>
+    /// Chaves gerais de liga/desliga: mensagens automaticas e Resposta
+    /// Inteligente. Uma rota de escrita por chave porque cada uma exige uma
+    /// permissao diferente.
+    /// </summary>
+    [HttpGet("chaves-gerais")]
+    public async Task<ActionResult<ChavesGeraisResponse>> ChavesGerais(CancellationToken ct) =>
+        Ok(await servico.ObterChavesGeraisAsync(ct));
+
+    [HttpPut("chaves-gerais/mensagens-automaticas")]
+    public async Task<ActionResult<ChavesGeraisResponse>> DefinirMensagensAutomaticas(
+        [FromBody] SalvarChaveGeralRequest request,
+        CancellationToken ct) =>
+        Ok(await servico.DefinirMensagensAutomaticasAsync(request, ct));
+
+    [HttpPut("chaves-gerais/resposta-inteligente")]
+    public async Task<ActionResult<ChavesGeraisResponse>> DefinirRespostaInteligente(
+        [FromBody] SalvarChaveGeralRequest request,
+        CancellationToken ct) =>
+        Ok(await servico.DefinirRespostaInteligenteAsync(request, ct));
 }
