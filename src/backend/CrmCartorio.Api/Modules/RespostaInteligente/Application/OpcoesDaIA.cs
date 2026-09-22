@@ -4,11 +4,12 @@ public class OpcoesDaIA
 {
     public const string Secao = "RespostaInteligente";
 
-    /// <summary>
-    /// Liga a camada de IA. Desligada, a triagem sem correspondência cai direto no
-    /// encaminhamento humano de sempre — o comportamento da Fase 1.
-    /// </summary>
-    public bool Habilitada { get; set; }
+    // Nao existe mais "Habilitada" aqui (2026-09-22). Ligar/desligar a IA virou
+    // escolha do cartorio, pela tela: Tenant.RespostaInteligenteHabilitada, lida
+    // em RespostaInteligenteService.ResponderAsync. Uma chave "Habilitada" que
+    // ainda esteja no appsettings do servidor e ignorada pelo binding. O que
+    // continua aqui e infraestrutura: sem provedor com chave, nao ha IA — ver
+    // EstaConfigurada.
 
     public int TimeoutSegundos { get; set; } = 20;
 
@@ -50,9 +51,10 @@ public class OpcoesDaIA
 
     /// <summary>
     /// Falta de configuração cai para o comportamento humano de sempre — nunca trava
-    /// o cliente esperando uma IA mal configurada.
+    /// o cliente esperando uma IA mal configurada. Diz só se HÁ provedor; se o
+    /// cartório quer a IA ligada é <c>Tenant.RespostaInteligenteHabilitada</c>.
     /// </summary>
-    public bool EstaConfigurada => Habilitada && (GeminiEstaConfigurado || AnthropicEstaConfigurado);
+    public bool EstaConfigurada => GeminiEstaConfigurado || AnthropicEstaConfigurado;
 }
 
 public class OpcoesDoGemini

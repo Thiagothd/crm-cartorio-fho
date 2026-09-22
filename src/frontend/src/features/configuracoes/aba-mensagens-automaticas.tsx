@@ -36,6 +36,7 @@ import { normalizarTexto as normalizar } from './normalizar-texto'
 import { usarPreferenciaDeTexto } from '@/lib/usar-preferencia-local'
 import { cn } from '@/lib/utils'
 import { MARCADORES } from '@/features/atendimento/placeholders'
+import { ChaveGeralDasMensagensAutomaticas } from './chave-geral'
 import { FluxoDeMensagens } from './fluxo-de-mensagens'
 import { ListaDeMensagensAutomaticas } from './lista-de-mensagens-automaticas'
 import { ResumoDasMensagens } from './resumo-das-mensagens'
@@ -138,6 +139,11 @@ export function AbaMensagensAutomaticas() {
         evento do atendimento acontece. Cada ponto do caminho abaixo é uma dessas mensagens —
         clique para escrever ou ajustar o texto.
       </p>
+
+      {/* Sem regra nenhuma, o estado vazio abaixo traz um segundo botão
+          primário; o interruptor cai para `tinta` e o teto de 3 bordôs se
+          mantém (DESIGN.md 2.1). */}
+      <ChaveGeralDasMensagensAutomaticas tom={!isLoading && mensagens.length === 0 ? 'tinta' : 'selo'} />
 
       {isLoading ? (
         <CarregandoMensagens />

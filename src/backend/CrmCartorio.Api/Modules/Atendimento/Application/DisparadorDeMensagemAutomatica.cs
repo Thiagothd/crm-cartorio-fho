@@ -36,6 +36,29 @@ public class DisparadorDeMensagemAutomatica(
         Guid? etapaAlvoId = null,
         CancellationToken ct = default)
     {
+        // Chave geral do tenant (Tenant.MensagensAutomaticasHabilitadas). Aqui e
+        // nao em cada chamador: esta e a porta unica de toda mensagem automatica
+        // — triagem, pedido de nome, avisos de etapa/prazo, despedida, pergunta
+        // de encerramento. Devolver lista vazia e o mesmo efeito de nenhuma
+        // regra ativa, que todo chamador ja trata (a flag de espera seguinte so
+        // liga se algo foi gerado). Lida a cada chamada, sem memoria de escopo:
+        // desligar pela tela tem de valer ja na proxima mensagem. Tenant sem
+        // linha cai no DEFAULT da coluna (ligado).
+        var habilitadas = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == conversa.TenantId)
+            .Select(t => (bool?)t.MensagensAutomaticasHabilitadas)
+            .FirstOrDefaultAsync(ct) ?? true;
+
+        if (!habilitadas)
+        {
+            log.LogInformation(
+                "Mensagem automatica de {Gatilho} suprimida na conversa {ConversaId}: " +
+                "chave geral de mensagens automaticas desligada no tenant",
+                gatilho, conversa.Id);
+
+            return [];
+        }
+
         var consulta = db.MensagensAutomaticas.AsNoTracking()
             .Where(m => m.TenantId == conversa.TenantId && m.Ativo && m.Gatilho == gatilho);
 

@@ -374,10 +374,10 @@ var envios = Enumerable.Range(0, Simultaneas).Select(async i =>
         // perfil isola uma coisa da outra.
         var ctx = new ContextoFixo(tenantId, id, nome, PerfilDeAtendente.Atendente);
 
-        // Habilitada=false: nao e o que este verificador mede, e assim nao precisa
+        // Sem provedor configurado: nao e o que este verificador mede, e assim nao precisa
         // de chave da Anthropic para rodar. Ver o mesmo comentario em
         // verificar-automacao.cs.
-        var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = false });
+        var opcoesDaIA = Options.Create(new OpcoesDaIA());
 
         var mensagens = new MensagemService(
             db,
@@ -521,7 +521,7 @@ var tarefaDaIa = Task.Run(async () =>
 {
     await using var db = new CrmDbContext(opcoes, cifra);
     var ctx = new ContextoFixo(tenantId, atendenteQueAssumiu.Id, atendenteQueAssumiu.Nome, PerfilDeAtendente.Atendente);
-    var opcoesDaIA = Options.Create(new OpcoesDaIA { Habilitada = true });
+    var opcoesDaIA = Options.Create(new OpcoesDaIA());
 
     var mensagens = new MensagemService(
         db,
@@ -868,12 +868,12 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
     public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
 }
 
-/// <summary>Nunca deveria ser chamado — Habilitada=false aqui. Ver o mesmo comentario em verificar-automacao.cs.</summary>
+/// <summary>Nunca deveria ser chamado — sem provedor configurado aqui. Ver o mesmo comentario em verificar-automacao.cs.</summary>
 file sealed class OrquestradorNuncaChamado : IOrquestradorDeProvedores
 {
     public Task<RespostaDaIA> ResponderAsync(Guid tenantId, ContextoDaChamada? contexto, PedidoDeIa pedido, CancellationToken ct) =>
         throw new InvalidOperationException(
-            "OrquestradorDeProvedores nao deveria ser chamado com RespostaInteligente:Habilitada=false.");
+            "OrquestradorDeProvedores nao deveria ser chamado sem provedor de IA configurado.");
 }
 
 /// <summary>

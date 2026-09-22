@@ -88,14 +88,12 @@ ChamadaDeIa NovaLinha(
 
 OpcoesDaIA OpcoesComGeminiConfigurado(string chave = "chave-de-teste-gemini") => new()
 {
-    Habilitada = true,
     Gemini = new OpcoesDoGemini { Habilitado = true, ApiKey = chave, LimiteRpd = 1000 },
     Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-de-teste-anthropic" },
 };
 
 OpcoesDaIA OpcoesComGeminiDesligado() => new()
 {
-    Habilitada = true,
     Gemini = new OpcoesDoGemini { Habilitado = false },
     Anthropic = new OpcoesDoAnthropic { Habilitado = true, ApiKey = "chave-de-teste-anthropic" },
 };

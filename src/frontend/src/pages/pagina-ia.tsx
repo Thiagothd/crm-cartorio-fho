@@ -3,6 +3,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { Activity, BookOpen, RefreshCw } from 'lucide-react'
 import { AbasDeSecao, ehSecaoDe, type SecaoDeAba } from '@/components/layout/abas-de-secao'
 import { AbaConhecimentoDeIa } from '@/features/configuracoes/aba-conhecimento-de-ia'
+import { ChaveGeralDaIa } from '@/features/configuracoes/chave-geral'
 import { usarAnaliseDaIa } from '@/features/ia/consultas'
 import {
   CHAVES_DE_PERIODO,
@@ -133,6 +134,8 @@ function SituacaoDaIa() {
           />
         </div>
 
+        <ChaveGeralDaIa />
+
         {isLoading ? (
           <div className="flex flex-col gap-4">
             <Skeleton className="h-16 w-full" />
@@ -162,7 +165,10 @@ function SituacaoDaIa() {
           <EstadoDaInterface
             tipo="vazio"
             titulo="Resposta Inteligente desligada"
-            descricao="Ative a Resposta Inteligente na configuração do sistema para a IA passar a atender no WhatsApp."
+            descricao={
+              data.situacaoAgora.detalhe ??
+              'Ligue a Resposta Inteligente no interruptor acima para a IA passar a atender no WhatsApp.'
+            }
           />
         ) : (
           <div className="grade-com-vida flex flex-col gap-4">

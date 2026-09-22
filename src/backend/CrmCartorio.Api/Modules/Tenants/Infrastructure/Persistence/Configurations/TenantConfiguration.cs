@@ -15,6 +15,14 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.AparenciaDaConversa).HasConversion<byte>();
         builder.Property(t => t.MfaObrigatorioParaAdministradores).HasDefaultValue(false);
 
+        // Chaves gerais (049). SEM HasDefaultValue(true) de proposito: com
+        // default de banco igual a true, o EF trataria false como "valor nao
+        // informado" num INSERT e deixaria o banco gravar 1 — seria impossivel
+        // criar tenant ja desligado. O DEFAULT (1) vive so no DDL; o valor
+        // inicial do lado .NET vem do inicializador da propriedade.
+        builder.Property(t => t.MensagensAutomaticasHabilitadas).IsRequired();
+        builder.Property(t => t.RespostaInteligenteHabilitada).IsRequired();
+
         builder.Property(t => t.RazaoSocial).HasMaxLength(200).IsRequired();
         builder.Property(t => t.NomeFantasia).HasMaxLength(200);
         builder.Property(t => t.Cnpj).HasMaxLength(14).IsRequired().IsUnicode(false);

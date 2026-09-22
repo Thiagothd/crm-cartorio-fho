@@ -114,5 +114,37 @@ public class Tenant : EntidadeBase
     /// <summary>Hora local (0-23) ate a qual a pergunta pode sair. Ver <see cref="EncerramentoHoraInicial"/>.</summary>
     public int? EncerramentoHoraFinal { get; set; }
 
+    /// <summary>
+    /// Chave geral das mensagens automaticas. <b>Desligada, nenhum gatilho
+    /// dispara</b> — inclusive o bot de triagem (pedido de nome, boas-vindas com
+    /// menu de setores, menu de servicos, despedida): o cliente manda "oi" e nao
+    /// recebe nada de automatico.
+    /// </summary>
+    /// <remarks>
+    /// Porta unica: <c>DisparadorDeMensagemAutomatica.EnfileirarAsync</c>. O
+    /// efeito e o mesmo de desativar TODAS as linhas de MensagemAutomatica uma a
+    /// uma — estado que o fluxo ja suporta, porque cada aplicador decide a
+    /// proxima flag de espera (AguardandoTriagem, AguardandoNome...) pela
+    /// contagem do que foi gerado. A granularidade por regra continua no
+    /// <c>Ativo</c> de cada mensagem; isto e o "desliga tudo" sem perder o
+    /// cadastro. Nasce ligada (DEFAULT 1 na 049) — e o comportamento de antes.
+    /// </remarks>
+    public bool MensagensAutomaticasHabilitadas { get; set; } = true;
+
+    /// <summary>
+    /// Chave geral da Resposta Inteligente (IA), pela tela. Substitui o antigo
+    /// <c>RespostaInteligente:Habilitada</c> do appsettings, que exigia deploy.
+    /// </summary>
+    /// <remarks>
+    /// Porta unica: <c>RespostaInteligenteService.ResponderAsync</c>. Desligada,
+    /// devolve o mesmo <c>PodeResponder=false</c> de "IA desligada ou sem
+    /// provedor" — o piso de sempre (RespostaSemCorrespondencia / pedido de
+    /// atendente) continua valendo, entao o cliente nunca fica sem caminho.
+    /// Ligada, a IA so responde se houver provedor configurado (chave no
+    /// appsettings) — essa parte continua sendo infraestrutura, nao escolha do
+    /// cartorio. Nasce ligada (DEFAULT 1 na 049), preservando o piloto.
+    /// </remarks>
+    public bool RespostaInteligenteHabilitada { get; set; } = true;
+
     public bool Ativo { get; set; } = true;
 }

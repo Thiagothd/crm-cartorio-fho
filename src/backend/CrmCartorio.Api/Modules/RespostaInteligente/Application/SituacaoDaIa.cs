@@ -116,7 +116,7 @@ public class SituacaoDaIa(
             PercentualDeEconomia: Math.Round(percentualDeEconomia, 1));
 
         return new SituacaoDaIaResponse(
-            Habilitada: valor.Habilitada,
+            Habilitada: await HabilitadaNoTenantAsync(ct),
             EstaConfigurada: valor.EstaConfigurada,
             Gemini: gemini,
             Anthropic: anthropic,
@@ -139,8 +139,20 @@ public class SituacaoDaIa(
 
         var modelo = valor.GeminiEstaConfigurado ? valor.Gemini.Modelo : valor.ModeloDoAnthropicResolvido;
 
-        return new ResumoDaIaResponse(valor.Habilitada, valor.EstaConfigurada, modelo, valor.LimiteDiario, usadoHoje);
+        return new ResumoDaIaResponse(
+            await HabilitadaNoTenantAsync(ct), valor.EstaConfigurada, modelo, valor.LimiteDiario, usadoHoje);
     }
+
+    /// <summary>
+    /// A chave geral do cartorio (Tenant.RespostaInteligenteHabilitada) — a
+    /// mesma que RespostaInteligenteService.ResponderAsync respeita. Antes
+    /// vinha de RespostaInteligente:Habilitada do appsettings.
+    /// </summary>
+    private async Task<bool> HabilitadaNoTenantAsync(CancellationToken ct) =>
+        await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == ctx.TenantId)
+            .Select(t => (bool?)t.RespostaInteligenteHabilitada)
+            .FirstOrDefaultAsync(ct) ?? true;
 
     private async Task<EstadoDoProvedorResponse> MontarEstadoDoGeminiAsync(
         OpcoesDaIA valor, string? chaveDeProjeto, DateTime inicioDoDiaUtc, CancellationToken ct)

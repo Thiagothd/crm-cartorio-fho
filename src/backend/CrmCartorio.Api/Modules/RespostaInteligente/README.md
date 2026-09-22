@@ -22,6 +22,16 @@ só voltar o flag para `true` — mas reveja `Anthropic.LimiteDiarioHaiku` junto
 tráfego; com o Gemini de volta absorvendo a maioria, esse número volta a fazer
 sentido menor).
 
+**Desde 2026-09-22: ligar/desligar a IA é pela tela, por tenant.**
+`RespostaInteligente:Habilitada` saiu de `OpcoesDaIA` — a chave agora é
+`Tenant.RespostaInteligenteHabilitada` (migração `sql/049`), com interruptor
+em Automação → IA → Situação. `ResponderAsync` a lê a cada chamada e, desligada,
+devolve o mesmo `PodeResponder=false` de "IA desligada" — o Atendimento cai no
+piso de sempre sem saber o motivo. O appsettings continua mandando só em
+infraestrutura: sem provedor com chave (`OpcoesDaIA.EstaConfigurada`), não há
+IA. Uma chave `Habilitada` que ainda esteja no appsettings do servidor é
+ignorada. Ver `docs/FLUXO-AUTOMACAO.md`, §1.1.
+
 ## Por que existe um slice inteiro para isto
 
 Porque a chamada aos provedores de IA é exatamente o tipo de detalhe de terceiro

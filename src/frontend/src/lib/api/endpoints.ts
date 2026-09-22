@@ -6,6 +6,7 @@ import type {
   AparenciaDaConversa,
   Atendente,
   CargoNaServentia,
+  ChavesGerais,
   Cliente,
   ConexaoDoCanal,
   ConfirmarImportacaoResponse,
@@ -418,6 +419,14 @@ export const serventiaApi = {
 
   definirEncerramentoAutomatico: (dados: EncerramentoAutomatico) =>
     api.put<EncerramentoAutomatico>('/api/serventia/encerramento-automatico', dados),
+
+  chavesGerais: () => api.get<ChavesGerais>('/api/serventia/chaves-gerais'),
+
+  definirMensagensAutomaticas: (habilitada: boolean) =>
+    api.put<ChavesGerais>('/api/serventia/chaves-gerais/mensagens-automaticas', { habilitada }),
+
+  definirRespostaInteligente: (habilitada: boolean) =>
+    api.put<ChavesGerais>('/api/serventia/chaves-gerais/resposta-inteligente', { habilitada }),
 }
 
 // Automacao -----------------------------------------------------------------

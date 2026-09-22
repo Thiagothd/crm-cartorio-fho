@@ -308,6 +308,20 @@ Checar("Disparador: dados do servico para {DocumentosNecessarios}/{PrazoServico}
         })
         .ToQueryString());
 
+// Chaves gerais do tenant (049). O cast para bool? e o que permite o "?? true"
+// de quem chama distinguir "tenant sem linha" de "desligado".
+Checar("Disparador: chave geral de mensagens automaticas", () =>
+    db.Tenants.AsNoTracking()
+        .Where(t => t.Id == tenantId)
+        .Select(t => (bool?)t.MensagensAutomaticasHabilitadas)
+        .ToQueryString());
+
+Checar("Resposta Inteligente: chave geral da IA", () =>
+    db.Tenants.AsNoTracking()
+        .Where(t => t.Id == tenantId)
+        .Select(t => (bool?)t.RespostaInteligenteHabilitada)
+        .ToQueryString());
+
 Checar("Disparador: nome fantasia com fallback para razao social", () =>
     db.Tenants.AsNoTracking()
         .Where(t => t.Id == tenantId)
@@ -316,11 +330,21 @@ Checar("Disparador: nome fantasia com fallback para razao social", () =>
 
 // 12. Varredura de prazo. Contains() sobre lista em memoria e o ponto fragil aqui:
 //     e o que o EF traduz para IN (...), e o que quebraria em silencio se mudasse.
-Checar("Varredor: tenants com regra ativa", () =>
+Checar("Varredor: tenants com regra ativa e chave geral ligada", () =>
     db.MensagensAutomaticas.AsNoTracking()
-        .Where(m => m.Ativo && m.Gatilho == GatilhoDeMensagem.PrazoVencido)
+        .Where(m => m.Ativo && m.Gatilho == GatilhoDeMensagem.PrazoVencido
+                 && db.Tenants.Any(t => t.Id == m.TenantId && t.MensagensAutomaticasHabilitadas))
         .Select(m => m.TenantId)
         .Distinct()
+        .ToQueryString());
+
+Checar("Varredor de inatividade: tem regra de pergunta com chave geral ligada", () =>
+    db.MensagensAutomaticas.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.Ativo
+                 && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento
+                 && db.Tenants.Any(t => t.Id == m.TenantId && t.MensagensAutomaticasHabilitadas))
+        .Select(m => m.Id)
         .ToQueryString());
 
 Checar("Varredor: candidatas em alerta", () =>

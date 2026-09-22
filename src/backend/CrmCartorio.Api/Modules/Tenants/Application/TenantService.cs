@@ -1,14 +1,98 @@
 using CrmCartorio.Api.Domain.Common;
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
+using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Enums;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Tenants.Application;
 
-public class TenantService(CrmDbContext db, IContextoDoUsuario ctx) : ITenantService
+public class TenantService(
+    CrmDbContext db,
+    IContextoDoUsuario ctx,
+    ILogger<TenantService> log) : ITenantService
 {
+    public async Task<ChavesGeraisResponse> ObterChavesGeraisAsync(CancellationToken ct = default)
+    {
+        // Lida por quem ve QUALQUER uma das duas telas onde os interruptores
+        // aparecem (Automaticas e IA). Gravar exige a permissao de edicao de cada
+        // uma, separadamente — ver os dois Definir abaixo.
+        if (!ctx.Pode(PermissaoDoSistema.AutomacaoMensagensVer) && !ctx.Pode(PermissaoDoSistema.IaVer))
+        {
+            throw new TenantsServiceException(
+                "sem_permissao", "Seu perfil nao permite ver a automacao da serventia.", 403);
+        }
+
+        return await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == ctx.TenantId)
+            .Select(t => new ChavesGeraisResponse(t.MensagensAutomaticasHabilitadas, t.RespostaInteligenteHabilitada))
+            .FirstOrDefaultAsync(ct)
+            ?? throw new TenantsServiceException(
+                "tenant_nao_encontrado", "Serventia nao encontrada.", 404);
+    }
+
+    public async Task<ChavesGeraisResponse> DefinirMensagensAutomaticasAsync(
+        SalvarChaveGeralRequest request,
+        CancellationToken ct = default)
+    {
+        // Mesma permissao de alterar uma regra: desligar todas de uma vez e o
+        // caso extremo de desativar cada linha, nao um poder novo.
+        if (!ctx.Pode(PermissaoDoSistema.AutomacaoMensagensEditar))
+        {
+            throw new TenantsServiceException(
+                "sem_permissao", "Seu perfil nao permite ligar ou desligar as mensagens automaticas.", 403);
+        }
+
+        var tenant = await CarregarAsync(ct);
+        var antes = tenant.MensagensAutomaticasHabilitadas;
+        tenant.MensagensAutomaticasHabilitadas = request.Habilitada;
+        await db.SaveChangesAsync(ct);
+
+        if (antes != request.Habilitada)
+        {
+            log.LogWarning(
+                "Chave geral de mensagens automaticas {Estado} por {AtendenteId} no tenant {TenantId}",
+                request.Habilitada ? "LIGADA" : "DESLIGADA", ctx.AtendenteId, ctx.TenantId);
+        }
+
+        return new ChavesGeraisResponse(tenant.MensagensAutomaticasHabilitadas, tenant.RespostaInteligenteHabilitada);
+    }
+
+    public async Task<ChavesGeraisResponse> DefinirRespostaInteligenteAsync(
+        SalvarChaveGeralRequest request,
+        CancellationToken ct = default)
+    {
+        // Nao existe permissao "ia.editar" no catalogo. Quem aprova o que a IA
+        // diz (ia.conhecimento.editar) e quem responde pelo que ela fala ao
+        // cliente — logo, quem decide se ela fala. Criar uma permissao nova so
+        // para isto mexeria no catalogo e nos presets sem ganho real.
+        if (!ctx.Pode(PermissaoDoSistema.IaConhecimentoEditar))
+        {
+            throw new TenantsServiceException(
+                "sem_permissao", "Seu perfil nao permite ligar ou desligar a Resposta Inteligente.", 403);
+        }
+
+        var tenant = await CarregarAsync(ct);
+        var antes = tenant.RespostaInteligenteHabilitada;
+        tenant.RespostaInteligenteHabilitada = request.Habilitada;
+        await db.SaveChangesAsync(ct);
+
+        if (antes != request.Habilitada)
+        {
+            log.LogWarning(
+                "Chave geral da Resposta Inteligente {Estado} por {AtendenteId} no tenant {TenantId}",
+                request.Habilitada ? "LIGADA" : "DESLIGADA", ctx.AtendenteId, ctx.TenantId);
+        }
+
+        return new ChavesGeraisResponse(tenant.MensagensAutomaticasHabilitadas, tenant.RespostaInteligenteHabilitada);
+    }
+
+    private async Task<Tenant> CarregarAsync(CancellationToken ct) =>
+        await db.Tenants.FirstOrDefaultAsync(t => t.Id == ctx.TenantId, ct)
+            ?? throw new TenantsServiceException(
+                "tenant_nao_encontrado", "Serventia nao encontrada.", 404);
+
     public async Task<AparenciaResponse> ObterAparenciaAsync(CancellationToken ct = default)
     {
         var aparencia = await db.Tenants.AsNoTracking()

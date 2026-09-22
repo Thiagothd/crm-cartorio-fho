@@ -123,6 +123,7 @@ export interface EstadoE2E {
   respostasRapidas: any[]
   mensagensAutomaticas: any[]
   encerramento: any
+  chavesGerais: { mensagensAutomaticasHabilitadas: boolean; respostaInteligenteHabilitada: boolean }
   conhecimentos: any[]
   canal: {
     situacao: any
@@ -192,6 +193,7 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'auto-5', gatilho: 'ConfirmacaoDeEncerramento', gatilhoDescrito: 'Conversa parada: posso encerrar?', etapaAlvoId: null, etapaAlvoNome: null, conteudo: 'Ainda precisa de ajuda?\n1 - Sim, continuar\n2 - Nao, pode encerrar', ativo: true },
   ]
   const encerramento = { minutosParaPerguntar: 20, minutosParaEncerrar: 30, horaInicial: 8, horaFinal: 18 }
+  const chavesGerais = { mensagensAutomaticasHabilitadas: true, respostaInteligenteHabilitada: true }
 
   // Um em uso e um fora de vigência (janela já encerrada): é o par que a tela
   // de Conhecimento precisa distinguir, porque o contexto da IA lê só o
@@ -253,7 +255,7 @@ export function criarEstadoE2E(perfil: Perfil = 'Administrador'): EstadoE2E {
     { id: 'msg-1', conversaId: 'conversa-1', autorTipo: 'Cliente', atendenteId: null, atendenteNome: null, conteudo: 'Preciso reconhecer uma firma.', tipo: 'Texto', statusEntrega: 'Lida', ehAutomatica: false, fixada: false, oculta: false, ocultaPorNome: null, encaminhadaDeProtocolo: null, enviadaEm: agora, lidaEm: agora, mensagemRespondidaId: null, respondidaAutor: null, respondidaConteudo: null, arquivoNome: null, arquivoTipoMime: null, arquivoTamanhoBytes: null, geradaPorIa: false },
   ]
   return {
-    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento,
+    perfil, setores, etapas, servicos, atendentes, respostasRapidas, mensagensAutomaticas, encerramento, chavesGerais,
     conhecimentos, canal, clientes,
     conversas: [conversa],
     detalhes: { 'conversa-1': { conversa, mensagens, historico: [] } },
@@ -313,6 +315,15 @@ export async function instalarApiMock(page: Page, estado = criarEstadoE2E()) {
     if (path === '/api/mensagens-automaticas' && metodo === 'GET') return json(route, estado.mensagensAutomaticas.filter((m) => url.searchParams.get('incluirInativas') === 'true' || m.ativo))
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'GET') return json(route, estado.encerramento)
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'PUT') { estado.encerramento = corpoJson(route); return json(route, estado.encerramento) }
+    if (path === '/api/serventia/chaves-gerais' && metodo === 'GET') return json(route, estado.chavesGerais)
+    if (path === '/api/serventia/chaves-gerais/mensagens-automaticas' && metodo === 'PUT') {
+      estado.chavesGerais = { ...estado.chavesGerais, mensagensAutomaticasHabilitadas: corpoJson(route).habilitada }
+      return json(route, estado.chavesGerais)
+    }
+    if (path === '/api/serventia/chaves-gerais/resposta-inteligente' && metodo === 'PUT') {
+      estado.chavesGerais = { ...estado.chavesGerais, respostaInteligenteHabilitada: corpoJson(route).habilitada }
+      return json(route, estado.chavesGerais)
+    }
     if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
 
     // --- Conhecimento da IA ---

@@ -68,6 +68,12 @@ CREATE TABLE dbo.Tenants
     -- sobe o TokenVersion deles — nunca por UPDATE direto nesta coluna.
     MfaObrigatorioParaAdministradores BIT NOT NULL CONSTRAINT DF_Tenants_MfaObrigatorioParaAdministradores DEFAULT (0),
 
+    -- Chaves gerais de automacao (049), pela tela. Desligar mensagens
+    -- automaticas cala TODOS os gatilhos, inclusive o bot de triagem.
+    -- Desligar a IA faz a mensagem cair no piso de sempre (atendimento humano).
+    MensagensAutomaticasHabilitadas BIT NOT NULL CONSTRAINT DF_Tenants_MensagensAutomaticasHabilitadas DEFAULT (1),
+    RespostaInteligenteHabilitada   BIT NOT NULL CONSTRAINT DF_Tenants_RespostaInteligenteHabilitada DEFAULT (1),
+
     Ativo                     BIT              NOT NULL CONSTRAINT DF_Tenants_Ativo DEFAULT (1),
     CriadoEm                  DATETIME2(3)     NOT NULL,
     AtualizadoEm              DATETIME2(3)     NOT NULL,
