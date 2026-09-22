@@ -108,6 +108,7 @@ export async function instalarMockDeCapturas(page: Page, estado = criarEstadoDeC
     if (path === '/api/tipos-servico' && metodo === 'GET') return json(route, estado.servicos.filter((s) => url.searchParams.get('incluirInativos') === 'true' || s.ativo))
     if (path === '/api/respostas-rapidas' && metodo === 'GET') return json(route, estado.respostasRapidas)
     if (path === '/api/mensagens-automaticas' && metodo === 'GET') return json(route, estado.mensagensAutomaticas.filter((m) => url.searchParams.get('incluirInativas') === 'true' || m.ativo))
+    if (path === '/api/serventia/chaves-gerais' && metodo === 'GET') return json(route, { mensagensAutomaticasHabilitadas: true, respostaInteligenteHabilitada: true })
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'GET') return json(route, { minutosParaPerguntar: 20, minutosParaEncerrar: 30, horaInicial: 8, horaFinal: 18 })
     if (path === '/api/serventia/aparencia' && metodo === 'GET') return json(route, { aparenciaDaConversa: 'PapelLiso' })
 

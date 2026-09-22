@@ -87,7 +87,8 @@ public record SaudeDoWhatsAppResponse(bool Habilitado, bool Conectado, string Es
 
 public record SaudeDaIaResponse(bool Habilitada, bool EstaConfigurada, string Modelo, int LimiteDiario, int UsadoHoje);
 
-public record SaudeDaAutomacaoResponse(int RegrasAtivas, int RegrasInativas);
+/// <param name="Habilitadas">Chave geral do tenant (<c>Tenant.MensagensAutomaticasHabilitadas</c>). Desligada, nenhuma regra ativa dispara.</param>
+public record SaudeDaAutomacaoResponse(int RegrasAtivas, int RegrasInativas, bool Habilitadas);
 
 /// <summary>
 /// Cada campo é <c>null</c> quando o perfil da requisição não tem permissão

@@ -23,4 +23,17 @@ public interface ITenantService
     Task<EncerramentoAutomaticoResponse> DefinirEncerramentoAutomaticoAsync(
         SalvarEncerramentoAutomaticoRequest request,
         CancellationToken ct = default);
+
+    /// <summary>As duas chaves gerais: mensagens automaticas e Resposta Inteligente.</summary>
+    Task<ChavesGeraisResponse> ObterChavesGeraisAsync(CancellationToken ct = default);
+
+    /// <summary>Liga/desliga TODAS as mensagens automaticas, inclusive o bot de triagem.</summary>
+    Task<ChavesGeraisResponse> DefinirMensagensAutomaticasAsync(
+        SalvarChaveGeralRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>Liga/desliga a Resposta Inteligente (IA) — antes so pelo appsettings.</summary>
+    Task<ChavesGeraisResponse> DefinirRespostaInteligenteAsync(
+        SalvarChaveGeralRequest request,
+        CancellationToken ct = default);
 }

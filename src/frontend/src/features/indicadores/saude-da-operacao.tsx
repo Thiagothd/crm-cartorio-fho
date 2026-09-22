@@ -95,16 +95,18 @@ export function SaudeDaOperacaoCard({
           icone={Bot}
           rotulo="Resposta Inteligente"
           variante={
-            !saude.ia.estaConfigurada
+            !saude.ia.habilitada || !saude.ia.estaConfigurada
               ? 'outline'
               : saude.ia.usadoHoje >= saude.ia.limiteDiario
                 ? 'warning'
                 : 'success'
           }
           texto={
-            saude.ia.estaConfigurada
-              ? `${formatarNumero(saude.ia.usadoHoje)}/${formatarNumero(saude.ia.limiteDiario)} hoje`
-              : 'Não configurada'
+            !saude.ia.habilitada
+              ? 'Desligada'
+              : saude.ia.estaConfigurada
+                ? `${formatarNumero(saude.ia.usadoHoje)}/${formatarNumero(saude.ia.limiteDiario)} hoje`
+                : 'Não configurada'
           }
         />
       ) : null}
@@ -113,8 +115,12 @@ export function SaudeDaOperacaoCard({
         <LinhaDeSaude
           icone={Zap}
           rotulo="Mensagens automáticas"
-          variante={saude.automacao.regrasAtivas > 0 ? 'success' : 'outline'}
-          texto={`${formatarNumero(saude.automacao.regrasAtivas)} ativas · ${formatarNumero(saude.automacao.regrasInativas)} desativadas`}
+          variante={saude.automacao.habilitadas && saude.automacao.regrasAtivas > 0 ? 'success' : 'outline'}
+          texto={
+            saude.automacao.habilitadas
+              ? `${formatarNumero(saude.automacao.regrasAtivas)} ativas · ${formatarNumero(saude.automacao.regrasInativas)} desativadas`
+              : 'Desligadas'
+          }
         />
       ) : null}
     </ul>

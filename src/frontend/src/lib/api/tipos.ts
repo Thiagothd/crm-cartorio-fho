@@ -79,6 +79,16 @@ export interface EncerramentoAutomatico {
   horaFinal: number | null
 }
 
+/**
+ * Chaves gerais de liga/desliga do cartório (`Tenant`, migração 049).
+ * Desligar mensagens automáticas cala TODOS os gatilhos, inclusive o bot de
+ * triagem. Desligar a IA faz a mensagem cair no atendimento humano de sempre.
+ */
+export interface ChavesGerais {
+  mensagensAutomaticasHabilitadas: boolean
+  respostaInteligenteHabilitada: boolean
+}
+
 export type CategoriaServico =
   | 'Notas'
   | 'RegistroCivil'
@@ -890,6 +900,7 @@ export interface SaudeDoWhatsApp {
 }
 
 export interface SaudeDaIa {
+  /** Chave geral do cartório, ligada pela tela (IA › Situação). */
   habilitada: boolean
   estaConfigurada: boolean
   modelo: string
@@ -900,6 +911,8 @@ export interface SaudeDaIa {
 export interface SaudeDaAutomacao {
   regrasAtivas: number
   regrasInativas: number
+  /** Chave geral do cartório. Desligada, nenhuma regra ativa dispara. */
+  habilitadas: boolean
 }
 
 /** Cada campo é `null` quando o perfil não tem permissão para aquele dado. */
