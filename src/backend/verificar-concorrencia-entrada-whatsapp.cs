@@ -658,12 +658,24 @@ file sealed class CanalContador : IEnviadorDeCanal
         Interlocked.Increment(ref _varreduras);
         return Task.CompletedTask;
     }
+
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
 }
 
 file sealed class CanalSilencioso : IEnviadorDeCanal
 {
     public Task<string?> EnviarAsync(Guid mensagemId, CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task EnviarPendentesAsync(Guid conversaId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
 }
 
 file sealed class GatewayDeContagem : IEvolutionClient
@@ -682,6 +694,8 @@ file sealed class GatewayDeContagem : IEvolutionClient
     public Task DesconectarAsync(CancellationToken ct) => throw new NotSupportedException();
     public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) => throw new NotSupportedException();
     public Task<string> EnviarMidiaAsync(string telefoneE164, byte[] conteudo, string tipoMime, string nomeDoArquivo, string? legenda, CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> EditarTextoAsync(string telefoneE164, string idExternoWhatsapp, string conteudo, CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> ApagarParaTodosAsync(string telefoneE164, string idExternoWhatsapp, CancellationToken ct) => throw new NotSupportedException();
     public Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct) => throw new NotSupportedException();
     public Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct) => throw new NotSupportedException();
     public Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct) => throw new NotSupportedException();
