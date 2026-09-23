@@ -251,6 +251,136 @@ public class EnviadorPeloWhatsApp(
         }
     }
 
+    public async Task<ResultadoNoCanal> CorrigirAsync(
+        Guid mensagemId,
+        string novoConteudo,
+        CancellationToken ct = default)
+    {
+        if (await AlvoDaCorrecaoAsync(mensagemId, ct) is not { } alvo)
+        {
+            return ResultadoNoCanal.NaoSeAplica;
+        }
+
+        // Mesma guarda da saida, e pelo mesmo motivo: editar entrega TEXTO NOVO ao
+        // aparelho do cliente. Um numero que saiu da regra do canal nao volta a
+        // receber conteudo por esta porta.
+        if (await regras.PodeFalarComAsync(alvo.TenantId, alvo.Telefone, ct) is { Permitido: false } veredicto)
+        {
+            log.LogInformation(
+                "Correcao da mensagem {MensagemId} nao enviada: numero fora da regra do canal ({Motivo}).",
+                mensagemId, veredicto.Motivo);
+
+            return ResultadoNoCanal.NaoSeAplica;
+        }
+
+        // A autoria e a de QUEM ESCREVEU, nao a de quem corrigiu: o cabecalho diz
+        // ao cliente com quem ele esta falando, e trocar esse nome numa correcao
+        // reescreveria a conversa dele.
+        var autoria = new AutoriaDaMensagem(
+            alvo.AutorTipo, alvo.EhAutomatica, alvo.GeradaPorIa, alvo.AtendenteNome);
+
+        var aceitou = await gateway.EditarTextoAsync(
+            alvo.Telefone,
+            alvo.IdExternoWhatsapp,
+            AssinaturaDeAutoria.Decorar(novoConteudo, autoria),
+            ct);
+
+        return aceitou ? ResultadoNoCanal.Feito : ResultadoNoCanal.Recusado;
+    }
+
+    public async Task<ResultadoNoCanal> ApagarParaTodosAsync(
+        Guid mensagemId,
+        CancellationToken ct = default)
+    {
+        if (await AlvoDaCorrecaoAsync(mensagemId, ct) is not { } alvo)
+        {
+            return ResultadoNoCanal.NaoSeAplica;
+        }
+
+        // Sem a guarda de IRegrasDoCanal, ao contrario da correcao — e deliberado.
+        // Apagar nao ENTREGA nada ao cliente: retira o que ja esta no aparelho
+        // dele. Um numero que saiu da allowlist depois do envio continua com a
+        // mensagem errada na tela, e recusar o apagamento aqui protegeria a regra
+        // do canal as custas da unica coisa que o atendente ainda pode fazer.
+        var aceitou = await gateway.ApagarParaTodosAsync(alvo.Telefone, alvo.IdExternoWhatsapp, ct);
+
+        return aceitou ? ResultadoNoCanal.Feito : ResultadoNoCanal.Recusado;
+    }
+
+    /// <summary>
+    /// Dados de uma mensagem que ja saiu, para corrigir ou apagar no aparelho do
+    /// cliente. <c>null</c> quando o canal nao se aplica.
+    /// </summary>
+    /// <remarks>
+    /// Repete o GATE de <see cref="EnviarAsync"/> — canal configurado, conversa de
+    /// WhatsApp, telefone presente. Conversa de demonstracao nunca teve id externo
+    /// e cai fora ja pela ausencia dele; o gate explicito por canal fica assim
+    /// mesmo, para o dia em que existir outro canal.
+    /// </remarks>
+    private async Task<AlvoDaCorrecao?> AlvoDaCorrecaoAsync(Guid mensagemId, CancellationToken ct)
+    {
+        if (!_opcoes.EstaConfigurado)
+        {
+            return null;
+        }
+
+        var alvo = await db.Mensagens.AsNoTracking()
+            .Where(m => m.Id == mensagemId)
+            .Select(m => new
+            {
+                m.IdExternoWhatsapp,
+                m.AutorTipo,
+                m.EhAutomatica,
+                m.GeradaPorIa,
+                AtendenteNome = db.Atendentes
+                    .Where(a => a.Id == m.AtendenteId)
+                    .Select(a => a.Nome)
+                    .FirstOrDefault(),
+                Canal = db.Conversas
+                    .Where(c => c.Id == m.ConversaId)
+                    .Select(c => c.Canal)
+                    .FirstOrDefault(),
+                TenantId = db.Conversas
+                    .Where(c => c.Id == m.ConversaId)
+                    .Select(c => c.TenantId)
+                    .FirstOrDefault(),
+                Telefone = db.Conversas
+                    .Where(c => c.Id == m.ConversaId)
+                    .Select(c => db.Clientes
+                        .Where(cl => cl.Id == c.ClienteId)
+                        .Select(cl => cl.TelefoneWhatsapp)
+                        .FirstOrDefault())
+                    .FirstOrDefault()
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (alvo is null
+            || alvo.Canal != CanalOrigem.WhatsApp
+            || string.IsNullOrWhiteSpace(alvo.IdExternoWhatsapp)
+            || string.IsNullOrWhiteSpace(alvo.Telefone))
+        {
+            return null;
+        }
+
+        return new AlvoDaCorrecao(
+            alvo.IdExternoWhatsapp,
+            alvo.Telefone,
+            alvo.TenantId,
+            alvo.AutorTipo,
+            alvo.EhAutomatica,
+            alvo.GeradaPorIa,
+            alvo.AtendenteNome);
+    }
+
+    private sealed record AlvoDaCorrecao(
+        string IdExternoWhatsapp,
+        string Telefone,
+        Guid TenantId,
+        AutorTipo AutorTipo,
+        bool EhAutomatica,
+        bool GeradaPorIa,
+        string? AtendenteNome);
+
     /// <summary>
     /// Le o arquivo do disco e manda pelo gateway.
     /// </summary>

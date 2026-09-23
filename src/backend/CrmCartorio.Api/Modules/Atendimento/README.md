@@ -37,7 +37,7 @@ diretamente (que continua público só para `verificar-traducao.cs` chamar
 | Entidade | Papel |
 | --- | --- |
 | `Conversa` | O atendimento. Onde mora a trava contra duplicidade |
-| `Mensagem` | O fio da conversa. Nunca editada, nunca apagada |
+| `Mensagem` | O fio da conversa. A linha nunca é apagada; o texto só muda por correção assinada (ver abaixo) |
 | `HistoricoEtapa` | Trilha de mudanças de etapa e setor. Só cresce |
 
 ## Por que a trava está aqui
@@ -175,6 +175,42 @@ Há uma janela residual inevitável para IA sem chave idempotente: se o processo
 morrer depois de o provedor responder e antes de persistir a resposta, a retomada
 pode chamar o provedor outra vez. Evolution continua protegido separadamente pelo
 claim WA-OUT-01; a resposta automática é persistida antes do envio.
+
+## Corrigir e apagar mensagem já enviada (2026-09-22)
+
+Até aqui o fio era imutável de ponta a ponta. Mensagem enviada por engano chegava
+ao WhatsApp do cliente e o único remédio era mandar outra pedindo desculpa — as
+duas ficavam lá. `IAcoesDeMensagem.CorrigirAsync` e `ApagarParaTodosAsync` mudam
+isso, sem abrir mão do registro.
+
+| Ação | O cliente vê | O fio guarda |
+| --- | --- | --- |
+| Corrigir | O texto novo, marcado como **editada** pelo próprio WhatsApp | `ConteudoOriginal` (o texto da primeira vez), `CorrigidaEm`, `CorrigidaPorAtendenteId` |
+| Apagar para todos | **"Esta mensagem foi apagada"** | A linha inteira, com `Conteudo` intacto, `ApagadaParaTodosEm` e quem apagou |
+
+Nenhuma das duas é silenciosa, e isso é a favor: o cartório não reescreve o que o
+cliente já leu, só conserta ou retira o que saiu errado — e o aparelho dele diz
+que algo mudou.
+
+As travas, todas com código de recusa próprio (`AtendimentoServiceException`):
+
+- **Só mensagem de atendente.** Automática e IA se consertam no cadastro que as
+  gerou; corrigir uma a uma no fio deixaria a regra errada disparando errado na
+  próxima conversa.
+- **Só o autor**, ou quem tem `atendimento.mexer-no-de-terceiro`. A mensagem sai
+  assinada com o nome de quem escreveu (`AssinaturaDeAutoria`): uma correção feita
+  por outra pessoa mudaria, no aparelho do cliente, o que "Maria" disse — sem
+  Maria saber.
+- **Só texto, e só por 15 minutos** para corrigir; **2 dias** para apagar. As duas
+  janelas são do WhatsApp, não nossas (`MensagemService.MinutosParaCorrigir` e
+  `DiasParaApagar`), e o painel esconde a ação quando elas fecham.
+- **Nada é gravado se o WhatsApp recusar.** O gateway devolve `Recusado` e o fio
+  continua como estava — um painel que mostrasse o texto novo faria o atendente
+  acreditar num conserto que não aconteceu.
+
+A assimetria entre as duas no canal é deliberada: corrigir passa pela regra de
+`IRegrasDoCanal` (entrega texto novo), apagar não (só retira o que já está lá).
+Coberto em `verificar-canal-whatsapp.cs`.
 
 ## Decisões que parecem estranhas mas não são
 

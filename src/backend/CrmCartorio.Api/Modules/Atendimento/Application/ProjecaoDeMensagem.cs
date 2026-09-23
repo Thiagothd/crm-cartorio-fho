@@ -122,5 +122,18 @@ public static class ProjecaoDeMensagem
             m.ArquivoNome,
             m.ArquivoTipoMime,
             m.ArquivoTamanhoBytes,
-            m.GeradaPorIa));
+            m.GeradaPorIa,
+
+            m.CorrigidaEm != null,
+            m.CorrigidaEm,
+            db.Atendentes.Where(a => a.Id == m.CorrigidaPorAtendenteId).Select(a => a.Nome).FirstOrDefault(),
+
+            // O texto de antes vai junto, na mesma linha. Uma rota separada para
+            // "ver o original" faria a auditoria depender de outra chamada, e o
+            // campo e nulo na imensa maioria das mensagens.
+            m.ConteudoOriginal,
+
+            m.ApagadaParaTodosEm != null,
+            m.ApagadaParaTodosEm,
+            db.Atendentes.Where(a => a.Id == m.ApagadaParaTodosPorAtendenteId).Select(a => a.Nome).FirstOrDefault()));
 }

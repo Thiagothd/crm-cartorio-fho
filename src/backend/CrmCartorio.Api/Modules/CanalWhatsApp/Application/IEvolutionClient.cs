@@ -86,6 +86,44 @@ public interface IEvolutionClient
         string? legenda,
         CancellationToken ct);
 
+    /// <summary>
+    /// Troca o texto de uma mensagem JA ENTREGUE ao cliente. O WhatsApp marca a
+    /// mensagem como "editada" no aparelho dele.
+    /// </summary>
+    /// <remarks>
+    /// <b>Devolve false em vez de lancar quando o WhatsApp recusa</b> — e a unica
+    /// forma honesta de tratar o motivo mais comum de recusa, que e a janela de
+    /// edicao ter fechado do lado deles. O servico ja checa a janela antes de
+    /// chamar; este false cobre a discordancia de relogio entre nos e o WhatsApp,
+    /// e "nao consegui" e resposta, nao falha de sistema. Excecao continua
+    /// reservada para gateway fora do ar.
+    ///
+    /// O <paramref name="conteudo"/> chega JA DECORADO com a assinatura de
+    /// autoria, como no envio — sem isso a correcao apagaria do aparelho do
+    /// cliente o nome de quem estava falando com ele.
+    /// </remarks>
+    Task<bool> EditarTextoAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        string conteudo,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Apaga para todos uma mensagem que NOS enviamos. O cliente passa a ver
+    /// "Esta mensagem foi apagada".
+    /// </summary>
+    /// <remarks>
+    /// Mesma disciplina de <see cref="EditarTextoAsync"/>: false quando o WhatsApp
+    /// recusa (janela vencida do lado deles), excecao so quando o gateway nao
+    /// responde. Vale apenas para mensagem nossa — <c>fromMe</c> e sempre
+    /// verdadeiro aqui, e apagar mensagem do cliente nao e coisa que o WhatsApp
+    /// permita a ninguem.
+    /// </remarks>
+    Task<bool> ApagarParaTodosAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        CancellationToken ct);
+
     /// <summary>Baixa a midia de uma mensagem recebida, em base64.</summary>
     Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct);
 

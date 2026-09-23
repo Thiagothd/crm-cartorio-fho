@@ -409,6 +409,24 @@ export interface Mensagem {
    * Sempre acompanha `ehAutomatica`. É o que separa "IA" de "Automática" no rótulo.
    */
   geradaPorIa: boolean
+  /**
+   * O texto foi corrigido depois de enviado. `conteudo` já é a versão vigente —
+   * é ela que o cliente vê no WhatsApp.
+   */
+  corrigida: boolean
+  corrigidaEm: string | null
+  /** Quem corrigiu. Preenchido só quando `corrigida`. */
+  corrigidaPorNome: string | null
+  /** O texto como saiu da primeira vez. A correção é auditável por desenho. */
+  conteudoOriginal: string | null
+  /**
+   * Apagada no aparelho do cliente. A linha **continua no fio** com o `conteudo`
+   * intacto: o cliente deixou de ver, o registro da serventia não.
+   */
+  apagadaParaTodos: boolean
+  apagadaParaTodosEm: string | null
+  /** Quem apagou. Preenchido só quando `apagadaParaTodos`. */
+  apagadaParaTodosPorNome: string | null
 }
 
 /** Conversa candidata a receber um encaminhamento. */
