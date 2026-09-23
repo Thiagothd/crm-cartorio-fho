@@ -63,6 +63,10 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
             "So da para corrigir mensagem escrita por um atendente. Mensagem automatica ou " +
             "do assistente se ajusta em Automacao.", 400);
 
+    public static AtendimentoServiceException CorrecaoDeMensagemDoAparelho() =>
+        new("correcao_de_mensagem_do_aparelho",
+            "Esta mensagem foi enviada pelo celular. Corrija ou apague pelo proprio WhatsApp.", 400);
+
     public static AtendimentoServiceException CorrecaoSoDoAutor(string autor) =>
         new("correcao_so_do_autor",
             $"Esta mensagem foi escrita por {autor}. So o autor pode corrigi-la.", 403);

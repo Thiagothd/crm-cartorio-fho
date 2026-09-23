@@ -26,6 +26,7 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.Property(c => c.MotivoEncerramento).Cifrada(500);
         builder.Property(c => c.IniciadaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.UltimaMensagemEm).HasColumnType("datetime2(3)");
+        builder.Property(c => c.AtendidaPeloAparelhoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.PrazoIniciadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.PrazoLimite).HasColumnType("datetime2(3)");
         builder.Property(c => c.PrazoAlertaEm).HasColumnType("datetime2(3)");

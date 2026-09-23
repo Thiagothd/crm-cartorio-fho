@@ -576,6 +576,157 @@ try
     Checar("varredura respeita backoff e claim recente", !conversasDaVarredura.Contains(falhaFuturaVarredura.ConversaId) && !conversasDaVarredura.Contains(processandoRecenteVarredura.ConversaId));
     Checar("varredura nao acorda saida pendente de Simulado", !conversasDaVarredura.Contains(saidaSimuladaVarredura.ConversaId));
 
+    // P — Resposta dada pelo celular (2026-09-23). Mesmo efeito de um atendente
+    // assumir pelo painel: o robo e a IA ficam calados na conversa, e a resposta
+    // entra no fio sem atendente identificado.
+    var doRobo = await CriarConversaAsync("celular-robo", aguardandoIa: true, comMensagemAnterior: true);
+    string telefoneDoRobo;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        telefoneDoRobo = await db.Clientes.Where(c => c.Id == doRobo.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+
+    MensagemDoCanal PeloCelular(string telefone, string id, string texto) =>
+        new(telefone, NomeDoPerfil: null, texto, TipoMensagem.Texto, $"{prefixoId}{id}");
+
+    Guid? conversaDaResposta;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        conversaDaResposta = await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(telefoneDoRobo, "P1-celular", "Oi, aqui é o cartório parceiro pelo celular."));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var conversa = await db.Conversas.AsNoTracking().SingleAsync(c => c.Id == doRobo.ConversaId);
+        var resposta = await db.Mensagens.AsNoTracking()
+            .SingleAsync(m => m.IdExternoWhatsapp == $"{prefixoId}P1-celular");
+        var notas = await db.Mensagens.AsNoTracking()
+            .CountAsync(m => m.ConversaId == doRobo.ConversaId && m.AutorTipo == AutorTipo.Sistema && !m.EhAutomatica);
+
+        Checar("resposta pelo celular entra na conversa ativa do contato", conversaDaResposta == doRobo.ConversaId);
+        Checar("resposta pelo celular liga o atendimento humano (robo e IA calados)", conversa.EmAtendimentoHumano);
+        Checar("resposta pelo celular sem dono no painel marca a conversa e a deixa em aberto",
+            conversa.AtendidaPeloAparelhoEm != null && conversa.AtendenteId == null);
+        Checar("resposta pelo celular zera as nao lidas", conversa.MensagensNaoLidas == 0);
+        Checar("resposta pelo celular e gente da serventia sem atendente identificado",
+            resposta.EnviadaPeloAparelho
+            && resposta.AutorTipo == AutorTipo.Atendente
+            && resposta.AtendenteId == null
+            && !resposta.EhAutomatica
+            && resposta.StatusEntrega == StatusEntrega.Enviada);
+        Checar("a passagem para 'atendida pelo celular' deixa uma nota interna no fio", notas == 1);
+    }
+
+    // P2 — o gateway reentrega o mesmo evento, inclusive ao mesmo tempo.
+    var reentregas = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => Task.Run(async () =>
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        return await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(telefoneDoRobo, "P1-celular", "Oi, aqui é o cartório parceiro pelo celular."));
+    })));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        Checar("5 reentregas simultaneas da resposta pelo celular nao gravam de novo",
+            reentregas.All(r => r is null)
+            && await db.Mensagens.CountAsync(m => m.IdExternoWhatsapp == $"{prefixoId}P1-celular") == 1);
+    }
+
+    // P3 — o cliente responde depois: a mensagem entra, e ninguem automatico responde.
+    await AceitarAsync(telefoneDoRobo, $"{prefixoId}P3-cliente", "obrigado");
+    var iaDoCelular = new IaFake();
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        await NovoProcessador(db, iaDoCelular).ProcessarConversaAsync(doRobo.ConversaId);
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var estado = await db.Mensagens.Where(m => m.IdExternoWhatsapp == $"{prefixoId}P3-cliente")
+            .Select(m => m.EstadoProcessamentoEntrada).SingleAsync();
+        Checar("depois da resposta pelo celular, a mensagem do cliente e processada sem IA nem robo",
+            iaDoCelular.Chamadas == 0
+            && estado == EstadoProcessamentoEntradaWhatsapp.Processada
+            && !await db.Mensagens.AnyAsync(m => m.ConversaId == doRobo.ConversaId && m.EhAutomatica));
+    }
+
+    // P4 — segunda resposta pelo celular: entra no fio, sem repetir a nota.
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(telefoneDoRobo, "P4-celular", "Já separei o documento."));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        Checar("segunda resposta pelo celular entra sem repetir a nota",
+            await db.Mensagens.CountAsync(m => m.ConversaId == doRobo.ConversaId && m.EnviadaPeloAparelho) == 2
+            && await db.Mensagens.CountAsync(m => m.ConversaId == doRobo.ConversaId && m.AutorTipo == AutorTipo.Sistema && !m.EhAutomatica) == 1);
+    }
+
+    // P5 — conversa com dono no painel: a resposta pelo celular so entra no fio.
+    var comDono = await CriarConversaAsync("celular-dono", humano: true);
+    var donoId = await ObterAtendenteAtivoAsync();
+    string telefoneComDono;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await db.Conversas.Where(c => c.Id == comDono.ConversaId)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.AtendenteId, donoId));
+        telefoneComDono = await db.Clientes.Where(c => c.Id == comDono.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(telefoneComDono, "P5-celular", "Respondendo pelo celular."));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var conversa = await db.Conversas.AsNoTracking().SingleAsync(c => c.Id == comDono.ConversaId);
+        Checar("resposta pelo celular em conversa com dono nao tira a conversa dele nem a marca",
+            conversa.AtendenteId == donoId && conversa.AtendidaPeloAparelhoEm == null);
+        Checar("resposta pelo celular em conversa com dono nao deixa nota",
+            !await db.Mensagens.AnyAsync(m => m.ConversaId == comDono.ConversaId && m.AutorTipo == AutorTipo.Sistema));
+        Checar("resposta pelo celular em conversa com dono entra no fio",
+            await db.Mensagens.CountAsync(m => m.ConversaId == comDono.ConversaId && m.EnviadaPeloAparelho) == 1);
+    }
+
+    // P6 — o cartorio puxa a conversa pelo celular com quem nao tem atendimento.
+    var telefoneNovo = $"5597{Random.Shared.NextInt64(100000000, 999999999)}";
+    telefones.Add(telefoneNovo);
+
+    Guid? conversaNova;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        conversaNova = await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(telefoneNovo, "P6-celular", "Olá! Sua certidão ficou pronta."));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var conversa = await db.Conversas.AsNoTracking().SingleAsync(c => c.Id == conversaNova);
+        var cliente = await db.Clientes.AsNoTracking().SingleAsync(c => c.Id == conversa.ClienteId);
+        var abertura = await db.HistoricoEtapas.AsNoTracking()
+            .Where(h => h.ConversaId == conversa.Id && h.TipoMudanca == TipoMudancaHistorico.Abertura)
+            .Select(h => h.Observacao).SingleAsync();
+
+        Checar("mensagem pelo celular para contato novo abre atendimento ja humano e marcado",
+            conversa.Status == StatusConversa.Ativa
+            && conversa.EmAtendimentoHumano
+            && conversa.AtendidaPeloAparelhoEm != null
+            && conversa.AtendenteId == null);
+        Checar("atendimento aberto pelo celular nao manda boas-vindas nem menu",
+            !await db.Mensagens.AnyAsync(m => m.ConversaId == conversa.Id && m.EhAutomatica));
+        Checar("atendimento aberto pelo celular registra a origem na abertura",
+            abertura is not null && abertura.Contains("celular"));
+        Checar("cliente criado pelo celular nao leva o nome do perfil do cartorio",
+            cliente.TelefoneWhatsapp == telefoneNovo && !cliente.Nome.Contains("Cart"));
+    }
+
+    // O cliente responde a conversa que o cartorio puxou: robo calado.
+    await AceitarAsync(telefoneNovo, $"{prefixoId}P6-cliente", "Oi! Posso buscar amanhã?");
+    var iaDoContatoNovo = new IaFake();
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        await NovoProcessador(db, iaDoContatoNovo).ProcessarConversaAsync(conversaNova!.Value);
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        Checar("cliente que responde a conversa puxada pelo celular nao recebe robo nem IA",
+            iaDoContatoNovo.Chamadas == 0
+            && await db.Mensagens.CountAsync(m => m.ConversaId == conversaNova && m.AutorTipo == AutorTipo.Cliente) == 1
+            && !await db.Mensagens.AnyAsync(m => m.ConversaId == conversaNova && m.EhAutomatica));
+    }
+
     // L — o processador chama a mesma porta de saida; WA-OUT-01 tem verificador proprio.
     var canal = new CanalContador();
     await using (var db = new CrmDbContext(opcoes, cifra)) await NovoProcessador(db, new IaFake(), canal).ProcessarConversaAsync(lenta.ConversaId);

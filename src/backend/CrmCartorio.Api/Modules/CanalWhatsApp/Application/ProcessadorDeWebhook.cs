@@ -28,6 +28,7 @@ public class ProcessadorDeWebhook(
     IRecebimentoDeWhatsApp recebimento,
     IEvolutionClient gateway,
     IRegrasDoCanal regras,
+    IIdentificadorDeEco identificadorDeEco,
     IOptions<OpcoesDoCanalWhatsApp> opcoes,
     ILogger<ProcessadorDeWebhook> log) : IProcessadorDeWebhook
 {
@@ -108,6 +109,14 @@ public class ProcessadorDeWebhook(
 
         if (evento == "messages.upsert")
         {
+            // Saiu do PROPRIO numero: eco do painel ou resposta dada direto pelo
+            // celular. Caminho separado — nada daqui vira mensagem de cliente.
+            if (TradutorDePayload.LerMensagemEnviadaPeloAparelho(payload.Data) is { } doAparelho)
+            {
+                await RegistrarRespostaPeloAparelhoAsync(payload.Instance, doAparelho, ct);
+                return;
+            }
+
             if (TradutorDePayload.LerMensagem(payload.Data) is not { } mensagem)
             {
                 // Eco da nossa propria mensagem, conversa de grupo, ou tipo sem
@@ -164,6 +173,72 @@ public class ProcessadorDeWebhook(
                 status.Status,
                 ct);
         }
+    }
+
+    /// <summary>
+    /// Leva ao fio a resposta que alguem da serventia deu fora do painel.
+    /// </summary>
+    /// <remarks>
+    /// Tres portas antes de gravar qualquer coisa, da mais barata para a mais cara:
+    /// <list type="number">
+    ///   <item><b>Conversa consigo mesmo</b> (o "mensagem para mim" do WhatsApp):
+    ///   anotacao pessoal, nao atendimento — viraria um cliente com o numero do
+    ///   proprio cartorio.</item>
+    ///   <item><b>Regra do canal</b>: numero fora da lista nao vira cliente nem
+    ///   conversa, exatamente como na entrada. Sem registrar descarte — ninguem
+    ///   tentou falar com o cartorio.</item>
+    ///   <item><b>Eco</b>: o que o proprio painel enviou ja esta no fio
+    ///   (<see cref="IdentificadorDeEco"/>).</item>
+    /// </list>
+    /// </remarks>
+    private async Task RegistrarRespostaPeloAparelhoAsync(
+        string? instancia,
+        MensagemRecebidaDoCanal mensagem,
+        CancellationToken ct)
+    {
+        var tenantId = await ResolverTenantAsync(instancia, ct);
+
+        var numeroDoCartorio = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == tenantId)
+            .Select(t => t.WhatsappNumeroExibicao)
+            .FirstOrDefaultAsync(ct);
+
+        if (!string.IsNullOrWhiteSpace(numeroDoCartorio)
+            && NormalizadorDeTelefone.NumerosEquivalentes(
+                NormalizadorDeTelefone.SomenteDigitos(numeroDoCartorio),
+                NormalizadorDeTelefone.SomenteDigitos(mensagem.TelefoneE164)))
+        {
+            return;
+        }
+
+        if (await regras.PodeFalarComAsync(tenantId, mensagem.TelefoneE164, ct) is { Permitido: false })
+        {
+            log.LogInformation(
+                "Mensagem enviada pelo celular para {Telefone} fora da regra do canal: nao entra no painel.",
+                mensagem.TelefoneE164);
+
+            return;
+        }
+
+        if (await identificadorDeEco.ClassificarAsync(tenantId, mensagem, ct)
+            is OrigemDaMensagemDoProprioNumero.JaEstaNoFio)
+        {
+            return;
+        }
+
+        var fotoPerfilUrl = await ObterFotoPerfilSeNecessarioAsync(tenantId, mensagem.TelefoneE164, ct);
+
+        await recebimento.RegistrarEnviadaPeloAparelhoAsync(
+            tenantId,
+            new MensagemDoCanal(
+                mensagem.TelefoneE164,
+                NomeDoPerfil: null,
+                mensagem.Conteudo,
+                mensagem.Tipo,
+                mensagem.IdExterno,
+                await BaixarArquivoAsync(mensagem, ct),
+                fotoPerfilUrl),
+            ct);
     }
 
     /// <summary>

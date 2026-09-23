@@ -357,6 +357,11 @@ export interface Conversa {
    * para os dois lados não divergirem.
    */
   clienteNomePendente: boolean
+  /**
+   * Sem dono no painel, mas sendo atendida pelo WhatsApp do celular. A lista
+   * troca "Na fila" por "No celular"; assumir continua possível.
+   */
+  atendidaPeloAparelho: boolean
 }
 
 export interface Mensagem {
@@ -427,6 +432,12 @@ export interface Mensagem {
   apagadaParaTodosEm: string | null
   /** Quem apagou. Preenchido só quando `apagadaParaTodos`. */
   apagadaParaTodosPorNome: string | null
+  /**
+   * Resposta dada direto pelo WhatsApp do celular, fora do painel. Vem como
+   * `autorTipo: 'Atendente'` sem `atendenteNome`: a serventia respondeu, mas o
+   * aparelho não diz quem.
+   */
+  enviadaPeloAparelho: boolean
 }
 
 /** Conversa candidata a receber um encaminhamento. */

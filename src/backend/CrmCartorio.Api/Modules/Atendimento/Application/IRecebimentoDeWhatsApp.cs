@@ -55,6 +55,35 @@ public interface IRecebimentoDeWhatsApp
     Task<Guid> ReceberAsync(Guid tenantId, MensagemDoCanal mensagem, CancellationToken ct = default);
 
     /// <summary>
+    /// Registra a resposta que alguem da serventia deu direto pelo WhatsApp —
+    /// celular ou WhatsApp Web —, fora do painel.
+    /// </summary>
+    /// <remarks>
+    /// Quem chama ja separou isto do eco do painel (<c>IdentificadorDeEco</c>).
+    /// Aqui a resposta tem o MESMO efeito de um atendente assumir pelo painel: a
+    /// automacao conversacional (robo, IA) fica muda na conversa
+    /// (<c>Conversa.EmAtendimentoHumano</c>). Sem dono no painel, a conversa fica
+    /// marcada como atendida pelo celular e continua em aberto para quem quiser
+    /// assumir.
+    ///
+    /// Contato sem atendimento aberto ganha um novo, JA em atendimento humano e
+    /// sem boas-vindas: foi a serventia que puxou a conversa, e a resposta do
+    /// cliente nao pode cair no robo.
+    ///
+    /// Idempotente pelo id externo: reentrega do gateway nao duplica.
+    /// </remarks>
+    /// <param name="mensagem">
+    /// <see cref="MensagemDoCanal.TelefoneE164"/> e o CONTATO (destinatario).
+    /// <see cref="MensagemDoCanal.NomeDoPerfil"/> chega nulo — o perfil de quem
+    /// enviou e o do proprio cartorio.
+    /// </param>
+    /// <returns>O id da conversa, ou nulo se a mensagem ja estava registrada.</returns>
+    Task<Guid?> RegistrarEnviadaPeloAparelhoAsync(
+        Guid tenantId,
+        MensagemDoCanal mensagem,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Promove o estado de entrega de uma mensagem que ESTE sistema enviou.
     /// </summary>
     /// <remarks>

@@ -257,7 +257,13 @@ public class VarredorDeInatividade(
                      // ela agora — nem quem assumiu, nem quem esta na fila
                      // humana depois de liberada (LiberarAsync nao desliga
                      // EmAtendimentoHumano de proposito).
-                     && !c.EmAtendimentoHumano)
+                     //
+                     // EXCECAO (2026-09-23, decisao do Thiago): conversa atendida
+                     // SO pelo celular, sem dono no painel. Ninguem no painel a
+                     // encerraria, e ela ficaria aberta para sempre. Passado o
+                     // tempo, fecha; o proximo contato do cliente volta ao robo.
+                     && (!c.EmAtendimentoHumano
+                         || (c.AtendidaPeloAparelhoEm != null && c.AtendenteId == null)))
             .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
             .Take(LoteMaximo)
             .ToListAsync(ct);
@@ -309,7 +315,13 @@ public class VarredorDeInatividade(
                      // uma conversa no exato instante em que o cliente respondeu
                      // transformaria a resposta dele em primeiro contato de uma
                      // conversa nova.
-                     && c.UltimaMensagemEm == conversa.UltimaMensagemEm)
+                     && c.UltimaMensagemEm == conversa.UltimaMensagemEm
+
+                     // Reconferida no proprio UPDATE: um atendente que assumiu
+                     // entre a leitura das candidatas e aqui tira a conversa do
+                     // encerramento automatico.
+                     && (!c.EmAtendimentoHumano
+                         || (c.AtendidaPeloAparelhoEm != null && c.AtendenteId == null)))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.Status, StatusConversa.Encerrada)
                 .SetProperty(c => c.EncerradaEm, agora)

@@ -1,4 +1,4 @@
-import { Lock } from 'lucide-react'
+import { Lock, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { formatarMomentoRelativo, nomeDeExibicao } from '@/lib/formatacao'
@@ -170,7 +170,18 @@ export function ItemDeConversa({
             <span className="min-w-0 flex-1" />
           )}
 
-          {naFila ? (
+          {/* Sem dono no painel, mas alguém da serventia já está respondendo
+              pelo celular: continua na fila (qualquer um pode assumir), só que
+              o cliente não está esperando ninguém. Verde, como quem atende. */}
+          {naFila && conversa.atendidaPeloAparelho ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-verde/40 px-1.5 py-0.5 text-[11px] font-medium text-verde"
+              title="Sendo atendida pelo WhatsApp do celular. O robô e a IA estão pausados; qualquer atendente pode assumir."
+            >
+              <Smartphone className="size-3" aria-hidden />
+              No celular
+            </span>
+          ) : naFila ? (
             <span className="inline-flex shrink-0 items-center rounded-full border border-linha-forte px-1.5 py-0.5 text-[11px] font-medium text-tinta-media">
               Na fila
             </span>

@@ -22,8 +22,14 @@ public class PareamentoDoCanal(
     /// <remarks>
     /// Fixo de propósito: um campo livre aqui transformaria a tela num
     /// disparador de WhatsApp na mão de quem tem sessão de administrador.
+    ///
+    /// Publico, e nao privado, porque o eco deste envio volta pelo webhook
+    /// como "enviada pelo proprio numero" e NAO tem linha no fio — e o unico envio
+    /// do sistema que nao passa pela fila de saida. Sem reconhecer este texto,
+    /// <see cref="IdentificadorDeEco"/> o tomaria por resposta dada pelo celular e
+    /// abriria um atendimento no numero testado.
     /// </remarks>
-    private const string TextoDoTeste =
+    public const string TextoDoTeste =
         "Mensagem de teste do CRM Cartório — se você recebeu isto, o canal está conectado e funcionando.";
 
     public async Task<SituacaoDoCanal> PrepararAsync(

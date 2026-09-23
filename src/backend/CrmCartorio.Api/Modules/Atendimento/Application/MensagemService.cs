@@ -770,6 +770,14 @@ public class MensagemService(
             throw AtendimentoServiceException.CorrecaoSoDeAtendente();
         }
 
+        // Saiu do celular: quem escreveu esta com o aparelho na mao, e o conserto
+        // e la. Pelo painel ninguem responde pelo autor — a mensagem nao tem
+        // atendente, e a regra "so o autor corrige" nao teria a quem se aplicar.
+        if (mensagem.EnviadaPeloAparelho)
+        {
+            throw AtendimentoServiceException.CorrecaoDeMensagemDoAparelho();
+        }
+
         // Quem escreveu conserta o proprio texto. A mensagem sai assinada com o
         // nome do autor (AssinaturaDeAutoria), entao uma correcao feita por outra
         // pessoa mudaria, no aparelho do cliente, o que "Maria" disse — sem Maria

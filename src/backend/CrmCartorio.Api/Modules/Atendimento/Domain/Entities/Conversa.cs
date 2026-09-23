@@ -51,7 +51,10 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     /// explícito do cliente), em <c>AplicadorDePosAtendimento</c> (opção
     /// "falar com atendente" do menu de continuação), em
     /// <c>ConversaService.AssumirAsync</c> (inclui "responder direto da
-    /// fila", que reusa <c>AssumirAsync</c>) e em <c>ReabrirAsync</c>. Desliga
+    /// fila", que reusa <c>AssumirAsync</c>), em <c>ReabrirAsync</c> e —
+    /// desde 2026-09-23 — quando alguém da serventia responde direto pelo
+    /// WhatsApp, fora do painel (<c>RecebimentoDeWhatsApp.RegistrarEnviadaPeloAparelhoAsync</c>,
+    /// ver <see cref="AtendidaPeloAparelhoEm"/>). Desliga
     /// só em <c>EncerrarAsync</c>/<c>AplicadorDePosAtendimento.EncerrarPeloCliente</c>
     /// — nunca em <c>LiberarAsync</c> nem <c>TransferirAsync</c>. Uma conversa
     /// nova nasce com isto falso (automática) — o próximo atendimento depois
@@ -59,6 +62,30 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     /// nova.
     /// </remarks>
     public bool EmAtendimentoHumano { get; set; }
+
+    /// <summary>
+    /// A conversa esta sendo atendida pelo WhatsApp do celular (ou WhatsApp Web),
+    /// e ninguem no painel a assumiu. Nulo na imensa maioria.
+    /// </summary>
+    /// <remarks>
+    /// Preenchido quando alguem da serventia responde fora do painel numa conversa
+    /// SEM dono (<see cref="AtendenteId"/> nulo). E o que troca o selo "Na fila"
+    /// por "No celular" na lista: a conversa continua em aberto — qualquer
+    /// atendente pode assumir —, mas o painel sabe que o cliente nao esta
+    /// esperando ninguem.
+    ///
+    /// Apagado sempre que a conversa ganha dono no painel (assumir, transferir,
+    /// reabrir). A partir dai quem atende e aquela pessoa, e uma nova resposta pelo
+    /// celular so entra no fio, sem tirar a conversa dela.
+    ///
+    /// Tambem e o que libera o encerramento por inatividade (fase 2 de
+    /// <c>VarredorDeInatividade</c>) numa conversa em atendimento humano: uma
+    /// conversa com dono no painel e encerrada por ele; uma atendida so pelo
+    /// celular nao tem quem a encerre, e ficaria aberta para sempre (decisao do
+    /// Thiago em 2026-09-23 — passou o tempo, encerra, e o proximo contato volta ao
+    /// robo).
+    /// </remarks>
+    public DateTime? AtendidaPeloAparelhoEm { get; set; }
 
     /// <summary>Eixo de roteamento.</summary>
     public Guid? SetorId { get; set; }

@@ -792,6 +792,7 @@ var processador = new ProcessadorDeWebhook(
     recebimentoFake,
     gatewayFake,
     regrasDoProcessador,
+    new IdentificadorDeEco(db, NullLogger<IdentificadorDeEco>.Instance),
     Options.Create(canalDeTeste),
     NullLogger<ProcessadorDeWebhook>.Instance);
 
@@ -859,6 +860,7 @@ var processadorDesligado = new ProcessadorDeWebhook(
     recebimentoFake,
     gatewayFake,
     regrasDoProcessadorDesligado,
+    new IdentificadorDeEco(db, NullLogger<IdentificadorDeEco>.Instance),
     Options.Create(canalDesligado),
     NullLogger<ProcessadorDeWebhook>.Instance);
 
@@ -1207,6 +1209,277 @@ Checar(
     correcaoRecusada == ResultadoNoCanal.Recusado && apagamentoRecusado == ResultadoNoCanal.Recusado);
 
 // ---------------------------------------------------------------------------
+// Resposta dada pelo celular (2026-09-23).
+//
+// A mensagem "enviada por mim" chega pelo webhook de duas origens que parecem
+// iguais: o eco do que o PAINEL mandou, e a resposta que alguem da serventia deu
+// direto pelo celular. Confundir o eco com resposta desligaria o robo sozinho —
+// toda mensagem automatica viraria "atendimento assumido pelo celular". Por isso
+// o bloco prova, antes de tudo, que eco NUNCA vira resposta; e so depois que a
+// resposta de verdade chega ao recebimento.
+// ---------------------------------------------------------------------------
+
+static JsonElement DoProprioNumero(string id, string telefone, JsonElement mensagem) =>
+    JsonSerializer.SerializeToElement(new
+    {
+        key = new { remoteJid = $"{telefone}@s.whatsapp.net", fromMe = true, id },
+        pushName = "Cartório de Gameleiras",
+        message = mensagem
+    });
+
+static JsonElement TextoSimples(string texto) =>
+    JsonSerializer.SerializeToElement(new { conversation = texto });
+
+// --- Tradutor --------------------------------------------------------------
+
+var payloadDoCelular = DoProprioNumero("CEL-TRADUTOR", "5519990001488", TextoSimples("Oi, já estou vendo aqui."));
+var lidaPeloCaminhoDoCliente = TradutorDePayload.LerMensagem(payloadDoCelular);
+var lidaPeloCaminhoDoAparelho = TradutorDePayload.LerMensagemEnviadaPeloAparelho(payloadDoCelular);
+
+Checar(
+    "Mensagem do proprio numero continua fora do caminho do cliente (LerMensagem devolve null)",
+    lidaPeloCaminhoDoCliente is null);
+
+Checar(
+    "Mensagem do proprio numero e lida pelo caminho do aparelho, com o contato como destinatario",
+    lidaPeloCaminhoDoAparelho is { TelefoneE164: "5519990001488", Conteudo: "Oi, já estou vendo aqui.", IdExterno: "CEL-TRADUTOR" });
+
+Checar(
+    "O pushName da mensagem do proprio numero (perfil do CARTORIO) nunca vira nome de cliente",
+    lidaPeloCaminhoDoAparelho is { NomeDoPerfil: null });
+
+var payloadDoClienteComum = JsonSerializer.SerializeToElement(new
+{
+    key = new { remoteJid = "5519990001488@s.whatsapp.net", fromMe = false, id = "CLIENTE-COMUM" },
+    pushName = "Cliente",
+    message = new { conversation = "Bom dia" }
+});
+
+Checar(
+    "Mensagem do cliente nao entra pelo caminho do aparelho",
+    TradutorDePayload.LerMensagemEnviadaPeloAparelho(payloadDoClienteComum) is null);
+
+var edicaoFeitaNoCelular = DoProprioNumero(
+    "CEL-EDICAO",
+    "5519990001488",
+    JsonSerializer.SerializeToElement(new
+    {
+        protocolMessage = new { type = 14, editedMessage = new { conversation = "texto editado" } }
+    }));
+
+Checar(
+    "Edicao ou apagamento feitos no celular (protocolMessage) nao viram mensagem",
+    TradutorDePayload.LerMensagemEnviadaPeloAparelho(edicaoFeitaNoCelular) is null);
+
+var paraGrupo = JsonSerializer.SerializeToElement(new
+{
+    key = new { remoteJid = "120363000000000000@g.us", fromMe = true, id = "CEL-GRUPO" },
+    message = new { conversation = "mensagem no grupo" }
+});
+
+Checar(
+    "Mensagem do proprio numero para grupo nao vira atendimento",
+    TradutorDePayload.LerMensagemEnviadaPeloAparelho(paraGrupo) is null);
+
+// --- Roteamento no webhook -------------------------------------------------
+
+tenant.WhatsappNumeroExibicao = "+55 38 99977-8910";
+await db.SaveChangesAsync();
+
+var respostasAntes = recebimentoFake.RespostasPeloAparelho;
+var recebimentosAntes = recebimentoFake.Recebimentos;
+
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert", "cartorio-teste",
+    DoProprioNumero("CEL-SI-MESMO", "5538999778910", TextoSimples("lembrete para mim"))));
+
+Checar(
+    "Conversa consigo mesmo (\"mensagem para mim\") nao vira atendimento",
+    recebimentoFake.RespostasPeloAparelho == respostasAntes);
+
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert", "cartorio-teste",
+    DoProprioNumero("CEL-FORA-DA-REGRA", "5538991234567", TextoSimples("para quem nao esta liberado"))));
+
+Checar(
+    "Resposta pelo celular para numero fora da regra do canal nao entra no painel",
+    recebimentoFake.RespostasPeloAparelho == respostasAntes);
+
+// O eco de uma mensagem que o painel ja registrou (mesmo id).
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert", "cartorio-teste",
+    DoProprioNumero("WA-ENTREGUE-1", "5519990001488", TextoSimples("*Maria Rezende*\nA certidão fica pronta na quinta."))));
+
+Checar(
+    "Eco de mensagem que o painel ja registrou nao vira resposta pelo celular",
+    recebimentoFake.RespostasPeloAparelho == respostasAntes);
+
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert", "cartorio-teste",
+    DoProprioNumero("CEL-TESTE-DE-ENVIO", "5519990001488", TextoSimples(PareamentoDoCanal.TextoDoTeste))));
+
+Checar(
+    "Eco do \"testar envio\" da tela do canal (unico envio sem linha no fio) nao vira atendimento",
+    recebimentoFake.RespostasPeloAparelho == respostasAntes);
+
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert", "cartorio-teste",
+    DoProprioNumero("CEL-DE-VERDADE", "5519990001488", TextoSimples("Oi! Aqui é o cartório parceiro, já vou te ajudar."))));
+
+Checar(
+    "Resposta de verdade pelo celular chega ao recebimento, sem nome de perfil e sem passar pelo caminho do cliente",
+    recebimentoFake.RespostasPeloAparelho == respostasAntes + 1
+    && recebimentoFake.Recebimentos == recebimentosAntes
+    && recebimentoFake.UltimaPeloAparelho is
+    {
+        TelefoneE164: "5519990001488",
+        IdExterno: "CEL-DE-VERDADE",
+        NomeDoPerfil: null,
+        Conteudo: "Oi! Aqui é o cartório parceiro, já vou te ajudar."
+    });
+
+// --- Identificador de eco: a janela em que o painel ainda nao gravou o id ----
+//
+// Contexto proprio para o identificador: o cenario de confirmacao durante a
+// espera escreve pelo `db` enquanto o identificador le.
+
+await using var dbDoIdentificador = new CrmDbContext(opcoesDoBanco, cifra);
+var identificador = new IdentificadorDeEco(
+    dbDoIdentificador,
+    NullLogger<IdentificadorDeEco>.Instance,
+    esperaMaxima: TimeSpan.FromMilliseconds(600),
+    intervaloDaEspera: TimeSpan.FromMilliseconds(40),
+    janelaDoEnvioEmVoo: TimeSpan.FromMinutes(2));
+
+MensagemRecebidaDoCanal Eco(string id, string texto) =>
+    TradutorDePayload.LerMensagemEnviadaPeloAparelho(DoProprioNumero(id, "5519990001488", TextoSimples(texto)))!;
+
+Checar(
+    "Sem nada saindo do painel, a mensagem do proprio numero e resposta pelo celular",
+    await identificador.ClassificarAsync(tenant.Id, Eco("CEL-SEM-VOO", "qualquer resposta"))
+        == OrigemDaMensagemDoProprioNumero.RespostaPeloAparelho);
+
+// A fila de saida disparou e ainda nao gravou o id — o eco chega nessa janela.
+var envioEmVoo = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaPermitida.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "Sua certidão está pronta.",
+    StatusEntrega = StatusEntrega.Enviando,
+    EnvioIniciadoEm = DateTime.UtcNow,
+    EnvioDisparadoEm = DateTime.UtcNow
+};
+db.Mensagens.Add(envioEmVoo);
+await db.SaveChangesAsync();
+
+var cronometro = System.Diagnostics.Stopwatch.StartNew();
+var ecoAntesDoId = await identificador.ClassificarAsync(
+    tenant.Id, Eco("ECO-ANTES-DO-ID", "*Maria Rezende*\nSua certidão está pronta."));
+cronometro.Stop();
+
+Checar(
+    "Eco que chega ANTES de o painel gravar o id e reconhecido pelo texto assinado, sem esperar",
+    ecoAntesDoId == OrigemDaMensagemDoProprioNumero.JaEstaNoFio
+    && cronometro.Elapsed < TimeSpan.FromMilliseconds(400));
+
+// Texto diferente com envio em voo que NUNCA confirma: na duvida, e eco.
+cronometro.Restart();
+var duvidaQueNaoSeResolve = await identificador.ClassificarAsync(
+    tenant.Id, Eco("DUVIDA-1", "texto que nao e o do envio em voo"));
+cronometro.Stop();
+
+Checar(
+    "Envio em voo que nao confirma a tempo: a duvida vai para o lado seguro (eco), depois da espera",
+    duvidaQueNaoSeResolve == OrigemDaMensagemDoProprioNumero.JaEstaNoFio
+    && cronometro.Elapsed >= TimeSpan.FromMilliseconds(600));
+
+// Texto diferente com envio em voo que confirma com OUTRO id durante a espera:
+// agora da para saber — a mensagem do proprio numero nao era aquele eco.
+var classificacaoEmCurso = identificador.ClassificarAsync(
+    tenant.Id, Eco("CEL-DURANTE-O-VOO", "Oi, sou eu pelo celular"));
+
+await Task.Delay(120);
+envioEmVoo.StatusEntrega = StatusEntrega.Enviada;
+envioEmVoo.IdExternoWhatsapp = "ID-DO-ENVIO-DO-PAINEL";
+envioEmVoo.EnvioIniciadoEm = null;
+envioEmVoo.EnvioDisparadoEm = null;
+await db.SaveChangesAsync();
+
+Checar(
+    "Envio em voo confirmado com outro id durante a espera: a mensagem do proprio numero e resposta pelo celular",
+    await classificacaoEmCurso == OrigemDaMensagemDoProprioNumero.RespostaPeloAparelho);
+
+// O mesmo envio, agora confirmado, e o eco dele chegando atrasado: o id resolve.
+Checar(
+    "Eco que chega DEPOIS de o painel gravar o id e reconhecido pelo id",
+    await identificador.ClassificarAsync(tenant.Id, Eco("ID-DO-ENVIO-DO-PAINEL", "*Maria Rezende*\nSua certidão está pronta."))
+        == OrigemDaMensagemDoProprioNumero.JaEstaNoFio);
+
+// Envio travado ha muito tempo (resultado ambiguo, WA-OUT-01): nao pode segurar
+// toda resposta pelo celular dali em diante.
+var envioTravado = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaPermitida.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "mensagem de resultado ambiguo",
+    StatusEntrega = StatusEntrega.Enviando,
+    EnvioIniciadoEm = DateTime.UtcNow.AddMinutes(-30),
+    EnvioDisparadoEm = DateTime.UtcNow.AddMinutes(-30)
+};
+db.Mensagens.Add(envioTravado);
+await db.SaveChangesAsync();
+
+cronometro.Restart();
+var comEnvioTravado = await identificador.ClassificarAsync(
+    tenant.Id, Eco("CEL-COM-ENVIO-TRAVADO", "resposta enquanto ha envio travado"));
+cronometro.Stop();
+
+Checar(
+    "Envio travado ha mais de dois minutos nao conta como em voo: a resposta pelo celular passa, sem esperar",
+    comEnvioTravado == OrigemDaMensagemDoProprioNumero.RespostaPeloAparelho
+    && cronometro.Elapsed < TimeSpan.FromMilliseconds(400));
+
+// Midia em voo: casa pelo tipo (a regra da legenda tem casos demais para
+// reproduzir, e casar "demais" so erra para o lado seguro).
+var midiaEmVoo = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaPermitida.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "[imagem]",
+    Tipo = TipoMensagem.Imagem,
+    StatusEntrega = StatusEntrega.Enviando,
+    EnvioIniciadoEm = DateTime.UtcNow,
+    EnvioDisparadoEm = DateTime.UtcNow,
+    ArquivoCaminho = "anexo-em-voo.jpg",
+    ArquivoNome = "anexo-em-voo.jpg",
+    ArquivoTipoMime = "image/jpeg",
+    ArquivoTamanhoBytes = 10
+};
+db.Mensagens.Add(midiaEmVoo);
+await db.SaveChangesAsync();
+
+var ecoDaImagem = TradutorDePayload.LerMensagemEnviadaPeloAparelho(DoProprioNumero(
+    "ECO-DA-IMAGEM",
+    "5519990001488",
+    JsonSerializer.SerializeToElement(new { imageMessage = new { mimetype = "image/jpeg" } })))!;
+
+Checar(
+    "Eco de imagem com imagem saindo do painel e reconhecido como eco",
+    await identificador.ClassificarAsync(tenant.Id, ecoDaImagem) == OrigemDaMensagemDoProprioNumero.JaEstaNoFio);
+
+// Nada daqui pode vazar para os cenarios seguintes como "envio em voo".
+midiaEmVoo.StatusEntrega = StatusEntrega.Enviada;
+midiaEmVoo.IdExternoWhatsapp = "ID-DA-IMAGEM";
+envioTravado.StatusEntrega = StatusEntrega.Falha;
+await db.SaveChangesAsync();
+
+// ---------------------------------------------------------------------------
 // AssinaturaDeAutoria — funcao pura, sem banco nem gateway. Prova o que o
 // cliente le no WhatsApp quando um atendente responde, a IA responde, ou uma
 // regra cadastrada dispara. O caminho feliz completo (gateway real + prova de
@@ -1347,6 +1620,19 @@ file sealed class RecebimentoFake : IRecebimentoDeWhatsApp
         string idExternoWhatsapp,
         StatusEntrega status,
         CancellationToken ct = default) => Task.CompletedTask;
+
+    public int RespostasPeloAparelho { get; private set; }
+    public MensagemDoCanal? UltimaPeloAparelho { get; private set; }
+
+    public Task<Guid?> RegistrarEnviadaPeloAparelhoAsync(
+        Guid tenantId,
+        MensagemDoCanal mensagem,
+        CancellationToken ct = default)
+    {
+        RespostasPeloAparelho++;
+        UltimaPeloAparelho = mensagem;
+        return Task.FromResult<Guid?>(Guid.NewGuid());
+    }
 }
 
 file sealed class GatewayFake : IEvolutionClient

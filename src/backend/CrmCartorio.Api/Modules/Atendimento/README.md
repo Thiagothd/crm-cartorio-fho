@@ -80,8 +80,9 @@ fila, mas a conversa continua devendo humano, não devendo bot.
 **`Conversa.EmAtendimentoHumano`** é o campo que resolve a ambiguidade — ver
 o XML-doc da propriedade para a lista completa de quando liga/desliga. Regra
 central: liga assim que o cliente pede atendente OU um atendente assume
-(o que vier primeiro), e só desliga no encerramento — nunca em
-`LiberarAsync` nem `TransferirAsync`.
+OU alguém da serventia responde direto pelo celular (o que vier primeiro —
+ver "Resposta dada pelo celular" abaixo), e só desliga no encerramento — nunca
+em `LiberarAsync` nem `TransferirAsync`.
 
 Um único gate, no topo de cada cadeia de despacho (antes de QUALQUER flag,
 inclusive antes de "menu"/`AguardandoTriagem`): se `EmAtendimentoHumano` é
@@ -175,6 +176,54 @@ Há uma janela residual inevitável para IA sem chave idempotente: se o processo
 morrer depois de o provedor responder e antes de persistir a resposta, a retomada
 pode chamar o provedor outra vez. Evolution continua protegido separadamente pelo
 claim WA-OUT-01; a resposta automática é persistida antes do envio.
+
+## Resposta dada pelo celular (2026-09-23)
+
+Quem responde o cliente direto pelo WhatsApp — no celular ou no WhatsApp Web —
+não aparecia no atendimento: o webhook descartava tudo o que saía do próprio
+número, porque o eco do que o painel envia chega com a mesma marca. O registro
+da serventia ficava furado e o robô continuava respondendo por cima de quem já
+estava atendendo. Separar eco de resposta é trabalho do `IdentificadorDeEco`
+(CanalWhatsApp, ver o README de lá); aqui mora o que a resposta **faz**, em
+`RecebimentoDeWhatsApp.RegistrarEnviadaPeloAparelhoAsync`.
+
+**Responder pelo celular tem o mesmo efeito de assumir pelo painel.** Não existe
+mecanismo paralelo: a resposta liga `EmAtendimentoHumano`, o mesmo gate que cala
+robô e IA quando um atendente assume, com as mesmas proteções de corrida (a
+automação que estava processando uma mensagem do cliente descarta a própria
+resposta quando o campo muda). Avisos de prazo e de etapa continuam saindo, como
+numa conversa assumida pelo painel.
+
+| Situação da conversa | O que a resposta pelo celular faz |
+| --- | --- |
+| Sem dono no painel | Liga o atendimento humano, marca `AtendidaPeloAparelhoEm` (selo **"No celular"** no lugar de "Na fila") e deixa uma nota interna no fio. Continua em aberto: qualquer atendente pode assumir |
+| Com dono no painel | Só entra no fio. Quem atende continua sendo o dono |
+| Não existe atendimento aberto | Abre um, **já em atendimento humano** e marcado, sem boas-vindas nem menu — foi a serventia que puxou a conversa, e a resposta do cliente não pode cair no robô |
+
+A mensagem entra como `AutorTipo.Atendente` **sem** `AtendenteId`, com
+`EnviadaPeloAparelho` — gente da serventia, mas o aparelho não tem login.
+Atendente, e não autor novo, porque tudo o que conta resposta humana
+("aguardando resposta do cartório", tempo de primeira resposta, inatividade)
+precisa enxergá-la. `CK_Mensagens_AtendenteObrigatorio` (RF-007) aceita a
+ausência do atendente **somente** com a marca (sql/051). Também zera as não
+lidas (respondeu, então leu), move a conversa na inbox e renova o relógio da
+inatividade, como a resposta pelo painel.
+
+A marca `AtendidaPeloAparelhoEm` sai quando a conversa ganha dono no painel
+(`AssumirAsync`, `TransferirAsync`, `ReabrirAsync`). E é ela que libera o
+**encerramento por inatividade** numa conversa em atendimento humano
+(`VarredorDeInatividade`, fase 2): uma conversa com dono no painel é encerrada por
+ele; uma atendida só pelo celular não teria quem a encerrasse. Passado o tempo,
+fecha, e o próximo contato do cliente volta ao robô — decisão do Thiago em
+2026-09-23.
+
+Mensagem enviada pelo celular não é corrigida nem apagada pelo painel
+(`correcao_de_mensagem_do_aparelho`): quem escreveu está com o aparelho na mão.
+
+Coberto em `verificar-canal-whatsapp.cs` (tradutor, roteamento e as três camadas
+do eco) e em `verificar-concorrencia-entrada-whatsapp.cs` (cenários P, com SQL
+Server real: pausa do robô, reentrega simultânea, conversa com dono, atendimento
+aberto pelo celular e o cliente respondendo depois).
 
 ## Corrigir e apagar mensagem já enviada (2026-09-22)
 

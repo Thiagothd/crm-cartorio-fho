@@ -147,7 +147,12 @@ public record ConversaResumoResponse(
     /// numero). A tela mostra o telefone no lugar; a regra fica no backend para os
     /// dois lados nao divergirem.
     /// </summary>
-    bool ClienteNomePendente = false);
+    bool ClienteNomePendente = false,
+    /// <summary>
+    /// Sem dono no painel, mas sendo atendida pelo WhatsApp do celular. A lista
+    /// troca "Na fila" por "No celular"; assumir continua possivel.
+    /// </summary>
+    bool AtendidaPeloAparelho = false);
 
 public record MensagemResponse(
     Guid Id,
@@ -222,7 +227,13 @@ public record MensagemResponse(
     bool ApagadaParaTodos = false,
     DateTime? ApagadaParaTodosEm = null,
     /// <summary>Quem apagou. Preenchido só quando <see cref="ApagadaParaTodos"/>.</summary>
-    string? ApagadaParaTodosPorNome = null);
+    string? ApagadaParaTodosPorNome = null,
+    /// <summary>
+    /// Resposta dada direto pelo WhatsApp do celular, fora do painel. Vem com
+    /// <see cref="AutorTipo"/> Atendente e sem <see cref="AtendenteNome"/>: a
+    /// serventia respondeu, mas o aparelho não diz quem.
+    /// </summary>
+    bool EnviadaPeloAparelho = false);
 
 /// <summary>
 /// Novo texto de uma mensagem já enviada ao cliente.

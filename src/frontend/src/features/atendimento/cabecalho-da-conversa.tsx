@@ -9,6 +9,7 @@ import {
   Lock,
   MoreVertical,
   RotateCcw,
+  Smartphone,
   Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -209,6 +210,20 @@ export function CabecalhoDaConversa({
                   <span className="truncate">
                     {souOResponsavel ? 'Você atende' : conversa.atendenteNome}
                   </span>
+                </span>
+              </>
+            ) : conversa.atendidaPeloAparelho ? (
+              <>
+                {/* Sem dono no painel, respondida pelo celular. Diz por que o
+                    robô está calado; o botão de assumir continua onde sempre
+                    esteve. */}
+                <span className="hidden shrink-0 text-xs text-tinta-fraca @2xl:inline">·</span>
+                <span
+                  className="flex min-w-0 shrink items-center gap-1 text-xs text-verde"
+                  title="Alguém da serventia está respondendo pelo WhatsApp do celular. O robô e a IA estão pausados nesta conversa; qualquer atendente pode assumir."
+                >
+                  <Smartphone className="size-3 shrink-0" />
+                  <span className="truncate">No celular</span>
                 </span>
               </>
             ) : null}

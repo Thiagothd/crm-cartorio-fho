@@ -81,6 +81,27 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     /// </remarks>
     public bool GeradaPorIa { get; set; }
 
+    /// <summary>
+    /// Alguem da serventia respondeu direto pelo WhatsApp — celular ou WhatsApp
+    /// Web —, fora do painel.
+    /// </summary>
+    /// <remarks>
+    /// Sempre com <see cref="AutorTipo"/> = Atendente e <see cref="AtendenteId"/>
+    /// NULO (CHECK CK_Mensagens_EnviadaPeloAparelho). Atendente, porque e GENTE da
+    /// serventia falando com o cliente — tudo o que conta resposta humana (o
+    /// "aguardando resposta do cartorio", o tempo de primeira resposta, a
+    /// inatividade) precisa enxergar esta mensagem como a de qualquer atendente.
+    /// Sem <see cref="AtendenteId"/>, porque o aparelho nao tem login: o sistema
+    /// sabe que a serventia respondeu, nao QUEM. Inventar um autor seria pior do
+    /// que admitir que nao sabe — e esta marca e o que explica a ausencia, onde
+    /// antes a falta do atendente seria defeito (RF-007).
+    ///
+    /// Chega pelo webhook como "enviada por mim", o mesmo sinal do eco das
+    /// mensagens que o proprio painel manda. A separacao entre as duas coisas
+    /// mora em <c>IdentificadorDeEco</c> (CanalWhatsApp).
+    /// </remarks>
+    public bool EnviadaPeloAparelho { get; set; }
+
     public DateTime EnviadaEm { get; set; } = DateTime.UtcNow;
 
     public DateTime? LidaEm { get; set; }

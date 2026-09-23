@@ -214,6 +214,7 @@ builder.Services.AddScoped<IProcessadorDeEntradaWhatsapp, ProcessadorDeEntradaWh
 builder.Services.AddSingleton<SinalizadorDeEntradaWhatsapp>();
 builder.Services.AddScoped<IEnviadorDeCanal, EnviadorPeloWhatsApp>();
 builder.Services.AddScoped<IProcessadorDeWebhook, ProcessadorDeWebhook>();
+builder.Services.AddScoped<IIdentificadorDeEco, IdentificadorDeEco>();
 builder.Services.AddScoped<IPareamentoDoCanal, PareamentoDoCanal>();
 builder.Services.AddScoped<IRegrasDoCanal, RegrasDoCanal>();
 builder.Services.AddSingleton<ControleDeTentativasDePareamento>();

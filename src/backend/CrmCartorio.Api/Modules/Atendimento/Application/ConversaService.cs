@@ -433,6 +433,10 @@ public class ConversaService(
             .ExecuteUpdateAsync(s => s
                 .SetProperty(c => c.AtendenteId, atendenteId)
                 .SetProperty(c => c.EmAtendimentoHumano, true)
+
+                // Ganhou dono no painel: deixa de ser "atendida pelo celular".
+                // Uma resposta pelo celular dai em diante so entra no fio.
+                .SetProperty(c => c.AtendidaPeloAparelhoEm, (DateTime?)null)
                 .SetProperty(c => c.AtualizadoEm, agora), ct);
 
         if (afetadas == 0)
@@ -511,6 +515,7 @@ public class ConversaService(
         var agora = DateTime.UtcNow;
 
         conversa.AtendenteId = destino.Id;
+        conversa.AtendidaPeloAparelhoEm = null;
 
         // Redundante na pratica — GarantirQuePodeOperarAsync ja exige
         // AtendenteId != null para chegar aqui, entao EmAtendimentoHumano ja
@@ -847,6 +852,7 @@ public class ConversaService(
         // Reabertura devolve a conversa a quem reabriu: deixar sem dono faria a
         // conversa reaparecer na fila sem ninguem responsavel por ela.
         conversa.AtendenteId = ctx.AtendenteId;
+        conversa.AtendidaPeloAparelhoEm = null;
 
         // Reabrir e um atendente assumindo, na pratica — o bot nao pode
         // responder por cima de quem acabou de reabrir a conversa na mao.

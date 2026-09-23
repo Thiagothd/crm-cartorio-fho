@@ -18,6 +18,11 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// </remarks>
 public static class ProjecaoDeMensagem
 {
+    /// <summary>
+    /// Como a resposta dada fora do painel aparece no lugar do nome do atendente.
+    /// </summary>
+    public const string RotuloDoAparelho = "Pelo celular";
+
     /// <summary>Quantos caracteres da mensagem citada vao para a previa.</summary>
     private const int TamanhoDaPrevia = 160;
 
@@ -99,7 +104,11 @@ public static class ProjecaoDeMensagem
 
             db.Mensagens
                 .Where(r => r.Id == m.MensagemRespondidaId)
-                .Select(r => r.AutorTipo == AutorTipo.Atendente
+                .Select(r => r.EnviadaPeloAparelho
+                    // Resposta pelo celular nao tem atendente: sem este ramo a
+                    // citacao sairia com autor vazio.
+                    ? RotuloDoAparelho
+                    : r.AutorTipo == AutorTipo.Atendente
                     ? db.Atendentes.Where(a => a.Id == r.AtendenteId).Select(a => a.Nome).FirstOrDefault()
                     : r.AutorTipo == AutorTipo.Cliente
                         ? clienteNome
@@ -135,5 +144,7 @@ public static class ProjecaoDeMensagem
 
             m.ApagadaParaTodosEm != null,
             m.ApagadaParaTodosEm,
-            db.Atendentes.Where(a => a.Id == m.ApagadaParaTodosPorAtendenteId).Select(a => a.Nome).FirstOrDefault()));
+            db.Atendentes.Where(a => a.Id == m.ApagadaParaTodosPorAtendenteId).Select(a => a.Nome).FirstOrDefault(),
+
+            m.EnviadaPeloAparelho));
 }

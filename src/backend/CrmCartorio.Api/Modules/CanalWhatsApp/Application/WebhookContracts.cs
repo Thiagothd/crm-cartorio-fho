@@ -52,22 +52,50 @@ public static class TradutorDePayload
     /// <remarks>
     /// Devolve null — em vez de lancar — nos casos que sao NORMAIS, nao erro:
     /// <list type="bullet">
-    ///   <item><b>fromMe</b>: eco da nossa propria mensagem enviada. Gravar isso
-    ///   duplicaria no fio cada resposta do atendente.</item>
+    ///   <item><b>fromMe</b>: mensagem que saiu do PROPRIO numero do cartorio.
+    ///   Nao e do cliente — ou e eco do que o painel enviou, ou e resposta dada
+    ///   direto pelo celular. Quem trata esse caso e
+    ///   <see cref="LerMensagemEnviadaPeloAparelho"/>, num caminho separado.</item>
     ///   <item><b>JID coletivo</b> (grupo, status, lista ou newsletter): nao e
     ///   atendimento individual e nao traz telefone confiavel de um cliente.</item>
     ///   <item><b>Tipo nao suportado</b>: figurinha, localizacao, contato.</item>
     /// </list>
     /// </remarks>
-    public static MensagemRecebidaDoCanal? LerMensagem(JsonElement data)
+    public static MensagemRecebidaDoCanal? LerMensagem(JsonElement data) =>
+        Ler(data, doProprioNumero: false);
+
+    /// <summary>
+    /// Extrai a mensagem que saiu do proprio numero do cartorio (<c>fromMe</c>),
+    /// ou <c>null</c> para qualquer outra coisa.
+    /// </summary>
+    /// <remarks>
+    /// Espelho exato de <see cref="LerMensagem"/>, com o filtro de <c>fromMe</c>
+    /// invertido e as mesmas recusas de grupo, @lid sem alternativo e tipo nao
+    /// suportado. Caminho separado de proposito: a entrada do cliente continua
+    /// exatamente como era, e nada que chegue por aqui vira mensagem de cliente.
+    ///
+    /// O que sai daqui AINDA PODE SER ECO do que o painel enviou — separar as duas
+    /// coisas e trabalho de <see cref="IdentificadorDeEco"/>, que conhece a fila de
+    /// saida. O <c>remoteJid</c> aqui e o CONTATO (destinatario); o
+    /// <c>pushName</c> e o do proprio cartorio e nao pode virar nome de cliente.
+    ///
+    /// Edicao e apagamento feitos no celular chegam como <c>protocolMessage</c> e
+    /// caem no "tipo nao suportado": nao sao refletidos no painel nesta versao.
+    /// </remarks>
+    public static MensagemRecebidaDoCanal? LerMensagemEnviadaPeloAparelho(JsonElement data) =>
+        Ler(data, doProprioNumero: true);
+
+    private static MensagemRecebidaDoCanal? Ler(JsonElement data, bool doProprioNumero)
     {
         if (!data.TryGetProperty("key", out var chave))
         {
             return null;
         }
 
-        if (chave.TryGetProperty("fromMe", out var deMim)
-            && deMim.ValueKind == JsonValueKind.True)
+        var ehDoProprioNumero = chave.TryGetProperty("fromMe", out var deMim)
+            && deMim.ValueKind == JsonValueKind.True;
+
+        if (ehDoProprioNumero != doProprioNumero)
         {
             return null;
         }
@@ -130,7 +158,9 @@ public static class TradutorDePayload
             return null;
         }
 
-        var nomeDoPerfil = Texto(data, "pushName");
+        // Na mensagem que saiu do proprio numero, pushName e o perfil do CARTORIO,
+        // nao do contato. Usa-lo batizaria o cliente com o nome da serventia.
+        var nomeDoPerfil = doProprioNumero ? null : Texto(data, "pushName");
 
         if (!data.TryGetProperty("message", out var mensagem)
             || mensagem.ValueKind != JsonValueKind.Object)

@@ -48,9 +48,25 @@ pela tela passa a mandar, e o `appsettings` vira letra morta.
 - **Leitura defensiva em todo lugar** (`JsonElement`, campo opcional, `null` em
   vez de exceção). O gateway é software de terceiro que muda de formato entre
   versões; uma mudança de campo não pode derrubar o atendimento do cartório.
-- **Três eventos são descartados de propósito**, e cada um por um motivo:
-  - `fromMe` — é o eco da nossa própria mensagem enviada. Gravar duplicaria no
-    fio cada resposta do atendente.
+- **`fromMe` segue um caminho próprio (desde 2026-09-23).** Mensagem que saiu
+  do número do cartório tem duas origens que chegam iguais: o **eco** do que o
+  painel mandou (gravar duplicaria o fio) e a **resposta dada direto pelo
+  celular** ou WhatsApp Web (descartar furava o registro, e o robô seguia
+  respondendo por cima de quem já atendia). `TradutorDePayload.LerMensagem`
+  continua ignorando `fromMe` — nada daqui vira mensagem de cliente —, e
+  `LerMensagemEnviadaPeloAparelho` lê pelo caminho separado. Quem decide entre
+  eco e resposta é `IdentificadorDeEco`, em três camadas: id já no fio →
+  texto assinado de um envio em voo → espera curta pela confirmação. **Na
+  dúvida, é eco**: errar para esse lado perde uma resposta do celular (o
+  comportamento anterior); errar para o outro desligaria o robô a cada
+  mensagem automática. Antes disso o `ProcessadorDeWebhook` descarta a conversa
+  consigo mesmo ("mensagem para mim"), o número fora da regra do canal e o eco
+  do "testar envio" — o único envio que não passa pela fila de saída. O
+  `pushName` dessas mensagens é o perfil do cartório e nunca vira nome de
+  cliente. Edição e apagamento feitos no celular (`protocolMessage`) não são
+  refletidos no painel. O que acontece com a resposta no atendimento está no
+  README do Atendimento, "Resposta dada pelo celular".
+- **Dois eventos são descartados de propósito**, e cada um por um motivo:
   - **Grupo** (`@g.us`) — grupo não é atendimento individual. Abrir protocolo
     para cada evento poluiria a inbox e atribuiria uma identidade errada à conversa.
   - **Tipo não suportado** (figurinha, localização, contato) — sem tradução útil

@@ -45,7 +45,8 @@ public sealed record ProjecaoDeConversa(
     string? EncerradaPorNome,
     string? MotivoEncerramento,
     DateTime? ReabertaEm,
-    string? ClienteFotoPerfilUrl)
+    string? ClienteFotoPerfilUrl,
+    bool AtendidaPeloAparelho)
 {
     /// <summary>
     /// Projeta conversas com os nomes resolvidos.
@@ -89,7 +90,12 @@ public sealed record ProjecaoDeConversa(
             db.Atendentes.Where(x => x.Id == c.EncerradaPorAtendenteId).Select(x => x.Nome).FirstOrDefault(),
             c.MotivoEncerramento,
             c.ReabertaEm,
-            db.Clientes.Where(x => x.Id == c.ClienteId).Select(x => x.FotoPerfilUrl).FirstOrDefault()));
+            db.Clientes.Where(x => x.Id == c.ClienteId).Select(x => x.FotoPerfilUrl).FirstOrDefault(),
+
+            // O selo so vale sem dono no painel. AtendidaPeloAparelhoEm ja e
+            // apagado quando alguem assume, mas a leitura nao depende disso para
+            // nunca mostrar "No celular" numa conversa que tem responsavel.
+            c.AtendidaPeloAparelhoEm != null && c.AtendenteId == null));
 
     /// <summary>
     /// A situacao de prazo depende do relogio, entao e resolvida aqui, na memoria,
@@ -127,6 +133,7 @@ public sealed record ProjecaoDeConversa(
             // Calculado na leitura, nunca persistido — Cliente.Nome guarda o que
             // veio do WhatsApp e o painel decide como apresentar, mesmo principio
             // de PercentualDeQualificacao.
-            !NomeDeContato.EhUtil(ClienteNome));
+            !NomeDeContato.EhUtil(ClienteNome),
+            AtendidaPeloAparelho);
 }
 

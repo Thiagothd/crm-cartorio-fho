@@ -816,13 +816,14 @@ Checar("Inatividade: fase 1 — candidatas a receber a pergunta (4 guardas + enu
         .Take(200)
         .ToQueryString());
 
-Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAtendimentoHumano, BUG-ATD-01)", () =>
+Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAtendimentoHumano, BUG-ATD-01, exceto a atendida so pelo celular)", () =>
     db.Conversas.AsNoTracking()
         .Where(c => c.TenantId == tenantId
                  && c.Status == StatusConversa.Ativa
                  && c.PerguntaDeEncerramentoEnviadaEm != null
                  && c.PerguntaDeEncerramentoEnviadaEm < agora.AddMinutes(-30)
-                 && !c.EmAtendimentoHumano)
+                 && (!c.EmAtendimentoHumano
+                     || (c.AtendidaPeloAparelhoEm != null && c.AtendenteId == null)))
         .OrderBy(c => c.PerguntaDeEncerramentoEnviadaEm)
         .Take(200)
         .ToQueryString());
@@ -832,6 +833,66 @@ Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilh
         .Where(m => m.TenantId == tenantId
                  && m.Ativo
                  && m.Gatilho == GatilhoDeMensagem.ConfirmacaoDeEncerramento)
+        .ToQueryString());
+
+// --- Resposta dada pelo celular (051) ----------------------------------------
+
+Checar("Celular: eco ja no fio pelo id externo (AnyAsync por tenant + id)", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.TenantId == tenantId && m.IdExternoWhatsapp == "ID-EXTERNO")
+        .ToQueryString());
+
+Checar("Celular: envios em voo do painel, com a autoria para remontar o texto assinado", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.TenantId == tenantId
+                 && m.AutorTipo != AutorTipo.Cliente
+                 && !m.EnviadaPeloAparelho
+                 && m.StatusEntrega == StatusEntrega.Enviando
+                 && m.EnvioDisparadoEm != null
+                 && m.EnvioDisparadoEm >= agora.AddMinutes(-2)
+                 && m.IdExternoWhatsapp == null)
+        .Select(m => new
+        {
+            m.Id,
+            m.Conteudo,
+            m.Tipo,
+            TemArquivo = m.ArquivoCaminho != null,
+            m.AutorTipo,
+            m.EhAutomatica,
+            m.GeradaPorIa,
+            AtendenteNome = db.Atendentes.Where(a => a.Id == m.AtendenteId).Select(a => a.Nome).FirstOrDefault()
+        })
+        .ToQueryString());
+
+Checar("Celular: envio em voo ainda sem confirmacao (Contains sobre lista de ids)", () =>
+{
+    var ids = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
+    return db.Mensagens.AsNoTracking()
+        .Where(m => ids.Contains(m.Id)
+                 && m.StatusEntrega == StatusEntrega.Enviando
+                 && m.IdExternoWhatsapp == null)
+        .ToQueryString();
+});
+
+Checar("Celular: resposta ja registrada (idempotencia pela marca)", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.TenantId == tenantId && m.EnviadaPeloAparelho && m.IdExternoWhatsapp == "ID-EXTERNO")
+        .ToQueryString());
+
+Checar("Celular: selo da conversa na projecao (marca so sem dono no painel)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId)
+        .Select(c => new { c.Id, NoCelular = c.AtendidaPeloAparelhoEm != null && c.AtendenteId == null })
+        .ToQueryString());
+
+Checar("Celular: autor da citacao de uma resposta pelo celular (ramo antes do atendente)", () =>
+    db.Mensagens.AsNoTracking()
+        .Where(m => m.TenantId == tenantId)
+        .Select(m => m.EnviadaPeloAparelho
+            ? "Pelo celular"
+            : m.AutorTipo == AutorTipo.Atendente
+                ? db.Atendentes.Where(a => a.Id == m.AtendenteId).Select(a => a.Nome).FirstOrDefault()
+                : "Sistema")
         .ToQueryString());
 
 // --- Human Takeover / BUG-ATD-01 (028) --------------------------------------

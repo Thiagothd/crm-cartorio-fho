@@ -16,9 +16,22 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
             // RF-007 reforcado no banco: mensagem de atendente sem AtendenteId nao entra.
             // A validacao tambem existe no servico; aqui e a rede de seguranca contra
             // qualquer caminho de escrita futuro (importacao, webhook da Fase 2).
+            //
+            // UMA excecao, e so ela (sql/051): a resposta dada pelo proprio celular
+            // do cartorio. O aparelho nao tem login — a serventia respondeu, mas o
+            // sistema nao sabe quem. A marca EnviadaPeloAparelho e o que torna a
+            // ausencia do atendente uma informacao, e nao um defeito.
             t.HasCheckConstraint(
                 "CK_Mensagens_AtendenteObrigatorio",
-                "([AutorTipo] <> 2 AND [AtendenteId] IS NULL) OR ([AutorTipo] = 2 AND [AtendenteId] IS NOT NULL)");
+                "([AutorTipo] <> 2 AND [AtendenteId] IS NULL) OR ([AutorTipo] = 2 AND ([AtendenteId] IS NOT NULL OR [EnviadaPeloAparelho] = 1))");
+
+            // A marca so existe no formato exato da resposta pelo celular: gente da
+            // serventia, sem atendente identificado, nunca automatica, sempre com o
+            // id que o WhatsApp deu. Qualquer outra combinacao seria um "celular"
+            // que o painel nao saberia desenhar nem desduplicar.
+            t.HasCheckConstraint(
+                "CK_Mensagens_EnviadaPeloAparelho",
+                "[EnviadaPeloAparelho] = 0 OR ([AutorTipo] = 2 AND [AtendenteId] IS NULL AND [EhAutomatica] = 0 AND [IdExternoWhatsapp] IS NOT NULL)");
 
             // Mensagem automatica e sempre do sistema. Marcar como automatica uma
             // mensagem de gente inverteria a autoria na tela: o atendente veria o
@@ -186,6 +199,20 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
             .IsUnique()
             .HasFilter("[IdExternoWhatsapp] IS NOT NULL AND [AutorTipo] = 1")
             .HasDatabaseName("UQ_Mensagens_Tenant_IdExterno_Cliente");
+
+        // Mesma idempotencia para a resposta pelo celular: o gateway reentrega o
+        // mesmo evento, e duas entregas simultaneas nao podem gravar a resposta do
+        // cartório parceiro duas vezes. Filtrado pela marca, e NAO por AutorTipo = 2: as
+        // mensagens que o proprio painel envia tambem guardam o id, e o eco de uma
+        // delas nunca vira linha nova — mas o registro dela nao pode disputar
+        // unicidade com a fila de saida, que grava o id depois do envio.
+        //
+        // Indice NOMEADO no modelo: sem o nome, o EF trataria este e o de cima
+        // (mesmas colunas) como o mesmo indice, e o filtro de um sobrescreveria o
+        // do outro.
+        builder.HasIndex(m => new { m.TenantId, m.IdExternoWhatsapp }, "UQ_Mensagens_Tenant_IdExterno_Aparelho")
+            .IsUnique()
+            .HasFilter("[EnviadaPeloAparelho] = 1");
 
         // Fila duravel de entrada. O filtro mantem mensagens de saida e historico
         // processado fora do indice quente varrido pelos workers.

@@ -12,6 +12,7 @@ import {
   Pin,
   PinOff,
   Reply,
+  Smartphone,
   Trash2,
   TriangleAlert,
 } from 'lucide-react'
@@ -148,9 +149,19 @@ function jaEntregue(mensagem: Mensagem) {
   return mensagem.statusEntrega !== 'Pendente' && mensagem.statusEntrega !== 'Enviando'
 }
 
+/**
+ * Quem escreveu, para as mensagens da serventia. A resposta pelo celular não tem
+ * atendente — o rótulo diz de onde veio.
+ */
+function autorDaServentia(mensagem: Mensagem) {
+  return mensagem.enviadaPeloAparelho ? 'Pelo celular' : (mensagem.atendenteNome ?? 'Atendente')
+}
+
 function podeCorrigir(mensagem: Mensagem) {
   return (
     mensagem.autorTipo === 'Atendente' &&
+    // Saiu do celular: o conserto é no próprio aparelho.
+    !mensagem.enviadaPeloAparelho &&
     !mensagem.apagadaParaTodos &&
     jaEntregue(mensagem) &&
     // O WhatsApp não edita mídia: foto e documento só se resolvem apagando.
@@ -163,6 +174,7 @@ function podeCorrigir(mensagem: Mensagem) {
 function podeApagarParaTodos(mensagem: Mensagem) {
   return (
     mensagem.autorTipo === 'Atendente' &&
+    !mensagem.enviadaPeloAparelho &&
     !mensagem.apagadaParaTodos &&
     jaEntregue(mensagem) &&
     dentroDaJanela(mensagem.enviadaEm, DIAS_PARA_APAGAR * 24 * 60 * 60_000)
@@ -364,7 +376,7 @@ export function FioDeMensagens({
                         onChange={() => aoAlternarSelecao(mensagem.id)}
                         onClick={(e) => e.stopPropagation()}
                         aria-label={`Selecionar mensagem de ${
-                          daServentia ? (mensagem.atendenteNome ?? 'atendente') : clienteNome
+                          daServentia ? autorDaServentia(mensagem) : clienteNome
                         }`}
                         className="size-4 shrink-0 accent-tinta"
                       />
@@ -409,7 +421,7 @@ export function FioDeMensagens({
                           ? 'Mensagem gerada por inteligência artificial'
                           : automatica
                             ? 'Mensagem automática do sistema'
-                            : `Mensagem de ${doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}`
+                            : `Mensagem de ${doAtendente ? autorDaServentia(mensagem) : clienteNome}`
                       }
                     >
                   {/* O nome fica visivel dos dois lados. No atendente, cumpre o
@@ -436,7 +448,22 @@ export function FioDeMensagens({
                         doAtendente ? 'text-verde' : 'text-tinta-media',
                       )}
                     >
-                      {doAtendente ? (mensagem.atendenteNome ?? 'Atendente') : clienteNome}
+                      {/* Resposta dada pelo celular: o aparelho não tem login,
+                          então o fio diz de onde veio em vez de inventar um
+                          nome. Mesmo verde do atendente — é gente da serventia. */}
+                      {doAtendente && mensagem.enviadaPeloAparelho ? (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title="Enviada direto pelo WhatsApp do celular do cartório, fora do painel."
+                        >
+                          <Smartphone className="size-3" aria-hidden />
+                          {autorDaServentia(mensagem)}
+                        </span>
+                      ) : doAtendente ? (
+                        autorDaServentia(mensagem)
+                      ) : (
+                        clienteNome
+                      )}
                     </p>
                   )}
 
