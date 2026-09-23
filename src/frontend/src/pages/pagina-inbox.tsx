@@ -45,6 +45,10 @@ import { VisualizadorDeImagem } from '@/features/atendimento/visualizador-de-ima
 import { usarMidiasDaConversa } from '@/features/atendimento/midias-da-conversa'
 import { descartarOutrasConversas } from '@/features/atendimento/cache-de-anexos'
 import { DialogoEncaminhar } from '@/features/atendimento/dialogo-encaminhar'
+import {
+  DialogoApagarParaTodos,
+  DialogoCorrigirMensagem,
+} from '@/features/atendimento/dialogo-corrigir-mensagem'
 import { BarraDeSelecao } from '@/features/atendimento/barra-de-selecao'
 import type { Mensagem, SituacaoPrazo, StatusConversa } from '@/lib/api/tipos'
 
@@ -173,6 +177,11 @@ export function PaginaInbox() {
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [modoSelecao, setModoSelecao] = useState(false)
   const [idsParaEncaminhar, setIdsParaEncaminhar] = useState<string[]>([])
+
+  // Correção e apagamento moram aqui pelo mesmo motivo do encaminhamento: o
+  // diálogo abre por cima da página, não dentro do fio.
+  const [mensagemParaCorrigir, setMensagemParaCorrigir] = useState<Mensagem | null>(null)
+  const [mensagemParaApagar, setMensagemParaApagar] = useState<Mensagem | null>(null)
 
   const consulta = useMemo(() => filtrosParaConsulta(filtros), [filtros])
 
@@ -324,6 +333,24 @@ export function PaginaInbox() {
     await executar(
       () => conversasApi.fixarMensagem(selecionadaId, mensagem.id, !mensagem.fixada),
       mensagem.fixada ? 'Mensagem desafixada.' : 'Mensagem fixada no topo.',
+    )
+  }
+
+  async function corrigirMensagem(mensagem: Mensagem, conteudo: string) {
+    if (!selecionadaId) return
+
+    await executar(
+      () => conversasApi.corrigirMensagem(selecionadaId, mensagem.id, conteudo),
+      'Mensagem corrigida no WhatsApp do cliente.',
+    )
+  }
+
+  async function apagarMensagemParaTodos(mensagem: Mensagem) {
+    if (!selecionadaId) return
+
+    await executar(
+      () => conversasApi.apagarMensagemParaTodos(selecionadaId, mensagem.id),
+      'Mensagem apagada no aparelho do cliente — o registro continua no atendimento.',
     )
   }
 
@@ -668,6 +695,8 @@ export function PaginaInbox() {
                     aoFixar={(m) => void fixarMensagem(m)}
                     aoOcultar={(ids, ocultar) => void ocultarMensagens(ids, ocultar)}
                     aoEncaminhar={setIdsParaEncaminhar}
+                    aoCorrigir={setMensagemParaCorrigir}
+                    aoApagarParaTodos={setMensagemParaApagar}
                     aoAbrirImagem={setImagemAberta}
                     mostrarOcultas={mostrarOcultas}
                     aoAlternarOcultas={() => setMostrarOcultas((v) => !v)}
@@ -739,6 +768,24 @@ export function PaginaInbox() {
           }}
         />
       ) : null}
+
+      <DialogoCorrigirMensagem
+        mensagem={mensagemParaCorrigir}
+        aoFechar={() => setMensagemParaCorrigir(null)}
+        aoConfirmar={(conteudo) =>
+          mensagemParaCorrigir
+            ? corrigirMensagem(mensagemParaCorrigir, conteudo)
+            : Promise.resolve()
+        }
+      />
+
+      <DialogoApagarParaTodos
+        mensagem={mensagemParaApagar}
+        aoFechar={() => setMensagemParaApagar(null)}
+        aoConfirmar={() =>
+          mensagemParaApagar ? apagarMensagemParaTodos(mensagemParaApagar) : Promise.resolve()
+        }
+      />
     </>
   )
 }

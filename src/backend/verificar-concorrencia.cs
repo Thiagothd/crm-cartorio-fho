@@ -815,6 +815,12 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
         Task.FromResult<string?>(null);
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
 }
 
 /// <summary>

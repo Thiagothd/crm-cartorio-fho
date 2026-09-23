@@ -51,6 +51,53 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
         new("encaminhamento_para_mesma_conversa",
             "Escolha outra conversa como destino.", 400);
 
+    // ------------------------------------------------- correcao de mensagem enviada
+    //
+    // Cada recusa tem codigo proprio de proposito: sao seis motivos diferentes de
+    // "nao da para corrigir", e o atendente precisa saber QUAL deles aconteceu —
+    // "passou da janela" se resolve apagando, "ainda saindo" se resolve esperando,
+    // e "so o autor corrige" se resolve chamando outra pessoa.
+
+    public static AtendimentoServiceException CorrecaoSoDeAtendente() =>
+        new("correcao_so_de_atendente",
+            "So da para corrigir mensagem escrita por um atendente. Mensagem automatica ou " +
+            "do assistente se ajusta em Automacao.", 400);
+
+    public static AtendimentoServiceException CorrecaoSoDoAutor(string autor) =>
+        new("correcao_so_do_autor",
+            $"Esta mensagem foi escrita por {autor}. So o autor pode corrigi-la.", 403);
+
+    public static AtendimentoServiceException CorrecaoSoDeTexto() =>
+        new("correcao_so_de_texto",
+            "O WhatsApp nao deixa editar foto, documento ou audio. Apague e envie de novo.", 400);
+
+    public static AtendimentoServiceException JanelaDeCorrecaoExpirada(int minutos) =>
+        new("janela_de_correcao_expirada",
+            $"O WhatsApp so aceita editar nos primeiros {minutos} minutos. Passado isso, " +
+            "resta apagar a mensagem.", 409);
+
+    public static AtendimentoServiceException JanelaDeApagamentoExpirada(int dias) =>
+        new("janela_de_apagamento_expirada",
+            $"O WhatsApp so aceita apagar para todos ate {dias} dias depois do envio.", 409);
+
+    public static AtendimentoServiceException MensagemAindaSaindo() =>
+        new("mensagem_ainda_saindo",
+            "A mensagem ainda esta saindo. Aguarde alguns instantes e tente de novo.", 409);
+
+    public static AtendimentoServiceException MensagemJaApagada() =>
+        new("mensagem_ja_apagada",
+            "Esta mensagem ja foi apagada no aparelho do cliente.", 409);
+
+    public static AtendimentoServiceException MensagemLongaDemais(int limite) =>
+        new("mensagem_longa_demais", $"A mensagem passa de {limite} caracteres.", 400);
+
+    public static AtendimentoServiceException CorrecaoSemMudanca() =>
+        new("correcao_sem_mudanca", "O texto e igual ao que ja foi enviado.", 400);
+
+    public static AtendimentoServiceException CanalRecusouACorrecao() =>
+        new("canal_recusou_a_correcao",
+            "O WhatsApp nao aceitou a alteracao. A mensagem continua como estava.", 502);
+
     public static AtendimentoServiceException MensagemCitadaInvalida() =>
         new("mensagem_citada_invalida",
             "A mensagem citada nao pertence a esta conversa.", 400);

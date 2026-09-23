@@ -198,7 +198,42 @@ public record MensagemResponse(
     /// A mensagem automática veio da Resposta Inteligente (IA), não de uma regra de
     /// mensagem automática cadastrada. Sempre acompanha <see cref="EhAutomatica"/>.
     /// </summary>
-    bool GeradaPorIa = false);
+    bool GeradaPorIa = false,
+    /// <summary>
+    /// O texto foi corrigido depois de enviado. <see cref="Conteudo"/> já é a versão
+    /// vigente — é ela que o cliente vê no WhatsApp e ela que alimenta citação,
+    /// encaminhamento e histórico da IA.
+    /// </summary>
+    bool Corrigida = false,
+    DateTime? CorrigidaEm = null,
+    /// <summary>Quem corrigiu. Preenchido só quando <see cref="Corrigida"/>.</summary>
+    string? CorrigidaPorNome = null,
+    /// <summary>
+    /// O texto como saiu da primeira vez. Vai para a tela porque a correção é
+    /// auditável por desenho: quem abre o fio depois consegue ver o que o cliente
+    /// recebeu antes do conserto, sem abrir o banco.
+    /// </summary>
+    string? ConteudoOriginal = null,
+    /// <summary>
+    /// Apagada no aparelho do cliente. A linha continua aqui e continua vindo na
+    /// API, com o <see cref="Conteudo"/> intacto — o cliente deixou de ver, o
+    /// registro da serventia não.
+    /// </summary>
+    bool ApagadaParaTodos = false,
+    DateTime? ApagadaParaTodosEm = null,
+    /// <summary>Quem apagou. Preenchido só quando <see cref="ApagadaParaTodos"/>.</summary>
+    string? ApagadaParaTodosPorNome = null);
+
+/// <summary>
+/// Novo texto de uma mensagem já enviada ao cliente.
+/// </summary>
+/// <remarks>
+/// Só o texto: gatilho, citação e anexo continuam sendo o que eram. Corrigir é
+/// consertar o que foi dito, não reescrever a mensagem inteira — trocar o anexo
+/// ou a citação depois de enviada seria outra mensagem, e essa o atendente manda
+/// normalmente.
+/// </remarks>
+public record CorrigirMensagemRequest(string Conteudo);
 
 public record HistoricoEtapaResponse(
     Guid Id,

@@ -28,6 +28,41 @@ public interface IAcoesDeMensagem
     /// <summary>Conversas ativas que podem receber um encaminhamento.</summary>
     Task<IReadOnlyList<DestinoDeEncaminhamentoResponse>> DestinosAsync(
         Guid conversaOrigemId, string? busca, CancellationToken ct = default);
+
+    /// <summary>
+    /// Troca o texto de uma mensagem que o atendente mandou por engano, inclusive
+    /// no aparelho do cliente.
+    /// </summary>
+    /// <remarks>
+    /// Vale so para texto escrito por atendente, dentro da janela que o WhatsApp
+    /// aceita editar (<see cref="MensagemService.MinutosParaCorrigir"/>). O texto
+    /// anterior nao se perde: a primeira correcao o guarda em
+    /// <c>Mensagem.ConteudoOriginal</c>.
+    ///
+    /// Conversa encerrada tambem aceita correcao — o engano chegou ao cliente do
+    /// mesmo jeito, e obrigar a reabrir o atendimento so para consertar uma frase
+    /// mexeria no estado do funil por um motivo que nao e dele.
+    /// </remarks>
+    Task<MensagemResponse> CorrigirAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CorrigirMensagemRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Apaga no aparelho do cliente uma mensagem enviada por engano. A linha
+    /// permanece no fio, marcada.
+    /// </summary>
+    /// <remarks>
+    /// Diferente de <see cref="OcultarAsync"/>, que so esconde de quem atende:
+    /// aqui o pedido vai ao WhatsApp e o cliente passa a ver "Esta mensagem foi
+    /// apagada". Serve para o caso que a correcao nao resolve — anexo errado, ou
+    /// mensagem que foi para a conversa errada.
+    /// </remarks>
+    Task<MensagemResponse> ApagarParaTodosAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CancellationToken ct = default);
 }
 
 public interface IMensagemService

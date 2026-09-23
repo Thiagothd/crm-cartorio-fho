@@ -161,6 +161,8 @@ file sealed class GatewayFake : IEvolutionClient
     public Task<EstadoDaInstancia> IniciarConexaoAsync(CancellationToken ct) => throw new NotSupportedException();
     public Task DesconectarAsync(CancellationToken ct) => throw new NotSupportedException();
     public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> EditarTextoAsync(string a, string b, string c, CancellationToken ct) => throw new NotSupportedException();
+    public Task<bool> ApagarParaTodosAsync(string a, string b, CancellationToken ct) => throw new NotSupportedException();
     public Task<byte[]?> BaixarMidiaAsync(string a, CancellationToken ct) => throw new NotSupportedException();
     public Task<string?> ObterFotoPerfilUrlAsync(string a, CancellationToken ct) => throw new NotSupportedException();
     public Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct) => throw new NotSupportedException();

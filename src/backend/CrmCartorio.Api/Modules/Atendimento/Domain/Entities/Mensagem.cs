@@ -4,8 +4,22 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 namespace CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 
 /// <summary>
-/// Uma mensagem no fio da conversa. Nunca e apagada nem editada.
+/// Uma mensagem no fio da conversa. A linha nunca e apagada.
 /// </summary>
+/// <remarks>
+/// <b>Correcao (2026-09-22).</b> Ate entao esta classe dizia "nunca e apagada nem
+/// editada", e o fio era imutavel de ponta a ponta. O atendente agora pode
+/// corrigir o texto de uma mensagem que ELE mandou, ou apagar no aparelho do
+/// cliente a que saiu por engano — porque o erro chega ao cliente pelo WhatsApp,
+/// e o unico remedio antes disso era mandar outra mensagem pedindo desculpa.
+///
+/// O que NAO mudou: nenhuma linha some do banco, e nenhuma versao do texto se
+/// perde. Corrigir grava o texto anterior em <see cref="ConteudoOriginal"/> e
+/// assina quem corrigiu; apagar marca <see cref="ApagadaParaTodosEm"/> e mantem
+/// o <see cref="Conteudo"/> onde sempre esteve. Some do aparelho do cliente,
+/// nunca do registro da serventia — a mesma postura de
+/// <see cref="OcultaEm"/> e de conversa encerrada (RNF-008).
+/// </remarks>
 public class Mensagem : EntidadeBase, IEntidadeDeTenant
 {
     public Guid TenantId { get; set; }
@@ -165,6 +179,48 @@ public class Mensagem : EntidadeBase, IEntidadeDeTenant
     public DateTime? OcultaEm { get; set; }
 
     public Guid? OcultaPorAtendenteId { get; set; }
+
+    /// <summary>
+    /// Texto como saiu da PRIMEIRA vez, guardado na primeira correcao.
+    /// </summary>
+    /// <remarks>
+    /// Guarda o original, nao a versao anterior: a segunda correcao nao
+    /// sobrescreve este campo. O que importa para quem audita depois e o que o
+    /// cliente recebeu antes de qualquer conserto — as versoes intermediarias sao
+    /// tentativas de escrever a mesma frase, e um historico completo de cada
+    /// tecla custaria uma tabela inteira para responder uma pergunta que ninguem
+    /// faz.
+    ///
+    /// Nulo enquanto a mensagem nunca foi corrigida. <see cref="Conteudo"/>
+    /// continua sendo o texto vigente, em toda consulta, citacao e historico da
+    /// IA — quem le o fio le a versao certa, sem saber que houve conserto.
+    /// </remarks>
+    public string? ConteudoOriginal { get; set; }
+
+    /// <summary>Quando a ultima correcao foi feita. Nulo = nunca corrigida.</summary>
+    public DateTime? CorrigidaEm { get; set; }
+
+    /// <summary>Quem corrigiu por ultimo. Sempre um atendente — a IA nunca corrige.</summary>
+    public Guid? CorrigidaPorAtendenteId { get; set; }
+
+    /// <summary>
+    /// Quando a mensagem foi apagada no aparelho do cliente. A LINHA CONTINUA NO
+    /// BANCO, com <see cref="Conteudo"/> intacto.
+    /// </summary>
+    /// <remarks>
+    /// Diferente de <see cref="OcultaEm"/>, que so esconde de quem atende: aqui o
+    /// pedido vai ao WhatsApp e o cliente passa a ver "Esta mensagem foi
+    /// apagada". Nao ha como fazer isso em silencio, e nao deveria haver — o
+    /// cartorio nao reescreve o que o cliente ja leu, so retira o que saiu
+    /// errado.
+    ///
+    /// Marcado somente DEPOIS de o gateway confirmar. Marcar antes faria o fio
+    /// afirmar ao atendente algo que nao aconteceu no aparelho do cliente.
+    /// </remarks>
+    public DateTime? ApagadaParaTodosEm { get; set; }
+
+    /// <summary>Quem apagou. Ha a quem perguntar depois.</summary>
+    public Guid? ApagadaParaTodosPorAtendenteId { get; set; }
 
     /// <summary>
     /// Mensagem de origem, quando esta e um encaminhamento.

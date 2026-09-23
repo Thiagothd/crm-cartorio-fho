@@ -8,9 +8,11 @@ import {
   EyeOff,
   Forward,
   ListChecks,
+  PencilLine,
   Pin,
   PinOff,
   Reply,
+  Trash2,
   TriangleAlert,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -124,6 +126,49 @@ const TEXTURA_DO_FUNDO: Record<AparenciaDaConversa, string> = {
   PautaFina: 'fundo-conversa-pauta',
 }
 
+/**
+ * Janelas que o WhatsApp impõe para mexer em mensagem já entregue. Espelham
+ * `MensagemService.MinutosParaCorrigir` e `DiasParaApagar` no backend.
+ *
+ * Estão aqui para a ação sumir do menu quando não é mais possível, em vez de
+ * oferecer um botão que sempre falha. A decisão de verdade continua sendo do
+ * servidor: o menu é montado no render, então uma conversa aberta há muito tempo
+ * pode mostrar "Corrigir" por alguns segundos depois de a janela fechar — e aí a
+ * recusa vem explicada, dizendo quanto tempo havia.
+ */
+const MINUTOS_PARA_CORRIGIR = 15
+const DIAS_PARA_APAGAR = 2
+
+function dentroDaJanela(enviadaEm: string, milissegundos: number) {
+  return Date.now() - new Date(enviadaEm).getTime() <= milissegundos
+}
+
+/** Já saiu de verdade: o que ainda está na fila não tem o que corrigir no aparelho do cliente. */
+function jaEntregue(mensagem: Mensagem) {
+  return mensagem.statusEntrega !== 'Pendente' && mensagem.statusEntrega !== 'Enviando'
+}
+
+function podeCorrigir(mensagem: Mensagem) {
+  return (
+    mensagem.autorTipo === 'Atendente' &&
+    !mensagem.apagadaParaTodos &&
+    jaEntregue(mensagem) &&
+    // O WhatsApp não edita mídia: foto e documento só se resolvem apagando.
+    mensagem.tipo === 'Texto' &&
+    !mensagem.arquivoNome &&
+    dentroDaJanela(mensagem.enviadaEm, MINUTOS_PARA_CORRIGIR * 60_000)
+  )
+}
+
+function podeApagarParaTodos(mensagem: Mensagem) {
+  return (
+    mensagem.autorTipo === 'Atendente' &&
+    !mensagem.apagadaParaTodos &&
+    jaEntregue(mensagem) &&
+    dentroDaJanela(mensagem.enviadaEm, DIAS_PARA_APAGAR * 24 * 60 * 60_000)
+  )
+}
+
 export function FioDeMensagens({
   mensagens,
   clienteNome,
@@ -136,6 +181,8 @@ export function FioDeMensagens({
   aoFixar,
   aoOcultar,
   aoEncaminhar,
+  aoCorrigir,
+  aoApagarParaTodos,
   aoAbrirImagem,
   mostrarOcultas,
   aoAlternarOcultas,
@@ -151,6 +198,10 @@ export function FioDeMensagens({
   aoFixar: (mensagem: Mensagem) => void
   aoOcultar: (ids: string[], ocultar: boolean) => void
   aoEncaminhar: (ids: string[]) => void
+  /** Abre a correção do texto de uma mensagem que o cartório já mandou. */
+  aoCorrigir: (mensagem: Mensagem) => void
+  /** Apaga no aparelho do cliente. A linha permanece no fio, marcada. */
+  aoApagarParaTodos: (mensagem: Mensagem) => void
   /** Clicar na imagem amplia no visualizador da pagina — nunca baixa. */
   aoAbrirImagem: (mensagemId: string) => void
   /**
@@ -333,6 +384,12 @@ export function FioDeMensagens({
                         // scrolla e re-renderiza a cada mensagem nova).
                         'max-w-[82%] rounded-balao border px-2.5 py-1.5 sm:max-w-[72%]',
                         daServentia ? 'rounded-br-[4px]' : 'rounded-bl-[4px]',
+
+                        /* Apagada no aparelho do cliente: desbotada, para o olho
+                           separar de relance o que ele ainda vê do que foi
+                           retirado. O texto continua legível — o registro da
+                           serventia não some, só deixou de valer para fora. */
+                        mensagem.apagadaParaTodos ? 'opacity-60' : null,
                         doAtendente ? 'border-verde/25 bg-verde/10' : null,
 
                         /* Neutra, e não a diluição de verde do atendente: verde é a
@@ -423,6 +480,35 @@ export function FioDeMensagens({
                             oculta por {mensagem.ocultaPorNome}
                           </span>
                         ) : null}
+
+                        {/* O selo é discreto de propósito — a mensagem vigente é
+                            a que importa no atendimento. Mas ele sempre aparece:
+                            o cliente vê "editada" no aparelho dele, e o painel
+                            não pode saber menos do que o cliente. O texto de
+                            antes fica no título, ao alcance de quem precisar
+                            conferir. */}
+                        {mensagem.corrigida ? (
+                          <span
+                            className="mr-auto font-corpo italic"
+                            title={
+                              mensagem.conteudoOriginal
+                                ? `Antes da correção: ${mensagem.conteudoOriginal}`
+                                : undefined
+                            }
+                          >
+                            corrigida
+                            {mensagem.corrigidaPorNome ? ` por ${mensagem.corrigidaPorNome}` : ''}
+                          </span>
+                        ) : null}
+
+                        {mensagem.apagadaParaTodos ? (
+                          <span className="mr-auto font-corpo italic">
+                            apagada para o cliente
+                            {mensagem.apagadaParaTodosPorNome
+                              ? ` por ${mensagem.apagadaParaTodosPorNome}`
+                              : ''}
+                          </span>
+                        ) : null}
                         {mensagem.fixada ? (
                           <Pin className="size-3 text-tinta-media" aria-label="Fixada" />
                         ) : null}
@@ -463,6 +549,27 @@ export function FioDeMensagens({
                     <ListChecks />
                     Selecionar
                   </ContextMenuItem>
+
+                  {/* Consertar o que saiu errado PARA O CLIENTE. Só aparece
+                      enquanto o WhatsApp aceita — passada a janela, some, e o
+                      que resta é ocultar do fio. */}
+                  {podeCorrigir(mensagem) || podeApagarParaTodos(mensagem) ? (
+                    <ContextMenuSeparator />
+                  ) : null}
+
+                  {podeCorrigir(mensagem) ? (
+                    <ContextMenuItem onSelect={() => aoCorrigir(mensagem)}>
+                      <PencilLine />
+                      Corrigir texto
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {podeApagarParaTodos(mensagem) ? (
+                    <ContextMenuItem onSelect={() => aoApagarParaTodos(mensagem)}>
+                      <Trash2 />
+                      Apagar para o cliente
+                    </ContextMenuItem>
+                  ) : null}
 
                   <ContextMenuSeparator />
 

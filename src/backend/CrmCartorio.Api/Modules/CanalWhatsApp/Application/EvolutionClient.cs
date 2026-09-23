@@ -279,6 +279,104 @@ public class EvolutionClient(
         return "document";
     }
 
+    public async Task<bool> EditarTextoAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        string conteudo,
+        CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var resposta = await EnviarComStatusAsync(
+            HttpMethod.Post,
+            $"chat/updateMessage/{_opcoes.NomeDaInstancia}",
+            new
+            {
+                number = telefoneE164,
+                text = conteudo,
+                key = new
+                {
+                    id = idExternoWhatsapp,
+                    remoteJid = JidDoContato(telefoneE164),
+
+                    // Sempre nossa: o painel so oferece correcao no que o proprio
+                    // cartorio mandou. O WhatsApp nao deixa ninguem editar mensagem
+                    // alheia, e pedir isso seria recusa garantida.
+                    fromMe = true
+                }
+            },
+            ct);
+
+        return InterpretarRecusaDoWhatsApp(resposta, "editar", idExternoWhatsapp);
+    }
+
+    public async Task<bool> ApagarParaTodosAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        CancellationToken ct)
+    {
+        GarantirConfigurado();
+
+        var resposta = await EnviarComStatusAsync(
+            HttpMethod.Delete,
+            $"chat/deleteMessageForEveryone/{_opcoes.NomeDaInstancia}",
+            new
+            {
+                id = idExternoWhatsapp,
+                remoteJid = JidDoContato(telefoneE164),
+                fromMe = true
+            },
+            ct);
+
+        return InterpretarRecusaDoWhatsApp(resposta, "apagar", idExternoWhatsapp);
+    }
+
+    /// <summary>
+    /// Identificador do contato no WhatsApp, derivado do E.164.
+    /// </summary>
+    /// <remarks>
+    /// O envio manda so o numero e deixa o gateway resolver o jid; editar e apagar
+    /// exigem a chave completa da mensagem, entao aqui o jid e montado. Vale
+    /// porque este caminho so trata mensagem que NOS enviamos: o destinatario e
+    /// sempre o telefone gravado no cliente, o mesmo que o envio usou para acertar
+    /// o aparelho. Contato em <c>@lid</c> (ver ObterContatosAsync) nunca chega
+    /// aqui — nao ha como ter mandado mensagem para um.
+    /// </remarks>
+    private static string JidDoContato(string telefoneE164) =>
+        $"{NormalizadorDeTelefone.SomenteDigitos(telefoneE164)}@s.whatsapp.net";
+
+    /// <summary>
+    /// Separa "o WhatsApp disse nao" de "o gateway esta fora do ar".
+    /// </summary>
+    /// <remarks>
+    /// A diferenca importa na tela: recusa (400/404 — janela de edicao vencida,
+    /// mensagem velha demais para apagar, id que o aparelho nao reconhece mais) e
+    /// resposta legitima e vira aviso de que nao deu; gateway indisponivel e falha
+    /// nossa e vira erro. Tratar os dois como excecao faria o atendente ver
+    /// "sistema fora do ar" quando o caso e so ter passado dos 15 minutos.
+    /// </remarks>
+    private bool InterpretarRecusaDoWhatsApp(
+        RespostaDoGateway resposta,
+        string acao,
+        string idExternoWhatsapp)
+    {
+        if (resposta.Sucesso)
+        {
+            return true;
+        }
+
+        if (resposta.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound)
+        {
+            log.LogInformation(
+                "WhatsApp recusou {Acao} a mensagem {Id} ({Status}).",
+                acao, idExternoWhatsapp, resposta.StatusCode);
+
+            return false;
+        }
+
+        throw CanalWhatsAppServiceException.GatewayIndisponivel();
+    }
+
     public async Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct)
     {
         GarantirConfigurado();
