@@ -1116,6 +1116,12 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
 {
     public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
 }
 
 file sealed class FilaSilenciosa : IFilaDeEnvioDoCanal
@@ -1166,6 +1172,8 @@ file sealed class EvolutionClientNuncaChamado : IEvolutionClient
     public Task<PerfilDaInstancia?> ObterPerfilDaInstanciaAsync(CancellationToken ct) => throw Erro();
     public Task<string> EnviarTextoAsync(string telefoneE164, string conteudo, CancellationToken ct) => throw Erro();
     public Task<string> EnviarMidiaAsync(string telefoneE164, byte[] conteudo, string tipoMime, string nomeDoArquivo, string? legenda, CancellationToken ct) => throw Erro();
+    public Task<bool> EditarTextoAsync(string telefoneE164, string idExternoWhatsapp, string conteudo, CancellationToken ct) => throw Erro();
+    public Task<bool> ApagarParaTodosAsync(string telefoneE164, string idExternoWhatsapp, CancellationToken ct) => throw Erro();
     public Task<byte[]?> BaixarMidiaAsync(string idExternoWhatsapp, CancellationToken ct) => throw Erro();
     public Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct) => throw Erro();
     public Task<IReadOnlyList<ContatoDoWhatsApp>> ObterContatosAsync(CancellationToken ct) => throw Erro();

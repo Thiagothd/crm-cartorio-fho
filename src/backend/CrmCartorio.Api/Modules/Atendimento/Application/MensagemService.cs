@@ -28,6 +28,30 @@ public class MensagemService(
 {
     private readonly OpcoesDaIA _opcoesDaIA = opcoesDaIA.Value;
 
+    /// <summary>
+    /// Janela em que o WhatsApp aceita editar uma mensagem ja entregue.
+    /// </summary>
+    /// <remarks>
+    /// O numero e deles, nao nosso: nao adianta configurar por tela nem alargar
+    /// aqui, porque quem recusa do outro lado e o aparelho do cliente. Fica como
+    /// constante para o painel poder esconder a acao quando a janela fechou, em
+    /// vez de oferecer um botao que sempre falha.
+    /// </remarks>
+    public const int MinutosParaCorrigir = 15;
+
+    /// <summary>
+    /// Janela em que o WhatsApp aceita apagar para todos. Tambem e regra deles.
+    /// </summary>
+    /// <remarks>
+    /// Conservador de proposito: o limite observado e maior (perto de dois dias e
+    /// meio), e pedir no ultimo minuto daria recusa do gateway em vez de recusa
+    /// explicada. Quem estourou os dois dias ainda pode ocultar do fio.
+    /// </remarks>
+    public const int DiasParaApagar = 2;
+
+    /// <summary>Mesmo limite do texto em claro da coluna (ver MensagemConfiguration).</summary>
+    private const int TamanhoMaximoDaMensagem = 4000;
+
     public async Task<IReadOnlyList<MensagemResponse>> ListarAsync(
         Guid conversaId,
         CancellationToken ct = default)
@@ -609,6 +633,188 @@ public class MensagemService(
         var resposta = await ObterUmaAsync(mensagem.Id, conversaId, ct);
         var resumo = await conversas.ObterResumoAsync(conversaId, ct);
         await notificador.MensagemRecebidaAsync(conversa.TenantId, resposta, resumo, ct);
+
+        return resposta;
+    }
+
+    public async Task<MensagemResponse> CorrigirAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CorrigirMensagemRequest request,
+        CancellationToken ct = default)
+    {
+        var novoConteudo = request.Conteudo?.Trim();
+
+        if (string.IsNullOrWhiteSpace(novoConteudo))
+        {
+            throw AtendimentoServiceException.MensagemVazia();
+        }
+
+        if (novoConteudo.Length > TamanhoMaximoDaMensagem)
+        {
+            throw AtendimentoServiceException.MensagemLongaDemais(TamanhoMaximoDaMensagem);
+        }
+
+        var conversa = await CarregarParaAcaoAsync(conversaId, ct);
+        var mensagem = await CarregarParaCorrecaoAsync(conversa, mensagemId, ct);
+
+        // So texto. O WhatsApp nao edita midia — a legenda de uma foto ja enviada
+        // fica como esta, e o caminho para esse engano e apagar e mandar de novo.
+        if (mensagem.Tipo != TipoMensagem.Texto || mensagem.TemArquivo)
+        {
+            throw AtendimentoServiceException.CorrecaoSoDeTexto();
+        }
+
+        if (novoConteudo == mensagem.Conteudo)
+        {
+            throw AtendimentoServiceException.CorrecaoSemMudanca();
+        }
+
+        var agora = DateTime.UtcNow;
+
+        // A janela e do WhatsApp, nao nossa. Conferida aqui para o atendente
+        // receber uma recusa que explica o motivo, em vez de um "o WhatsApp nao
+        // aceitou" generico depois da ida ao gateway.
+        if (agora - mensagem.EnviadaEm > TimeSpan.FromMinutes(MinutosParaCorrigir))
+        {
+            throw AtendimentoServiceException.JanelaDeCorrecaoExpirada(MinutosParaCorrigir);
+        }
+
+        var resultado = await canal.CorrigirAsync(mensagemId, novoConteudo, ct);
+
+        if (resultado == ResultadoNoCanal.Recusado)
+        {
+            // Nada e gravado. O texto no aparelho do cliente continua o antigo, e um
+            // fio que mostrasse o novo faria o atendente acreditar num conserto que
+            // nao aconteceu.
+            throw AtendimentoServiceException.CanalRecusouACorrecao();
+        }
+
+        // Guarda o que saiu da PRIMEIRA vez. Correcao da correcao nao sobrescreve:
+        // o que interessa depois e o que o cliente recebeu antes de qualquer
+        // conserto.
+        mensagem.ConteudoOriginal ??= mensagem.Conteudo;
+        mensagem.Conteudo = novoConteudo;
+        mensagem.CorrigidaEm = agora;
+        mensagem.CorrigidaPorAtendenteId = ctx.AtendenteId;
+
+        await db.SaveChangesAsync(ct);
+
+        log.LogInformation(
+            "Mensagem {MensagemId} corrigida por {AtendenteId} na conversa {ConversaId} ({Canal}).",
+            mensagemId, ctx.AtendenteId, conversaId, resultado);
+
+        return await PublicarMensagemAtualizadaAsync(mensagemId, conversaId, conversa.TenantId, ct);
+    }
+
+    public async Task<MensagemResponse> ApagarParaTodosAsync(
+        Guid conversaId,
+        Guid mensagemId,
+        CancellationToken ct = default)
+    {
+        var conversa = await CarregarParaAcaoAsync(conversaId, ct);
+        var mensagem = await CarregarParaCorrecaoAsync(conversa, mensagemId, ct);
+
+        var agora = DateTime.UtcNow;
+
+        if (agora - mensagem.EnviadaEm > TimeSpan.FromDays(DiasParaApagar))
+        {
+            throw AtendimentoServiceException.JanelaDeApagamentoExpirada(DiasParaApagar);
+        }
+
+        var resultado = await canal.ApagarParaTodosAsync(mensagemId, ct);
+
+        if (resultado == ResultadoNoCanal.Recusado)
+        {
+            throw AtendimentoServiceException.CanalRecusouACorrecao();
+        }
+
+        // O Conteudo permanece. A linha nao some do fio nem do banco: o atendente
+        // ve a mensagem marcada como apagada, e continua sabendo o que foi dito ao
+        // cliente antes de ser retirado.
+        mensagem.ApagadaParaTodosEm = agora;
+        mensagem.ApagadaParaTodosPorAtendenteId = ctx.AtendenteId;
+
+        await db.SaveChangesAsync(ct);
+
+        log.LogInformation(
+            "Mensagem {MensagemId} apagada para todos por {AtendenteId} na conversa {ConversaId} ({Canal}).",
+            mensagemId, ctx.AtendenteId, conversaId, resultado);
+
+        return await PublicarMensagemAtualizadaAsync(mensagemId, conversaId, conversa.TenantId, ct);
+    }
+
+    /// <summary>
+    /// Carrega a mensagem e aplica as travas comuns a corrigir e apagar.
+    /// </summary>
+    /// <remarks>
+    /// As duas acoes partilham as mesmas quatro recusas, e separa-las em dois
+    /// lugares faria uma divergir da outra no primeiro ajuste.
+    /// </remarks>
+    private async Task<Mensagem> CarregarParaCorrecaoAsync(
+        Conversa conversa,
+        Guid mensagemId,
+        CancellationToken ct)
+    {
+        var mensagem = await db.Mensagens
+            .FirstOrDefaultAsync(m => m.Id == mensagemId
+                                   && m.ConversaId == conversa.Id
+                                   && m.TenantId == conversa.TenantId, ct)
+            ?? throw AtendimentoServiceException.MensagemNaoEncontrada();
+
+        // Mensagem do cliente nao e nossa para mexer, e automatica/IA se conserta
+        // no cadastro que a gerou — corrigir uma a uma no fio deixaria a regra
+        // errada continuar disparando errado na proxima conversa.
+        if (mensagem.AutorTipo != AutorTipo.Atendente)
+        {
+            throw AtendimentoServiceException.CorrecaoSoDeAtendente();
+        }
+
+        // Quem escreveu conserta o proprio texto. A mensagem sai assinada com o
+        // nome do autor (AssinaturaDeAutoria), entao uma correcao feita por outra
+        // pessoa mudaria, no aparelho do cliente, o que "Maria" disse — sem Maria
+        // saber. Supervisao continua possivel: quem tem a permissao de mexer em
+        // atendimento de terceiro passa.
+        if (mensagem.AtendenteId != ctx.AtendenteId
+            && !ctx.Pode(PermissaoDoSistema.AtendimentoMexerNoDeTerceiro))
+        {
+            var autor = await db.Atendentes.AsNoTracking()
+                .Where(a => a.Id == mensagem.AtendenteId)
+                .Select(a => a.Nome)
+                .FirstOrDefaultAsync(ct) ?? "outro atendente";
+
+            throw AtendimentoServiceException.CorrecaoSoDoAutor(autor);
+        }
+
+        if (mensagem.ApagadaParaTodosEm is not null)
+        {
+            throw AtendimentoServiceException.MensagemJaApagada();
+        }
+
+        // Ainda na fila de saida: sem id externo nao ha o que corrigir no aparelho
+        // do cliente, e gravar o texto novo aqui produziria uma divergencia
+        // silenciosa se o envio acontecesse um instante depois. Esperar alguns
+        // segundos resolve — a fila de saida e rapida.
+        if (mensagem.StatusEntrega is StatusEntrega.Pendente or StatusEntrega.Enviando
+            || (conversa.Canal == CanalOrigem.WhatsApp
+                && string.IsNullOrWhiteSpace(mensagem.IdExternoWhatsapp)))
+        {
+            throw AtendimentoServiceException.MensagemAindaSaindo();
+        }
+
+        return mensagem;
+    }
+
+    /// <summary>Recarrega a projecao e avisa o painel de quem estiver com a conversa aberta.</summary>
+    private async Task<MensagemResponse> PublicarMensagemAtualizadaAsync(
+        Guid mensagemId,
+        Guid conversaId,
+        Guid tenantId,
+        CancellationToken ct)
+    {
+        var resposta = await ObterUmaAsync(mensagemId, conversaId, ct);
+        var resumo = await conversas.ObterResumoAsync(conversaId, ct);
+        await notificador.MensagemRecebidaAsync(tenantId, resposta, resumo, ct);
 
         return resposta;
     }

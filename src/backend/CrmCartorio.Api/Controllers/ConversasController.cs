@@ -179,6 +179,29 @@ public class ConversasController(
         CancellationToken ct) =>
         Ok(new { afetadas = await acoes.OcultarAsync(id, request, ct) });
 
+    /// <summary>
+    /// Corrige o texto de uma mensagem ja enviada, inclusive no aparelho do
+    /// cliente. Recusa com codigo proprio quando a janela do WhatsApp fechou.
+    /// </summary>
+    [HttpPost("{id:guid}/mensagens/{mensagemId:guid}/corrigir")]
+    public async Task<ActionResult<MensagemResponse>> Corrigir(
+        Guid id,
+        Guid mensagemId,
+        [FromBody] CorrigirMensagemRequest request,
+        CancellationToken ct) =>
+        Ok(await acoes.CorrigirAsync(id, mensagemId, request, ct));
+
+    /// <summary>
+    /// Apaga a mensagem no aparelho do cliente. NAO apaga a linha: ela continua no
+    /// fio, marcada, com o texto preservado (RNF-008).
+    /// </summary>
+    [HttpPost("{id:guid}/mensagens/{mensagemId:guid}/apagar-para-todos")]
+    public async Task<ActionResult<MensagemResponse>> ApagarParaTodos(
+        Guid id,
+        Guid mensagemId,
+        CancellationToken ct) =>
+        Ok(await acoes.ApagarParaTodosAsync(id, mensagemId, ct));
+
     [HttpPost("{id:guid}/mensagens/encaminhar")]
     public async Task<ActionResult<object>> Encaminhar(
         Guid id,

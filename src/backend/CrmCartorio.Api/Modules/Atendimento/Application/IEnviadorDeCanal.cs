@@ -14,6 +14,28 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// WhatsApp nenhum: ligar o canal com o gate no chamador faria a primeira demo
 /// tentar mandar mensagem para telefones ficticios.
 /// </remarks>
+/// <summary>
+/// O que o canal conseguiu fazer com uma mensagem que ja tinha saido.
+/// </summary>
+/// <remarks>
+/// Tres estados, e nao um booleano, porque as tres respostas levam a lugares
+/// diferentes na tela: <see cref="NaoSeAplica"/> nao e erro nenhum (conversa de
+/// demonstracao, canal desligado) e a correcao vale so no fio;
+/// <see cref="Recusado"/> e o WhatsApp dizendo nao — a mensagem continua como
+/// estava no aparelho do cliente, e o painel nao pode fingir o contrario.
+/// </remarks>
+public enum ResultadoNoCanal
+{
+    /// <summary>Conversa que nao sai por WhatsApp, ou canal desligado.</summary>
+    NaoSeAplica = 0,
+
+    /// <summary>O WhatsApp aceitou.</summary>
+    Feito = 1,
+
+    /// <summary>O WhatsApp recusou — tipicamente a janela dele ja tinha fechado.</summary>
+    Recusado = 2
+}
+
 public interface IEnviadorDeCanal
 {
     /// <summary>
@@ -39,4 +61,24 @@ public interface IEnviadorDeCanal
     /// conversa, nao a lista de ids.
     /// </remarks>
     Task EnviarPendentesAsync(Guid conversaId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Troca, no aparelho do cliente, o texto de uma mensagem ja entregue.
+    /// </summary>
+    /// <remarks>
+    /// Recebe o texto LIMPO, como fica gravado; a assinatura de autoria e
+    /// remontada pelo adaptador, exatamente como no envio. Quem chama nao sabe
+    /// (nem deve saber) que existe cabecalho em negrito do outro lado.
+    /// </remarks>
+    Task<ResultadoNoCanal> CorrigirAsync(
+        Guid mensagemId,
+        string novoConteudo,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Apaga a mensagem no aparelho do cliente. O registro no fio continua.
+    /// </summary>
+    Task<ResultadoNoCanal> ApagarParaTodosAsync(
+        Guid mensagemId,
+        CancellationToken ct = default);
 }

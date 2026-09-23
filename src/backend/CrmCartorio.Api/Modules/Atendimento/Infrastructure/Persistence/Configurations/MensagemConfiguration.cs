@@ -41,6 +41,31 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
                 "[EstadoProcessamentoEntrada] IS NULL OR " +
                 "([AutorTipo] = 1 AND [IdExternoWhatsapp] IS NOT NULL AND [EstadoProcessamentoEntrada] IN (1, 2, 3, 4))");
 
+            // Correcao e apagamento sao acoes de ATENDENTE sobre o que o proprio
+            // painel mandou (AutorTipo = 2). O cliente nao tem como pedir conserto
+            // por aqui, e mensagem automatica ou da IA se conserta no cadastro que
+            // a gerou — nao no fio, uma por uma.
+            //
+            // As tres colunas da correcao andam juntas: texto original sem autor,
+            // ou autor sem instante, seria um registro que nao responde "quem
+            // mudou o que, e quando" — exatamente a pergunta que ele existe para
+            // responder.
+            t.HasCheckConstraint(
+                "CK_Mensagens_Correcao",
+                """
+                ([CorrigidaEm] IS NULL AND [CorrigidaPorAtendenteId] IS NULL AND [ConteudoOriginal] IS NULL)
+                OR
+                ([AutorTipo] = 2 AND [CorrigidaEm] IS NOT NULL AND [CorrigidaPorAtendenteId] IS NOT NULL AND [ConteudoOriginal] IS NOT NULL)
+                """);
+
+            t.HasCheckConstraint(
+                "CK_Mensagens_ApagadaParaTodos",
+                """
+                ([ApagadaParaTodosEm] IS NULL AND [ApagadaParaTodosPorAtendenteId] IS NULL)
+                OR
+                ([AutorTipo] = 2 AND [ApagadaParaTodosEm] IS NOT NULL AND [ApagadaParaTodosPorAtendenteId] IS NOT NULL)
+                """);
+
             // Ou o anexo esta inteiro, ou nao ha anexo. Meia linha gravada —
             // caminho sem tipo, tipo sem caminho — daria um fio que promete
             // arquivo e um download que devolve 404.
@@ -62,6 +87,11 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         // nao mais no banco (nvarchar(max) nao tem limite fixo pra
         // ciphertext+overhead cifrado).
         builder.Property(m => m.Conteudo).IsRequired().Cifrada(4000);
+
+        // Mesma cifra do Conteudo, pelo mesmo motivo: e o MESMO dado — o texto que
+        // o cliente recebeu antes da correcao. Guardar o original em claro ao lado
+        // de um conteudo cifrado entregaria de graca o que a cifra protege.
+        builder.Property(m => m.ConteudoOriginal).Cifrada(4000);
         builder.Property(m => m.AutorTipo).HasConversion<byte>();
         builder.Property(m => m.Tipo).HasConversion<byte>();
         builder.Property(m => m.StatusEntrega).HasConversion<byte>();
@@ -84,6 +114,8 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.Property(m => m.LidaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.FixadaEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.OcultaEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.CorrigidaEm).HasColumnType("datetime2(3)");
+        builder.Property(m => m.ApagadaParaTodosEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(m => m.AtualizadoEm).HasColumnType("datetime2(3)");
 
@@ -114,6 +146,19 @@ public class MensagemConfiguration : IEntityTypeConfiguration<Mensagem>
         builder.HasOne<Atendente>()
             .WithMany()
             .HasForeignKey(m => m.OcultaPorAtendenteId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Quem corrigiu e quem apagou no aparelho do cliente. Mesmo Restrict de
+        // fixar e ocultar: a assinatura da correcao precisa continuar atribuivel
+        // depois de o atendente sair da serventia.
+        builder.HasOne<Atendente>()
+            .WithMany()
+            .HasForeignKey(m => m.CorrigidaPorAtendenteId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Atendente>()
+            .WithMany()
+            .HasForeignKey(m => m.ApagadaParaTodosPorAtendenteId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(m => m.EncaminhadaDeMensagem)

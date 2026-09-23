@@ -15,6 +15,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Application;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
+using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -1044,6 +1045,168 @@ Checar(
     fotoPermitida is null && gatewayDeFotos.ConsultasDeFoto == 1);
 
 // ---------------------------------------------------------------------------
+// Correcao e apagamento de mensagem JA ENTREGUE (2026-09-22).
+//
+// O que se prova aqui e o lado do CANAL: quando o adaptador chega ao gateway,
+// quando nao chega, e com que texto. As travas de dominio (janela de 15
+// minutos, so texto, so o autor) vivem no MensagemService e nao dependem de
+// canal nenhum.
+//
+// A assimetria entre as duas acoes e deliberada e e o cenario mais importante
+// do bloco: corrigir ENTREGA texto novo ao aparelho do cliente e por isso passa
+// pela regra do canal; apagar RETIRA o que ja esta la e por isso nao passa —
+// senao um numero que saiu da allowlist depois do envio ficaria com a mensagem
+// errada na tela para sempre.
+// ---------------------------------------------------------------------------
+
+var gatewayDeCorrecao = new GatewayFake();
+var enviadorDeCorrecao = new EnviadorPeloWhatsApp(
+    db,
+    gatewayDeCorrecao,
+    anexosFake,
+    regrasDoProcessador,
+    Options.Create(canalDeTeste),
+    NullLogger<EnviadorPeloWhatsApp>.Instance);
+
+var atendenteDaCorrecao = new Atendente
+{
+    TenantId = tenant.Id,
+    Nome = "Maria Rezende",
+    Email = "maria.correcao@cartoriogameleiras.com.br",
+    SenhaHash = "x",
+    Perfil = PerfilDeAtendente.Atendente
+};
+
+var mensagemEntregue = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaPermitida.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "A certidão fica pronta na terça.",
+    StatusEntrega = StatusEntrega.Entregue,
+    IdExternoWhatsapp = "WA-ENTREGUE-1"
+};
+
+// Mesma mensagem, mas na conversa do contato que esta FORA da allowlist.
+var mensagemEntregueBloqueada = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaBloqueada.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "Texto que saiu errado.",
+    StatusEntrega = StatusEntrega.Entregue,
+    IdExternoWhatsapp = "WA-ENTREGUE-2"
+};
+
+// Nunca chegou ao gateway: sem id externo nao ha o que corrigir la fora.
+var mensagemSemIdExterno = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaPermitida.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "Ainda na fila.",
+    StatusEntrega = StatusEntrega.Pendente
+};
+
+db.AddRange(atendenteDaCorrecao, mensagemEntregue, mensagemEntregueBloqueada, mensagemSemIdExterno);
+await db.SaveChangesAsync();
+
+var correcaoPermitida = await enviadorDeCorrecao.CorrigirAsync(
+    mensagemEntregue.Id, "A certidão fica pronta na quinta.");
+
+Checar(
+    "Correcao chega ao gateway com o id externo da mensagem original",
+    correcaoPermitida == ResultadoNoCanal.Feito
+    && gatewayDeCorrecao.Edicoes == 1
+    && gatewayDeCorrecao.IdDaUltimaEdicao == "WA-ENTREGUE-1");
+
+Checar(
+    "Texto corrigido sai assinado com quem ESCREVEU, nao com quem corrigiu",
+    gatewayDeCorrecao.TextoDaUltimaEdicao == "*Maria Rezende*\nA certidão fica pronta na quinta.");
+
+var correcaoBloqueada = await enviadorDeCorrecao.CorrigirAsync(
+    mensagemEntregueBloqueada.Id, "tentativa de corrigir quem esta fora da regra");
+
+Checar(
+    "Correcao para numero fora da regra do canal nao chega ao gateway",
+    correcaoBloqueada == ResultadoNoCanal.NaoSeAplica && gatewayDeCorrecao.Edicoes == 1);
+
+var apagamentoBloqueado = await enviadorDeCorrecao.ApagarParaTodosAsync(mensagemEntregueBloqueada.Id);
+
+Checar(
+    "Apagar NAO passa pela regra do canal: retirar o que ja esta no aparelho continua possivel",
+    apagamentoBloqueado == ResultadoNoCanal.Feito
+    && gatewayDeCorrecao.Apagamentos == 1
+    && gatewayDeCorrecao.IdDoUltimoApagamento == "WA-ENTREGUE-2");
+
+var correcaoSemId = await enviadorDeCorrecao.CorrigirAsync(mensagemSemIdExterno.Id, "qualquer coisa");
+
+Checar(
+    "Mensagem sem id externo nao chega ao gateway (nao ha o que corrigir la fora)",
+    correcaoSemId == ResultadoNoCanal.NaoSeAplica && gatewayDeCorrecao.Edicoes == 1);
+
+// Conversa de demonstracao: o MESMO gate do envio. Sem isto, corrigir uma das 11
+// conversas semeadas tentaria falar com telefone ficticio — e alguns sao numeros
+// reais de terceiros.
+var clienteSimulado = new Cliente
+{
+    TenantId = tenant.Id,
+    Nome = "Contato de demonstração",
+    TelefoneWhatsapp = "5519990001488"
+};
+var conversaSimulada = new Conversa
+{
+    TenantId = tenant.Id,
+    ClienteId = clienteSimulado.Id,
+    Protocolo = "TESTE-0003",
+    Canal = CanalOrigem.Simulado
+};
+var mensagemSimulada = new Mensagem
+{
+    TenantId = tenant.Id,
+    ConversaId = conversaSimulada.Id,
+    AutorTipo = AutorTipo.Atendente,
+    AtendenteId = atendenteDaCorrecao.Id,
+    Conteudo = "mensagem de demonstração",
+    StatusEntrega = StatusEntrega.Enviada,
+    IdExternoWhatsapp = "WA-NUNCA-EXISTIU"
+};
+
+db.AddRange(clienteSimulado, conversaSimulada, mensagemSimulada);
+await db.SaveChangesAsync();
+
+var correcaoSimulada = await enviadorDeCorrecao.CorrigirAsync(mensagemSimulada.Id, "texto novo");
+var apagamentoSimulado = await enviadorDeCorrecao.ApagarParaTodosAsync(mensagemSimulada.Id);
+
+Checar(
+    "Conversa de demonstracao nao corrige nem apaga por WhatsApp nenhum",
+    correcaoSimulada == ResultadoNoCanal.NaoSeAplica
+    && apagamentoSimulado == ResultadoNoCanal.NaoSeAplica
+    && gatewayDeCorrecao.Edicoes == 1
+    && gatewayDeCorrecao.Apagamentos == 1);
+
+// O WhatsApp recusando (janela vencida do lado dele) e resposta legitima, nao
+// falha de sistema: vira Recusado, e o servico nao grava nada.
+var gatewayQueRecusa = new GatewayFake { RecusarEdicao = true, RecusarApagamento = true };
+var enviadorComRecusa = new EnviadorPeloWhatsApp(
+    db,
+    gatewayQueRecusa,
+    anexosFake,
+    regrasDoProcessador,
+    Options.Create(canalDeTeste),
+    NullLogger<EnviadorPeloWhatsApp>.Instance);
+
+var correcaoRecusada = await enviadorComRecusa.CorrigirAsync(mensagemEntregue.Id, "outro texto");
+var apagamentoRecusado = await enviadorComRecusa.ApagarParaTodosAsync(mensagemEntregue.Id);
+
+Checar(
+    "Recusa do WhatsApp vira Recusado, nao excecao",
+    correcaoRecusada == ResultadoNoCanal.Recusado && apagamentoRecusado == ResultadoNoCanal.Recusado);
+
+// ---------------------------------------------------------------------------
 // AssinaturaDeAutoria — funcao pura, sem banco nem gateway. Prova o que o
 // cliente le no WhatsApp quando um atendente responde, a IA responde, ou uma
 // regra cadastrada dispara. O caminho feliz completo (gateway real + prova de
@@ -1265,6 +1428,46 @@ file sealed class GatewayFake : IEvolutionClient
     {
         DownloadsDeMidia++;
         return Task.FromResult<byte[]?>([1, 2, 3]);
+    }
+
+    /// <summary>Texto que o gateway recebeu na ultima edicao — ja decorado com a autoria.</summary>
+    public string? TextoDaUltimaEdicao { get; private set; }
+
+    public string? IdDaUltimaEdicao { get; private set; }
+
+    public string? IdDoUltimoApagamento { get; private set; }
+
+    public int Edicoes { get; private set; }
+
+    public int Apagamentos { get; private set; }
+
+    /// <summary>Faz o gateway recusar, como o WhatsApp faz quando a janela dele fecha.</summary>
+    public bool RecusarEdicao { get; init; }
+
+    public bool RecusarApagamento { get; init; }
+
+    public Task<bool> EditarTextoAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        string conteudo,
+        CancellationToken ct)
+    {
+        Edicoes++;
+        IdDaUltimaEdicao = idExternoWhatsapp;
+        TextoDaUltimaEdicao = conteudo;
+
+        return Task.FromResult(!RecusarEdicao);
+    }
+
+    public Task<bool> ApagarParaTodosAsync(
+        string telefoneE164,
+        string idExternoWhatsapp,
+        CancellationToken ct)
+    {
+        Apagamentos++;
+        IdDoUltimoApagamento = idExternoWhatsapp;
+
+        return Task.FromResult(!RecusarApagamento);
     }
 
     public Task<string?> ObterFotoPerfilUrlAsync(string telefoneE164, CancellationToken ct)

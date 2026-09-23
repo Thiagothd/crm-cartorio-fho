@@ -216,6 +216,20 @@ export const conversasApi = {
       `/api/conversas/${id}/mensagens/${mensagemId}/fixar${montarQuery({ fixar })}`,
     ),
 
+  /**
+   * Troca o texto de uma mensagem já enviada, inclusive no aparelho do cliente.
+   * O WhatsApp só aceita nos primeiros 15 minutos e só em texto.
+   */
+  corrigirMensagem: (id: string, mensagemId: string, conteudo: string) =>
+    api.post<Mensagem>(`/api/conversas/${id}/mensagens/${mensagemId}/corrigir`, { conteudo }),
+
+  /**
+   * Apaga no aparelho do cliente. NÃO apaga a linha: ela continua no fio,
+   * marcada, com o texto preservado.
+   */
+  apagarMensagemParaTodos: (id: string, mensagemId: string) =>
+    api.post<Mensagem>(`/api/conversas/${id}/mensagens/${mensagemId}/apagar-para-todos`),
+
   /** Oculta ou reexibe. Nunca apaga — a linha permanece no banco. */
   ocultarMensagens: (id: string, mensagemIds: string[], ocultar: boolean) =>
     api.post<{ afetadas: number }>(`/api/conversas/${id}/mensagens/ocultar`, {
