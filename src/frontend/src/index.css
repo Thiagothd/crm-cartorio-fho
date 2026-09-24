@@ -11,15 +11,27 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
 
-/* =============================================================================
-   TOKENS — docs/DESIGN.md e a fonte de verdade.
-   Cor fora desta lista nao entra em componente nenhum.
-
-   Nao ha bloco de tema escuro: papel escuro e contradicao com o conceito
-   (documento oficial). Ver DESIGN.md, secao 9.
-   ========================================================================== */
+/* Tokens compartilhados. A preferencia local troca a paleta, nao o layout. */
 @layer base {
   :root {
+    color-scheme: light;
+    --cor-selecao: #1f1d1a;
+    --cor-sobre-selecao: #fcfbf9;
+    --cor-sobre-solido: #fcfbf9;
+    --cor-nav-ativo: #fcfbf9;
+    --cor-envio: #3d5c3a;
+    --etapa-azul-fundo: #e3eaf0;
+    --etapa-azul-texto: #2e5170;
+    --etapa-azul-borda: #c9d8e3;
+    --etapa-roxo-fundo: #ede6ef;
+    --etapa-roxo-texto: #6b3f73;
+    --etapa-roxo-borda: #d9c9dc;
+    --etapa-ambar-fundo: #f4ead5;
+    --etapa-ambar-texto: #8a6516;
+    --etapa-ambar-borda: #e0cfa6;
+    --etapa-verde-fundo: #e4ebe1;
+    --etapa-verde-texto: #3d5c3a;
+    --etapa-verde-borda: #c3d2be;
     /* --- papel e superficie --- */
     --cor-papel: #edebe6;
     --cor-superficie: #f7f6f3;
@@ -58,7 +70,7 @@
     --cor-erro: var(--cor-selo);
     --cor-sucesso: var(--cor-verde);
     --cor-alerta: var(--cor-ambar);
-    --cor-informacao: var(--cor-tinta-media);
+    --cor-informacao: var(--cor-selo);
     --cor-desabilitado: var(--cor-tinta-fraca);
     --cor-overlay: rgb(31 29 26 / 50%);
 
@@ -141,9 +153,61 @@
     --input: var(--cor-linha-forte);
     --ring: var(--cor-foco);
   }
+
+  :root[data-tema='escuro'] {
+    color-scheme: dark;
+    --cor-papel: #101113;
+    --cor-superficie: #191b1f;
+    --cor-branco: #202328;
+    --cor-tinta: #edf0f5;
+    --cor-tinta-media: #bdc4ce;
+    --cor-tinta-fraca: #a0a9b7;
+    --cor-linha: #32363e;
+    --cor-linha-forte: #626d7d;
+    --cor-selo: #ff9aab;
+    --cor-ambar: #ebc16e;
+    --cor-verde: #85d2ac;
+    --cor-tendencia: #83b8ff;
+    --cor-foco: #83b8ff;
+    --cor-informacao: #96c4ff;
+    --cor-overlay: rgb(0 0 0 / 72%);
+    --cor-selecao: #224b82;
+    --cor-sobre-selecao: #f2f6ff;
+    --cor-nav-ativo: #1a304e;
+    --cor-envio: #83b8ff;
+    --primary: #2865bc;
+    --primary-foreground: #ffffff;
+    --destructive: #b5304b;
+    --destructive-foreground: #ffffff;
+    --accent: #263449;
+    --accent-foreground: #d6e7ff;
+    --raio-card: 8px;
+    --sombra-card: 0 1px 2px rgb(0 0 0 / 20%), 0 4px 12px -6px rgb(0 0 0 / 24%);
+    --sombra-card-hover: 0 2px 6px rgb(0 0 0 / 24%), 0 12px 28px -8px rgb(0 0 0 / 36%);
+    --etapa-azul-fundo: #1b2d42;
+    --etapa-azul-texto: #a4ceff;
+    --etapa-azul-borda: #3e6084;
+    --etapa-roxo-fundo: #30263b;
+    --etapa-roxo-texto: #d4b6eb;
+    --etapa-roxo-borda: #705786;
+    --etapa-ambar-fundo: #362c1d;
+    --etapa-ambar-texto: #ebc16e;
+    --etapa-ambar-borda: #826b3d;
+    --etapa-verde-fundo: #1c322b;
+    --etapa-verde-texto: #99dabc;
+    --etapa-verde-borda: #466f5f;
+    --marca-do-selo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='94' fill='none' stroke='%2383B8FF' stroke-opacity='.07' stroke-width='3'/%3E%3C/svg%3E");
+    --grade-de-selos: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Ccircle cx='60' cy='60' r='34' fill='none' stroke='%2383B8FF' stroke-opacity='.04' stroke-width='2'/%3E%3C/svg%3E");
+    --pauta-do-livro: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='28' viewBox='0 0 8 28' preserveAspectRatio='none'%3E%3Cline x1='0' y1='27.5' x2='8' y2='27.5' stroke='%2332363E' stroke-width='1'/%3E%3C/svg%3E");
+  }
 }
 
 @theme inline {
+  --color-selecao: var(--cor-selecao);
+  --color-sobre-selecao: var(--cor-sobre-selecao);
+  --color-sobre-solido: var(--cor-sobre-solido);
+  --color-nav-ativo: var(--cor-nav-ativo);
+  --color-envio: var(--cor-envio);
   --color-papel: var(--cor-papel);
   --color-superficie: var(--cor-superficie);
   --color-branco: var(--cor-branco);
@@ -276,6 +340,22 @@
   }
 }
 
+@layer utilities {
+  [data-tema='escuro'] :is(h1, h2, h3, .font-dado, .etiqueta-protocolo, .font-titulo) {
+    letter-spacing: 0;
+  }
+
+  [data-tema='escuro'] .font-titulo {
+    font-family: var(--font-corpo);
+  }
+
+  @media (max-width: 47.99rem) {
+    [data-tema='escuro'] :is(input, textarea, select) {
+      font-size: 16px;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -354,6 +434,37 @@
 }
 
 @layer components {
+  /* Superficies que ja eram inversas no claro precisam manter a polaridade. */
+  [data-tema='escuro'] .superficie-inversa {
+    --cor-tinta: #0c0e11;
+    --cor-branco: #edf0f5;
+    --cor-superficie: #dae4f2;
+    --cor-linha: #bac4d2;
+    --cor-linha-forte: #3e4856;
+    --cor-selo: #96c4ff;
+    --cor-foco: #83b8ff;
+  }
+
+  [data-tema='escuro'] .destaque-de-atendimento {
+    --cor-tinta: #15263d;
+    --cor-linha-forte: #8299b7;
+  }
+
+  [data-tema='escuro'] .marca-do-produto {
+    background: #fcfbf9;
+    border-radius: 6px;
+    padding: 6px;
+  }
+
+  [data-tema='escuro'] .login-veu {
+    --cor-tinta: #101113;
+  }
+
+  [data-tema='escuro'] ::selection {
+    color: var(--cor-sobre-selecao);
+    background: var(--cor-selecao);
+  }
+
   .anima-esmaecer {
     animation: crm-esmaecer-entrada var(--duracao-padrao) ease-out;
   }

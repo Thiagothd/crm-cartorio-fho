@@ -447,7 +447,7 @@ function FiltroRapido({
       className={cn(
         'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors duration-[var(--duracao-rapida)] lg:min-h-8',
         ativo
-          ? 'border-tinta bg-tinta text-branco'
+          ? 'border-selecao bg-selecao text-sobre-selecao'
           : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:text-tinta',
       )}
     >

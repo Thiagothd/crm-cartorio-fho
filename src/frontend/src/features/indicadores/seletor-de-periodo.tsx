@@ -32,7 +32,7 @@ function BotaoDeGrupo({
         // mesmo alvo que IndicadorNumerico ja usa nesta mesma tela.
         'min-h-11 touch-manipulation rounded-full border px-3.5 text-xs font-semibold transition-all duration-200 md:min-h-0 md:py-1.5',
         ativo
-          ? 'border-tinta bg-tinta text-branco shadow-card'
+          ? 'border-selecao bg-selecao text-sobre-selecao shadow-card'
           : 'border-transparent text-tinta-media hover:bg-branco hover:text-tinta',
         className,
       )}
@@ -100,7 +100,7 @@ export function SeletorDePeriodo({
         className={cn(
           'flex min-h-11 touch-manipulation items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-all duration-200 sm:hidden',
           personalizadoAtivo
-            ? 'border-tinta bg-tinta text-branco shadow-card'
+            ? 'border-selecao bg-selecao text-sobre-selecao shadow-card'
             : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:bg-branco hover:text-tinta',
         )}
       >

@@ -73,7 +73,7 @@ function ItemDoRail({ item, expandido, pathname }: { item: ItemDeNavegacao; expa
         'transition-[background-color,border-color,color,box-shadow] duration-200',
         ativo && expandido
           ? // Painel aberto: folha clara, cantos macios.
-            'bg-branco text-selo shadow-card'
+            'bg-nav-ativo text-selo shadow-card'
           : ativo
             ? // Rail fechado: só a lombada bordô, fundo continua transparente
               // sobre o `tinta` do rail — NUNCA `bg-branco` aqui, ou o ícone
@@ -282,7 +282,7 @@ export function RailDeNavegacao() {
           }
         }}
         className={cn(
-          'absolute inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]',
+          'superficie-inversa absolute inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]',
           'w-[var(--largura-do-rail,4rem)] transition-[width] duration-[var(--duracao-padrao)] ease-out',
           '[--cor-foco:var(--cor-linha)]', // o outline padrao (tinta-media) nao contrasta sobre bg-tinta
         )}

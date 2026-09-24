@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { BuscaGlobal } from './busca-global'
 import { SinoDeAlertas } from './sino-de-alertas'
+import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +45,7 @@ export function CabecalhoGlobal({
   return (
     <header
       className={cn(
-        'flex min-h-14 shrink-0 items-center gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:min-h-16 md:gap-3 md:px-6 md:py-3',
+        'flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:min-h-16 md:gap-3 md:px-6 md:py-3 @min-[64rem]/conteudo:flex-nowrap',
         ocultoNoCelular && 'hidden md:flex',
       )}
     >
@@ -56,7 +57,7 @@ export function CabecalhoGlobal({
       <Link
         to="/"
         aria-label="CRM Cartório — ir para a Visão Geral"
-        className="flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1 transition-opacity hover:opacity-80"
+        className="marca-do-produto flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1 transition-opacity hover:opacity-80"
       >
         {/* A assinatura horizontal — a MESMA imagem do login, então aqui ela já
             vem do cache do navegador. Fonte de 820×186 recortada na moldura:
@@ -72,20 +73,20 @@ export function CabecalhoGlobal({
           alt=""
           width={820}
           height={186}
-          className="hidden w-auto shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] sm:block sm:h-7 md:h-8 2xl:h-9"
+          className="hidden h-8 w-auto shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] @min-[40rem]/conteudo:block 2xl:h-9"
         />
         <img
           src="/brand/crm-cartorio-simbolo.png"
           alt=""
           width={304}
           height={304}
-          className="size-9 shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] sm:hidden"
+          className="size-9 shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] @min-[40rem]/conteudo:hidden"
         />
       </Link>
 
       {/* Régua entre marca e contexto da página: separa duas informações de
           natureza diferente sem gastar uma linha de borda no cabeçalho todo. */}
-      <span aria-hidden className="hidden h-7 w-px shrink-0 bg-linha md:block" />
+      <span aria-hidden className="hidden h-7 w-px shrink-0 bg-linha @min-[40rem]/conteudo:block" />
 
       <div className="min-w-0 flex-1">
         {item?.grupoPai ? (
@@ -93,7 +94,7 @@ export function CabecalhoGlobal({
             {item.grupoPai}
           </p>
         ) : null}
-        <h1 className="truncate text-base font-bold leading-tight tracking-tight text-tinta md:text-lg">
+        <h1 className="break-words text-base font-bold leading-tight tracking-tight text-tinta md:text-lg @min-[64rem]/conteudo:truncate">
           {item?.rotulo ?? 'CRM Cartório'}
         </h1>
       </div>
@@ -103,13 +104,15 @@ export function CabecalhoGlobal({
           longo. Preferir quebrar para uma segunda linha (o cabeçalho cresce)
           a cortar ou empurrar algo para fora da viewport — nunca rolagem
           horizontal da página. */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="contents @min-[64rem]/conteudo:flex @min-[64rem]/conteudo:items-center @min-[64rem]/conteudo:justify-end @min-[64rem]/conteudo:gap-2">
         {/* Slot de ações da página — ver contexto-de-acoes-da-pagina.tsx.
             Vazio na maioria das telas; some sem custar layout quando não há
             nada dentro. */}
-        <div ref={aoRegistrarContainerDeAcoes} className="flex shrink-0 items-center gap-2 empty:hidden" />
+        <div ref={aoRegistrarContainerDeAcoes} className="order-last flex w-full min-w-0 flex-wrap items-center justify-end gap-2 empty:hidden @min-[64rem]/conteudo:order-none @min-[64rem]/conteudo:w-auto" />
 
         <BuscaGlobal />
+
+        <SeletorDeTema />
 
         <SinoDeAlertas habilitado={Boolean(atendente)} />
 

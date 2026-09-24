@@ -97,7 +97,7 @@ export function TrilhoDeConversas({
                   tela, e a mesma trocada de lugar (DESIGN.md, 2.1). */}
               {conversa.mensagensNaoLidas > 0 ? (
                 <span
-                  className="absolute right-1.5 top-0.5 size-2 rounded-full border border-branco bg-selo"
+                  className="absolute right-1.5 top-0.5 size-2 rounded-full border border-branco bg-primary"
                   aria-label={`${conversa.mensagensNaoLidas} nao lidas`}
                 />
               ) : null}

@@ -213,7 +213,7 @@ export function AbaRespostasRapidas() {
                   className={cn(
                     'min-h-9 rounded-full px-3 text-xs font-semibold transition-all duration-200',
                     filtro === p.chave
-                      ? 'bg-tinta text-branco shadow-card'
+                      ? 'bg-selecao text-sobre-selecao shadow-card'
                       : 'text-tinta-media hover:bg-branco hover:text-tinta',
                   )}
                 >

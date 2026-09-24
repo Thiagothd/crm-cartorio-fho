@@ -174,5 +174,5 @@ function ResumoDeServicos({ rotulo, valor, detalhe }: { rotulo: string; valor: n
 }
 
 function FiltroDeServico({ ativo, aoClicar, children }: { ativo: boolean; aoClicar: () => void; children: ReactNode }) {
-  return <button type="button" aria-pressed={ativo} onClick={aoClicar} className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors duration-[var(--duracao-rapida)] md:min-h-9 [&_svg]:size-3.5', ativo ? 'border-tinta bg-tinta text-branco' : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:text-tinta')}>{children}</button>
+  return <button type="button" aria-pressed={ativo} onClick={aoClicar} className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors duration-[var(--duracao-rapida)] md:min-h-9 [&_svg]:size-3.5', ativo ? 'border-selecao bg-selecao text-sobre-selecao' : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:text-tinta')}>{children}</button>
 }

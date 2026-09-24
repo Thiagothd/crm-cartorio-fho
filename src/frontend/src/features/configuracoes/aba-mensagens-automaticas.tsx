@@ -290,7 +290,7 @@ function PilulaDeVisao({
       onClick={aoClicar}
       className={cn(
         'flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-all duration-200',
-        ativa ? 'bg-tinta text-branco shadow-card' : 'text-tinta-media hover:bg-branco hover:text-tinta',
+        ativa ? 'bg-selecao text-sobre-selecao shadow-card' : 'text-tinta-media hover:bg-branco hover:text-tinta',
       )}
     >
       <Icone className="size-3.5 shrink-0" aria-hidden />

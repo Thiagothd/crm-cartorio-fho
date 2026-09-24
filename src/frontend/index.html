@@ -9,8 +9,19 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#F7F6F3" />
+    <script>
+      // Aplica antes do primeiro paint, inclusive enquanto o bundle carrega.
+      (() => {
+        let tema = 'claro';
+        try { tema = localStorage.getItem('crm-cartorio.tema') || 'claro'; } catch {}
+        const escuro = tema === 'escuro' || (tema === 'sistema' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.tema = escuro ? 'escuro' : 'claro';
+        document.documentElement.style.colorScheme = escuro ? 'dark' : 'light';
+        document.querySelector('meta[name="theme-color"]').content = escuro ? '#101113' : '#F7F6F3';
+      })();
+    </script>
     <meta
       name="description"
       content="CRM Cartório — gestão de atendimento, clientes e serviços para serventias."

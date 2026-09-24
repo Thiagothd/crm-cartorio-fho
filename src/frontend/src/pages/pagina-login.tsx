@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
 
 /**
  * Tela de entrada.
@@ -135,7 +136,7 @@ export function PaginaLogin() {
           escurecer a cena inteira. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-gradient-to-r from-tinta/70 via-tinta/25 to-transparent"
+        className="login-veu pointer-events-none absolute inset-0 bg-gradient-to-r from-tinta/70 via-tinta/25 to-transparent"
       />
 
       {/* A caixa cresce por FAIXA DE TELA, não proporcionalmente: 27rem até o
@@ -155,6 +156,7 @@ export function PaginaLogin() {
           {/* `decoding="sync"` + `fetchPriority="high"`: é a primeira coisa que a
               pessoa vê, e a marca aparecendo depois do formulário dá a sensação
               de página quebrada. */}
+          <div className="mb-4 flex justify-end"><SeletorDeTema /></div>
           <img
             src="/brand/crm-cartorio-logo-horizontal.webp"
             alt="CRM Cartório"
@@ -162,7 +164,7 @@ export function PaginaLogin() {
             height={186}
             decoding="sync"
             fetchPriority="high"
-            className="h-auto w-full max-w-[15rem] 2xl:max-w-[17rem]"
+            className="marca-do-produto h-auto w-full max-w-[15rem] 2xl:max-w-[17rem]"
           />
 
           {/* Visível, não mais `sr-only`. O título é também o nome acessível da
@@ -297,7 +299,7 @@ export function PaginaLogin() {
               <Button
                 type="submit"
                 disabled={enviando || (!usandoCodigoDeRecuperacao && codigoMfa.length < 6)}
-                className="mt-1 h-12 w-full rounded-lg bg-gradient-to-b from-selo to-selo/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
+                className="mt-1 h-12 w-full rounded-lg bg-gradient-to-b from-primary to-primary/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
               >
                 {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
                 {enviando ? 'Verificando…' : 'Confirmar'}
@@ -404,7 +406,7 @@ export function PaginaLogin() {
             <Button
               type="submit"
               disabled={enviando}
-              className="mt-2 h-12 w-full rounded-lg bg-gradient-to-b from-selo to-selo/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
+              className="mt-2 h-12 w-full rounded-lg bg-gradient-to-b from-primary to-primary/90 text-[15px] font-semibold shadow-card transition-all duration-200 hover:-translate-y-px hover:shadow-card-hover disabled:hover:translate-y-0 md:h-12"
             >
               {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
               {enviando ? 'Entrando…' : 'Entrar'}

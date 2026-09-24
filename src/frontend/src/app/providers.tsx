@@ -58,7 +58,7 @@ export function Provedores({ children }: { children: ReactNode }) {
                 toast: '!rounded-md !border-linha-forte !bg-branco !text-tinta !shadow-none',
                 title: '!font-medium',
                 description: '!text-tinta-media',
-                actionButton: '!rounded-md !bg-tinta !text-branco',
+                actionButton: '!rounded-md !bg-selecao !text-sobre-selecao',
                 cancelButton: '!rounded-md !bg-superficie !text-tinta',
                 closeButton: '!size-8 !border-linha-forte !bg-branco !text-tinta',
               },

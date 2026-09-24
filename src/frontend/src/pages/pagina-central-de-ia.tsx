@@ -4,6 +4,7 @@ import { entrar, ErroDaCentralDeIa, lerTokenDaCentral } from '@/lib/api/central-
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
 import { PainelDeObservabilidade } from '@/features/central-ia/painel-de-observabilidade'
 
 /**
@@ -28,10 +29,11 @@ export function PaginaCentralDeIa() {
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-linha-forte bg-branco text-tinta-media">
             <ShieldAlert className="size-4" aria-hidden />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="font-titulo text-xl font-bold text-tinta">Central de IA</h1>
             <p className="text-sm text-tinta-media">Área privada do desenvolvedor — fora do sistema do cartório.</p>
           </div>
+          <SeletorDeTema />
         </header>
 
         {autenticado ? (

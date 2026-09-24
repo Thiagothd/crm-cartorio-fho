@@ -111,13 +111,13 @@ export function BuscaGlobal() {
       <button
         type="button"
         onClick={() => setAberta(true)}
-        className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-lg border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:h-9 md:w-56 md:justify-between md:gap-2 md:px-2.5"
+        className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-lg border border-linha text-tinta-media transition-colors hover:border-linha-forte hover:bg-superficie hover:text-tinta md:size-9 @min-[64rem]/conteudo:w-56 @min-[64rem]/conteudo:justify-between @min-[64rem]/conteudo:gap-2 @min-[64rem]/conteudo:px-2.5"
       >
         <span className="flex min-w-0 items-center gap-2">
           <Search className="size-4 shrink-0" aria-hidden />
-          <span className="hidden truncate whitespace-nowrap text-xs md:inline">Buscar protocolo, cliente…</span>
+          <span className="hidden truncate whitespace-nowrap text-xs @min-[64rem]/conteudo:inline">Buscar protocolo, cliente…</span>
         </span>
-        <kbd className="hidden shrink-0 whitespace-nowrap rounded border border-linha-forte px-1.5 py-0.5 font-dado text-[10px] leading-none text-tinta-fraca md:inline-flex md:items-center">
+        <kbd className="hidden shrink-0 whitespace-nowrap rounded border border-linha-forte px-1.5 py-0.5 font-dado text-[10px] leading-none text-tinta-fraca @min-[64rem]/conteudo:inline-flex @min-[64rem]/conteudo:items-center">
           Ctrl K
         </kbd>
         <span className="sr-only">Buscar atendimentos e clientes</span>

@@ -118,7 +118,7 @@ export function ItemDeConversa({
               // (o que chegou e nao foi lido), junto com Enviar. "+ Novo
               // atendimento" desceu para outline por causa disso (DESIGN.md,
               // secao 16.5) — o orcamento de 3 bordos por tela fecha certo.
-              <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-selo px-1 font-dado text-[10px] font-semibold text-branco">
+              <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-primary px-1 font-dado text-[10px] font-semibold text-primary-foreground">
                 {conversa.mensagensNaoLidas}
               </span>
             ) : null}

@@ -36,7 +36,7 @@ export function NavegacaoInferior({ aoAbrirMais }: { aoAbrirMais: () => void }) 
   return (
     <nav
       aria-label="Navegação principal"
-      className="flex h-14 shrink-0 items-stretch border-t border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="superficie-inversa flex h-14 shrink-0 items-stretch border-t border-linha-forte bg-tinta pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       <Celula to="/" fim icone={Home} rotulo="Visão Geral" />
       <Celula to="/atendimentos" icone={Inbox} rotulo="Atendimento" />

@@ -27,7 +27,7 @@ export function FolhaMais({ aberta, aoFechar }: { aberta: boolean; aoFechar: () 
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-overlay md:hidden" />
         <DialogPrimitive.Content
-          className="anima-subir-do-rodape fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-linha-forte bg-tinta shadow-card-hover pb-[env(safe-area-inset-bottom)] focus:outline-none md:hidden"
+          className="superficie-inversa anima-subir-do-rodape fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-linha-forte bg-tinta shadow-card-hover pb-[env(safe-area-inset-bottom)] focus:outline-none md:hidden"
         >
           <DialogPrimitive.Title className="sr-only">Menu principal</DialogPrimitive.Title>
 
@@ -65,7 +65,7 @@ export function FolhaMais({ aberta, aoFechar }: { aberta: boolean; aoFechar: () 
                         className={({ isActive }) =>
                           cn(
                             'flex h-11 touch-manipulation items-center gap-3 rounded-lg px-3 text-sm transition-colors',
-                            isActive ? 'bg-branco font-medium text-selo' : 'text-linha hover:bg-branco/10 hover:text-branco',
+                            isActive ? 'bg-nav-ativo font-medium text-selo' : 'text-linha hover:bg-branco/10 hover:text-branco',
                           )
                         }
                       >

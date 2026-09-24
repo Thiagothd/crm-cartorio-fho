@@ -373,7 +373,7 @@ export function CaixaDeEnvio({
           // Fase 3.2 (secao 16): rounded-full + gradiente ENTRE OPACIDADES
           // DO MESMO TOKEN (DESIGN.md 15.3) — o unico tipo de gradiente
           // autorizado. Nunca de um token para outro.
-          className="rounded-full bg-gradient-to-b from-selo to-selo/90"
+          className="rounded-full bg-gradient-to-b from-primary to-primary/90"
           title={
             naFila
               ? 'Enviar — ao enviar, você assume o atendimento'
