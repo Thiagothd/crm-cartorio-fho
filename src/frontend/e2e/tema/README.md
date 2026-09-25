@@ -29,3 +29,18 @@ O tema permanece uma preferencia local (`crm-cartorio.tema`), independente
 das permissoes para alterar a textura das conversas da serventia. O padrao
 continua claro; o modo escuro e opcional. As cores das etapas no servidor
 nao mudam: somente sua apresentacao depende do tema.
+
+## Previa interativa sem backend
+
+Em `src/frontend`, execute:
+
+```powershell
+npm run dev -- --config e2e/tema/vite.demo.config.ts --configLoader runner
+```
+
+Abra `http://127.0.0.1:5197/`. A pagina inicial entra como administrador ficticio
+sem solicitar senha. Nao utilize credenciais reais; o formulario de login fica
+bloqueado nesta previa. Os dados sao os mesmos mocks das capturas, em memoria;
+reiniciar o processo descarta as alteracoes. Operacoes nao simuladas retornam
+erro local. Nao existe proxy para API, SignalR, banco ou envio real de mensagens.
+Esta configuracao separada nao participa do aplicativo de producao nem aceita build.
