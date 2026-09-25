@@ -192,7 +192,7 @@ export function FiltrosDaInbox({
               className={cn(
                 'flex min-h-10 flex-1 items-center justify-center rounded-full px-2 py-1 text-xs transition-colors md:min-h-0',
                 ativo
-                  ? 'bg-tinta font-semibold text-branco shadow-card'
+                  ? 'bg-selecao font-semibold text-sobre-selecao shadow-card'
                   : 'font-medium text-tinta-media hover:bg-branco hover:text-tinta',
               )}
             >
@@ -222,7 +222,7 @@ export function FiltrosDaInbox({
           className={cn(
             'flex min-h-10 flex-1 items-center justify-center rounded-full px-2 py-1 text-xs transition-colors md:min-h-0',
             filtros.status === 'Encerrada'
-              ? 'bg-tinta font-semibold text-branco shadow-card'
+              ? 'bg-selecao font-semibold text-sobre-selecao shadow-card'
               : 'font-medium text-tinta-media hover:bg-branco hover:text-tinta',
           )}
           title="Conversas encerradas continuam consultáveis — nada é apagado"

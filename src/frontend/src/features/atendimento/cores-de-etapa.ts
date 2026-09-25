@@ -22,17 +22,17 @@ export interface CoresDeEtapa {
 
 const PALETA: Record<string, CoresDeEtapa> = {
   // Atendimento inicial — azul acinzentado
-  '#2E5170': { fundo: '#E3EAF0', texto: '#2E5170', borda: '#C9D8E3' },
+  '#2E5170': { fundo: 'var(--etapa-azul-fundo)', texto: 'var(--etapa-azul-texto)', borda: 'var(--etapa-azul-borda)' },
 
   // Captacao do servico — roxo suave
-  '#6B3F73': { fundo: '#EDE6EF', texto: '#6B3F73', borda: '#D9C9DC' },
+  '#6B3F73': { fundo: 'var(--etapa-roxo-fundo)', texto: 'var(--etapa-roxo-texto)', borda: 'var(--etapa-roxo-borda)' },
 
   // Em processamento / exigencia — ambar
-  '#8A6516': { fundo: '#F4EAD5', texto: '#8A6516', borda: '#E0CFA6' },
+  '#8A6516': { fundo: 'var(--etapa-ambar-fundo)', texto: 'var(--etapa-ambar-texto)', borda: 'var(--etapa-ambar-borda)' },
 
   // Pronto / entrega — verde. O selo continua sendo tratamento proprio deste
   // status e NAO e substituido por esta cor; os dois convivem.
-  '#3D5C3A': { fundo: '#E4EBE1', texto: '#3D5C3A', borda: '#C3D2BE' },
+  '#3D5C3A': { fundo: 'var(--etapa-verde-fundo)', texto: 'var(--etapa-verde-texto)', borda: 'var(--etapa-verde-borda)' },
 }
 
 /**
@@ -64,5 +64,5 @@ export function corSolidaDaEtapa(cor: string | null | undefined): string | null 
     return null
   }
 
-  return PALETA[cor.toUpperCase()]?.texto ?? null
+  return PALETA[cor.toUpperCase()] ? cor.toUpperCase() : null
 }

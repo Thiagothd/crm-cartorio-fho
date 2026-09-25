@@ -25,13 +25,13 @@ export function CartaoDeModelo({
       className={cn(
         'flex flex-col gap-1 rounded-card border p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5',
         ativo
-          ? 'border-tinta bg-tinta text-branco shadow-card-hover'
+          ? 'border-selecao bg-selecao text-sobre-selecao shadow-card-hover'
           : 'border-linha bg-branco shadow-card hover:border-linha-forte',
       )}
     >
       <span className="text-sm font-semibold">{modelo.rotulo}</span>
-      <span className={cn('text-xs', ativo ? 'text-branco/80' : 'text-tinta-media')}>{modelo.descricao}</span>
-      <span className={cn('mt-1 font-dado text-[11px]', ativo ? 'text-branco/70' : 'text-tinta-fraca')}>
+      <span className={cn('text-xs', ativo ? 'text-sobre-selecao' : 'text-tinta-media')}>{modelo.descricao}</span>
+      <span className={cn('mt-1 font-dado text-[11px]', ativo ? 'text-sobre-selecao' : 'text-tinta-fraca')}>
         {modelo.chaves.length} permissões
       </span>
     </button>

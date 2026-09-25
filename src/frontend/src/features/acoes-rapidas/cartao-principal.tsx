@@ -14,7 +14,7 @@ export function CartaoPrincipal({
     //
     // `[--cor-foco:var(--cor-linha)]`: o outline global é `tinta-media`, que
     // sobre `bg-tinta` é invisível. Mesma correção do rail (rail-de-navegacao.tsx).
-    <div className="col-span-2 flex flex-col justify-between gap-4 rounded-card border border-tinta bg-tinta p-4 text-branco shadow-card [--cor-foco:var(--cor-linha)] sm:p-5 md:row-span-2">
+    <div className="superficie-inversa destaque-de-atendimento col-span-2 flex flex-col justify-between gap-4 rounded-card border border-tinta bg-tinta p-4 text-branco shadow-card [--cor-foco:var(--cor-linha)] sm:p-5 md:row-span-2">
       <div className="flex flex-col gap-2">
         <span
           aria-hidden

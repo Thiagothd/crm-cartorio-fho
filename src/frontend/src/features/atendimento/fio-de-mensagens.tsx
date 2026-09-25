@@ -402,7 +402,7 @@ export function FioDeMensagens({
                            retirado. O texto continua legível — o registro da
                            serventia não some, só deixou de valer para fora. */
                         mensagem.apagadaParaTodos ? 'opacity-60' : null,
-                        doAtendente ? 'border-verde/25 bg-verde/10' : null,
+                        doAtendente ? 'border-envio/25 bg-envio/10' : null,
 
                         /* Neutra, e não a diluição de verde do atendente: verde é a
                            cor de quem respondeu, e a automática não tem quem. Fica
@@ -445,7 +445,7 @@ export function FioDeMensagens({
                     <p
                       className={cn(
                         'mb-0.5 font-titulo text-[10px] font-semibold uppercase tracking-[0.12em]',
-                        doAtendente ? 'text-verde' : 'text-tinta-media',
+                        doAtendente ? 'text-envio' : 'text-tinta-media',
                       )}
                     >
                       {/* Resposta dada pelo celular: o aparelho não tem login,

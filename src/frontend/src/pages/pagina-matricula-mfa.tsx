@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
 import { CodigosDeRecuperacao } from '@/features/configuracoes/codigos-de-recuperacao'
 
 /**
@@ -77,6 +78,7 @@ export function PaginaMatriculaMfa() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-papel px-4 py-8">
       <section className="w-full max-w-md rounded-card border border-linha bg-branco p-7 shadow-card">
+        <div className="mb-3 flex justify-end"><SeletorDeTema /></div>
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <span className="flex size-11 items-center justify-center rounded-lg bg-selo/10 text-selo">
             <ShieldCheck className="size-5" aria-hidden />

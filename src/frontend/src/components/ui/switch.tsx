@@ -30,7 +30,7 @@ export const Switch = React.forwardRef<
       aria-hidden="true"
       className={cn(
         'pointer-events-none relative inline-flex h-5 w-9 items-center rounded-full bg-input transition-colors duration-[var(--duracao-rapida)]',
-        tom === 'tinta' ? 'group-data-[state=checked]:bg-tinta' : 'group-data-[state=checked]:bg-primary',
+        tom === 'tinta' ? 'group-data-[state=checked]:bg-selecao' : 'group-data-[state=checked]:bg-primary',
       )}
     >
       <SwitchPrimitive.Thumb

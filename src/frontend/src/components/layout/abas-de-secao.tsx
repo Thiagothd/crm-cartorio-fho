@@ -61,7 +61,7 @@ export function AbasDeSecao<Chave extends string>({
               // as seções, e alvo menor que isso é toque errado no balcão.
               'flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full px-3.5 text-[13px] font-semibold transition-all duration-200 sm:min-h-9',
               isActive
-                ? 'bg-tinta text-branco shadow-card'
+                ? 'bg-selecao text-sobre-selecao shadow-card'
                 : 'text-tinta-media hover:bg-branco hover:text-tinta',
             )
           }

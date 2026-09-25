@@ -155,7 +155,7 @@ export function Avatar({
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-md border font-titulo font-semibold uppercase tracking-wider transition-colors',
         solido
-          ? 'border-transparent text-branco'
+          ? 'border-transparent text-sobre-solido'
           : 'border-linha-forte bg-branco text-tinta-media',
         tamanhos[tamanho],
         className,

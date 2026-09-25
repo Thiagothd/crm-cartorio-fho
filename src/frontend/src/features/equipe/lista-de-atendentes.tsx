@@ -117,7 +117,7 @@ export function ListaDeAtendentes({
               onClick={() => setFiltro(p.chave)}
               className={
                 filtro === p.chave
-                  ? 'min-h-8 rounded-full bg-tinta px-3 text-xs font-semibold text-branco shadow-card transition-all duration-200'
+                  ? 'min-h-8 rounded-full bg-selecao px-3 text-xs font-semibold text-sobre-selecao shadow-card transition-all duration-200'
                   : 'min-h-8 rounded-full px-3 text-xs font-semibold text-tinta-media transition-all duration-200 hover:bg-branco hover:text-tinta'
               }
             >
