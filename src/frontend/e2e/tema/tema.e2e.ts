@@ -195,3 +195,54 @@ test('tema claro preservado na visao geral, atendimento e clientes', async ({ pa
     await page.screenshot({ path: info.outputPath(`claro-${rota.replaceAll('/', '') || 'visao-geral'}.png`) })
   }
 })
+
+test('marca e fotografia acompanham a troca de tema no login', async ({ page }, info) => {
+  await preparar(page, false)
+  await page.goto('/login')
+  const marca = page.getByRole('img', { name: 'CRM Cartório', exact: true })
+  await expect(marca).toHaveAttribute('src', '/brand/crm-cartorio-logo-escuro.webp')
+  await expect(page.locator('link[rel="icon"]').first()).toHaveAttribute('href', '/brand/crm-cartorio-simbolo-escuro.webp')
+  await expect(marca).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.getByRole('main')).toHaveCSS('background-image', /login-atendimento-escuro.webp/)
+  await marca.evaluate((img: HTMLImageElement) => img.decode())
+  const caixaEscura = await marca.boundingBox()
+  const alpha = await marca.evaluate((img: HTMLImageElement) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const contexto = canvas.getContext('2d')!
+    contexto.drawImage(img, 0, 0)
+    return contexto.getImageData(0, 0, 1, 1).data[3]
+  })
+  expect(alpha).toBe(0)
+  await page.screenshot({ path: info.outputPath('login-escuro.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Tema: Escuro' }).click()
+  await page.getByRole('menuitemradio', { name: 'Claro' }).click()
+  await expect(marca).toHaveAttribute('src', '/brand/crm-cartorio-logo-horizontal.webp')
+  await expect(page.locator('link[rel="icon"]').first()).toHaveAttribute('href', '/brand/favicon-16.png')
+  await expect(page.getByRole('main')).toHaveCSS('background-image', /login-atendimento-mensagens-1536.webp/)
+  await marca.evaluate((img: HTMLImageElement) => img.decode())
+  const caixaClara = await marca.boundingBox()
+  expect(caixaClara!.width).toBeCloseTo(caixaEscura!.width, 0)
+  expect(caixaClara!.height).toBeCloseTo(caixaEscura!.height, 0)
+  await page.screenshot({ path: info.outputPath('login-claro.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Tema: Claro' }).click()
+  await page.getByRole('menuitemradio', { name: 'Escuro' }).click()
+  await verificarTela(page)
+})
+
+test('marca transparente no cabecalho e no menu do celular', async ({ page }, info) => {
+  await preparar(page)
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Abrir atendimento', exact: true })).toBeVisible()
+  const marca = page.locator('header .marca-imagem:visible')
+  await expect(marca).toHaveAttribute('src', /escuro.webp$/)
+  await marca.evaluate((img: HTMLImageElement) => img.decode())
+  await expect(marca.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await page.screenshot({ path: info.outputPath('cabecalho.png') })
+  if (page.viewportSize()!.width < 768) {
+    await page.getByRole('button', { name: 'Mais', exact: true }).click()
+    await expect(page.getByRole('dialog').locator('.marca-imagem')).toHaveAttribute('src', '/brand/crm-cartorio-simbolo-escuro.webp')
+    await page.screenshot({ path: info.outputPath('menu.png') })
+  }
+})

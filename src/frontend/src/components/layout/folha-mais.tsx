@@ -4,6 +4,7 @@ import { LogOut } from 'lucide-react'
 import { navegacaoVisivel } from '@/app/navegacao'
 import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { cn } from '@/lib/utils'
+import { MarcaDoProduto } from '@/components/ui/marca-do-produto'
 
 /**
  * Menu completo do celular, numa folha que sobe do rodapé — não um hambúrguer
@@ -32,13 +33,7 @@ export function FolhaMais({ aberta, aoFechar }: { aberta: boolean; aoFechar: () 
           <DialogPrimitive.Title className="sr-only">Menu principal</DialogPrimitive.Title>
 
           <div className="flex items-center gap-2.5 border-b border-linha-forte/35 px-4 py-3">
-            <img
-              src="/brand/crm-cartorio-simbolo.png"
-              alt=""
-              width={304}
-              height={304}
-              className="size-8 shrink-0 object-contain"
-            />
+            <MarcaDoProduto simbolo className="size-8" />
             <div className="min-w-0">
               <p className="truncate font-titulo text-sm font-semibold text-branco">CRM Cartório</p>
               <p className="truncate text-[10px] text-linha">

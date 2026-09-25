@@ -13,6 +13,7 @@ function demonstracaoLocal(): Plugin {
         children: `
           try {
             if (location.pathname !== '/login') localStorage.setItem('crm-cartorio.token', 'token-administrador');
+            else localStorage.removeItem('crm-cartorio.token');
             if (!localStorage.getItem('crm-cartorio.tema')) localStorage.setItem('crm-cartorio.tema', 'escuro');
           } catch {}
           document.addEventListener('DOMContentLoaded', () => { document.title = 'DEMONSTRACAO LOCAL | CRM Cartorio'; });

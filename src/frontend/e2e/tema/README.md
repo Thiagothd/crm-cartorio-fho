@@ -20,6 +20,7 @@ As capturas ficam em `test-results/tema/` (ignorado pelo Git). A suite cobre:
 - Portais de dialogo e seletor, retorno de foco do seletor por Escape.
 - Persistencia, preferencia do sistema e sincronizacao entre abas.
 - Aplicacao do tema antes do carregamento do aplicativo.
+- Logos transparentes, fotografia do login e troca de imagens sem mudar dimensoes.
 - Contraste minimo de 4,5:1 nos pares de tokens de texto do tema escuro.
 
 O teste de contraste verifica a paleta, nao substitui a inspecao visual de
@@ -44,3 +45,5 @@ bloqueado nesta previa. Os dados sao os mesmos mocks das capturas, em memoria;
 reiniciar o processo descarta as alteracoes. Operacoes nao simuladas retornam
 erro local. Nao existe proxy para API, SignalR, banco ou envio real de mensagens.
 Esta configuracao separada nao participa do aplicativo de producao nem aceita build.
+Abrir `/login` nessa demonstracao limpa apenas o token ficticio para permitir
+inspecionar a tela de entrada; abrir `/` retorna a area interna sem senha.

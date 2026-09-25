@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { BuscaGlobal } from './busca-global'
 import { SinoDeAlertas } from './sino-de-alertas'
 import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
+import { MarcaDoProduto } from '@/components/ui/marca-do-produto'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,38 +50,17 @@ export function CabecalhoGlobal({
         ocultoNoCelular && 'hidden md:flex',
       )}
     >
-      {/* A marca vive AQUI, no cabeçalho claro — não mais no topo do rail
-          escuro. O rail ficou navegação pura (os itens começam no topo), e a
-          logo ganhou a superfície de papel, que é onde a identidade do produto
-          respira (DESIGN.md §13). No celular a logo se mantém como âncora
-          única, já que ali não existe rail. */}
       <Link
         to="/"
         aria-label="CRM Cartório — ir para a Visão Geral"
-        className="marca-do-produto flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1 transition-opacity hover:opacity-80"
+        className="flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1 transition-opacity hover:opacity-80"
       >
-        {/* A assinatura horizontal — a MESMA imagem do login, então aqui ela já
-            vem do cache do navegador. Fonte de 820×186 recortada na moldura:
-            desenhada a 32px de altura sobra densidade até em tela 3x, e é isso
-            que dá o traço limpo na serifa em vez de borrado.
-
-            Abaixo de `sm` fica só o símbolo: a assinatura tem 4,4:1 de proporção
-            e ocuparia ~106px dos 360px de um celular, disputando espaço com o
-            título do módulo, a busca e o sino. Da largura de `sm` para cima ela
-            entra folgada. */}
-        <img
-          src="/brand/crm-cartorio-logo-horizontal.webp"
-          alt=""
-          width={820}
-          height={186}
-          className="hidden h-8 w-auto shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] @min-[40rem]/conteudo:block 2xl:h-9"
+        <MarcaDoProduto
+          className="hidden h-8 w-auto @min-[40rem]/conteudo:block 2xl:h-9"
         />
-        <img
-          src="/brand/crm-cartorio-simbolo.png"
-          alt=""
-          width={304}
-          height={304}
-          className="size-9 shrink-0 object-contain [image-rendering:-webkit-optimize-contrast] @min-[40rem]/conteudo:hidden"
+        <MarcaDoProduto
+          simbolo
+          className="size-9 @min-[40rem]/conteudo:hidden"
         />
       </Link>
 

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CHAVE_DO_TEMA, definirTema, iniciarTema } from './tema'
 import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
+import { MarcaDoProduto } from '@/components/ui/marca-do-produto'
 
 let parar: (() => void) | undefined
 let escuroNoSistema = false
@@ -29,6 +30,33 @@ afterEach(() => {
 })
 
 describe('tema da interface', () => {
+  it('alterna o favicon e restaura a imagem original no claro', () => {
+    document.head.insertAdjacentHTML('beforeend', '<link rel="icon" type="image/png" href="/brand/favicon-32.png">')
+    definirTema('escuro')
+    const icone = document.querySelector('link[rel="icon"]')
+    expect(icone).toHaveAttribute('href', '/brand/crm-cartorio-simbolo-escuro.webp')
+    expect(icone).toHaveAttribute('type', 'image/webp')
+    definirTema('claro')
+    expect(icone).toHaveAttribute('href', '/brand/favicon-32.png')
+    expect(icone).toHaveAttribute('type', 'image/png')
+  })
+
+  it('alterna assinatura e simbolo juntos, preservando dimensoes e nomes acessiveis', () => {
+    render(<><MarcaDoProduto alt="CRM Cartorio" /><MarcaDoProduto simbolo alt="Simbolo" /></>)
+    const assinatura = screen.getByRole('img', { name: 'CRM Cartorio' })
+    const simbolo = screen.getByRole('img', { name: 'Simbolo' })
+    expect(assinatura).toHaveAttribute('src', '/brand/crm-cartorio-logo-horizontal.webp')
+    expect(simbolo).toHaveAttribute('src', '/brand/crm-cartorio-simbolo.png')
+    act(() => definirTema('escuro'))
+    expect(assinatura).toHaveAttribute('src', '/brand/crm-cartorio-logo-escuro.webp')
+    expect(simbolo).toHaveAttribute('src', '/brand/crm-cartorio-simbolo-escuro.webp')
+    expect(assinatura).toHaveAttribute('width', '820')
+    expect(assinatura).toHaveAttribute('height', '200')
+    expect(simbolo).toHaveAttribute('width', '304')
+    act(() => definirTema('claro'))
+    expect(assinatura).toHaveAttribute('src', '/brand/crm-cartorio-logo-horizontal.webp')
+  })
+
   it('preserva o claro como padrao e ignora preferencias desconhecidas', () => {
     expect(document.documentElement.dataset.tema).toBe('claro')
     localStorage.setItem(CHAVE_DO_TEMA, 'invalido')

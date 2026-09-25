@@ -61,6 +61,12 @@ export function iniciarTema() {
     document.documentElement.dataset.tema = escuro ? 'escuro' : 'claro'
     document.documentElement.style.colorScheme = escuro ? 'dark' : 'light'
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', escuro ? '#101113' : '#F7F6F3')
+    document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((icone) => {
+      const claro = icone.dataset.iconeClaro ?? icone.getAttribute('href') ?? ''
+      icone.dataset.iconeClaro = claro
+      icone.href = escuro ? '/brand/crm-cartorio-simbolo-escuro.webp' : claro
+      icone.type = escuro ? 'image/webp' : 'image/png'
+    })
   }
   aplicar()
   return observarTema(aplicar)

@@ -18,6 +18,7 @@ import { EntradaDeCodigoOtp } from '@/components/ui/entrada-de-codigo-otp'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
+import { MarcaDoProduto } from '@/components/ui/marca-do-produto'
 
 /**
  * Tela de entrada.
@@ -157,14 +158,10 @@ export function PaginaLogin() {
               pessoa vê, e a marca aparecendo depois do formulário dá a sensação
               de página quebrada. */}
           <div className="mb-4 flex justify-end"><SeletorDeTema /></div>
-          <img
-            src="/brand/crm-cartorio-logo-horizontal.webp"
+          <MarcaDoProduto
             alt="CRM Cartório"
-            width={820}
-            height={186}
-            decoding="sync"
-            fetchPriority="high"
-            className="marca-do-produto h-auto w-full max-w-[15rem] 2xl:max-w-[17rem]"
+            prioridade
+            className="h-auto w-full max-w-[17rem] 2xl:max-w-[19rem]"
           />
 
           {/* Visível, não mais `sr-only`. O título é também o nome acessível da

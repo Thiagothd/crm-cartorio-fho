@@ -450,10 +450,14 @@
     --cor-linha-forte: #8299b7;
   }
 
-  [data-tema='escuro'] .marca-do-produto {
-    background: #fcfbf9;
-    border-radius: 6px;
-    padding: 6px;
+  .marca-horizontal {
+    aspect-ratio: 820 / 200;
+    object-fit: contain;
+  }
+
+  [data-tema='escuro'] .marca-horizontal {
+    /* A variante gerada inclui respiro transparente vertical no arquivo. */
+    object-fit: cover;
   }
 
   [data-tema='escuro'] .login-veu {
@@ -515,6 +519,11 @@
     background-position: 68% center;
     background-repeat: no-repeat;
     background-size: cover;
+  }
+
+  [data-tema='escuro'] .login-tela {
+    background-color: #101113;
+    background-image: url('/brand/login-atendimento-escuro.webp');
   }
 
   @media (min-width: 48rem) {
