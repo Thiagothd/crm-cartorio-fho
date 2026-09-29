@@ -18,6 +18,15 @@ public class TipoServicoConfiguration : IEntityTypeConfiguration<TipoServico>
         builder.Property(t => t.Codigo).HasMaxLength(30).IsUnicode(false);
         builder.Property(t => t.Descricao).HasMaxLength(500);
         builder.Property(t => t.DocumentosNecessarios).HasMaxLength(800);
+        // 4000: mesmo teto do texto resolvido de uma mensagem automática
+        // (DisparadorDeMensagemAutomatica.TamanhoMaximoDaMensagem).
+        builder.Property(t => t.MensagemAoEscolher).HasMaxLength(4000);
+        builder.Property(t => t.MensagemAposDados).HasMaxLength(4000);
+
+        builder.HasOne<TipoServico>()
+            .WithMany()
+            .HasForeignKey(t => t.ServicoPaiId)
+            .OnDelete(DeleteBehavior.Restrict);
         builder.Property(t => t.Categoria).HasConversion<byte>();
         builder.Property(t => t.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(t => t.AtualizadoEm).HasColumnType("datetime2(3)");

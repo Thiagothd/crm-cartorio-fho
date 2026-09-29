@@ -850,6 +850,15 @@ export interface TipoServico {
   setorId: string | null
   setorNome: string | null
   documentosNecessarios: string | null
+  /** Posição no menu do WhatsApp; empate cai na ordem alfabética. */
+  ordem: number
+  /** Serviço dentro do qual este aparece (submenu de um nível). */
+  servicoPaiId: string | null
+  servicoPaiNome: string | null
+  /** Texto do robô ao escolher o serviço, no lugar da regra geral. */
+  mensagemAoEscolher: string | null
+  /** Texto do robô depois que o cliente envia os dados (ex.: chave Pix). */
+  mensagemAposDados: string | null
 }
 
 // Indicadores (Visão Geral, Indicadores e Relatórios, sino) --------------------

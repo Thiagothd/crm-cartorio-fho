@@ -748,6 +748,9 @@ public class ConversaService(
         conversa.EmAtendimentoHumano = false;
         conversa.AguardandoTriagem = false;
         conversa.AguardandoEscolhaDeServico = false;
+        conversa.ServicoDoSubmenuId = null;
+        conversa.AguardandoDadosDoServico = false;
+        conversa.AguardandoComprovante = false;
         conversa.AguardandoRespostaInteligente = false;
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoNome = false;

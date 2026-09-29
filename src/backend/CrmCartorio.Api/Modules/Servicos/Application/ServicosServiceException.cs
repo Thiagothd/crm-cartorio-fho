@@ -24,6 +24,19 @@ public class ServicosServiceException(string codigo, string mensagem, int status
     public static ServicosServiceException SemPermissao() =>
         new("sem_permissao", "Seu perfil nao permite alterar cadastros.", 403);
 
+    public static ServicosServiceException OrdemInvalida() =>
+        new("ordem_invalida", "A posição no menu deve ficar entre 0 e 999.", 400);
+
+    public static ServicosServiceException ServicoPaiInvalido(string motivo) =>
+        new("servico_pai_invalido", motivo, 400);
+
+    public static ServicosServiceException MensagemLonga() =>
+        new("mensagem_longa", "A mensagem do serviço passa de 4000 caracteres.", 400);
+
+    public static ServicosServiceException MarcadorDesconhecido(IReadOnlyList<string> marcadores) =>
+        new("marcador_desconhecido",
+            $"Marcador desconhecido na mensagem do serviço: {string.Join(", ", marcadores)}.", 400);
+
     public static ServicosServiceException SetorInvalido() =>
         new("setor_invalido", "O setor informado nao existe neste cartorio.", 400);
 }

@@ -20,7 +20,8 @@ export function FichaDeServico({ servico, podeEditar, aoEditar }: {
         <Badge variant={servico.ativo ? 'success' : 'secondary'} className="shrink-0 rounded-full">{servico.ativo ? 'Ativo' : 'Inativo'}</Badge>
       </header>
 
-      <p className="mt-4 flex items-start gap-1.5 text-xs text-tinta-media"><Building2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" /><span className="[overflow-wrap:anywhere]">{servico.setorNome || (servico.setorId ? 'Setor indisponível' : 'Sem setor · disponível somente no painel')}</span></p>
+      <p className="mt-4 flex items-start gap-1.5 text-xs text-tinta-media"><Building2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" /><span className="[overflow-wrap:anywhere]">{servico.setorNome || (servico.setorId ? 'Setor indisponível' : 'Sem setor · disponível somente no painel')}{servico.setorId ? <> · {servico.servicoPaiNome ? `dentro de ${servico.servicoPaiNome}` : 'menu do setor'}{servico.ordem > 0 ? `, posição ${servico.ordem}` : ''}</> : null}</span></p>
+      {servico.mensagemAposDados?.trim() ? <p className="mt-1.5 flex items-start gap-1.5 text-xs text-tinta-media"><MessageSquare aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" /><span>Pede os dados e responde com a mensagem cadastrada</span></p> : null}
 
       <div className="mt-3 rounded-lg bg-superficie p-3">
         <p className="flex items-center gap-1.5 text-xs text-tinta-media"><Clock3 aria-hidden="true" className="size-3.5" />Prazo do serviço</p>

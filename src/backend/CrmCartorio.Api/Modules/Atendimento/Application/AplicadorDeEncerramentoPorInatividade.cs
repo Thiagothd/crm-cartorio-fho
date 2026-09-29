@@ -75,6 +75,11 @@ public static class AplicadorDeEncerramentoPorInatividade
                 // o sistema nao tivesse entendido a recusa que ele mesmo provocou.
                 // O menu de continuacao ja e, palavra por palavra, "posso ajudar em
                 // mais alguma coisa?" — e ja esta cadastrado.
+                // O menu passa a ser o assunto: a sequencia de dados/comprovante que
+                // estava parada nao pode interpretar o "1" do menu como os dados.
+                conversa.AguardandoDadosDoServico = false;
+                conversa.AguardandoComprovante = false;
+                conversa.ServicoDoSubmenuId = null;
                 await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.MenuDeContinuacao, ct: ct);
                 conversa.AguardandoMenuDeContinuacao = true;
 

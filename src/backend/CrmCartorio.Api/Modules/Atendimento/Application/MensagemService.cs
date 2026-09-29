@@ -495,6 +495,10 @@ public class MensagemService(
         {
             await ContinuarEscolhaDeServicoAsync(conversa, conteudo, agora, ct);
         }
+        else if (conversa.AguardandoDadosDoServico || conversa.AguardandoComprovante)
+        {
+            await AplicadorDeDadosDoServico.AplicarAsync(db, automaticas, conversa, agora, log, ct);
+        }
         else if (conversa.AguardandoRespostaInteligente)
         {
             await ContinuarRespostaInteligenteAsync(conversa, conteudo, agora, ct);

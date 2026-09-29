@@ -336,6 +336,11 @@ public sealed class ProcessadorDeEntradaWhatsapp(
                 db, automaticas, respostaInteligente, _opcoesDaIA,
                 conversa, conteudo, agora.AddMilliseconds(1), log, ct, recebida.Id);
         }
+        else if (conversa.AguardandoDadosDoServico || conversa.AguardandoComprovante)
+        {
+            await AplicadorDeDadosDoServico.AplicarAsync(
+                db, automaticas, conversa, agora.AddMilliseconds(1), log, ct);
+        }
         else if (conversa.AguardandoRespostaInteligente)
         {
             await AplicadorDeRespostaInteligente.AplicarAsync(

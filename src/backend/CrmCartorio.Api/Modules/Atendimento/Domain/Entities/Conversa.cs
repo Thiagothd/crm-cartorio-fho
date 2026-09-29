@@ -189,6 +189,35 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoMenuDeContinuacao { get; set; }
 
     /// <summary>
+    /// Serviço cujo submenu está no ar: a próxima escolha do cliente é entre os
+    /// serviços DE DENTRO dele (<c>TipoServico.ServicoPaiId</c>). Nulo, o menu no ar é
+    /// o do setor.
+    /// </summary>
+    /// <remarks>
+    /// Guardado à parte de <see cref="TipoServicoId"/> de propósito: o serviço da
+    /// conversa muda por outros caminhos (painel, "ver outro serviço"), e o menu que o
+    /// cliente está lendo não pode mudar junto sem ele saber.
+    /// </remarks>
+    public Guid? ServicoDoSubmenuId { get; set; }
+
+    /// <summary>
+    /// O robô pediu os dados do serviço (<c>TipoServico.MensagemAoEscolher</c>) e
+    /// espera o cliente responder. A resposta, qualquer que seja, dispara
+    /// <c>TipoServico.MensagemAposDados</c>.
+    /// </summary>
+    public bool AguardandoDadosDoServico { get; set; }
+
+    /// <summary>
+    /// O robô mandou <c>TipoServico.MensagemAposDados</c> (ex.: a chave Pix) e espera o
+    /// comprovante. A próxima mensagem do cliente passa o atendimento para uma pessoa.
+    /// </summary>
+    /// <remarks>
+    /// Qualquer mensagem conta, não só anexo: quem responde "já paguei" sem foto não
+    /// pode ficar sem resposta. Quem confere o comprovante é o atendente.
+    /// </remarks>
+    public bool AguardandoComprovante { get; set; }
+
+    /// <summary>
     /// Quando o aviso de prazo proximo do vencimento foi gerado para esta conversa.
     /// </summary>
     /// <remarks>

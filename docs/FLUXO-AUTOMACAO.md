@@ -6,8 +6,9 @@
 > 2J — dois provedores de IA, Gemini principal e Haiku de contingência; Fase
 > 2K — aviso ao cliente quando o atendente encerra pelo painel, e assinatura
 > de autoria no texto que sai pelo WhatsApp; chaves gerais de liga/desliga
-> por tenant, §1.1).
-> **Última atualização:** 2026-09-22
+> por tenant, §1.1; menu de serviços em níveis, com ordem, submenu, texto
+> próprio por serviço e sequência dados → instrução → comprovante, §7.1–7.3).
+> **Última atualização:** 2026-09-29
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -160,6 +161,9 @@ atendimento por WhatsApp.
 | `AguardandoEscolhaDeServico` | `AplicadorDeTriagem`, quando o setor tem ≥1 serviço vinculado | `AplicadorDeEscolhaDeServico` | Idem |
 | `AguardandoRespostaInteligente` | Qualquer resposta da IA, com sucesso ou sem (`RespostaSemCorrespondencia`) | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala — **só por pedido explícito**, desde 2026-08-18 — ou o cliente pede "menu" |
 | `AguardandoMenuDeContinuacao` | `ServicoEscolhido`, logo após o checklist | `AplicadorDePosAtendimento` | A próxima mensagem do cliente chega, corresponda ou não a uma das 4 opções |
+| `ServicoDoSubmenuId` | `AplicadorDeEscolhaDeServico`, quando o serviço escolhido agrupa outros (§7.1) | `AplicadorDeEscolhaDeServico` — decide qual lista é o menu no ar | A próxima escolha chega, corresponda ou não. Também zerado por "menu", encerramento e "ver outro serviço" |
+| `AguardandoDadosDoServico` | `AplicadorDeEscolhaDeServico`, quando o serviço tem `MensagemAposDados` (§7.2) | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como os dados |
+| `AguardandoComprovante` | `AplicadorDeDadosDoServico`, depois de mandar a `MensagemAposDados` | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como o comprovante, e o atendimento passa para a equipe |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
 | `AguardandoNome` | `RecebimentoDeWhatsApp`, na 1ª mensagem de contato sem nome utilizável (gatilho 14) | `AplicadorDePedidoDeNome` | A próxima mensagem do cliente chega — seja ela um nome ou não. Ver §11 |
 | `PerguntaDeEncerramentoEnviadaEm` | `VarredorDeInatividade`, fase 1 (gatilho 12) | `AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` | **Qualquer** mensagem do cliente chega — mesmo que não seja `1`/`2`/palavra reconhecida (ver §10). Também zerado ao atendente responder, ao reabrir a conversa e ao desligar o recurso pela tela |
@@ -211,8 +215,10 @@ flowchart TD
     X -- não --> B{AguardandoTriagem?}
     B -- sim --> B1[AplicadorDeTriagem<br/>nível 1: setor]
     B -- não --> C{AguardandoEscolhaDeServico?}
-    C -- sim --> C1[AplicadorDeEscolhaDeServico<br/>nível 2: serviço]
-    C -- não --> D{AguardandoRespostaInteligente?}
+    C -- sim --> C1[AplicadorDeEscolhaDeServico<br/>nível 2: serviço, ou submenu]
+    C -- não --> C2{AguardandoDadosDoServico<br/>ou AguardandoComprovante?}
+    C2 -- sim --> C3[AplicadorDeDadosDoServico<br/>dados → instrução → comprovante → equipe]
+    C2 -- não --> D{AguardandoRespostaInteligente?}
     D -- sim --> D1[AplicadorDeRespostaInteligente<br/>continua a troca]
     D -- não --> E[AplicadorDePosAtendimento<br/>o piso]
 
@@ -350,6 +356,74 @@ Mesmo algoritmo do nível 1, um degrau abaixo: dentro do setor já reconhecido,
   atendimento estruturado chegou ao fim, mas a conversa não pode terminar
   muda.
 - **Não reconheceu:** cai para a Resposta Inteligente, mesma regra do nível 1.
+
+### 7.1 Ordem e submenu — desde 2026-09-29
+
+Pedido do cartório parceiro: o menu do Registro Civil na ordem dele, e "Segunda via de
+certidão" abrindo um segundo menu com nascimento, casamento e óbito. Três
+campos novos em `TipoServico` (migração `sql/052`), todos pela tela de
+Serviços:
+
+- **`Ordem`** — posição no menu. Menor primeiro; empate, e o padrão zero, cai
+  na ordem alfabética, que era a única até aqui. Quem nunca mexeu vê o menu de
+  sempre.
+- **`ServicoPaiId`** — "aparece dentro de". O serviço sai do menu do setor e
+  só aparece quando o cliente escolhe o pai. **Um nível só**, no mesmo setor
+  do pai: o cadastro recusa pai que já é filho, filho que já agrupa outros e
+  setores diferentes.
+- **`MensagemAoEscolher`** — o texto que o robô manda quando o serviço é
+  escolhido, **no lugar** do gatilho 7. Mesmos marcadores (§13).
+
+Escolher um serviço que agrupa outros grava `TipoServicoId` com ele (o painel
+já mostra o assunto), liga `ServicoDoSubmenuId` e `AguardandoEscolhaDeServico`
+e manda a pergunta: a `MensagemAoEscolher` do pai, com `{MenuServicos}`
+resolvido para a lista de dentro, ou — sem texto próprio — o gatilho 6 de
+sempre, que também resolve para a lista de dentro. A escolha seguinte é lida
+contra essa lista, pelas mesmas três regras de interpretação.
+
+`ServicoDoSubmenuId` fica à parte de `TipoServicoId` de propósito: o serviço
+da conversa muda por outros caminhos (painel, "ver outro serviço"), e o menu
+que o cliente está lendo não pode mudar junto sem ele saber.
+
+### 7.2 Dados → instrução → comprovante → equipe
+
+Quarto campo: **`MensagemAposDados`**. Preenchido, o serviço deixa de terminar
+no menu de continuação e passa a seguir, com `AplicadorDeDadosDoServico`:
+
+1. Depois da `MensagemAoEscolher` (que pede os dados), liga
+   `AguardandoDadosDoServico` — **sem** menu de continuação no meio, que
+   confundiria quem está digitando nome e CPF.
+2. A próxima mensagem do cliente, qualquer que seja, dispara a
+   `MensagemAposDados` (no pedido do cartório parceiro, a chave Pix) e liga
+   `AguardandoComprovante`.
+3. A mensagem seguinte passa o atendimento para a equipe: gatilho 9
+   (`PedidoDeAtendente`) e `EmAtendimentoHumano = true`, o mesmo desfecho da
+   opção "falar com atendente".
+
+**Qualquer mensagem avança o passo**, inclusive "já paguei" sem foto. O robô
+não tem como saber se os dados vieram completos, nem se uma imagem é mesmo
+comprovante; tentar adivinhar prenderia o cliente num laço de "não entendi".
+Quem confere tudo é o atendente, no fim. Se o texto sumir do cadastro no meio
+do caminho, o passo 2 passa direto para a equipe — nunca fica mudo.
+
+"menu", encerramento (pelo cliente, pelo atendente ou por inatividade) e a
+resposta "não" à pergunta de inatividade desligam as duas flags. A chave geral
+de mensagens automáticas (§1.1) também vale aqui: desligada, nenhum texto
+próprio sai e nenhuma espera liga.
+
+### 7.3 O texto próprio é mensagem automática
+
+`DisparadorDeMensagemAutomatica.EnfileirarTextoAsync` gera a
+`MensagemAoEscolher` e a `MensagemAposDados` exatamente como uma regra
+cadastrada: `AutorTipo.Sistema` + `EhAutomatica`, marcadores resolvidos,
+limite de 4000 caracteres, chave geral respeitada, saída pela mesma fila. O
+texto vive no **serviço** porque é dele que o cartório lembra ("o que a
+certidão de óbito responde?"), não num gatilho.
+
+Coberto por `verificar-menu-em-niveis.cs` (em memória): ordem, submenu, o
+caminho inteiro até a equipe, serviço com texto próprio sem sequência de
+dados, a mensagem geral de sempre para quem não configurou nada, as recusas do
+cadastro, "menu" zerando tudo e a chave geral desligada.
 
 > **Lacuna conhecida, ainda não fechada:** se um setor for cadastrado **sem
 > nenhum** `TipoServico` vinculado (`SetorId` nunca preenchido em nenhum
@@ -922,7 +996,7 @@ sai literal (`{NomeClinte}` digitado errado) na mensagem que o cliente lê.
 | `{Servico}` | `TipoServico.Nome` | `"não informado"` |
 | `{Protocolo}` | `Conversa.Protocolo` | — (sempre presente) |
 | `{MenuSetores}` | Lista numerada dos setores **ativos** | Lista vazia, sem setor cadastrado |
-| `{MenuServicos}` | Lista numerada dos serviços **ativos** do setor da conversa | Vazio fora do fluxo de escolha de serviço |
+| `{MenuServicos}` | Lista numerada dos serviços **ativos** do menu no ar: os de primeiro nível do setor, ou os de dentro do submenu aberto (§7.1), na ordem do cadastro | Vazio fora do fluxo de escolha de serviço |
 | `{DocumentosNecessarios}` | Checklist do `TipoServico` vinculado | `"a confirmar com o atendente"` |
 | `{PrazoServico}` | Prazo formatado (`"até 15 dias úteis"`) | `"a confirmar com o atendente"` |
 
@@ -943,7 +1017,8 @@ num lado exige mexer no outro.
 | Enum dos gatilhos | `Modules/Configuracoes/Domain/Enums/GatilhoDeMensagem.cs` |
 | Flags de estado | `Modules/Atendimento/Domain/Entities/Conversa.cs` |
 | Nível 1 — triagem por setor | `Modules/Atendimento/Application/AplicadorDeTriagem.cs` |
-| Nível 2 — escolha de serviço | `Modules/Atendimento/Application/AplicadorDeEscolhaDeServico.cs` |
+| Nível 2 — escolha de serviço e submenu | `Modules/Atendimento/Application/AplicadorDeEscolhaDeServico.cs` |
+| Dados → instrução → comprovante (§7.2) | `Modules/Atendimento/Application/AplicadorDeDadosDoServico.cs` |
 | Piso — pós-atendimento, menu de continuação, encerrar pelo cliente | `Modules/Atendimento/Application/AplicadorDePosAtendimento.cs` |
 | IA — decide responder ou escalar | `Modules/Atendimento/Application/AplicadorDeRespostaInteligente.cs` |
 | Interpretador de menu (número/nome exato/parcial) | `Modules/Atendimento/Domain/TriagemAutomatica.cs` |
@@ -957,7 +1032,7 @@ num lado exige mexer no outro.
 | Chaves gerais do tenant (liga/desliga pela tela, §1.1) | `Modules/Tenants/Domain/Entities/Tenant.cs`, `Modules/Tenants/Application/TenantService.cs`, `src/frontend/src/features/configuracoes/chave-geral.tsx` |
 | Os dois pontos de entrada (mesma regra, dois chamadores) | `Modules/Atendimento/Application/MensagemService.cs` (rota de simulação, hoje só usada pelo verificador), `Modules/Atendimento/Application/RecebimentoDeWhatsApp.cs` (WhatsApp real) |
 | Assinatura de autoria no texto de saída (atendente/IA) | `Modules/CanalWhatsApp/Application/AssinaturaDeAutoria.cs` |
-| Cobertura automatizada | `src/backend/verificar-automacao.cs`, `src/backend/verificar-canal-whatsapp.cs` |
+| Cobertura automatizada | `src/backend/verificar-automacao.cs`, `src/backend/verificar-canal-whatsapp.cs`, `src/backend/verificar-menu-em-niveis.cs` |
 
 ---
 

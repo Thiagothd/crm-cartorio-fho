@@ -12,7 +12,11 @@ public record SalvarTipoServicoRequest(
     bool Ativo,
     PrazoServicoRequest? Prazo,
     Guid? SetorId = null,
-    string? DocumentosNecessarios = null);
+    string? DocumentosNecessarios = null,
+    int Ordem = 0,
+    Guid? ServicoPaiId = null,
+    string? MensagemAoEscolher = null,
+    string? MensagemAposDados = null);
 
 public record PrazoServicoResponse(
     Guid Id,
@@ -33,4 +37,9 @@ public record TipoServicoResponse(
     int ConversasAtivas,
     Guid? SetorId = null,
     string? SetorNome = null,
-    string? DocumentosNecessarios = null);
+    string? DocumentosNecessarios = null,
+    int Ordem = 0,
+    Guid? ServicoPaiId = null,
+    string? ServicoPaiNome = null,
+    string? MensagemAoEscolher = null,
+    string? MensagemAposDados = null);

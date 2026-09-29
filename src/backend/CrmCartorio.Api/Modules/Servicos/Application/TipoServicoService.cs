@@ -3,6 +3,7 @@ using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Enums;
+using CrmCartorio.Api.Modules.Configuracoes.Domain;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -40,13 +41,15 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             .ToListAsync(ct);
 
         var nomesDeSetor = await NomesDeSetorAsync(tenantId, ct);
+        var nomesDeServico = await NomesDeServicoAsync(tenantId, ct);
 
         return
         [
             .. itens.Select(t => Mapear(
                 t,
                 ativasPorServico.FirstOrDefault(x => x.TipoServicoId == t.Id)?.Total ?? 0,
-                nomesDeSetor))
+                nomesDeSetor,
+                nomesDeServico))
         ];
     }
 
@@ -62,8 +65,13 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
 
         var nomesDeSetor = await NomesDeSetorAsync(ctx.TenantId, ct);
 
-        return Mapear(tipo, ativas, nomesDeSetor);
+        return Mapear(tipo, ativas, nomesDeSetor, await NomesDeServicoAsync(ctx.TenantId, ct));
     }
+
+    private async Task<IReadOnlyDictionary<Guid, string>> NomesDeServicoAsync(Guid tenantId, CancellationToken ct) =>
+        await db.TiposServico.AsNoTracking()
+            .Where(t => t.TenantId == tenantId)
+            .ToDictionaryAsync(t => t.Id, t => t.Nome, ct);
 
     /// <summary>
     /// TipoServico nao tem propriedade de navegacao para Setor — modulos distintos,
@@ -85,6 +93,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         var nome = ValidarNome(request.Nome);
         await GarantirNomeLivreAsync(nome, null, ct);
         await GarantirSetorValidoAsync(request.SetorId, ct);
+        ValidarOrdem(request.Ordem);
+        await GarantirServicoPaiValidoAsync(null, request.ServicoPaiId, request.SetorId, ct);
 
         var tipo = new TipoServico
         {
@@ -95,7 +105,11 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             Descricao = Limpar(request.Descricao),
             Ativo = request.Ativo,
             SetorId = request.SetorId,
-            DocumentosNecessarios = Limpar(request.DocumentosNecessarios)
+            DocumentosNecessarios = Limpar(request.DocumentosNecessarios),
+            Ordem = request.Ordem,
+            ServicoPaiId = request.ServicoPaiId,
+            MensagemAoEscolher = ValidarMensagem(request.MensagemAoEscolher),
+            MensagemAposDados = ValidarMensagem(request.MensagemAposDados)
         };
 
         db.TiposServico.Add(tipo);
@@ -135,6 +149,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         var nome = ValidarNome(request.Nome);
         await GarantirNomeLivreAsync(nome, id, ct);
         await GarantirSetorValidoAsync(request.SetorId, ct);
+        ValidarOrdem(request.Ordem);
+        await GarantirServicoPaiValidoAsync(id, request.ServicoPaiId, request.SetorId, ct);
 
         tipo.Nome = nome;
         tipo.Codigo = Limpar(request.Codigo);
@@ -143,6 +159,10 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         tipo.Ativo = request.Ativo;
         tipo.SetorId = request.SetorId;
         tipo.DocumentosNecessarios = Limpar(request.DocumentosNecessarios);
+        tipo.Ordem = request.Ordem;
+        tipo.ServicoPaiId = request.ServicoPaiId;
+        tipo.MensagemAoEscolher = ValidarMensagem(request.MensagemAoEscolher);
+        tipo.MensagemAposDados = ValidarMensagem(request.MensagemAposDados);
 
         if (request.Prazo is { } prazo)
         {
@@ -215,6 +235,75 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         }
     }
 
+    private static void ValidarOrdem(int ordem)
+    {
+        if (ordem is < 0 or > 999)
+        {
+            throw ServicosServiceException.OrdemInvalida();
+        }
+    }
+
+    /// <summary>
+    /// Submenu de um nível só, dentro do mesmo setor. Um nível basta para o que o
+    /// cartório pediu (segunda via → nascimento, casamento, óbito) e mantém curto o
+    /// menu que o cliente lê; "dentro de dentro" viraria labirinto.
+    /// </summary>
+    private async Task GarantirServicoPaiValidoAsync(Guid? proprioId, Guid? paiId, Guid? setorId, CancellationToken ct)
+    {
+        if (paiId is null)
+        {
+            return;
+        }
+
+        if (paiId == proprioId)
+        {
+            throw ServicosServiceException.ServicoPaiInvalido("Um serviço não pode aparecer dentro dele mesmo.");
+        }
+
+        var pai = await db.TiposServico.AsNoTracking()
+            .Where(t => t.Id == paiId && t.TenantId == ctx.TenantId)
+            .Select(t => new { t.ServicoPaiId, t.SetorId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw ServicosServiceException.ServicoPaiInvalido("O serviço escolhido para agrupar não existe neste cartório.");
+
+        if (pai.ServicoPaiId is not null)
+        {
+            throw ServicosServiceException.ServicoPaiInvalido(
+                "O serviço escolhido já aparece dentro de outro. O submenu tem um nível só.");
+        }
+
+        if (pai.SetorId != setorId)
+        {
+            throw ServicosServiceException.ServicoPaiInvalido(
+                "O serviço de dentro precisa estar no mesmo setor do serviço que o agrupa.");
+        }
+
+        if (proprioId is not null && await db.TiposServico.AsNoTracking().AnyAsync(t => t.ServicoPaiId == proprioId, ct))
+        {
+            throw ServicosServiceException.ServicoPaiInvalido(
+                "Este serviço já agrupa outros, então não pode aparecer dentro de um terceiro.");
+        }
+    }
+
+    private static string? ValidarMensagem(string? mensagem)
+    {
+        var limpo = Limpar(mensagem);
+        if (limpo is null)
+        {
+            return null;
+        }
+
+        if (limpo.Length > 4000)
+        {
+            throw ServicosServiceException.MensagemLonga();
+        }
+
+        var desconhecidos = PlaceholdersDeMensagem.MarcadoresDesconhecidos(limpo);
+        return desconhecidos.Count > 0
+            ? throw ServicosServiceException.MarcadorDesconhecido(desconhecidos)
+            : limpo;
+    }
+
     private static void ValidarPrazo(PrazoServicoRequest prazo)
     {
         if (prazo.PrazoHoras < 1)
@@ -241,7 +330,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
 
     private static TipoServicoResponse Mapear(
-        TipoServico tipo, int conversasAtivas, IReadOnlyDictionary<Guid, string> nomesDeSetor) =>
+        TipoServico tipo, int conversasAtivas, IReadOnlyDictionary<Guid, string> nomesDeSetor,
+        IReadOnlyDictionary<Guid, string>? nomesDeServico = null) =>
         new(tipo.Id,
             tipo.Nome,
             tipo.Codigo,
@@ -260,7 +350,12 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             conversasAtivas,
             tipo.SetorId,
             tipo.SetorId is { } setorId ? nomesDeSetor.GetValueOrDefault(setorId) : null,
-            tipo.DocumentosNecessarios);
+            tipo.DocumentosNecessarios,
+            tipo.Ordem,
+            tipo.ServicoPaiId,
+            tipo.ServicoPaiId is { } paiId ? nomesDeServico?.GetValueOrDefault(paiId) : null,
+            tipo.MensagemAoEscolher,
+            tipo.MensagemAposDados);
 
     private static string DescreverCategoria(CategoriaServico categoria) => categoria switch
     {

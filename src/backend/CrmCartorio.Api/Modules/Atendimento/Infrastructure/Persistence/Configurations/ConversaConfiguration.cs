@@ -90,6 +90,11 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
             .HasForeignKey(c => c.TipoServicoId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<TipoServico>()
+            .WithMany()
+            .HasForeignKey(c => c.ServicoDoSubmenuId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasMany(c => c.Mensagens)
             .WithOne(m => m.Conversa!)
             .HasForeignKey(m => m.ConversaId)

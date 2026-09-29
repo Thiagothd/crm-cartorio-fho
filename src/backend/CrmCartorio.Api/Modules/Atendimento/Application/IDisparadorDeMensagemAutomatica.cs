@@ -53,4 +53,21 @@ public interface IDisparadorDeMensagemAutomatica
         Guid tenantId,
         Guid setorId,
         CancellationToken ct = default);
+
+    /// <summary>Os serviços de dentro de <paramref name="servicoPaiId"/>, na ordem do menu.</summary>
+    Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> ServicosDoSubmenuAsync(
+        Guid tenantId,
+        Guid servicoPaiId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Gera, como mensagem automática, um texto que não vem de regra cadastrada — o
+    /// texto próprio de um serviço. Mesmos marcadores e mesma chave geral de
+    /// <see cref="EnfileirarAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<Mensagem>> EnfileirarTextoAsync(
+        Conversa conversa,
+        string modelo,
+        string origem,
+        CancellationToken ct = default);
 }

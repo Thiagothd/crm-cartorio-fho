@@ -168,11 +168,79 @@ public class DisparadorDeMensagemAutomatica(
         // atende varios setores por passada (varredor de prazo), e o custo de
         // memorizar por (tenant, setor) nao compensa para uma consulta indexada
         // (IX_TiposServico_Tenant_Setor_Ativo).
+        //
+        // So o primeiro nivel: servico com pai aparece no submenu dele, nunca aqui.
+        // Ordem configurada primeiro; o nome desempata (e e a ordem de quem nunca
+        // mexeu na posicao, todos em zero).
         return await db.TiposServico.AsNoTracking()
-            .Where(t => t.TenantId == tenantId && t.SetorId == setorId && t.Ativo)
-            .OrderBy(t => t.Nome)
+            .Where(t => t.TenantId == tenantId && t.SetorId == setorId && t.ServicoPaiId == null && t.Ativo)
+            .OrderBy(t => t.Ordem)
+            .ThenBy(t => t.Nome)
             .Select(t => new TriagemAutomatica.OpcaoDeMenu(t.Id, t.Nome))
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> ServicosDoSubmenuAsync(
+        Guid tenantId,
+        Guid servicoPaiId,
+        CancellationToken ct = default) =>
+        await db.TiposServico.AsNoTracking()
+            .Where(t => t.TenantId == tenantId && t.ServicoPaiId == servicoPaiId && t.Ativo)
+            .OrderBy(t => t.Ordem)
+            .ThenBy(t => t.Nome)
+            .Select(t => new TriagemAutomatica.OpcaoDeMenu(t.Id, t.Nome))
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<Mensagem>> EnfileirarTextoAsync(
+        Conversa conversa,
+        string modelo,
+        string origem,
+        CancellationToken ct = default)
+    {
+        // Mesma chave geral de EnfileirarAsync: o texto proprio de um servico e
+        // mensagem automatica como qualquer outra, e desligar tudo pela tela
+        // desliga este tambem.
+        var habilitadas = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == conversa.TenantId)
+            .Select(t => (bool?)t.MensagensAutomaticasHabilitadas)
+            .FirstOrDefaultAsync(ct) ?? true;
+
+        if (!habilitadas || string.IsNullOrWhiteSpace(modelo))
+        {
+            log.LogInformation(
+                "Texto automatico de {Origem} suprimido na conversa {ConversaId}: chave geral desligada ou texto vazio",
+                origem, conversa.Id);
+            return [];
+        }
+
+        var texto = PlaceholdersDeMensagem.Aplicar(modelo, await MontarDadosAsync(conversa, ct));
+        if (texto.Length > TamanhoMaximoDaMensagem)
+        {
+            log.LogWarning(
+                "Texto automatico de {Origem} truncado na conversa {ConversaId}: passou de {Limite} caracteres",
+                origem, conversa.Id, TamanhoMaximoDaMensagem);
+            texto = texto[..TamanhoMaximoDaMensagem];
+        }
+
+        var mensagem = new Mensagem
+        {
+            TenantId = conversa.TenantId,
+            ConversaId = conversa.Id,
+            AutorTipo = AutorTipo.Sistema,
+            AtendenteId = null,
+            EhAutomatica = true,
+            Conteudo = texto,
+            Tipo = TipoMensagem.Texto,
+            StatusEntrega = StatusEntrega.Pendente,
+            EnviadaEm = DateTime.UtcNow
+        };
+
+        db.Mensagens.Add(mensagem);
+
+        log.LogInformation(
+            "Texto automatico de {Origem} gerado na conversa {ConversaId}", origem, conversa.Id);
+
+        return [mensagem];
     }
 
     private async Task<DadosParaMensagem> MontarDadosAsync(Conversa conversa, CancellationToken ct)
@@ -205,9 +273,13 @@ public class DisparadorDeMensagemAutomatica(
 
         // So faz sentido com setor ja roteado — antes disso a conversa nem chegou
         // ao ponto de perguntar qual servico.
-        var menuServicos = conversa.SetorId is { } setorId
-            ? TriagemAutomatica.MontarMenu(await ServicosDoMenuAsync(conversa.TenantId, setorId, ct))
-            : "";
+        // Com submenu no ar, {MenuServicos} e a lista de dentro dele: e esse o menu
+        // que o cliente vai responder (AplicadorDeEscolhaDeServico le o mesmo).
+        var menuServicos = conversa.ServicoDoSubmenuId is { } paiId
+            ? TriagemAutomatica.MontarMenu(await ServicosDoSubmenuAsync(conversa.TenantId, paiId, ct))
+            : conversa.SetorId is { } setorId
+                ? TriagemAutomatica.MontarMenu(await ServicosDoMenuAsync(conversa.TenantId, setorId, ct))
+                : "";
 
         return new DadosParaMensagem(
             clienteNome,

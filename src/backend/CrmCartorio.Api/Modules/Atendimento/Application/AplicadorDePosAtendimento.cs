@@ -127,6 +127,9 @@ public static class AplicadorDePosAtendimento
     {
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoEscolhaDeServico = false;
+        conversa.ServicoDoSubmenuId = null;
+        conversa.AguardandoDadosDoServico = false;
+        conversa.AguardandoComprovante = false;
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
         conversa.SetorId = null;
@@ -174,6 +177,7 @@ public static class AplicadorDePosAtendimento
 
         if (escolhido == OpcaoVerOutroServico && servicosDoSetor.Count > 0)
         {
+            conversa.ServicoDoSubmenuId = null;
             await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.TriagemComCorrespondencia, ct: ct);
             conversa.AguardandoEscolhaDeServico = true;
         }
@@ -246,6 +250,9 @@ public static class AplicadorDePosAtendimento
         conversa.TentativasRespostaInteligente = 0;
         conversa.AguardandoTriagem = false;
         conversa.AguardandoEscolhaDeServico = false;
+        conversa.ServicoDoSubmenuId = null;
+        conversa.AguardandoDadosDoServico = false;
+        conversa.AguardandoComprovante = false;
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoNome = false;
         conversa.PerguntaDeEncerramentoEnviadaEm = null;

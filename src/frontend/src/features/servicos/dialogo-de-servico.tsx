@@ -28,8 +28,14 @@ import type { CategoriaServico, TipoServico } from '@/lib/api/tipos'
 /** Mesmo limite da coluna (TipoServicoConfiguration.cs). */
 const LIMITE_DO_CHECKLIST = 800
 
+/** Mesmo limite das colunas de mensagem do serviço (TipoServicoConfiguration.cs). */
+const LIMITE_DA_MENSAGEM = 4000
+
 /** Valor do Select para "nenhum setor" — Radix não aceita item com value vazio. */
 const SEM_SETOR = '_nenhum'
+
+/** Valor do Select para "fica no menu do setor" (sem serviço que agrupe). */
+const SEM_PAI = '_nenhum'
 
 const categorias: { valor: CategoriaServico; rotulo: string }[] = [
   { valor: 'Notas', rotulo: 'Tabelionato de Notas' },
@@ -56,6 +62,10 @@ export function DialogoDeServico({
   const [categoria, setCategoria] = useState<CategoriaServico>('Outros')
   const [setorId, setSetorId] = useState(SEM_SETOR)
   const [documentosNecessarios, setDocumentosNecessarios] = useState('')
+  const [ordem, setOrdem] = useState('0')
+  const [servicoPaiId, setServicoPaiId] = useState(SEM_PAI)
+  const [mensagemAoEscolher, setMensagemAoEscolher] = useState('')
+  const [mensagemAposDados, setMensagemAposDados] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [temPrazo, setTemPrazo] = useState(true)
   const [prazoHoras, setPrazoHoras] = useState('24')
@@ -69,6 +79,22 @@ export function DialogoDeServico({
     enabled: aberto,
   })
 
+  const { data: servicos } = useQuery({
+    queryKey: ['tipos-servico', 'todos'],
+    queryFn: () => servicosApi.listar(true),
+    enabled: aberto,
+  })
+
+  // Quem pode agrupar: serviço do mesmo setor que não esteja dentro de outro
+  // (submenu de um nível só) e que não seja este mesmo.
+  const possiveisPais = (servicos ?? []).filter(
+    (s) =>
+      s.id !== servico?.id &&
+      !s.servicoPaiId &&
+      setorId !== SEM_SETOR &&
+      s.setorId === setorId,
+  )
+
   useEffect(() => {
     if (!aberto) return
 
@@ -77,6 +103,10 @@ export function DialogoDeServico({
     setCategoria(servico?.categoria ?? 'Outros')
     setSetorId(servico?.setorId ?? SEM_SETOR)
     setDocumentosNecessarios(servico?.documentosNecessarios ?? '')
+    setOrdem(String(servico?.ordem ?? 0))
+    setServicoPaiId(servico?.servicoPaiId ?? SEM_PAI)
+    setMensagemAoEscolher(servico?.mensagemAoEscolher ?? '')
+    setMensagemAposDados(servico?.mensagemAposDados ?? '')
     setAtivo(servico?.ativo ?? true)
     setTemPrazo(Boolean(servico?.prazo) || !servico)
     setPrazoHoras(String(servico?.prazo?.prazoHoras ?? 24))
@@ -97,6 +127,10 @@ export function DialogoDeServico({
         ativo,
         setorId: setorId === SEM_SETOR ? null : setorId,
         documentosNecessarios: documentosNecessarios.trim() || null,
+        ordem: Number(ordem) || 0,
+        servicoPaiId: servicoPaiId === SEM_PAI || setorId === SEM_SETOR ? null : servicoPaiId,
+        mensagemAoEscolher: mensagemAoEscolher.trim() || null,
+        mensagemAposDados: mensagemAposDados.trim() || null,
         prazo: temPrazo
           ? {
               prazoHoras: Number(prazoHoras),
@@ -218,6 +252,103 @@ export function DialogoDeServico({
             <p className="text-xs text-tinta-media">
               Entra no marcador {'{DocumentosNecessarios}'} das mensagens automáticas.
             </p>
+          </div>
+
+          <div className="flex flex-col gap-4 border-t border-linha pt-4">
+            <div>
+              <h3 className="text-sm font-semibold text-tinta">No menu do WhatsApp</h3>
+              <p className="mt-1 text-xs text-tinta-media">
+                Onde este serviço aparece para o cliente e o que o robô responde quando ele é escolhido.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="servico-ordem">Posição</Label>
+                <Input
+                  id="servico-ordem"
+                  type="number"
+                  min={0}
+                  max={999}
+                  step={1}
+                  value={ordem}
+                  onChange={(e) => setOrdem(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="servico-pai">Aparece dentro de</Label>
+                <Select
+                  value={servicoPaiId}
+                  onValueChange={setServicoPaiId}
+                  disabled={setorId === SEM_SETOR}
+                >
+                  <SelectTrigger id="servico-pai">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SEM_PAI}>Direto no menu do setor</SelectItem>
+                    {possiveisPais.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="-mt-2 text-xs text-tinta-media">
+              Menor posição aparece primeiro; com a mesma posição, vale a ordem alfabética. Dentro de
+              outro serviço, este só aparece quando o cliente escolhe aquele.
+            </p>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <Label htmlFor="servico-ao-escolher">Mensagem ao escolher (opcional)</Label>
+                {mensagemAoEscolher.length > LIMITE_DA_MENSAGEM * 0.8 ? (
+                  <span className="font-dado text-[11px] text-tinta-fraca">
+                    {mensagemAoEscolher.length}/{LIMITE_DA_MENSAGEM}
+                  </span>
+                ) : null}
+              </div>
+              <Textarea
+                id="servico-ao-escolher"
+                value={mensagemAoEscolher}
+                onChange={(e) => setMensagemAoEscolher(e.target.value)}
+                rows={5}
+                maxLength={LIMITE_DA_MENSAGEM}
+                className="resize-y"
+                placeholder="Vazio, o robô usa a mensagem geral de serviço escolhido."
+              />
+              <p className="text-xs text-tinta-media">
+                Aceita os marcadores das mensagens automáticas. Num serviço que agrupa outros,{' '}
+                {'{MenuServicos}'} vira a lista dos serviços de dentro.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <Label htmlFor="servico-apos-dados">Mensagem depois que o cliente enviar os dados (opcional)</Label>
+                {mensagemAposDados.length > LIMITE_DA_MENSAGEM * 0.8 ? (
+                  <span className="font-dado text-[11px] text-tinta-fraca">
+                    {mensagemAposDados.length}/{LIMITE_DA_MENSAGEM}
+                  </span>
+                ) : null}
+              </div>
+              <Textarea
+                id="servico-apos-dados"
+                value={mensagemAposDados}
+                onChange={(e) => setMensagemAposDados(e.target.value)}
+                rows={4}
+                maxLength={LIMITE_DA_MENSAGEM}
+                className="resize-y"
+                placeholder="Ex.: a chave Pix para pagamento e o pedido do comprovante."
+              />
+              <p className="text-xs text-tinta-media">
+                Preenchida, o robô espera o cliente mandar os dados, responde com este texto e aguarda o
+                comprovante. Na mensagem seguinte, o atendimento passa para a equipe.
+              </p>
+            </div>
           </div>
 
         </div>
