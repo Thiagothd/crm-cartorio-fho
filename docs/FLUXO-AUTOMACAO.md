@@ -461,6 +461,16 @@ limite de 4000 caracteres, chave geral respeitada, saída pela mesma fila. O
 texto vive no **serviço** porque é dele que o cartório lembra ("o que a
 certidão de óbito responde?"), não num gatilho.
 
+**Texto longo sai em mais de uma mensagem — desde 2026-09-29.** Uma linha só
+com `---` divide o texto cadastrado em partes, e cada parte vira uma mensagem,
+na ordem (`Configuracoes/Domain/PartesDeMensagem`). O WhatsApp não aceita mais
+de 4096 caracteres numa mensagem, e o texto do cartório parceiro para habilitação de
+casamento tem 4217. O cadastro aceita até 12000 no total e recusa, com o número
+da parte, a que passar de 4000 — cortar o texto de um cartório em silêncio não
+é opção. As três colunas de texto do serviço são `NVARCHAR(MAX)` desde a
+migração `sql/053`. A divisão acontece antes dos marcadores: quem decide as
+partes é o que o cartório escreveu, nunca o nome de um cliente.
+
 Coberto por `verificar-menu-em-niveis.cs` (em memória): ordem, submenu, o
 caminho inteiro até a equipe — dados em três mensagens, a varredura real
 esperando o silêncio e mandando o Pix uma vez só, o texto próprio do

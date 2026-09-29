@@ -213,34 +213,49 @@ public class DisparadorDeMensagemAutomatica(
             return [];
         }
 
-        var texto = PlaceholdersDeMensagem.Aplicar(modelo, await MontarDadosAsync(conversa, ct));
-        if (texto.Length > TamanhoMaximoDaMensagem)
+        // Uma linha so com "---" divide o texto em mais de uma mensagem (texto longo
+        // demais para uma so no WhatsApp). Divide ANTES dos marcadores: o que o
+        // cartorio escreveu decide as partes, nunca o nome de um cliente.
+        var dados = await MontarDadosAsync(conversa, ct);
+        var agora = DateTime.UtcNow;
+        var geradas = new List<Mensagem>();
+
+        foreach (var parte in PartesDeMensagem.Dividir(modelo))
         {
-            log.LogWarning(
-                "Texto automatico de {Origem} truncado na conversa {ConversaId}: passou de {Limite} caracteres",
-                origem, conversa.Id, TamanhoMaximoDaMensagem);
-            texto = texto[..TamanhoMaximoDaMensagem];
+            var texto = PlaceholdersDeMensagem.Aplicar(parte, dados);
+            if (texto.Length > TamanhoMaximoDaMensagem)
+            {
+                log.LogWarning(
+                    "Texto automatico de {Origem} truncado na conversa {ConversaId}: passou de {Limite} caracteres",
+                    origem, conversa.Id, TamanhoMaximoDaMensagem);
+                texto = texto[..TamanhoMaximoDaMensagem];
+            }
+
+            var mensagem = new Mensagem
+            {
+                TenantId = conversa.TenantId,
+                ConversaId = conversa.Id,
+                AutorTipo = AutorTipo.Sistema,
+                AtendenteId = null,
+                EhAutomatica = true,
+                Conteudo = texto,
+                Tipo = TipoMensagem.Texto,
+                StatusEntrega = StatusEntrega.Pendente,
+
+                // Um milissegundo entre as partes: a fila envia por EnviadaEm, e a
+                // ordem do texto nao pode depender de empate.
+                EnviadaEm = agora.AddMilliseconds(geradas.Count)
+            };
+
+            db.Mensagens.Add(mensagem);
+            geradas.Add(mensagem);
         }
 
-        var mensagem = new Mensagem
-        {
-            TenantId = conversa.TenantId,
-            ConversaId = conversa.Id,
-            AutorTipo = AutorTipo.Sistema,
-            AtendenteId = null,
-            EhAutomatica = true,
-            Conteudo = texto,
-            Tipo = TipoMensagem.Texto,
-            StatusEntrega = StatusEntrega.Pendente,
-            EnviadaEm = DateTime.UtcNow
-        };
-
-        db.Mensagens.Add(mensagem);
-
         log.LogInformation(
-            "Texto automatico de {Origem} gerado na conversa {ConversaId}", origem, conversa.Id);
+            "Texto automatico de {Origem} gerado na conversa {ConversaId} em {Partes} mensagem(ns)",
+            origem, conversa.Id, geradas.Count);
 
-        return [mensagem];
+        return geradas;
     }
 
     private async Task<DadosParaMensagem> MontarDadosAsync(Conversa conversa, CancellationToken ct)

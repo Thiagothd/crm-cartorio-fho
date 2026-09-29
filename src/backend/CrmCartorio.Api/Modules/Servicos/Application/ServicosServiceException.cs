@@ -31,7 +31,14 @@ public class ServicosServiceException(string codigo, string mensagem, int status
         new("servico_pai_invalido", motivo, 400);
 
     public static ServicosServiceException MensagemLonga() =>
-        new("mensagem_longa", "A mensagem do serviço passa de 4000 caracteres.", 400);
+        new("mensagem_longa", "A mensagem do serviço passa de 12000 caracteres.", 400);
+
+    public static ServicosServiceException ParteLonga(int parte, int total) =>
+        new("mensagem_longa",
+            total == 1
+                ? "A mensagem passa de 4000 caracteres, o máximo de uma mensagem no WhatsApp. Divida em partes com uma linha só com ---."
+                : $"A parte {parte} da mensagem passa de 4000 caracteres, o máximo de uma mensagem no WhatsApp. Divida mais com uma linha só com ---.",
+            400);
 
     public static ServicosServiceException MarcadorDesconhecido(IReadOnlyList<string> marcadores) =>
         new("marcador_desconhecido",

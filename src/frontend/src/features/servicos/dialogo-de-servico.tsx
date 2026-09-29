@@ -29,7 +29,8 @@ import type { CategoriaServico, TipoServico } from '@/lib/api/tipos'
 const LIMITE_DO_CHECKLIST = 800
 
 /** Mesmo limite das colunas de mensagem do serviço (TipoServicoConfiguration.cs). */
-const LIMITE_DA_MENSAGEM = 4000
+// Somadas as partes; cada parte (separada por uma linha ---) vai até 4000 — ver PartesDeMensagem.
+const LIMITE_DA_MENSAGEM = 12000
 
 /** Valor do Select para "nenhum setor" — Radix não aceita item com value vazio. */
 const SEM_SETOR = '_nenhum'
@@ -326,7 +327,9 @@ export function DialogoDeServico({
               />
               <p className="text-xs text-tinta-media">
                 Aceita os marcadores das mensagens automáticas. Num serviço que agrupa outros,{' '}
-                {'{MenuServicos}'} vira a lista dos serviços de dentro.
+                {'{MenuServicos}'} vira a lista dos serviços de dentro. Texto longo: uma linha só com{' '}
+                <span className="font-dado">---</span> divide em mais de uma mensagem, cada uma com até 4000
+                caracteres.
               </p>
             </div>
 

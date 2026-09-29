@@ -18,11 +18,13 @@ public class TipoServicoConfiguration : IEntityTypeConfiguration<TipoServico>
         builder.Property(t => t.Codigo).HasMaxLength(30).IsUnicode(false);
         builder.Property(t => t.Descricao).HasMaxLength(500);
         builder.Property(t => t.DocumentosNecessarios).HasMaxLength(800);
-        // 4000: mesmo teto do texto resolvido de uma mensagem automática
-        // (DisparadorDeMensagemAutomatica.TamanhoMaximoDaMensagem).
-        builder.Property(t => t.MensagemAoEscolher).HasMaxLength(4000);
-        builder.Property(t => t.MensagemAposDados).HasMaxLength(4000);
-        builder.Property(t => t.MensagemAposComprovante).HasMaxLength(4000);
+        // Sem teto na coluna (NVARCHAR(MAX)): o texto pode vir em várias mensagens,
+        // separadas por uma linha "---", cada uma até 4000. O teto do cadastro
+        // (12000) e o de cada parte moram em PartesDeMensagem e são validados no
+        // serviço — ver sql/053.
+        builder.Property(t => t.MensagemAoEscolher);
+        builder.Property(t => t.MensagemAposDados);
+        builder.Property(t => t.MensagemAposComprovante);
 
         builder.HasOne<TipoServico>()
             .WithMany()

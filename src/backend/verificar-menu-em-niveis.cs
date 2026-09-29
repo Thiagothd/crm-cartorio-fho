@@ -82,6 +82,10 @@ Conferir(await Recusa(async () => await Configurar("Certidão de casamento", 2, 
 Conferir(await Recusa(async () => await Configurar("Segunda via de certidão", 1, await Id("Registro de nascimento"))), "recusa pôr dentro de outro quem já agrupa");
 Conferir(await Recusa(async () => await Configurar("Registro de óbito", 4, aoEscolher: "Olá {NomeClinte}")), "recusa marcador desconhecido");
 Conferir(await Recusa(async () => await Configurar("Registro de óbito", 1000)), "recusa posição fora de 0 a 999");
+Conferir(await Recusa(async () => await Configurar("Registro de óbito", 4, aoEscolher: new string('a', 4100))),
+    "recusa parte única acima de 4000 caracteres (limite de uma mensagem do WhatsApp)");
+Conferir(await Recusa(async () => await Configurar("Registro de óbito", 4, aoEscolher: new string('a', 3000) + "\n---\n" + new string('b', 4100))),
+    "recusa a segunda parte acima de 4000");
 
 // ---- conversa: segunda via → nascimento → dados → Pix → comprovante → atendente
 var cliente = new Cliente { TenantId = tenantId, Nome = "Adriana Alves", TelefoneWhatsapp = "5538999990000" };
@@ -163,6 +167,19 @@ var h = await Geradas(() => Escolher(conversa2, "3"));
 Conferir(conversa2.TipoServicoId == await Id("Habilitação de casamento"), "\"3\" é Habilitação de casamento");
 Conferir(h.Count == 2 && h.Any(x => x.StartsWith("HABILITAÇÃO")) && h.Any(x => x.Contains("Posso ajudar em mais alguma coisa")), "texto próprio e o menu de continuação");
 Conferir(conversa2.AguardandoMenuDeContinuacao && !conversa2.AguardandoDadosDoServico, "sem texto após os dados, não espera dados");
+
+// ---- texto longo em duas partes (a habilitação do cartório parceiro tem 4217 caracteres)
+var parte1 = "💍 *HABILITAÇÃO* — parte 1 " + new string('x', 2300);
+var parte2 = "💒 *TIPOS DE CASAMENTO* — parte 2 " + new string('y', 1900);
+await Configurar("Registro de óbito", 4, aoEscolher: parte1 + "\n---\n" + parte2);
+Conferir((await cadastro.ObterAsync(await Id("Registro de óbito"))).MensagemAoEscolher!.Length > 4000, "o cadastro aceita texto de mais de 4000 dividido em partes");
+var conversa7 = NovaConversa(civil);
+await db.SaveChangesAsync();
+var o = await Geradas(() => Escolher(conversa7, "4"));
+var fioO = await db.Mensagens.Where(m => m.ConversaId == conversa7.Id && m.EhAutomatica).OrderBy(m => m.EnviadaEm).Select(m => m.Conteudo).ToListAsync();
+Conferir(o.Count == 3 && fioO.Count == 3 && fioO[0] == parte1 && fioO[1] == parte2 && fioO[2].Contains("Posso ajudar em mais alguma coisa"),
+    "texto em duas partes sai em duas mensagens, na ordem, e depois o menu de continuação");
+Conferir(fioO.All(x => x.Length <= 4000), "nenhuma mensagem gerada passa de 4000");
 
 // ---- regressão: serviço sem nada configurado usa a mensagem geral de sempre
 var conversa3 = NovaConversa(notas);

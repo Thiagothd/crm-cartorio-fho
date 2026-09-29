@@ -295,9 +295,18 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             return null;
         }
 
-        if (limpo.Length > 4000)
+        if (limpo.Length > PartesDeMensagem.TamanhoMaximoDoTexto)
         {
             throw ServicosServiceException.MensagemLonga();
+        }
+
+        var partes = PartesDeMensagem.Dividir(limpo);
+        for (var i = 0; i < partes.Count; i++)
+        {
+            if (partes[i].Length > PartesDeMensagem.TamanhoMaximoDaParte)
+            {
+                throw ServicosServiceException.ParteLonga(i + 1, partes.Count);
+            }
         }
 
         var desconhecidos = PlaceholdersDeMensagem.MarcadoresDesconhecidos(limpo);
