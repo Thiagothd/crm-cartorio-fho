@@ -828,6 +828,29 @@ Checar("Inatividade: fase 2 — candidatas a encerrar sem resposta (exclui EmAte
         .Take(200)
         .ToQueryString());
 
+Checar("Espera de dados do servico: candidatas em silencio, sem entrada do cliente pendente (subconsulta Any com enum anulavel)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Ativa
+                 && c.AguardandoDadosDoServico
+                 && c.DadosDoServicoRecebidosEm != null
+                 && !c.EmAtendimentoHumano
+                 && c.UltimaMensagemEm <= agora.AddSeconds(-45)
+                 && !db.Mensagens.Any(m => m.ConversaId == c.Id
+                                        && m.AutorTipo == AutorTipo.Cliente
+                                        && m.EstadoProcessamentoEntrada != null
+                                        && m.EstadoProcessamentoEntrada != EstadoProcessamentoEntradaWhatsapp.Processada))
+        .OrderBy(c => c.UltimaMensagemEm)
+        .Select(c => c.Id)
+        .Take(100)
+        .ToQueryString());
+
+Checar("Espera de dados do servico: texto do servico por expressao de campo (MensagemAposComprovante)", () =>
+    db.TiposServico.AsNoTracking()
+        .Where(t => t.Id == servicoId && t.TenantId == tenantId)
+        .Select(t => t.MensagemAposComprovante)
+        .ToQueryString());
+
 Checar("Inatividade: tenant tem texto ativo para a pergunta (AnyAsync por gatilho novo)", () =>
     db.MensagensAutomaticas.AsNoTracking()
         .Where(m => m.TenantId == tenantId

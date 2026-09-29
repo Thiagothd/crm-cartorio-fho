@@ -66,6 +66,7 @@ export function DialogoDeServico({
   const [servicoPaiId, setServicoPaiId] = useState(SEM_PAI)
   const [mensagemAoEscolher, setMensagemAoEscolher] = useState('')
   const [mensagemAposDados, setMensagemAposDados] = useState('')
+  const [mensagemAposComprovante, setMensagemAposComprovante] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [temPrazo, setTemPrazo] = useState(true)
   const [prazoHoras, setPrazoHoras] = useState('24')
@@ -107,6 +108,7 @@ export function DialogoDeServico({
     setServicoPaiId(servico?.servicoPaiId ?? SEM_PAI)
     setMensagemAoEscolher(servico?.mensagemAoEscolher ?? '')
     setMensagemAposDados(servico?.mensagemAposDados ?? '')
+    setMensagemAposComprovante(servico?.mensagemAposComprovante ?? '')
     setAtivo(servico?.ativo ?? true)
     setTemPrazo(Boolean(servico?.prazo) || !servico)
     setPrazoHoras(String(servico?.prazo?.prazoHoras ?? 24))
@@ -131,6 +133,8 @@ export function DialogoDeServico({
         servicoPaiId: servicoPaiId === SEM_PAI || setorId === SEM_SETOR ? null : servicoPaiId,
         mensagemAoEscolher: mensagemAoEscolher.trim() || null,
         mensagemAposDados: mensagemAposDados.trim() || null,
+        // Sem a sequência de dados o texto do comprovante nunca sai; não guarda o que não vale.
+        mensagemAposComprovante: (mensagemAposDados.trim() && mensagemAposComprovante.trim()) || null,
         prazo: temPrazo
           ? {
               prazoHoras: Number(prazoHoras),
@@ -345,10 +349,37 @@ export function DialogoDeServico({
                 placeholder="Ex.: a chave Pix para pagamento e o pedido do comprovante."
               />
               <p className="text-xs text-tinta-media">
-                Preenchida, o robô espera o cliente mandar os dados, responde com este texto e aguarda o
-                comprovante. Na mensagem seguinte, o atendimento passa para a equipe.
+                Preenchida, o robô espera o cliente terminar de mandar os dados (uns 45 segundos sem
+                mensagem nova), responde com este texto e aguarda o comprovante. Na mensagem seguinte, o
+                atendimento passa para a equipe.
               </p>
             </div>
+
+            {mensagemAposDados.trim() ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label htmlFor="servico-apos-comprovante">Mensagem ao receber o comprovante (opcional)</Label>
+                  {mensagemAposComprovante.length > LIMITE_DA_MENSAGEM * 0.8 ? (
+                    <span className="font-dado text-[11px] text-tinta-fraca">
+                      {mensagemAposComprovante.length}/{LIMITE_DA_MENSAGEM}
+                    </span>
+                  ) : null}
+                </div>
+                <Textarea
+                  id="servico-apos-comprovante"
+                  value={mensagemAposComprovante}
+                  onChange={(e) => setMensagemAposComprovante(e.target.value)}
+                  rows={3}
+                  maxLength={LIMITE_DA_MENSAGEM}
+                  className="resize-y"
+                  placeholder="Ex.: Recebemos seu comprovante! Um de nossos atendentes vai conferir e dar continuidade."
+                />
+                <p className="text-xs text-tinta-media">
+                  Sai quando o cliente manda o comprovante, junto com a passagem para a equipe. Vazia, sai o
+                  aviso geral de pedido de atendente.
+                </p>
+              </div>
+            ) : null}
           </div>
 
         </div>

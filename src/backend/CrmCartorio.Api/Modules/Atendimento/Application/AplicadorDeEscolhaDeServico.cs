@@ -125,6 +125,7 @@ public static class AplicadorDeEscolhaDeServico
         if (!string.IsNullOrWhiteSpace(textos.MensagemAposDados) && aoEscolher.Count > 0)
         {
             conversa.AguardandoDadosDoServico = true;
+            conversa.DadosDoServicoRecebidosEm = null;
 
             log.LogInformation(
                 "Escolha de servico da conversa {ConversaId} identificou {TipoServicoId} e aguarda os dados", conversa.Id, escolhido);

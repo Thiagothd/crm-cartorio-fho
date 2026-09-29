@@ -160,5 +160,12 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.HasIndex(c => new { c.TenantId, c.PerguntaDeEncerramentoEnviadaEm })
             .HasFilter("[PerguntaDeEncerramentoEnviadaEm] IS NOT NULL")
             .HasDatabaseName("IX_Conversas_EncerramentoPendente");
+
+        // Serve a varredura da espera de dados, que roda a cada poucos segundos. O
+        // filtro deixa o índice do tamanho de quem está digitando os dados agora —
+        // quase sempre vazio.
+        builder.HasIndex(c => new { c.TenantId, c.DadosDoServicoRecebidosEm })
+            .HasFilter("[DadosDoServicoRecebidosEm] IS NOT NULL")
+            .HasDatabaseName("IX_Conversas_EsperaDeDados");
     }
 }

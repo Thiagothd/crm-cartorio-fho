@@ -333,6 +333,7 @@ public class VarredorDeInatividade(
                 .SetProperty(c => c.AguardandoMenuDeContinuacao, false)
                 .SetProperty(c => c.ServicoDoSubmenuId, (Guid?)null)
                 .SetProperty(c => c.AguardandoDadosDoServico, false)
+                .SetProperty(c => c.DadosDoServicoRecebidosEm, (DateTime?)null)
                 .SetProperty(c => c.AguardandoComprovante, false)
                 .SetProperty(c => c.AguardandoRespostaInteligente, false)
                 .SetProperty(c => c.TentativasRespostaInteligente, 0)

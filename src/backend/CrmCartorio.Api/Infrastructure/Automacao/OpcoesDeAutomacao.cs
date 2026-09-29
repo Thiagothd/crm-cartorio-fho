@@ -48,4 +48,26 @@ public class OpcoesDeAutomacao
     /// ganho de a configuracao nao mentir.
     /// </remarks>
     public int IntervaloDeInatividadeEmMinutos { get; set; } = 1;
+
+    /// <summary>
+    /// Liga a espera dos dados do servico: a instrucao (ex.: a chave Pix) sai quando o
+    /// cliente para de mandar os dados. Ver <c>IVarredorDeDadosDoServico</c>.
+    /// </summary>
+    /// <remarks>
+    /// Chave de emergencia do operador. Desligada, quem mandar os dados fica sem a
+    /// instrucao — por isso so para parar o motor, nunca como configuracao.
+    /// </remarks>
+    public bool EsperarDadosDoServico { get; set; } = true;
+
+    /// <summary>
+    /// Quantos segundos sem mensagem nova contam como "o cliente terminou de mandar os dados".
+    /// </summary>
+    /// <remarks>
+    /// 45 s: o bastante para quem digita o CPF numa mensagem e a data na seguinte,
+    /// curto o bastante para quem mandou tudo de uma vez nao achar que o robo travou.
+    /// </remarks>
+    public int SegundosDeSilencioAntesDaInstrucao { get; set; } = 45;
+
+    /// <summary>Intervalo entre passadas da espera de dados, em segundos.</summary>
+    public int IntervaloDaEsperaDeDadosEmSegundos { get; set; } = 10;
 }

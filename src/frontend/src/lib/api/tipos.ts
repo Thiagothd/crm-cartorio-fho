@@ -859,6 +859,7 @@ export interface TipoServico {
   mensagemAoEscolher: string | null
   /** Texto do robô depois que o cliente envia os dados (ex.: chave Pix). */
   mensagemAposDados: string | null
+  mensagemAposComprovante: string | null
 }
 
 // Indicadores (Visão Geral, Indicadores e Relatórios, sino) --------------------

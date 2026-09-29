@@ -285,6 +285,7 @@ Coberto em `verificar-canal-whatsapp.cs`.
 | `VarredorDePrazos` | Dispara os dois gatilhos de prazo, que ninguém provoca |
 | `VarredorDeInatividade` | Pergunta e encerra conversa de WhatsApp real parada, por tenant configurável — ver abaixo |
 | `AplicadorDeEncerramentoPorInatividade` | Interpreta a resposta do cliente à pergunta pendente |
+| `VarredorDeDadosDoServico` | Manda a instrução do serviço (ex.: chave Pix) quando o cliente para de mandar os dados — ver `docs/FLUXO-AUTOMACAO.md` §7.2.1 |
 
 - **O disparador enfileira, não grava.** As mensagens entram no `DbContext` e quem
   chamou decide o `SaveChanges`. No webhook durável, cliente/conversa/entrada já

@@ -7,7 +7,9 @@
 > 2K — aviso ao cliente quando o atendente encerra pelo painel, e assinatura
 > de autoria no texto que sai pelo WhatsApp; chaves gerais de liga/desliga
 > por tenant, §1.1; menu de serviços em níveis, com ordem, submenu, texto
-> próprio por serviço e sequência dados → instrução → comprovante, §7.1–7.3).
+> próprio por serviço e sequência dados → instrução → comprovante, §7.1–7.3;
+> espera o cliente terminar de mandar os dados antes da instrução, e texto
+> próprio ao receber o comprovante, §7.2).
 > **Última atualização:** 2026-09-29
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
@@ -162,7 +164,8 @@ atendimento por WhatsApp.
 | `AguardandoRespostaInteligente` | Qualquer resposta da IA, com sucesso ou sem (`RespostaSemCorrespondencia`) | `AplicadorDeRespostaInteligente` (chamado direto, fora do `AplicadorDePosAtendimento`) | A IA escala — **só por pedido explícito**, desde 2026-08-18 — ou o cliente pede "menu" |
 | `AguardandoMenuDeContinuacao` | `ServicoEscolhido`, logo após o checklist | `AplicadorDePosAtendimento` | A próxima mensagem do cliente chega, corresponda ou não a uma das 4 opções |
 | `ServicoDoSubmenuId` | `AplicadorDeEscolhaDeServico`, quando o serviço escolhido agrupa outros (§7.1) | `AplicadorDeEscolhaDeServico` — decide qual lista é o menu no ar | A próxima escolha chega, corresponda ou não. Também zerado por "menu", encerramento e "ver outro serviço" |
-| `AguardandoDadosDoServico` | `AplicadorDeEscolhaDeServico`, quando o serviço tem `MensagemAposDados` (§7.2) | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como os dados |
+| `AguardandoDadosDoServico` | `AplicadorDeEscolhaDeServico`, quando o serviço tem `MensagemAposDados` (§7.2) | `AplicadorDeDadosDoServico` (marca o começo) e `VarredorDeDadosDoServico` (responde) | **Exceção à regra de uma mensagem só:** dura enquanto o cliente manda os dados, e desliga quando o fio fica em silêncio (§7.2) |
+| `DadosDoServicoRecebidosEm` | `AplicadorDeDadosDoServico`, na primeira mensagem de dados | `VarredorDeDadosDoServico` — só olha conversa com o campo preenchido | Junto com `AguardandoDadosDoServico`; também zerado por "menu" e encerramento |
 | `AguardandoComprovante` | `AplicadorDeDadosDoServico`, depois de mandar a `MensagemAposDados` | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como o comprovante, e o atendimento passa para a equipe |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
 | `AguardandoNome` | `RecebimentoDeWhatsApp`, na 1ª mensagem de contato sem nome utilizável (gatilho 14) | `AplicadorDePedidoDeNome` | A próxima mensagem do cliente chega — seja ela um nome ou não. Ver §11 |
@@ -393,18 +396,55 @@ no menu de continuação e passa a seguir, com `AplicadorDeDadosDoServico`:
 1. Depois da `MensagemAoEscolher` (que pede os dados), liga
    `AguardandoDadosDoServico` — **sem** menu de continuação no meio, que
    confundiria quem está digitando nome e CPF.
-2. A próxima mensagem do cliente, qualquer que seja, dispara a
+2. A próxima mensagem do cliente, qualquer que seja, conta como começo dos
+   dados: grava `DadosDoServicoRecebidosEm` e uma anotação no painel, **sem
+   responder**. As mensagens seguintes só empurram `UltimaMensagemEm`.
+3. Quando o fio fica em silêncio por 45 segundos (§7.2.1), a varredura manda a
    `MensagemAposDados` (no pedido do cartório parceiro, a chave Pix) e liga
    `AguardandoComprovante`.
-3. A mensagem seguinte passa o atendimento para a equipe: gatilho 9
-   (`PedidoDeAtendente`) e `EmAtendimentoHumano = true`, o mesmo desfecho da
-   opção "falar com atendente".
+4. A mensagem seguinte passa o atendimento para a equipe, com
+   `EmAtendimentoHumano = true` — o mesmo desfecho da opção "falar com
+   atendente". O aviso ao cliente é a **`MensagemAposComprovante`** do serviço
+   (quinto campo, migração `sql/053`, ex.: "Recebemos seu comprovante!"); vazia,
+   o gatilho 9 (`PedidoDeAtendente`) de sempre.
 
 **Qualquer mensagem avança o passo**, inclusive "já paguei" sem foto. O robô
 não tem como saber se os dados vieram completos, nem se uma imagem é mesmo
 comprovante; tentar adivinhar prenderia o cliente num laço de "não entendi".
 Quem confere tudo é o atendente, no fim. Se o texto sumir do cadastro no meio
-do caminho, o passo 2 passa direto para a equipe — nunca fica mudo.
+do caminho, o passo 3 passa direto para a equipe — nunca fica mudo.
+
+#### 7.2.1 Por que esperar o silêncio — desde 2026-09-29
+
+Teste ao vivo do menu do cartório parceiro, no mesmo dia em que ele entrou: com os dados
+numa mensagem só, o fluxo saiu perfeito. Mas muita gente manda o nome numa
+mensagem, o CPF em outra e a data em outra. Respondendo à primeira, o Pix saía
+no meio da digitação, e o CPF que vinha depois era tomado como comprovante — o
+atendimento ia para a equipe antes da hora.
+
+`VarredorDeDadosDoServico`, num `BackgroundService` próprio
+(`HospedeDaEsperaDeDados`), roda a cada 10 segundos e responde a conversa que:
+
+- está com `AguardandoDadosDoServico` e `DadosDoServicoRecebidosEm` preenchido,
+  ativa e sem atendente (`EmAtendimentoHumano` desligado);
+- tem `UltimaMensagemEm` há mais de 45 segundos;
+- **não** tem mensagem do cliente aceita e ainda não processada pela fila do
+  webhook — essa mensagem também é digitação.
+
+A instrução sai, portanto, entre 45 e 55 segundos depois da última mensagem de
+dados. Os dois tempos estão em `Automacao` no appsettings
+(`SegundosDeSilencioAntesDaInstrucao`, `IntervaloDaEsperaDeDadosEmSegundos`),
+com a chave de emergência `EsperarDadosDoServico`.
+
+**Corrida com o webhook.** A varredura carrega a conversa rastreada e salva
+com o `RowVersion`: se o cliente escreveu entre a leitura e a gravação, ela
+perde, desiste em silêncio, e a janela recomeça. Se quem perde é o webhook, ele
+descarta a própria automação sem erro (`SalvarSemRepetirEfeitosAsync`) — a
+mensagem fica gravada, e a próxima do cliente segue o passo 4.
+
+Não filtra `Canal == WhatsApp`, ao contrário do varredor de inatividade: a
+conversa simulada chega aqui só se alguém percorreu o menu nela, e aí deve ver
+o mesmo fluxo.
 
 "menu", encerramento (pelo cliente, pelo atendente ou por inatividade) e a
 resposta "não" à pergunta de inatividade desligam as duas flags. A chave geral
@@ -414,16 +454,20 @@ próprio sai e nenhuma espera liga.
 ### 7.3 O texto próprio é mensagem automática
 
 `DisparadorDeMensagemAutomatica.EnfileirarTextoAsync` gera a
-`MensagemAoEscolher` e a `MensagemAposDados` exatamente como uma regra
+`MensagemAoEscolher`, a `MensagemAposDados` e a `MensagemAposComprovante`
+exatamente como uma regra
 cadastrada: `AutorTipo.Sistema` + `EhAutomatica`, marcadores resolvidos,
 limite de 4000 caracteres, chave geral respeitada, saída pela mesma fila. O
 texto vive no **serviço** porque é dele que o cartório lembra ("o que a
 certidão de óbito responde?"), não num gatilho.
 
 Coberto por `verificar-menu-em-niveis.cs` (em memória): ordem, submenu, o
-caminho inteiro até a equipe, serviço com texto próprio sem sequência de
-dados, a mensagem geral de sempre para quem não configurou nada, as recusas do
-cadastro, "menu" zerando tudo e a chave geral desligada.
+caminho inteiro até a equipe — dados em três mensagens, a varredura real
+esperando o silêncio e mandando o Pix uma vez só, o texto próprio do
+comprovante —, o aviso geral quando o serviço não tem texto do comprovante,
+serviço com texto próprio sem sequência de dados, a mensagem geral de sempre
+para quem não configurou nada, as recusas do cadastro, "menu" zerando tudo e a
+chave geral desligada.
 
 > **Lacuna conhecida, ainda não fechada:** se um setor for cadastrado **sem
 > nenhum** `TipoServico` vinculado (`SetorId` nunca preenchido em nenhum
@@ -1019,6 +1063,7 @@ num lado exige mexer no outro.
 | Nível 1 — triagem por setor | `Modules/Atendimento/Application/AplicadorDeTriagem.cs` |
 | Nível 2 — escolha de serviço e submenu | `Modules/Atendimento/Application/AplicadorDeEscolhaDeServico.cs` |
 | Dados → instrução → comprovante (§7.2) | `Modules/Atendimento/Application/AplicadorDeDadosDoServico.cs` |
+| Espera o cliente terminar de mandar os dados (§7.2.1) | `Modules/Atendimento/Application/VarredorDeDadosDoServico.cs`, `Infrastructure/Automacao/HospedeDaEsperaDeDados.cs` |
 | Piso — pós-atendimento, menu de continuação, encerrar pelo cliente | `Modules/Atendimento/Application/AplicadorDePosAtendimento.cs` |
 | IA — decide responder ou escalar | `Modules/Atendimento/Application/AplicadorDeRespostaInteligente.cs` |
 | Interpretador de menu (número/nome exato/parcial) | `Modules/Atendimento/Domain/TriagemAutomatica.cs` |

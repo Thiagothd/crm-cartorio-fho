@@ -22,7 +22,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 //
 // Monta o kit de partida, configura o menu PELO SERVIÇO DE CADASTRO (o mesmo da tela) e
 // percorre a conversa com os aplicadores reais: ordem do menu, submenu da segunda via,
-// dados → Pix → comprovante → atendente, serviço sem sequência de dados, regressão da
+// dados picados → silêncio → Pix (pela varredura real) → comprovante com texto próprio → atendente, serviço sem sequência de dados, regressão da
 // mensagem geral, recusas do cadastro, "menu" zerando tudo e chave geral desligada.
 
 var falhas = new List<string>();
@@ -44,13 +44,13 @@ var civil = await db.Setores.Where(s => s.TenantId == tenantId && s.Nome == "Reg
 var notas = await db.Setores.Where(s => s.TenantId == tenantId && s.Nome == "Tabelionato de Notas").Select(s => s.Id).SingleAsync();
 async Task<Guid> Id(string nome) => await db.TiposServico.Where(t => t.TenantId == tenantId && t.Nome == nome).Select(t => t.Id).SingleAsync();
 
-async Task Configurar(string nome, int ordem, Guid? pai = null, string? aoEscolher = null, string? aposDados = null, string? novoNome = null)
+async Task Configurar(string nome, int ordem, Guid? pai = null, string? aoEscolher = null, string? aposDados = null, string? novoNome = null, string? aposComprovante = null)
 {
     var atual = await cadastro.ObterAsync(await Id(nome));
     await cadastro.AtualizarAsync(atual.Id, new SalvarTipoServicoRequest(
         novoNome ?? atual.Nome, atual.Codigo, atual.Categoria, atual.Descricao, atual.Ativo,
         atual.Prazo is { } p ? new PrazoServicoRequest(p.PrazoHoras, p.PercentualAlerta, p.ApenasDiasUteis) : null,
-        atual.SetorId, atual.DocumentosNecessarios, ordem, pai, aoEscolher, aposDados));
+        atual.SetorId, atual.DocumentosNecessarios, ordem, pai, aoEscolher, aposDados, aposComprovante));
 }
 
 const string Pix = "Obrigado! ✅ Recebemos os dados para solicitação da certidão.\nPara pagamento, utilize a chave Pix abaixo:\n\n00000000000000\n\nApós realizar o pagamento, envie o comprovante por aqui.";
@@ -62,7 +62,8 @@ await Configurar("Habilitação de casamento", 3, aoEscolher: "HABILITAÇÃO DE 
 await Configurar("Registro de óbito", 4, aoEscolher: "REGISTRO DE ÓBITO — documentos necessários…");
 await Configurar("Averbação em registro civil", 5, aoEscolher: "AVERBAÇÕES — principais situações…", novoNome: "Averbações");
 var segundaVia = await Id("Segunda via de certidão");
-await Configurar("Certidão de nascimento", 1, segundaVia, "Para solicitar a segunda via da Certidão de Nascimento, informe…", Pix);
+await Configurar("Certidão de nascimento", 1, segundaVia, "Para solicitar a segunda via da Certidão de Nascimento, informe…", Pix,
+    aposComprovante: "Recebemos seu comprovante, {NomeCliente}! ✅ Um de nossos atendentes vai conferir e dar continuidade.");
 await Configurar("Certidão de casamento", 2, segundaVia, "Para solicitar a segunda via da Certidão de Casamento, informe…", Pix);
 await Configurar("Certidão de óbito", 3, segundaVia, "Para solicitar a segunda via da Certidão de Óbito, informe…", Pix);
 
@@ -115,13 +116,45 @@ Conferir(conversa.TipoServicoId == await Id("Certidão de nascimento") && conver
 Conferir(conversa.AguardandoDadosDoServico && !conversa.AguardandoMenuDeContinuacao, "passa a esperar os dados, sem menu de continuação no meio");
 Conferir(m2.Count == 1 && m2[0].StartsWith("Para solicitar a segunda via da Certidão de Nascimento"), "manda o texto próprio da certidão");
 
+// Os dados chegam picados, em três mensagens: nenhuma é respondida na hora.
 var m3 = await Geradas(() => Dados(conversa));
-Conferir(conversa.AguardandoComprovante && !conversa.AguardandoDadosDoServico, "os dados levam a esperar o comprovante");
-Conferir(m3.Count == 1 && m3[0].Contains("chave Pix"), "responde com a chave Pix cadastrada");
+var comecouEm = conversa.DadosDoServicoRecebidosEm;
+await Geradas(() => Dados(conversa));
+var m3c = await Geradas(() => Dados(conversa));
+Conferir(m3.Count == 0 && m3c.Count == 0 && conversa.AguardandoDadosDoServico && !conversa.AguardandoComprovante,
+    "dados em várias mensagens: o robô não responde no meio da digitação");
+Conferir(comecouEm is not null && conversa.DadosDoServicoRecebidosEm == comecouEm, "marca quando os dados começaram, só na primeira mensagem");
+Conferir(await db.Mensagens.CountAsync(m => m.ConversaId == conversa.Id && m.AutorTipo == AutorTipo.Sistema && !m.EhAutomatica && m.Conteudo.StartsWith("Cliente começou a enviar")) == 1,
+    "uma anotação só para o painel, não uma por mensagem");
+
+// A varredura real, num contexto próprio como o do serviço de fundo.
+async Task<int> Varrer(TimeSpan silencio)
+{
+    await using var dbDoFundo = new CrmDbContext(opcoes, FabricaDeCifraDeDados.CriarDormente());
+    var varredor = new VarredorDeDadosDoServico(dbDoFundo,
+        new DisparadorDeMensagemAutomatica(dbDoFundo, NullLogger<DisparadorDeMensagemAutomatica>.Instance),
+        new NotificadorSilencioso(), new CanalSilencioso(), NullLogger<VarredorDeDadosDoServico>.Instance);
+    var n = await varredor.ExecutarAsync(silencio);
+    await db.Entry(conversa).ReloadAsync();
+    return n;
+}
+
+conversa.UltimaMensagemEm = DateTime.UtcNow;
+await db.SaveChangesAsync();
+Conferir(await Varrer(TimeSpan.FromSeconds(45)) == 0 && conversa.AguardandoDadosDoServico, "cliente ainda digitando (última mensagem agora): a varredura espera");
+
+conversa.UltimaMensagemEm = DateTime.UtcNow.AddSeconds(-60);
+await db.SaveChangesAsync();
+var respondidas = await Varrer(TimeSpan.FromSeconds(45));
+var pix = await db.Mensagens.Where(m => m.ConversaId == conversa.Id && m.EhAutomatica && m.Conteudo.Contains("chave Pix")).ToListAsync();
+Conferir(respondidas == 1 && pix.Count == 1 && pix[0].StatusEntrega == StatusEntrega.Pendente, "depois do silêncio, a varredura manda a chave Pix uma vez, na fila de envio");
+Conferir(conversa.AguardandoComprovante && !conversa.AguardandoDadosDoServico && conversa.DadosDoServicoRecebidosEm is null, "e passa a esperar o comprovante");
+Conferir(await Varrer(TimeSpan.FromSeconds(45)) == 0, "a passada seguinte não repete o Pix");
 
 var m4 = await Geradas(() => Dados(conversa));
 Conferir(conversa.EmAtendimentoHumano && !conversa.AguardandoComprovante, "o comprovante passa o atendimento para a equipe");
-Conferir(m4.Count == 1 && m4[0].Contains("atendentes vai continuar"), "avisa o cliente com a mensagem de pedido de atendente");
+Conferir(m4.Count == 1 && m4[0] == "Recebemos seu comprovante, Adriana Alves! ✅ Um de nossos atendentes vai conferir e dar continuidade.",
+    "avisa o cliente com o texto próprio do comprovante, com o nome resolvido");
 
 // ---- serviço com texto próprio mas sem sequência de dados
 var conversa2 = NovaConversa(civil);
@@ -143,8 +176,20 @@ await db.SaveChangesAsync();
 await Geradas(() => Escolher(conversa4, "1"));
 await Geradas(() => Escolher(conversa4, "2"));
 Conferir(conversa4.AguardandoDadosDoServico, "casamento também espera os dados");
+await Geradas(() => Dados(conversa4));
+Conferir(conversa4.DadosDoServicoRecebidosEm is not null, "casamento marcou o começo dos dados");
 await Geradas(() => AplicadorDePosAtendimento.ReabrirDoZeroAsync(db, automaticas, conversa4, DateTime.UtcNow, default));
-Conferir(!conversa4.AguardandoDadosDoServico && !conversa4.AguardandoComprovante && conversa4.ServicoDoSubmenuId is null && conversa4.AguardandoTriagem, "\"menu\" zera tudo e volta à triagem");
+Conferir(!conversa4.AguardandoDadosDoServico && !conversa4.AguardandoComprovante && conversa4.DadosDoServicoRecebidosEm is null && conversa4.ServicoDoSubmenuId is null && conversa4.AguardandoTriagem, "\"menu\" zera tudo e volta à triagem");
+
+// ---- sem texto próprio do comprovante, sai o aviso geral de pedido de atendente
+var conversa6 = NovaConversa(civil);
+await db.SaveChangesAsync();
+await Geradas(() => Escolher(conversa6, "1"));
+await Geradas(() => Escolher(conversa6, "3"));
+await Geradas(() => Dados(conversa6));
+conversa6.AguardandoDadosDoServico = false; conversa6.DadosDoServicoRecebidosEm = null; conversa6.AguardandoComprovante = true;
+var m6 = await Geradas(() => Dados(conversa6));
+Conferir(conversa6.EmAtendimentoHumano && m6.Count == 1 && m6[0].Contains("atendentes vai continuar"), "óbito, sem texto do comprovante: aviso geral de pedido de atendente");
 
 // ---- chave geral desligada: nada é gerado e nada fica esperando
 (await db.Tenants.SingleAsync(t => t.Id == tenantId)).MensagensAutomaticasHabilitadas = false;
@@ -157,6 +202,25 @@ Conferir(d1.Count == 0 && conversa5.ServicoDoSubmenuId is null && !conversa5.Agu
 Console.WriteLine();
 Console.WriteLine(falhas.Count == 0 ? "TUDO OK" : $"{falhas.Count} FALHA(S)");
 return falhas.Count == 0 ? 0 : 1;
+
+file sealed class CanalSilencioso : IEnviadorDeCanal
+{
+    public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) => Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) => Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+}
+
+file sealed class NotificadorSilencioso : INotificadorDeAtendimento
+{
+    public Task ConversaAtribuidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaLiberadaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaTransferidaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaAtualizadaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaEncerradaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConversaReabertaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+    public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+}
 
 file sealed class ContextoFixo(Guid tenantId) : IContextoDoUsuario
 {

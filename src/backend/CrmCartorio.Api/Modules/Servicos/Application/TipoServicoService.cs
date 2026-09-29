@@ -109,7 +109,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             Ordem = request.Ordem,
             ServicoPaiId = request.ServicoPaiId,
             MensagemAoEscolher = ValidarMensagem(request.MensagemAoEscolher),
-            MensagemAposDados = ValidarMensagem(request.MensagemAposDados)
+            MensagemAposDados = ValidarMensagem(request.MensagemAposDados),
+            MensagemAposComprovante = ValidarMensagem(request.MensagemAposComprovante)
         };
 
         db.TiposServico.Add(tipo);
@@ -163,6 +164,7 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
         tipo.ServicoPaiId = request.ServicoPaiId;
         tipo.MensagemAoEscolher = ValidarMensagem(request.MensagemAoEscolher);
         tipo.MensagemAposDados = ValidarMensagem(request.MensagemAposDados);
+        tipo.MensagemAposComprovante = ValidarMensagem(request.MensagemAposComprovante);
 
         if (request.Prazo is { } prazo)
         {
@@ -355,7 +357,8 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
             tipo.ServicoPaiId,
             tipo.ServicoPaiId is { } paiId ? nomesDeServico?.GetValueOrDefault(paiId) : null,
             tipo.MensagemAoEscolher,
-            tipo.MensagemAposDados);
+            tipo.MensagemAposDados,
+            tipo.MensagemAposComprovante);
 
     private static string DescreverCategoria(CategoriaServico categoria) => categoria switch
     {

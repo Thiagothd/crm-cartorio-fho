@@ -203,6 +203,7 @@ builder.Services.AddScoped<IAcoesDeMensagem>(sp => (MensagemService)sp.GetRequir
 builder.Services.AddScoped<IDisparadorDeMensagemAutomatica, DisparadorDeMensagemAutomatica>();
 builder.Services.AddScoped<IVarredorDePrazos, VarredorDePrazos>();
 builder.Services.AddScoped<IVarredorDeInatividade, VarredorDeInatividade>();
+builder.Services.AddScoped<IVarredorDeDadosDoServico, VarredorDeDadosDoServico>();
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
 
@@ -362,6 +363,10 @@ builder.Services.AddHostedService<HospedeDaVarreduraDePrazos>();
 // ninguem encerra fica Ativa para sempre e o cliente que volta cai nela — sem
 // boas-vindas, sem triagem. Ver IVarredorDeInatividade.
 builder.Services.AddHostedService<HospedeDaVarreduraDeInatividade>();
+
+// A instrucao depois dos dados do servico (ex.: a chave Pix) espera o cliente parar de
+// digitar. Ver IVarredorDeDadosDoServico.
+builder.Services.AddHostedService<HospedeDaEsperaDeDados>();
 
 // Drena a fila acima em segundo plano — ver FilaDeEnvioDoCanal e
 // HospedeDaFilaDeEnvioDoCanal para o porque de existir. Complementar ao

@@ -203,9 +203,22 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     /// <summary>
     /// O robô pediu os dados do serviço (<c>TipoServico.MensagemAoEscolher</c>) e
     /// espera o cliente responder. A resposta, qualquer que seja, dispara
-    /// <c>TipoServico.MensagemAposDados</c>.
+    /// <c>TipoServico.MensagemAposDados</c> — quando o cliente para de digitar, ver
+    /// <see cref="DadosDoServicoRecebidosEm"/>.
     /// </summary>
     public bool AguardandoDadosDoServico { get; set; }
+
+    /// <summary>
+    /// Quando chegou a primeira mensagem de dados. Nulo = o cliente ainda não
+    /// começou a responder.
+    /// </summary>
+    /// <remarks>
+    /// Os dados costumam vir picados (nome, depois CPF, depois a data). A instrução
+    /// não sai na primeira mensagem: sai quando o fio fica em silêncio, pela
+    /// varredura <c>VarredorDeDadosDoServico</c>, que só olha conversa com este
+    /// campo preenchido.
+    /// </remarks>
+    public DateTime? DadosDoServicoRecebidosEm { get; set; }
 
     /// <summary>
     /// O robô mandou <c>TipoServico.MensagemAposDados</c> (ex.: a chave Pix) e espera o

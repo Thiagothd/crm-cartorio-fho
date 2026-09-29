@@ -750,6 +750,7 @@ public class ConversaService(
         conversa.AguardandoEscolhaDeServico = false;
         conversa.ServicoDoSubmenuId = null;
         conversa.AguardandoDadosDoServico = false;
+        conversa.DadosDoServicoRecebidosEm = null;
         conversa.AguardandoComprovante = false;
         conversa.AguardandoRespostaInteligente = false;
         conversa.AguardandoMenuDeContinuacao = false;

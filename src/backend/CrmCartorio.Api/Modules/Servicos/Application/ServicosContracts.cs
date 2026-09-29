@@ -16,7 +16,8 @@ public record SalvarTipoServicoRequest(
     int Ordem = 0,
     Guid? ServicoPaiId = null,
     string? MensagemAoEscolher = null,
-    string? MensagemAposDados = null);
+    string? MensagemAposDados = null,
+    string? MensagemAposComprovante = null);
 
 public record PrazoServicoResponse(
     Guid Id,
@@ -42,4 +43,5 @@ public record TipoServicoResponse(
     Guid? ServicoPaiId = null,
     string? ServicoPaiNome = null,
     string? MensagemAoEscolher = null,
-    string? MensagemAposDados = null);
+    string? MensagemAposDados = null,
+    string? MensagemAposComprovante = null);

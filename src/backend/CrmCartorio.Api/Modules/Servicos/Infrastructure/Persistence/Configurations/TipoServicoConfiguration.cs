@@ -22,6 +22,7 @@ public class TipoServicoConfiguration : IEntityTypeConfiguration<TipoServico>
         // (DisparadorDeMensagemAutomatica.TamanhoMaximoDaMensagem).
         builder.Property(t => t.MensagemAoEscolher).HasMaxLength(4000);
         builder.Property(t => t.MensagemAposDados).HasMaxLength(4000);
+        builder.Property(t => t.MensagemAposComprovante).HasMaxLength(4000);
 
         builder.HasOne<TipoServico>()
             .WithMany()

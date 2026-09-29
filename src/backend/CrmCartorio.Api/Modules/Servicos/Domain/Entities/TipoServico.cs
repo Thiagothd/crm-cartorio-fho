@@ -65,6 +65,14 @@ public class TipoServico : EntidadeBase, IEntidadeDeTenant
     /// </summary>
     public string? MensagemAposDados { get; set; }
 
+    /// <summary>
+    /// Texto que o robô manda quando o cliente envia o comprovante, ao passar o
+    /// atendimento para a equipe — ex.: "Recebemos seu comprovante!". Só vale para
+    /// serviço com <see cref="MensagemAposDados"/>; vazio, sai o aviso geral de
+    /// pedido de atendente.
+    /// </summary>
+    public string? MensagemAposComprovante { get; set; }
+
     public bool Ativo { get; set; } = true;
 
     /// <summary>SLA deste servico. Relacao 1:1, opcional.</summary>
