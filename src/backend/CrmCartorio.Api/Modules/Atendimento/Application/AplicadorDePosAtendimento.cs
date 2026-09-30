@@ -261,6 +261,8 @@ public static class AplicadorDePosAtendimento
         conversa.AguardandoNome = false;
         conversa.PerguntaDeEncerramentoEnviadaEm = null;
         conversa.EmAtendimentoHumano = false;
+        conversa.RoboPausadoEm = null;
+        conversa.RoboPausadoPorAtendenteId = null;
 
         db.Mensagens.Add(new Mensagem
         {

@@ -20,6 +20,9 @@ public class ConfiguracoesServiceException(string codigo, string mensagem, int s
     public static ConfiguracoesServiceException CorInvalida() =>
         new("cor_invalida", "Informe a cor no formato #RRGGBB.", 400);
 
+    public static ConfiguracoesServiceException ModoDoRoboInvalido() =>
+        new("modo_do_robo_invalido", "Escolha como o robô trata o setor: ligado, só equipe ou fora do menu.", 400);
+
     public static ConfiguracoesServiceException SemPermissao() =>
         new("sem_permissao", "Seu perfil nao permite alterar cadastros.", 403);
 

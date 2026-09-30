@@ -2,7 +2,8 @@ using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 
 namespace CrmCartorio.Api.Modules.Configuracoes.Application;
 
-public record SalvarSetorRequest(string Nome, string? Descricao, int Ordem, bool Ativo);
+/// <param name="ModoDoRobo">Nulo mantém o que está gravado.</param>
+public record SalvarSetorRequest(string Nome, string? Descricao, int Ordem, bool Ativo, ModoDoRoboNoSetor? ModoDoRobo = null);
 
 public record SalvarEtapaRequest(
     string Nome,
@@ -18,7 +19,8 @@ public record SetorResponse(
     string? Descricao,
     int Ordem,
     bool Ativo,
-    int ConversasAtivas);
+    int ConversasAtivas,
+    ModoDoRoboNoSetor ModoDoRobo = ModoDoRoboNoSetor.Ligado);
 
 public record EtapaResponse(
     Guid Id,

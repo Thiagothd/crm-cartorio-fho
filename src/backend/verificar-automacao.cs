@@ -2809,6 +2809,276 @@ finally
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 33 — liga e desliga do robo (055, pedido do cartório parceiro em 2026-09-30):
+// setor "fora do menu" e "so equipe", pausar e ligar de novo numa conversa (os
+// dois modos), devolver ao robo uma conversa assumida, e o contato "sem robo"
+// pelo painel e pelo WhatsApp. O modo dos setores volta ao original no finally
+// — o tenant e o de demonstracao.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 33 — liga e desliga do robo: setor, conversa e contato");
+
+var modosOriginais33 = new Dictionary<Guid, ModoDoRoboNoSetor>();
+
+async Task DefinirModoDoSetorAsync(Guid setorId, ModoDoRoboNoSetor modo)
+{
+    await using var db = new CrmDbContext(opcoes, cifra);
+    var setor = await db.Setores.FirstAsync(s => s.Id == setorId);
+    modosOriginais33.TryAdd(setorId, setor.ModoDoRobo);
+    setor.ModoDoRobo = modo;
+    await db.SaveChangesAsync();
+}
+
+async Task<int> AutomaticasAsync(Guid conversaId) =>
+    (await FioAsync(conversaId)).Count(m => m.Automatica);
+
+try
+{
+    var (setorAId, setorANome, _) = setores[0];
+    var (setorBId, setorBNome, _) = setores[1];
+
+    // --- 33a: "fora do menu" some do menu e a triagem deixa de reconhecer
+    await DefinirModoDoSetorAsync(setorBId, ModoDoRoboNoSetor.ForaDoMenu);
+
+    Guid conversa33a;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa33a = (await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(await NovoClienteAsync("Robo fora do menu"), null, null, "Bom dia!"))).Id;
+    }
+
+    var menu33a = (await FioAsync(conversa33a)).First(m => m.Automatica).Conteudo;
+    // Procura a OPCAO do menu ("- Nome"): o nome do cartorio pode conter o do setor.
+Checar($"fora do menu: \"{setorBNome}\" nao aparece como opcao nas boas-vindas", !menu33a.Contains($"- {setorBNome}", StringComparison.Ordinal), menu33a);
+    Checar($"fora do menu: \"{setorANome}\" continua como opcao", menu33a.Contains($"1 - {setorANome}", StringComparison.Ordinal), menu33a);
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa33a, new SimularMensagemDeClienteRequest(setorBNome));
+    }
+
+    Checar("fora do menu: digitar o nome do setor nao leva a ele",
+        (await RecarregarAsync(conversa33a)).SetorId != setorBId);
+
+    // --- 33b: "so equipe" aparece, mas quem escolhe vai direto para uma pessoa
+    await DefinirModoDoSetorAsync(setorBId, ModoDoRoboNoSetor.SoEquipe);
+
+    Guid conversa33b;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa33b = (await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(await NovoClienteAsync("Robo so equipe"), null, null, "Bom dia!"))).Id;
+    }
+
+    Checar($"so equipe: \"{setorBNome}\" aparece no menu",
+        (await FioAsync(conversa33b)).First(m => m.Automatica).Conteudo.Contains($"2 - {setorBNome}", StringComparison.Ordinal));
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa33b, new SimularMensagemDeClienteRequest("2"));
+    }
+
+    {
+        var c = await RecarregarAsync(conversa33b);
+        var ultima = (await FioAsync(conversa33b)).Last(m => m.Automatica).Conteudo;
+        Checar("so equipe: a conversa fica no setor escolhido", c.SetorId == setorBId);
+        Checar("so equipe: vai direto para a equipe (atendimento humano, sem menu de servicos)",
+            c.EmAtendimentoHumano && !c.AguardandoEscolhaDeServico);
+        Checar("so equipe: o cliente recebe o aviso de que um atendente vai continuar",
+            ultima.Contains("atendente", StringComparison.OrdinalIgnoreCase), ultima);
+    }
+
+    await DefinirModoDoSetorAsync(setorBId, modosOriginais33[setorBId]);
+
+    // --- 33c: pausar cala o robo nesta conversa, com o menu no ar
+    Guid conversa33c;
+    Guid cliente33c = await NovoClienteAsync("Robo pausado");
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa33c = (await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(cliente33c, null, null, "Bom dia!"))).Id;
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var resumo = await NovaConversaService(db, atendenteId, atendenteNome)
+            .PausarRoboAsync(conversa33c, new PausarRoboRequest());
+        Checar("pausar: o resumo volta com a hora e o nome de quem pausou",
+            resumo.RoboPausadoEm is not null && resumo.RoboPausadoPorNome == atendenteNome);
+    }
+
+    {
+        var c = await RecarregarAsync(conversa33c);
+        Checar("pausar: o menu no ar deixa de valer (AguardandoTriagem desliga)", !c.AguardandoTriagem);
+    }
+
+    var antes33c = await AutomaticasAsync(conversa33c);
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa33c, new SimularMensagemDeClienteRequest("1"));
+    }
+
+    Checar("pausado: a resposta do cliente fica gravada e o robo nao responde nada",
+        await AutomaticasAsync(conversa33c) == antes33c && (await RecarregarAsync(conversa33c)).SetorId is null);
+
+    // --- 33d: ligar de novo, "so voltar a responder"
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome)
+            .RetomarRoboAsync(conversa33c, new RetomarRoboRequest(ModoDeRetomadaDoRobo.SoResponder));
+    }
+
+    {
+        var c = await RecarregarAsync(conversa33c);
+        Checar("ligar (so responder): pausa some, conversa na fila e sem atendimento humano",
+            c.RoboPausadoEm is null && c.AtendenteId is null && !c.EmAtendimentoHumano);
+        Checar("ligar (so responder): nao manda nada na hora", await AutomaticasAsync(conversa33c) == antes33c);
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaMensagemService(db, atendenteId, atendenteNome).SimularRecebimentoAsync(
+            conversa33c, new SimularMensagemDeClienteRequest("vocês abrem sábado?"));
+    }
+
+    Checar("ligar (so responder): a proxima mensagem do cliente volta a ter resposta automatica",
+        await AutomaticasAsync(conversa33c) > antes33c);
+
+    // --- 33e: devolver ao robo uma conversa ASSUMIDA, voltando ao menu inicial
+    Guid conversa33e;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa33e = (await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(await NovoClienteAsync("Robo devolvido"), setorAId, null, "Bom dia!"))).Id;
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa33e);
+    }
+
+    var antes33e = await AutomaticasAsync(conversa33e);
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome)
+            .RetomarRoboAsync(conversa33e, new RetomarRoboRequest(ModoDeRetomadaDoRobo.MenuInicial));
+    }
+
+    {
+        var c = await RecarregarAsync(conversa33e);
+        var ultima = (await FioAsync(conversa33e)).Last(m => m.Automatica).Conteudo;
+        Checar("devolver assumida: sai do atendente e volta para a fila",
+            c.AtendenteId is null && !c.EmAtendimentoHumano);
+        Checar("devolver assumida (menu inicial): recomeca do zero, sem setor, esperando a triagem",
+            c.SetorId is null && c.AguardandoTriagem);
+        Checar("devolver assumida (menu inicial): as boas-vindas saem de novo",
+            await AutomaticasAsync(conversa33e) == antes33e + 1 && ultima.Contains(setorANome, StringComparison.Ordinal), ultima);
+    }
+
+    // --- 33f: contato "sem robo" pelo painel
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var servico = NovaConversaService(db, atendenteId, atendenteNome);
+        await servico.PausarRoboAsync(conversa33c, new PausarRoboRequest(SempreSemRoboParaOContato: true));
+    }
+
+    Checar("sem robo: o contato fica marcado, com a data", (await ClienteDaConversaAsync(conversa33c)) is { AtendimentoSemRobo: true, AtendimentoSemRoboDesde: not null });
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome).AssumirAsync(conversa33c);
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome)
+            .EncerrarAsync(conversa33c, new EncerrarConversaRequest(null));
+    }
+
+    Checar("encerrar zera a pausa da conversa", (await RecarregarAsync(conversa33c)).RoboPausadoEm is null);
+
+    Guid conversa33f;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var criada = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+            new CriarConversaRequest(cliente33c, null, null, "Oi de novo"));
+        conversa33f = criada.Id;
+        Checar("sem robo: conversa nova pelo painel ja nasce pausada", criada.RoboPausadoEm is not null && criada.ClienteSemRobo);
+    }
+
+    Checar("sem robo: nada de boas-vindas nem menu", await AutomaticasAsync(conversa33f) == 0 && !(await RecarregarAsync(conversa33f)).AguardandoTriagem);
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome)
+            .RetomarRoboAsync(conversa33f, new RetomarRoboRequest(ModoDeRetomadaDoRobo.SoResponder, TirarMarcaDoContato: true));
+    }
+
+    Checar("ligar com \"tirar a marca\": o contato volta a ser atendido pelo robo",
+        (await ClienteDaConversaAsync(conversa33f)) is { AtendimentoSemRobo: false, AtendimentoSemRoboDesde: null });
+
+    // --- 33g: contato "sem robo" pelo WhatsApp: so o aviso de que a mensagem chegou
+    var telefone33 = $"5538000{++sequencial:D6}";
+    Guid conversa33g;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        db.Clientes.Add(new Cliente
+        {
+            TenantId = tenantId,
+            Nome = $"{PrefixoDeTeste}Sem robo WhatsApp",
+            TelefoneWhatsapp = telefone33,
+            PrimeiroContatoEm = DateTime.UtcNow,
+            Ativo = true,
+            AtendimentoSemRobo = true,
+            AtendimentoSemRoboDesde = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        conversa33g = await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone33, "Maria", $"{PrefixoDeTeste}bom dia",
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-33"));
+    }
+
+    {
+        var c = await RecarregarAsync(conversa33g);
+        var textos = await TextosDaConversaAsync(conversa33g);
+        Checar("sem robo (WhatsApp): conversa nova nasce pausada, sem menu",
+            c.RoboPausadoEm is not null && !c.AguardandoTriagem && !c.AguardandoNome);
+        Checar("sem robo (WhatsApp): sai so o aviso de que a mensagem chegou",
+            textos.Length == 1 && textos[0].Contains("Recebemos sua mensagem", StringComparison.Ordinal), string.Join(" | ", textos));
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone33, "Maria", $"{PrefixoDeTeste}quero uma certidão",
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-34"));
+    }
+
+    Checar("sem robo (WhatsApp): a segunda mensagem nao tem resposta automatica",
+        (await TextosDaConversaAsync(conversa33g)).Length == 1);
+}
+finally
+{
+    foreach (var (setorId, modo) in modosOriginais33)
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        await db.Setores.Where(s => s.Id == setorId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ModoDoRobo, modo));
+    }
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 

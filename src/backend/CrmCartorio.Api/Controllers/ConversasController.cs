@@ -47,6 +47,20 @@ public class ConversasController(
     public async Task<ActionResult<ConversaResumoResponse>> Liberar(Guid id, CancellationToken ct) =>
         Ok(await conversas.LiberarAsync(id, ct));
 
+    [HttpPost("{id:guid}/robo/pausar")]
+    public async Task<ActionResult<ConversaResumoResponse>> PausarRobo(
+        Guid id,
+        [FromBody] PausarRoboRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.PausarRoboAsync(id, request, ct));
+
+    [HttpPost("{id:guid}/robo/ligar")]
+    public async Task<ActionResult<ConversaResumoResponse>> RetomarRobo(
+        Guid id,
+        [FromBody] RetomarRoboRequest request,
+        CancellationToken ct) =>
+        Ok(await conversas.RetomarRoboAsync(id, request, ct));
+
     [HttpPost("{id:guid}/transferir")]
     public async Task<ActionResult<ConversaResumoResponse>> Transferir(
         Guid id,

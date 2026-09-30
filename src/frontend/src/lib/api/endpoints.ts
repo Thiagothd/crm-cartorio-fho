@@ -12,6 +12,8 @@ import type {
   ConfirmarImportacaoResponse,
   ConhecimentoDeIa,
   Conversa,
+  ModoDeRetomadaDoRobo,
+  ModoDoRoboNoSetor,
   ConversaDetalhada,
   DadosDeCliente,
   DescartesDoCanal,
@@ -158,6 +160,14 @@ export const conversasApi = {
   assumir: (id: string) => api.post<Conversa>(`/api/conversas/${id}/assumir`),
 
   liberar: (id: string) => api.post<Conversa>(`/api/conversas/${id}/liberar`),
+
+  /** Pausa o robô nesta conversa; com `sempreSemRoboParaOContato`, para as próximas também. */
+  pausarRobo: (id: string, sempreSemRoboParaOContato: boolean) =>
+    api.post<Conversa>(`/api/conversas/${id}/robo/pausar`, { sempreSemRoboParaOContato }),
+
+  /** Liga o robô de novo: a conversa volta para a fila. */
+  ligarRobo: (id: string, modo: ModoDeRetomadaDoRobo, tirarMarcaDoContato: boolean) =>
+    api.post<Conversa>(`/api/conversas/${id}/robo/ligar`, { modo, tirarMarcaDoContato }),
 
   transferir: (id: string, atendenteDestinoId: string, observacao?: string) =>
     api.post<Conversa>(`/api/conversas/${id}/transferir`, { atendenteDestinoId, observacao }),
@@ -376,17 +386,22 @@ export const acessoTecnicoApi = {
 
 // Setores e etapas ----------------------------------------------------------
 
+interface DadosDeSetor {
+  nome: string
+  descricao?: string | null
+  ordem: number
+  ativo: boolean
+  /** Ausente mantém o que está gravado. */
+  modoDoRobo?: ModoDoRoboNoSetor
+}
+
 export const setoresApi = {
   listar: (incluirInativos = false) =>
     api.get<Setor[]>(`/api/setores${montarQuery({ incluirInativos })}`),
 
-  criar: (dados: { nome: string; descricao?: string | null; ordem: number; ativo: boolean }) =>
-    api.post<Setor>('/api/setores', dados),
+  criar: (dados: DadosDeSetor) => api.post<Setor>('/api/setores', dados),
 
-  atualizar: (
-    id: string,
-    dados: { nome: string; descricao?: string | null; ordem: number; ativo: boolean },
-  ) => api.put<Setor>(`/api/setores/${id}`, dados),
+  atualizar: (id: string, dados: DadosDeSetor) => api.put<Setor>(`/api/setores/${id}`, dados),
 }
 
 export const etapasApi = {

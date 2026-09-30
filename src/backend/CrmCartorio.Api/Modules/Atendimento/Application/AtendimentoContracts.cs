@@ -152,7 +152,29 @@ public record ConversaResumoResponse(
     /// Sem dono no painel, mas sendo atendida pelo WhatsApp do celular. A lista
     /// troca "Na fila" por "No celular"; assumir continua possivel.
     /// </summary>
-    bool AtendidaPeloAparelho = false);
+    bool AtendidaPeloAparelho = false,
+    /// <summary>
+    /// A automação conversacional está calada nesta conversa porque uma pessoa a
+    /// assumiu ou o cliente pediu atendente. O painel oferece devolver ao robô.
+    /// </summary>
+    bool EmAtendimentoHumano = false,
+    /// <summary>Quando o robô foi pausado nesta conversa. Nulo = robô ligado.</summary>
+    DateTime? RoboPausadoEm = null,
+    /// <summary>Quem pausou. Nulo com a pausa automática de contato "sem robô".</summary>
+    string? RoboPausadoPorNome = null,
+    /// <summary>O contato está marcado para ser atendido sempre sem robô.</summary>
+    bool ClienteSemRobo = false);
+
+/// <param name="SempreSemRoboParaOContato">
+/// Marca também o contato (Cliente.AtendimentoSemRobo): as próximas conversas dele já
+/// nascem com o robô pausado.
+/// </param>
+public record PausarRoboRequest(bool SempreSemRoboParaOContato = false);
+
+/// <param name="TirarMarcaDoContato">Tira também a marca "sem robô" do contato.</param>
+public record RetomarRoboRequest(
+    ModoDeRetomadaDoRobo Modo = ModoDeRetomadaDoRobo.SoResponder,
+    bool TirarMarcaDoContato = false);
 
 public record MensagemResponse(
     Guid Id,

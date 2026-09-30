@@ -44,8 +44,9 @@ import {
 import { cn } from '@/lib/utils'
 import { formatarTelefone, nomeDeExibicao } from '@/lib/formatacao'
 import { EtiquetaDePrazo } from './etiqueta-de-prazo'
+import { ControleDoRobo } from './controle-do-robo'
 import { corSolidaDaEtapa } from './cores-de-etapa'
-import type { Atendente, Conversa, Etapa, Setor, TipoServico } from '@/lib/api/tipos'
+import type { Atendente, Conversa, Etapa, ModoDeRetomadaDoRobo, Setor, TipoServico } from '@/lib/api/tipos'
 
 const SEM_VALOR = '__nenhum__'
 
@@ -69,6 +70,9 @@ export function CabecalhoDaConversa({
   aoTransferir,
   aoEncerrar,
   aoReabrir,
+  podeControlarRobo,
+  aoPausarRobo,
+  aoLigarRobo,
   aoVoltar,
   painelAtivo,
   aoAlternarPainel,
@@ -89,6 +93,10 @@ export function CabecalhoDaConversa({
   aoTransferir: (atendenteId: string) => void
   aoEncerrar: (motivo?: string) => void
   aoReabrir: () => void
+  /** Pode pausar e ligar o robô nesta conversa (quem pode responder nela). */
+  podeControlarRobo: boolean
+  aoPausarRobo: (sempreSemRoboParaOContato: boolean) => Promise<void>
+  aoLigarRobo: (modo: ModoDeRetomadaDoRobo, tirarMarcaDoContato: boolean) => Promise<void>
   /** Só existe no celular, onde lista e conversa não cabem lado a lado. */
   aoVoltar: () => void
   /**
@@ -311,6 +319,17 @@ export function CabecalhoDaConversa({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 md:gap-2.5">
+        {/* O robô nesta conversa — sempre à vista, porque é o que o atendente
+            precisa ver ANTES de responder: se o robô ainda está falando com o
+            cliente, os dois responderiam ao mesmo tempo. */}
+        <ControleDoRobo
+          conversa={conversa}
+          setores={setores}
+          podeControlar={podeControlarRobo}
+          aoPausar={aoPausarRobo}
+          aoLigar={aoLigarRobo}
+        />
+
         {/* Mini, e nao o de 68px: o cabecalho e deliberadamente so duas
             linhas (identidade + status), e o selo cheio sozinho devolveria a
             altura que essa compactacao economizou. Continua sendo um selo por

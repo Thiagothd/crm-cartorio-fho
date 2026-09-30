@@ -66,6 +66,7 @@ export type GatilhoDeMensagem =
   | 'PedidoDeNome'
   | 'EncerramentoPeloAtendente'
   | 'PerguntaDeDuvida'
+  | 'ContatoSemRobo'
 
 /**
  * Encerramento automático de conversa parada.
@@ -363,7 +364,27 @@ export interface Conversa {
    * troca "Na fila" por "No celular"; assumir continua possível.
    */
   atendidaPeloAparelho: boolean
+  /**
+   * O robô está calado porque uma pessoa assumiu a conversa ou o cliente pediu
+   * atendente. O cabeçalho oferece devolver a conversa ao robô.
+   */
+  emAtendimentoHumano: boolean
+  /** Quando alguém pausou o robô nesta conversa. Nulo = robô ligado. */
+  roboPausadoEm: string | null
+  /** Quem pausou. Nulo com a pausa automática de contato "sem robô". */
+  roboPausadoPorNome: string | null
+  /** O contato é atendido sempre sem robô. */
+  clienteSemRobo: boolean
 }
+
+/** O que acontece ao ligar o robô de novo numa conversa. */
+export type ModoDeRetomadaDoRobo = 'MenuInicial' | 'SoResponder'
+
+/**
+ * Como o robô trata um setor: `SoEquipe` aparece no menu mas manda direto para a
+ * equipe; `ForaDoMenu` some do menu do robô.
+ */
+export type ModoDoRoboNoSetor = 'Ligado' | 'SoEquipe' | 'ForaDoMenu'
 
 export interface Mensagem {
   id: string
@@ -552,6 +573,9 @@ export interface Cliente {
   nomePendente: boolean
   /** Quando o sistema já pediu o nome pelo WhatsApp. Nulo = ninguém tentou. */
   nomePerguntadoEm: string | null
+  /** Atendido sempre sem robô: toda conversa nova dele nasce com o robô pausado. */
+  atendimentoSemRobo: boolean
+  atendimentoSemRoboDesde: string | null
 }
 
 /** Espelha DadosDeCliente do backend — entrada de criação e edição. */
@@ -584,6 +608,8 @@ export interface DadosDeCliente {
   uf?: string | null
   observacoes?: string | null
   ativo?: boolean
+  /** Ausente mantém o que está gravado. */
+  atendimentoSemRobo?: boolean
 }
 
 /** Situação do canal real de WhatsApp — ver docs/DEPLOY-WHATSAPP.md. */
@@ -761,6 +787,7 @@ export interface Setor {
   ordem: number
   ativo: boolean
   conversasAtivas: number
+  modoDoRobo: ModoDoRoboNoSetor
 }
 
 export interface Etapa {

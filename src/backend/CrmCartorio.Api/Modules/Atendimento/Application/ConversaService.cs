@@ -377,7 +377,14 @@ public class ConversaService(
         // atendente ja escolheu para onde vai o atendimento, mandar o menu
         // "1 - Notas / 2 - Registro Civil" seria perguntar ao cliente algo que a
         // serventia acabou de decidir.
-        if (request.SetorId is null)
+        if (cliente.AtendimentoSemRobo)
+        {
+            conversa.RoboPausadoEm = agora;
+
+            db.Mensagens.Add(MensagemDeSistema(conversa.Id, tenantId,
+                "Contato marcado para ser atendido sem robô: a conversa começou com o robô pausado.", agora));
+        }
+        else if (request.SetorId is null)
         {
             var boasVindas = await automaticas.EnfileirarAsync(
                 conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
@@ -495,6 +502,204 @@ public class ConversaService(
         await notificador.ConversaLiberadaAsync(conversa.TenantId, resumo, ct);
 
         return resumo;
+    }
+
+    /// <summary>
+    /// Pausa o robô nesta conversa: nenhum menu, IA, sequência de dados, pergunta de
+    /// encerramento ou aviso de prazo sai até alguém ligar de novo. Pedido do cartório parceiro
+    /// em 2026-09-30, para o cliente que se confunde com o robô.
+    /// </summary>
+    /// <remarks>
+    /// Vale com a conversa na fila, sem dono — o robô pode estar confundindo alguém
+    /// que ninguém assumiu ainda. Pausar de novo uma conversa já pausada não muda
+    /// quem pausou nem quando; só pode acrescentar a marca do contato.
+    /// </remarks>
+    public async Task<ConversaResumoResponse> PausarRoboAsync(
+        Guid id,
+        PausarRoboRequest request,
+        CancellationToken ct = default)
+    {
+        var conversa = await CarregarAsync(id, ct);
+        GarantirAtiva(conversa);
+        await GarantirQuePodeControlarORoboAsync(conversa, ct);
+
+        var agora = DateTime.UtcNow;
+
+        if (conversa.RoboPausadoEm is null)
+        {
+            conversa.RoboPausadoEm = agora;
+            conversa.RoboPausadoPorAtendenteId = ctx.AtendenteId;
+
+            // Sem isto, a espera dos dados, a pergunta de dúvida ou o menu no ar
+            // continuariam valendo quando alguém ligasse o robô de novo, dias depois.
+            ZerarFluxoDoRobo(conversa);
+
+            db.Mensagens.Add(MensagemDeSistema(id, conversa.TenantId, $"Robô pausado por {ctx.Nome}.", agora));
+        }
+
+        if (request.SempreSemRoboParaOContato)
+        {
+            await MarcarContatoAsync(conversa, semRobo: true, agora, ct);
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var resumo = await ObterResumoAsync(id, ct);
+        await notificador.ConversaAtualizadaAsync(conversa.TenantId, resumo, ct);
+
+        return resumo;
+    }
+
+    /// <summary>
+    /// Liga o robô de novo nesta conversa — depois de uma pausa, ou numa conversa que
+    /// um atendente assumiu (até aqui não havia como devolvê-la ao robô).
+    /// </summary>
+    /// <remarks>
+    /// <b>Devolver ao robô é devolver para a fila.</b> O estado que o sistema sustenta é
+    /// "conversa com dono no painel está em atendimento humano" (BUG-ATD-01, ver
+    /// <c>ResolverFalhaAoAssumirAsync</c>); o robô falando numa conversa com dono
+    /// quebraria isso. Então o responsável sai, junto com a marca de atendimento
+    /// humano.
+    ///
+    /// <see cref="ModoDeRetomadaDoRobo.MenuInicial"/> manda as boas-vindas como num
+    /// atendimento novo; <see cref="ModoDeRetomadaDoRobo.SoResponder"/> não manda nada.
+    /// Envia SÓ a mensagem gerada aqui, nunca a fila da conversa inteira — mesmo motivo
+    /// de <see cref="EncerrarAsync"/>.
+    /// </remarks>
+    public async Task<ConversaResumoResponse> RetomarRoboAsync(
+        Guid id,
+        RetomarRoboRequest request,
+        CancellationToken ct = default)
+    {
+        if (!Enum.IsDefined(request.Modo))
+        {
+            throw AtendimentoServiceException.ModoDeRetomadaInvalido();
+        }
+
+        var conversa = await CarregarAsync(id, ct);
+        GarantirAtiva(conversa);
+        await GarantirQuePodeControlarORoboAsync(conversa, ct);
+
+        var agora = DateTime.UtcNow;
+
+        if (request.TirarMarcaDoContato)
+        {
+            await MarcarContatoAsync(conversa, semRobo: false, agora, ct);
+        }
+
+        IReadOnlyList<Mensagem> geradas = [];
+
+        // Robô já falando nesta conversa: religar de novo não faz nada (dois cliques,
+        // ou duas telas abertas).
+        if (conversa.RoboPausadoEm is not null || conversa.EmAtendimentoHumano)
+        {
+            conversa.RoboPausadoEm = null;
+            conversa.RoboPausadoPorAtendenteId = null;
+            conversa.EmAtendimentoHumano = false;
+            conversa.AtendenteId = null;
+            conversa.AtendidaPeloAparelhoEm = null;
+            ZerarFluxoDoRobo(conversa);
+
+            if (request.Modo == ModoDeRetomadaDoRobo.MenuInicial)
+            {
+                // Recomeço de verdade: o setor e o serviço escolhidos antes da pausa
+                // não valem mais, senão a triagem leria "setor definido" e ficaria
+                // quieta (mesmo motivo de AplicadorDePosAtendimento.ReabrirDoZeroAsync).
+                conversa.SetorId = null;
+                conversa.TipoServicoId = null;
+
+                geradas = await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
+                conversa.AguardandoTriagem = geradas.Count > 0;
+            }
+
+            var texto = request.Modo == ModoDeRetomadaDoRobo.MenuInicial
+                ? $"Robô ligado de novo por {ctx.Nome}, voltando ao menu inicial."
+                : $"Robô ligado de novo por {ctx.Nome}; ele responde a próxima mensagem do cliente.";
+
+            db.Mensagens.Add(MensagemDeSistema(id, conversa.TenantId, texto, agora));
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var resumo = await ObterResumoAsync(id, ct);
+        await notificador.ConversaAtualizadaAsync(conversa.TenantId, resumo, ct);
+
+        // Conversa de demonstração (Canal Simulado) não sai pelo gateway: a mensagem
+        // fica só no fio, como em qualquer outra automática dela.
+        if (conversa.Canal == CanalOrigem.WhatsApp)
+        {
+            foreach (var gerada in geradas)
+            {
+                try
+                {
+                    await canal.EnviarAsync(gerada.Id, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogError(ex, "Robo religado na conversa {ConversaId}, mas o menu inicial nao saiu.", id);
+                }
+            }
+        }
+
+        return resumo;
+    }
+
+    /// <summary>
+    /// Pausar e religar o robô: quem pode responder a conversa. Diferente de
+    /// <see cref="GarantirQuePodeOperarAsync"/>, vale também para conversa sem dono —
+    /// é justamente na fila que o robô costuma estar falando.
+    /// </summary>
+    private async Task GarantirQuePodeControlarORoboAsync(Conversa conversa, CancellationToken ct)
+    {
+        GarantirPermissao(PermissaoDoSistema.AtendimentoResponder);
+
+        if (conversa.AtendenteId is null)
+        {
+            return;
+        }
+
+        await GarantirQuePodeOperarAsync(conversa, ct);
+    }
+
+    /// <summary>Liga ou desliga a marca "sem robô" do contato, com anotação na conversa.</summary>
+    private async Task MarcarContatoAsync(Conversa conversa, bool semRobo, DateTime agora, CancellationToken ct)
+    {
+        var cliente = await db.Clientes
+            .FirstAsync(c => c.Id == conversa.ClienteId && c.TenantId == conversa.TenantId, ct);
+
+        if (cliente.AtendimentoSemRobo == semRobo)
+        {
+            return;
+        }
+
+        cliente.AtendimentoSemRobo = semRobo;
+        cliente.AtendimentoSemRoboDesde = semRobo ? agora : null;
+
+        db.Mensagens.Add(MensagemDeSistema(conversa.Id, conversa.TenantId,
+            semRobo
+                ? $"{ctx.Nome} marcou este contato para ser atendido sempre sem robô."
+                : $"{ctx.Nome} tirou a marca de atendimento sem robô deste contato.",
+            agora));
+    }
+
+    /// <summary>
+    /// Desliga toda espera do robô: menus no ar, sequência de dados, pergunta de dúvida,
+    /// troca com a IA e pergunta de encerramento pendente.
+    /// </summary>
+    private static void ZerarFluxoDoRobo(Conversa conversa)
+    {
+        conversa.AguardandoTriagem = false;
+        conversa.AguardandoNome = false;
+        conversa.AguardandoEscolhaDeServico = false;
+        conversa.ServicoDoSubmenuId = null;
+        conversa.AguardandoMenuDeContinuacao = false;
+        conversa.AguardandoDadosDoServico = false;
+        conversa.DadosDoServicoRecebidosEm = null;
+        conversa.AguardandoComprovante = false;
+        conversa.AguardandoDuvidaDoServico = false;
+        conversa.AguardandoRespostaInteligente = false;
+        conversa.TentativasRespostaInteligente = 0;
+        conversa.PerguntaDeEncerramentoEnviadaEm = null;
     }
 
     public async Task<ConversaResumoResponse> TransferirAsync(
@@ -746,6 +951,8 @@ public class ConversaService(
         // mais tarde podia herdar, por exemplo, AguardandoRespostaInteligente
         // ligada de um ciclo que ja tinha acabado.
         conversa.EmAtendimentoHumano = false;
+        conversa.RoboPausadoEm = null;
+        conversa.RoboPausadoPorAtendenteId = null;
         conversa.AguardandoTriagem = false;
         conversa.AguardandoEscolhaDeServico = false;
         conversa.ServicoDoSubmenuId = null;

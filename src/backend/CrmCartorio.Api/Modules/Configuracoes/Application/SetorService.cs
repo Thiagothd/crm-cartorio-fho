@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
+using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,7 +32,8 @@ public class SetorService(CrmDbContext db, IContextoDoUsuario ctx) : ISetorServi
                 s.Descricao,
                 s.Ordem,
                 s.Ativo,
-                db.Conversas.Count(c => c.SetorId == s.Id && c.Status == StatusConversa.Ativa)))
+                db.Conversas.Count(c => c.SetorId == s.Id && c.Status == StatusConversa.Ativa),
+                s.ModoDoRobo))
             .ToListAsync(ct);
     }
 
@@ -50,7 +52,8 @@ public class SetorService(CrmDbContext db, IContextoDoUsuario ctx) : ISetorServi
             Nome = nome,
             Descricao = string.IsNullOrWhiteSpace(request.Descricao) ? null : request.Descricao.Trim(),
             Ordem = request.Ordem,
-            Ativo = request.Ativo
+            Ativo = request.Ativo,
+            ModoDoRobo = ValidarModo(request.ModoDoRobo) ?? ModoDoRoboNoSetor.Ligado
         };
 
         db.Setores.Add(setor);
@@ -80,6 +83,11 @@ public class SetorService(CrmDbContext db, IContextoDoUsuario ctx) : ISetorServi
         // Desativar um setor nao mexe nas conversas que ja apontam para ele: o
         // historico do atendimento continua legivel, so o setor some das opcoes.
         setor.Ativo = request.Ativo;
+
+        if (ValidarModo(request.ModoDoRobo) is { } modo)
+        {
+            setor.ModoDoRobo = modo;
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -117,6 +125,11 @@ public class SetorService(CrmDbContext db, IContextoDoUsuario ctx) : ISetorServi
             : limpo;
     }
 
+    private static ModoDoRoboNoSetor? ValidarModo(ModoDoRoboNoSetor? modo) =>
+        modo is { } valor && !Enum.IsDefined(valor)
+            ? throw ConfiguracoesServiceException.ModoDoRoboInvalido()
+            : modo;
+
     private static SetorResponse Mapear(Setor setor, int conversasAtivas) =>
-        new(setor.Id, setor.Nome, setor.Descricao, setor.Ordem, setor.Ativo, conversasAtivas);
+        new(setor.Id, setor.Nome, setor.Descricao, setor.Ordem, setor.Ativo, conversasAtivas, setor.ModoDoRobo);
 }

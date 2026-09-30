@@ -33,6 +33,8 @@ public class ConversaConfiguration : IEntityTypeConfiguration<Conversa>
         builder.Property(c => c.AvisoDeAlertaEnviadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.AvisoDeVencimentoEnviadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.PerguntaDeEncerramentoEnviadaEm).HasColumnType("datetime2(3)");
+        builder.Property(c => c.DadosDoServicoRecebidosEm).HasColumnType("datetime2(3)");
+        builder.Property(c => c.RoboPausadoEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.EncerradaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.ReabertaEm).HasColumnType("datetime2(3)");
         builder.Property(c => c.CriadoEm).HasColumnType("datetime2(3)");

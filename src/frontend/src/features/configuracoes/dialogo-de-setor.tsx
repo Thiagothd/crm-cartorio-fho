@@ -15,7 +15,27 @@ import {
 } from '@/components/ui/dialog'
 import { setoresApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
-import type { Setor } from '@/lib/api/tipos'
+import { cn } from '@/lib/utils'
+import type { ModoDoRoboNoSetor, Setor } from '@/lib/api/tipos'
+
+/** As três formas de o robô tratar um setor — ver `ModoDoRoboNoSetor` no backend. */
+const MODOS_DO_ROBO: { valor: ModoDoRoboNoSetor; titulo: string; descricao: string }[] = [
+  {
+    valor: 'Ligado',
+    titulo: 'Robô ligado',
+    descricao: 'Como sempre: menu de serviços, textos e IA.',
+  },
+  {
+    valor: 'SoEquipe',
+    titulo: 'Só equipe',
+    descricao: 'Aparece no menu, mas quem escolhe vai direto para uma pessoa, com o aviso de que um atendente vai continuar.',
+  },
+  {
+    valor: 'ForaDoMenu',
+    titulo: 'Fora do menu',
+    descricao: 'Some do menu do robô. Continua valendo no painel: dá para mover conversas para ele.',
+  },
+]
 
 export function DialogoDeSetor({
   setor,
@@ -34,6 +54,7 @@ export function DialogoDeSetor({
   const [descricao, setDescricao] = useState('')
   const [ordem, setOrdem] = useState('1')
   const [ativo, setAtivo] = useState(true)
+  const [modoDoRobo, setModoDoRobo] = useState<ModoDoRoboNoSetor>('Ligado')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -44,6 +65,7 @@ export function DialogoDeSetor({
     setDescricao(setor?.descricao ?? '')
     setOrdem(String(setor?.ordem ?? proximaOrdem))
     setAtivo(setor?.ativo ?? true)
+    setModoDoRobo(setor?.modoDoRobo ?? 'Ligado')
     setErro(null)
   }, [aberto, setor, proximaOrdem])
 
@@ -63,6 +85,7 @@ export function DialogoDeSetor({
         descricao: descricao.trim() || null,
         ordem: Number(ordem),
         ativo,
+        modoDoRobo,
       }
 
       if (setor) {
@@ -134,6 +157,47 @@ export function DialogoDeSetor({
               Define a posição no menu que o cliente recebe no primeiro contato.
             </p>
           </div>
+
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 text-sm font-medium text-tinta">Robô do WhatsApp neste setor</legend>
+            <div role="radiogroup" aria-label="Robô do WhatsApp neste setor" className="flex flex-col gap-2">
+              {MODOS_DO_ROBO.map((modo) => {
+                const ativa = modoDoRobo === modo.valor
+
+                return (
+                  <button
+                    key={modo.valor}
+                    type="button"
+                    role="radio"
+                    aria-checked={ativa}
+                    onClick={() => setModoDoRobo(modo.valor)}
+                    className={cn(
+                      'flex w-full items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors duration-[var(--duracao-rapida)]',
+                      ativa ? 'border-tinta/40 bg-superficie' : 'border-linha hover:bg-superficie',
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                        ativa ? 'border-tinta' : 'border-linha-forte',
+                      )}
+                    >
+                      {ativa ? <span className="size-2 rounded-full bg-tinta" /> : null}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-tinta">{modo.titulo}</span>
+                      <span className="block text-xs leading-relaxed text-tinta-media">{modo.descricao}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-tinta-fraca">
+              Vale na próxima mensagem de cada cliente. O liga e desliga do cartório inteiro fica no botão
+              Robô, no topo do painel.
+            </p>
+          </fieldset>
 
           {setor ? (
             <div className="flex items-center justify-between rounded-md border border-linha px-3 py-2">

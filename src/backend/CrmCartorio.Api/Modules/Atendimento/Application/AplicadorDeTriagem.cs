@@ -4,6 +4,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
+using Microsoft.EntityFrameworkCore;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -112,6 +113,36 @@ public static class AplicadorDeTriagem
             EnviadaEm = agora,
             LidaEm = agora
         });
+
+        // Setor "so equipe" (ModoDoRoboNoSetor): quem escolhe vai direto para uma
+        // pessoa, sem menu de servicos nem IA. Mesmo desfecho da opcao "falar com
+        // atendente", e a conversa ja esta no setor certo para a fila.
+        var modo = await db.Setores.AsNoTracking()
+            .Where(s => s.Id == escolhido && s.TenantId == conversa.TenantId)
+            .Select(s => s.ModoDoRobo)
+            .FirstOrDefaultAsync(ct);
+
+        if (modo == ModoDoRoboNoSetor.SoEquipe)
+        {
+            await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.PedidoDeAtendente, ct: ct);
+            conversa.EmAtendimentoHumano = true;
+
+            db.Mensagens.Add(new Mensagem
+            {
+                TenantId = conversa.TenantId,
+                ConversaId = conversa.Id,
+                AutorTipo = AutorTipo.Sistema,
+                Conteudo = $"O setor {nomeDoSetor} está como \"só equipe\": atendimento passado direto para a equipe.",
+                Tipo = TipoMensagem.Texto,
+                StatusEntrega = StatusEntrega.Entregue,
+                EnviadaEm = agora,
+                LidaEm = agora
+            });
+
+            log.LogInformation(
+                "Triagem da conversa {ConversaId} encaminhou ao setor {SetorId}, que e so equipe", conversa.Id, escolhido);
+            return true;
+        }
 
         // So convida a escolher servico se o setor tiver algum vinculado
         // (TipoServico.SetorId) — sem isso o menu de 2o nivel sairia vazio.

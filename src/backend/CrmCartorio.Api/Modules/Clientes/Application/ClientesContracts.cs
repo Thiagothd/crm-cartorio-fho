@@ -35,7 +35,9 @@ public record DadosDeCliente(
     string? Cidade = null,
     string? Uf = null,
     string? Observacoes = null,
-    bool Ativo = true);
+    bool Ativo = true,
+    /// <summary>Nulo mantém o que está gravado.</summary>
+    bool? AtendimentoSemRobo = null);
 
 public record FiltroDeClientes
 {
@@ -114,7 +116,10 @@ public record ClienteResponse(
     /// significa que ninguem tentou ainda — informacao diferente de "ele nao
     /// quis responder".
     /// </summary>
-    DateTime? NomePerguntadoEm = null);
+    DateTime? NomePerguntadoEm = null,
+    /// <summary>O contato é atendido sempre sem robô (Cliente.AtendimentoSemRobo).</summary>
+    bool AtendimentoSemRobo = false,
+    DateTime? AtendimentoSemRoboDesde = null);
 
 public record ResultadoPaginadoDeClientes(
     IReadOnlyList<ClienteResponse> Itens,

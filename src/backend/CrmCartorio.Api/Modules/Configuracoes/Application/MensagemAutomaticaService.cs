@@ -200,6 +200,7 @@ public class MensagemAutomaticaService(CrmDbContext db, IContextoDoUsuario ctx) 
         GatilhoDeMensagem.RespostaSemCorrespondencia => "IA sem resposta especifica (cliente nao pediu atendente)",
         GatilhoDeMensagem.EncerramentoPeloAtendente => "Atendente encerrou o atendimento",
         GatilhoDeMensagem.PerguntaDeDuvida => "Depois da orientação do serviço: ficou alguma dúvida?",
+        GatilhoDeMensagem.ContatoSemRobo => "Contato sem robô escreveu: recebemos, já vamos responder",
         _ => gatilho.ToString()
     };
 }

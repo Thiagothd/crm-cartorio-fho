@@ -38,6 +38,9 @@ public class AtendimentoServiceException(string codigo, string mensagem, int sta
         new("nao_eh_o_responsavel",
             $"Esta conversa esta em atendimento por {responsavel}.", 403);
 
+    public static AtendimentoServiceException ModoDeRetomadaInvalido() =>
+        new("modo_de_retomada_invalido", "Escolha se o robô volta ao menu inicial ou só volta a responder.", 400);
+
     public static AtendimentoServiceException SemPermissao() =>
         new("sem_permissao", "Voce nao tem permissao para esta acao.", 403);
 

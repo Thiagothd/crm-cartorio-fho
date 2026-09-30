@@ -299,7 +299,9 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         var conteudo = recebida.Conteudo;
 
         // BUG-ATD-01: o gate humano continua sendo o primeiro da cadeia.
-        if (conversa.EmAtendimentoHumano)
+        // Robo pausado (ConversaService.PausarRoboAsync) cala a automacao do mesmo
+        // jeito que o atendimento humano: a mensagem fica gravada e chega ao painel.
+        if (conversa.EmAtendimentoHumano || conversa.RoboPausadoEm is not null)
         {
             if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
             {
@@ -367,6 +369,29 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         DateTime agora,
         CancellationToken ct)
     {
+        // Contato "sem robo" (Cliente.AtendimentoSemRobo): a conversa ja nasce com o
+        // robo pausado. Sai so o aviso de que a mensagem chegou — nada de pedido de
+        // nome nem menu.
+        if (cliente.AtendimentoSemRobo)
+        {
+            conversa.RoboPausadoEm = agora;
+            conversa.RoboPausadoPorAtendenteId = null;
+            await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.ContatoSemRobo, ct: ct);
+
+            db.Mensagens.Add(new Mensagem
+            {
+                TenantId = conversa.TenantId,
+                ConversaId = conversa.Id,
+                AutorTipo = AutorTipo.Sistema,
+                Conteudo = "Contato marcado para ser atendido sem robô: a conversa começou com o robô pausado.",
+                Tipo = TipoMensagem.Texto,
+                StatusEntrega = StatusEntrega.Entregue,
+                EnviadaEm = agora,
+                LidaEm = agora
+            });
+            return;
+        }
+
         if (!Clientes.Domain.NomeDeContato.EhUtil(cliente.Nome) && cliente.NomePerguntadoEm is null)
         {
             var pedido = await automaticas.EnfileirarAsync(

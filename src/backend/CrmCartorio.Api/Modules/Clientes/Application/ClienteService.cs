@@ -420,6 +420,12 @@ public partial class ClienteService(
         cliente.Uf = d.Uf;
 
         cliente.Observacoes = d.Observacoes;
+
+        if (d.AtendimentoSemRobo is { } semRobo && semRobo != cliente.AtendimentoSemRobo)
+        {
+            cliente.AtendimentoSemRobo = semRobo;
+            cliente.AtendimentoSemRoboDesde = semRobo ? DateTime.UtcNow : null;
+        }
     }
 
     /// <summary>
@@ -647,7 +653,9 @@ public partial class ClienteService(
             idade,
             $"/api/clientes/{c.Id}/foto-perfil",
             !NomeDeContato.EhUtil(c.Nome),
-            c.NomePerguntadoEm);
+            c.NomePerguntadoEm,
+            c.AtendimentoSemRobo,
+            c.AtendimentoSemRoboDesde);
     }
 
 

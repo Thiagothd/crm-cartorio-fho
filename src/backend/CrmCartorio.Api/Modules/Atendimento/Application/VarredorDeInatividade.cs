@@ -134,6 +134,10 @@ public class VarredorDeInatividade(
                      && c.PerguntaDeEncerramentoEnviadaEm == null
                      && c.UltimaMensagemEm < limite
 
+                     // Robo pausado: quem pausou cuida da conversa, e o robo
+                     // aparecer para perguntar "posso encerrar?" desfaria a pausa.
+                     && c.RoboPausadoEm == null
+
                      // Conversa de demonstracao nunca entra. Ela nao sai pelo
                      // gateway (o enviador filtra por canal), entao a pergunta
                      // ficaria so no fio — e tres passadas depois a base que o
@@ -191,6 +195,7 @@ public class VarredorDeInatividade(
             .Where(c => c.Id == conversa.Id
                      && c.Status == StatusConversa.Ativa
                      && c.PerguntaDeEncerramentoEnviadaEm == null
+                     && c.RoboPausadoEm == null
 
                      // Fecha a corrida com o webhook. O recebimento carrega a
                      // Conversa RASTREADA e salva com RowVersion; se a varredura
@@ -248,6 +253,7 @@ public class VarredorDeInatividade(
                      && c.Status == StatusConversa.Ativa
                      && c.PerguntaDeEncerramentoEnviadaEm != null
                      && c.PerguntaDeEncerramentoEnviadaEm < limite
+                     && c.RoboPausadoEm == null
 
                      // BUG-ATD-01: a Fase 1 (pergunta) continua saindo mesmo
                      // com atendente na conversa — decisao separada,
@@ -310,6 +316,7 @@ public class VarredorDeInatividade(
             .Where(c => c.Id == conversa.Id
                      && c.Status == StatusConversa.Ativa
                      && c.PerguntaDeEncerramentoEnviadaEm == conversa.PerguntaDeEncerramentoEnviadaEm
+                     && c.RoboPausadoEm == null
 
                      // Mesma corrida da fase 1, e aqui ela e mais grave: encerrar
                      // uma conversa no exato instante em que o cliente respondeu

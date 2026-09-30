@@ -62,6 +62,12 @@ export const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: s
       'Sai antes das boas-vindas, só quando o perfil do contato não traz um nome utilizável (".", emoji, vazio). Depois da resposta, o menu sai já com o nome certo. Não use {NomeCliente} aqui: esta mensagem existe justamente porque ainda não há nome. Sem este texto o sistema manda o menu de sempre.',
   },
   {
+    valor: 'ContatoSemRobo',
+    rotulo: 'Contato atendido sem robô escreveu',
+    explicacao:
+      'Sai quando um contato marcado "atender sempre sem robô" abre um atendimento novo. É a única mensagem automática que ele recebe: avisa que a mensagem chegou e que uma pessoa vai responder. Sem este texto, não sai nada e a conversa entra na fila do mesmo jeito.',
+  },
+  {
     valor: 'NovoAtendimento',
     rotulo: 'Primeiro contato do cliente',
     explicacao:
@@ -268,6 +274,23 @@ export function montarTrilhas(etapas: Etapa[]): TrilhaDoFluxo[] {
         ),
       ],
       depois: 'Depois de responder, segue para o roteiro guiado — agora com o nome certo.',
+    },
+    {
+      chave: 'sem-robo',
+      titulo: 'Contato atendido sem robô',
+      descricao: 'Marcado na ficha do cliente ou no controle do robô da conversa.',
+      icone: UserRound,
+      sequencial: false,
+      larga: false,
+      pontos: [
+        ponto(
+          'ContatoSemRobo',
+          'Recebemos sua mensagem',
+          'Um contato "sem robô" abre um atendimento novo.',
+          'A conversa entra na fila sem aviso nenhum ao cliente.',
+        ),
+      ],
+      depois: 'Depois disso o robô fica calado nesta conversa; só a equipe responde.',
     },
     {
       chave: 'fora-do-roteiro',

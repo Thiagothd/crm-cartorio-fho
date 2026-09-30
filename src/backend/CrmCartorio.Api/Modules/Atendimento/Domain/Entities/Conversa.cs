@@ -242,6 +242,25 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoDuvidaDoServico { get; set; }
 
     /// <summary>
+    /// Quando alguém pausou o robô nesta conversa. Nulo = robô ligado.
+    /// </summary>
+    /// <remarks>
+    /// Pedido do cartório parceiro em 2026-09-30, para o cliente que se confunde com o robô.
+    /// Pausado, o robô não manda nada nesta conversa — nem menu, nem IA, nem sequência
+    /// de dados, nem pergunta de encerramento por inatividade — até alguém ligar de
+    /// novo (<c>ConversaService.RetomarRoboAsync</c>). Os avisos que um atendente
+    /// provoca (mudar a etapa) continuam saindo: quem aciona é a pessoa.
+    ///
+    /// Diferente de <see cref="EmAtendimentoHumano"/>, que liga sozinho quando alguém
+    /// assume ou o cliente pede atendente: a pausa é uma decisão explícita, com quem e
+    /// quando, e vale mesmo com a conversa na fila, sem dono.
+    /// </remarks>
+    public DateTime? RoboPausadoEm { get; set; }
+
+    /// <summary>Quem pausou. Nulo com a pausa feita pelo sistema (contato "sem robô").</summary>
+    public Guid? RoboPausadoPorAtendenteId { get; set; }
+
+    /// <summary>
     /// Quando o aviso de prazo proximo do vencimento foi gerado para esta conversa.
     /// </summary>
     /// <remarks>

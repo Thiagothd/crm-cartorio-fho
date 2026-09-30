@@ -129,6 +129,20 @@ public class Cliente : EntidadeBase, IEntidadeDeTenant
     /// </remarks>
     public DateTime? NomePerguntadoEm { get; set; }
 
+    /// <summary>
+    /// Este contato é atendido sempre sem robô: toda conversa nova dele já nasce com o
+    /// robô pausado e vai direto para a equipe.
+    /// </summary>
+    /// <remarks>
+    /// Pedido do cartório parceiro em 2026-09-30, para quem não sabe lidar com robô. Não é
+    /// bloqueio: o contato continua falando com o cartório normalmente. O "bloquear"
+    /// que já existe (gestão do canal) faz o número ser ignorado de vez — outra coisa.
+    /// </remarks>
+    public bool AtendimentoSemRobo { get; set; }
+
+    /// <summary>Desde quando o contato está marcado como "sem robô".</summary>
+    public DateTime? AtendimentoSemRoboDesde { get; set; }
+
     /// <summary>De onde este cadastro veio. Nulo nos clientes de antes desta coluna.</summary>
     public OrigemDoCadastro? OrigemDoCadastro { get; set; }
 

@@ -458,7 +458,9 @@ public class MensagemService(
         //
         // SE MEXER AQUI, MEXA EM RecebimentoDeWhatsApp.ReceberAsync TAMBEM —
         // mesma cadeia de despacho, duplicada por enquanto.
-        if (conversa.EmAtendimentoHumano)
+        // Robo pausado (ConversaService.PausarRoboAsync) cala a automacao do mesmo
+        // jeito que o atendimento humano: a mensagem fica gravada e chega ao painel.
+        if (conversa.EmAtendimentoHumano || conversa.RoboPausadoEm is not null)
         {
             if (conversa.PerguntaDeEncerramentoEnviadaEm is not null)
             {

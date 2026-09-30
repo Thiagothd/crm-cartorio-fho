@@ -219,5 +219,17 @@ public enum GatilhoDeMensagem : byte
     /// Sem regra ativa, o serviço volta a terminar no <see cref="MenuDeContinuacao"/>,
     /// como antes. Ver <see cref="Atendimento.Application.AplicadorDeDuvidaDoServico"/>.
     /// </remarks>
-    PerguntaDeDuvida = 16
+    PerguntaDeDuvida = 16,
+
+    /// <summary>
+    /// Um contato marcado como "sem robô" escreveu e abriu um atendimento novo: avisa
+    /// que a mensagem chegou e que uma pessoa vai responder.
+    /// </summary>
+    /// <remarks>
+    /// A única mensagem automática que esse contato recebe. Sem ela, quem pediu para
+    /// ser atendido por gente mandaria "oi" e ficaria sem saber se alguém viu — o
+    /// cliente nunca termina uma mensagem sem resposta (FLUXO-AUTOMACAO, §1). Sem
+    /// regra ativa, não sai nada e a conversa entra na fila do mesmo jeito.
+    /// </remarks>
+    ContatoSemRobo = 17
 }

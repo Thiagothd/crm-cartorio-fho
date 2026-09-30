@@ -25,6 +25,7 @@ import {
 import { clientesApi, consultasApi } from '@/lib/api/endpoints'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { cn } from '@/lib/utils'
+import { formatarDiaCurto } from '@/lib/formatacao'
 import {
   cnpjEhValido,
   cpfEhValido,
@@ -518,6 +519,28 @@ export function DialogoDeCliente({
             <Campo rotulo="Observações internas" htmlFor="cliente-observacoes" ajuda="Não aparece para o cliente.">
               <Textarea id="cliente-observacoes" value={dados.observacoes ?? ''} onChange={(e) => atualizar('observacoes', e.target.value || null)} rows={6} maxLength={1000} />
             </Campo>
+
+            {/* Pedido do cartório parceiro em 2026-09-30, para quem não sabe lidar com robô.
+                Mesmo interruptor do controle do robô no cabeçalho da conversa
+                ("Atender este contato sempre sem robô"). */}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-linha bg-superficie px-4 py-3">
+              <div className="min-w-0">
+                <Label htmlFor="cliente-sem-robo">Atender sempre sem robô</Label>
+                <p className="text-xs leading-relaxed text-tinta-media">
+                  Toda conversa nova deste contato já começa com o robô pausado: ele recebe só um aviso de
+                  que a mensagem chegou, e a equipe responde.
+                  {dados.atendimentoSemRobo && cliente?.atendimentoSemRobo && cliente.atendimentoSemRoboDesde
+                    ? ` Marcado em ${formatarDiaCurto(cliente.atendimentoSemRoboDesde)}.`
+                    : ''}
+                </p>
+              </div>
+              <Switch
+                id="cliente-sem-robo"
+                tom="tinta"
+                checked={dados.atendimentoSemRobo ?? false}
+                onCheckedChange={(valor) => atualizar('atendimentoSemRobo', valor)}
+              />
+            </div>
 
             {cliente ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-linha bg-superficie px-4 py-3">

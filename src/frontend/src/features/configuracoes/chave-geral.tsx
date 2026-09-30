@@ -41,14 +41,22 @@ import type { ChavesGerais } from '@/lib/api/tipos'
 
 const CHAVE_DA_CONSULTA = ['chaves-gerais'] as const
 
-function usarChavesGerais() {
+/**
+ * Exportada para o indicador do topo do painel (`IndicadorDoRobo`), que mostra o
+ * mesmo estado em toda tela. Mesma chave de cache: mudar lá atualiza aqui e
+ * vice-versa, sem segunda requisição.
+ */
+export function usarChavesGerais(opcoes?: { acompanhar?: boolean }) {
   return useQuery({
     queryKey: CHAVE_DA_CONSULTA,
     queryFn: () => serventiaApi.chavesGerais(),
+    // O topo acompanha mudanças feitas por outra pessoa: sem isto, quem deixou a
+    // aba aberta veria "Robô ligado" horas depois de alguém ter desligado.
+    ...(opcoes?.acompanhar ? { refetchInterval: 60_000, refetchOnWindowFocus: true } : {}),
   })
 }
 
-function usarAlterarChave(qual: 'mensagens' | 'ia') {
+export function usarAlterarChave(qual: 'mensagens' | 'ia') {
   const clienteDeConsultas = useQueryClient()
 
   return useMutation({

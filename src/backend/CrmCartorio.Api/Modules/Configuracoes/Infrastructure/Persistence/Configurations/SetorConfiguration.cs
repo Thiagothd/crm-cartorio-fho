@@ -15,6 +15,7 @@ public class SetorConfiguration : IEntityTypeConfiguration<Setor>
 
         builder.Property(s => s.Nome).HasMaxLength(120).IsRequired();
         builder.Property(s => s.Descricao).HasMaxLength(300);
+        builder.Property(s => s.ModoDoRobo).HasConversion<byte>();
         builder.Property(s => s.CriadoEm).HasColumnType("datetime2(3)");
         builder.Property(s => s.AtualizadoEm).HasColumnType("datetime2(3)");
 

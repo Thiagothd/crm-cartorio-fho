@@ -16,6 +16,12 @@ public interface IConversaService
 
     Task<ConversaResumoResponse> LiberarAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Pausa o robô nesta conversa (e, se pedido, para o contato).</summary>
+    Task<ConversaResumoResponse> PausarRoboAsync(Guid id, PausarRoboRequest request, CancellationToken ct = default);
+
+    /// <summary>Liga o robô de novo nesta conversa, devolvendo-a para a fila.</summary>
+    Task<ConversaResumoResponse> RetomarRoboAsync(Guid id, RetomarRoboRequest request, CancellationToken ct = default);
+
     Task<ConversaResumoResponse> TransferirAsync(Guid id, TransferirConversaRequest request, CancellationToken ct = default);
 
     Task<ConversaResumoResponse> MoverAsync(Guid id, MoverConversaRequest request, CancellationToken ct = default);

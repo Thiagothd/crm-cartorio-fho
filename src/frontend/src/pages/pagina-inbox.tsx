@@ -655,6 +655,26 @@ export function PaginaInbox() {
                 aoReabrir={() =>
                   void executar(() => conversasApi.reabrir(conversa.id), 'Atendimento reaberto.')
                 }
+                podeControlarRobo={
+                  pode('atendimento.responder') &&
+                  (conversa.atendenteId === null || souOResponsavel || podeOperarConversaDeTerceiro)
+                }
+                aoPausarRobo={(sempreSemRobo) =>
+                  executar(
+                    () => conversasApi.pausarRobo(conversa.id, sempreSemRobo),
+                    sempreSemRobo
+                      ? 'Robô pausado. Este contato passa a ser atendido sempre sem robô.'
+                      : 'Robô pausado nesta conversa.',
+                  )
+                }
+                aoLigarRobo={(modo, tirarMarca) =>
+                  executar(
+                    () => conversasApi.ligarRobo(conversa.id, modo, tirarMarca),
+                    modo === 'MenuInicial'
+                      ? 'Robô ligado. O cliente recebeu o menu inicial.'
+                      : 'Robô ligado. Ele responde a próxima mensagem do cliente.',
+                  )
+                }
               />
 
               <div className="flex min-h-0 flex-1">

@@ -10,7 +10,8 @@
 > próprio por serviço e sequência dados → instrução → comprovante, §7.1–7.3;
 > espera o cliente terminar de mandar os dados antes da instrução, e texto
 > próprio ao receber o comprovante, §7.2; "ficou alguma dúvida?" depois da
-> orientação de um serviço, com a IA respondendo pelo texto dele, §7.4).
+> orientação de um serviço, com a IA respondendo pelo texto dele, §7.4; liga e
+> desliga do robô por setor, por conversa e por contato, §1.2).
 > **Última atualização:** 2026-09-30
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
@@ -56,7 +57,7 @@ tela**, valendo na próxima mensagem — sem deploy:
 
 | Chave | Onde fica o interruptor | Porta única que respeita | Desligada |
 | --- | --- | --- | --- |
-| `MensagensAutomaticasHabilitadas` | Automação → Mensagens → Automáticas (topo) | `DisparadorDeMensagemAutomatica.EnfileirarAsync` | **Nenhum** dos 16 gatilhos dispara — inclusive o bot de triagem (pedido de nome, boas-vindas com menu de setores, menu de serviços, despedida). O cliente manda "oi" e não recebe nada |
+| `MensagensAutomaticasHabilitadas` | Automação → Mensagens → Automáticas (topo) | `DisparadorDeMensagemAutomatica.EnfileirarAsync` | **Nenhum** dos 17 gatilhos dispara — inclusive o bot de triagem (pedido de nome, boas-vindas com menu de setores, menu de serviços, despedida). O cliente manda "oi" e não recebe nada |
 | `RespostaInteligenteHabilitada` | Automação → IA → Situação (topo) | `RespostaInteligenteService.ResponderAsync` | Devolve o mesmo `PodeResponder=false` de "IA desligada ou sem provedor" — o piso de sempre (§8, gatilho 11; pedido explícito escala) continua valendo |
 
 **A chave de mensagens automáticas é a exceção consciente à regra do §1.**
@@ -83,6 +84,43 @@ não há IA, esteja a chave do tenant como estiver. As duas nascem ligadas
 `automacao.mensagens.editar` e `ia.conhecimento.editar`, respectivamente.
 Coberto por `verificar-automacao.cs`, TESTE 32.
 
+### 1.2 Liga e desliga por setor, conversa e contato — desde 2026-09-30
+
+Pedido do cartório parceiro: "cortar e incluir na hora que tiver acontecendo", para o
+cliente que se confunde com o robô. Três lugares, uma regra — **o robô só fala
+com o cliente quando os três deixam**. Nenhum interruptor liga o robô onde um
+nível acima dele está desligado.
+
+| Nível | Onde | O que faz |
+| --- | --- | --- |
+| **Geral** | As duas chaves do §1.1, também no botão **Robô** do topo do painel (toda tela), com os dois estados à vista | Como no §1.1 |
+| **Setor** | `Setor.ModoDoRobo` (migração `sql/055`), em Estrutura → Setores | **Ligado** (como sempre) · **Só equipe**: aparece no menu, mas quem escolhe recebe o gatilho 9 e vai direto para a equipe (`AplicadorDeTriagem`) · **Fora do menu**: some de `SetoresDoMenuAsync`, e por isso a triagem também deixa de reconhecê-lo pelo nome |
+| **Conversa** | `Conversa.RoboPausadoEm` / `RoboPausadoPorAtendenteId`, botão **Robô** no cabeçalho da conversa (`ConversaService.PausarRoboAsync` / `RetomarRoboAsync`) | Pausado, nada automático sai nesta conversa: nem menu, nem IA, nem sequência de dados, nem pergunta de encerramento, nem aviso de prazo. Os avisos que o atendente provoca (mudar a etapa) continuam |
+
+**Pausar** zera toda espera do robô (menus no ar, dados, dúvida, IA,
+pergunta de encerramento) e vale também com a conversa na fila, sem dono.
+**Ligar de novo** devolve a conversa para a fila — sai o responsável e a marca
+de atendimento humano, porque o sistema não sustenta "conversa com dono no
+painel e robô falando" (BUG-ATD-01). É também o que finalmente permite devolver
+ao robô uma conversa que alguém **assumiu**. Quem liga escolhe: **só voltar a
+responder** (não manda nada; o robô responde a próxima mensagem) ou **voltar ao
+menu inicial** (manda as boas-vindas, com setor e serviço zerados). Encerrar a
+conversa, por qualquer caminho, apaga a pausa. Quem pode: quem pode responder a
+conversa (`atendimento.responder`, e o dono ou `atendimento.mexer_no_de_terceiro`
+quando ela tem dono).
+
+**Contato "sem robô"** (`Cliente.AtendimentoSemRobo`, na ficha do cliente ou
+no controle da conversa): toda conversa nova dele já nasce pausada. Pelo
+WhatsApp, sai só o gatilho 17 (`ContatoSemRobo`, "recebemos sua mensagem, já
+vamos te responder") — nada de pedido de nome nem menu; aberta pelo painel,
+não sai nada. Não é bloqueio: o "bloquear" da gestão do canal faz o número ser
+ignorado de vez, outra coisa. Ligar o robô numa conversa dele pode também tirar
+a marca.
+
+Coberto por `verificar-automacao.cs`, TESTE 33 (setor fora do menu e só
+equipe, pausar e ligar nos dois modos, devolver conversa assumida, contato sem
+robô pelo painel e pelo WhatsApp).
+
 ---
 
 ## 2. Os três tipos de mensagem gerada pelo sistema
@@ -108,7 +146,7 @@ ao setor X" que dá contexto ao próximo atendente sem virar mensagem ao cliente
 
 ---
 
-## 3. Os 16 gatilhos
+## 3. Os 17 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -133,9 +171,10 @@ automáticas, sem release.
 | 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
 | 14 | `PedidoDeNome` | O contato chegou sem nome utilizável no perfil do WhatsApp — pergunta como pode chamá-lo **antes** das boas-vindas. Ver §11 | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
 | 16 | `PerguntaDeDuvida` | Depois do texto próprio de um serviço que só orienta (sem sequência de dados), e depois de cada resposta da IA a uma dúvida — pergunta se ficou dúvida, com "1" encerrar e "2" atendente. Ver §7.4 | `AplicadorDeEscolhaDeServico`, `AplicadorDeDuvidaDoServico` |
+| 17 | `ContatoSemRobo` | Um contato marcado "sem robô" abre um atendimento novo pelo WhatsApp — avisa que a mensagem chegou e que uma pessoa vai responder. A única automática que ele recebe. Ver §1.2 | `ProcessadorDeEntradaWhatsapp.EnfileirarPrimeiroContatoAsync` |
 | 15 | `EncerramentoPeloAtendente` | Um atendente encerrou o atendimento pelo painel — avisa o cliente. Cortesia, não condição (mesma divergência do 13): sem texto ativo a conversa encerra do mesmo jeito. Não reusa `Despedida` (10): aquele é a voz de quem foi atendido até o fim e escolheu fechar; aqui quem fechou foi a serventia. Ver §9 | `ConversaService.EncerrarAsync`, e só ele |
 
-Os gatilhos de 5 a 16 são texto que o **cliente do cartório lê** — por isso
+Os gatilhos de 5 a 17 são texto que o **cliente do cartório lê** — por isso
 nenhum deles é constante fixa em C#: virariam a única mensagem do sistema que
 o cartório parceiro não poderia reescrever sozinho pela tela.
 
@@ -170,6 +209,7 @@ atendimento por WhatsApp.
 | `DadosDoServicoRecebidosEm` | `AplicadorDeDadosDoServico`, na primeira mensagem de dados | `VarredorDeDadosDoServico` — só olha conversa com o campo preenchido | Junto com `AguardandoDadosDoServico`; também zerado por "menu" e encerramento |
 | `AguardandoComprovante` | `AplicadorDeDadosDoServico`, depois de mandar a `MensagemAposDados` | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como o comprovante, e o atendimento passa para a equipe |
 | `AguardandoDuvidaDoServico` | `AplicadorDeEscolhaDeServico`, depois da orientação de um serviço (§7.4); religada por `AplicadorDeDuvidaDoServico` a cada resposta da IA | `AplicadorDeDuvidaDoServico` | A próxima mensagem chega: encerra, passa para a equipe ou vira dúvida para a IA — e aí a pergunta volta. Também zerada por "menu" e encerramento |
+| `RoboPausadoEm` | `ConversaService.PausarRoboAsync`; ou o primeiro contato de um contato "sem robô" (§1.2) | O despacho (gate `H0`, §5) e as três varreduras (inatividade, dados do serviço, prazo), que ignoram a conversa | `ConversaService.RetomarRoboAsync` ou o encerramento da conversa. **Não** dura uma mensagem só: dura até alguém ligar o robô de novo |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
 | `AguardandoNome` | `RecebimentoDeWhatsApp`, na 1ª mensagem de contato sem nome utilizável (gatilho 14) | `AplicadorDePedidoDeNome` | A próxima mensagem do cliente chega — seja ela um nome ou não. Ver §11 |
 | `PerguntaDeEncerramentoEnviadaEm` | `VarredorDeInatividade`, fase 1 (gatilho 12) | `AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` | **Qualquer** mensagem do cliente chega — mesmo que não seja `1`/`2`/palavra reconhecida (ver §10). Também zerado ao atendente responder, ao reabrir a conversa e ao desligar o recurso pela tela |
@@ -208,7 +248,7 @@ divergência só apareceria na conversa de um cliente de verdade.
 
 ```mermaid
 flowchart TD
-    A[Mensagem do cliente chega] --> H0{EmAtendimentoHumano?}
+    A[Mensagem do cliente chega] --> H0{EmAtendimentoHumano<br/>ou robô pausado?}
     H0 -- sim --> H1[So limpa PerguntaDeEncerramentoEnviadaEm<br/>se havia uma pendente — nenhum Aplicador* roda]
     H0 -- não --> Y{PerguntaDeEncerramentoEnviadaEm<br/>pendente?}
     Y -- sim --> Y1[AplicadorDeEncerramentoPorInatividade<br/>limpa o marcador sempre]
@@ -1126,6 +1166,7 @@ num lado exige mexer no outro.
 | Nível 1 — triagem por setor | `Modules/Atendimento/Application/AplicadorDeTriagem.cs` |
 | Nível 2 — escolha de serviço e submenu | `Modules/Atendimento/Application/AplicadorDeEscolhaDeServico.cs` |
 | Dados → instrução → comprovante (§7.2) | `Modules/Atendimento/Application/AplicadorDeDadosDoServico.cs` |
+| Liga e desliga do robô (§1.2) | `ConversaService` (`PausarRoboAsync`, `RetomarRoboAsync`), `Configuracoes/Domain/Enums/ModoDoRoboNoSetor.cs`, `src/frontend/src/components/layout/indicador-do-robo.tsx`, `src/frontend/src/features/atendimento/controle-do-robo.tsx` |
 | "Ficou alguma dúvida?" (§7.4) | `Modules/Atendimento/Application/AplicadorDeDuvidaDoServico.cs`, `TriagemAutomatica.LerRespostaDeDuvida` |
 | Espera o cliente terminar de mandar os dados (§7.2.1) | `Modules/Atendimento/Application/VarredorDeDadosDoServico.cs`, `Infrastructure/Automacao/HospedeDaEsperaDeDados.cs` |
 | Piso — pós-atendimento, menu de continuação, encerrar pelo cliente | `Modules/Atendimento/Application/AplicadorDePosAtendimento.cs` |

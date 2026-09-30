@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { BuscaGlobal } from './busca-global'
 import { SinoDeAlertas } from './sino-de-alertas'
+import { IndicadorDoRobo } from './indicador-do-robo'
 import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
 import { MarcaDoProduto } from '@/components/ui/marca-do-produto'
 import {
@@ -89,6 +90,8 @@ export function CabecalhoGlobal({
             Vazio na maioria das telas; some sem custar layout quando não há
             nada dentro. */}
         <div ref={aoRegistrarContainerDeAcoes} className="order-last flex w-full min-w-0 flex-wrap items-center justify-end gap-2 empty:hidden @min-[64rem]/conteudo:order-none @min-[64rem]/conteudo:w-auto" />
+
+        <IndicadorDoRobo habilitado={Boolean(atendente)} />
 
         <BuscaGlobal />
 

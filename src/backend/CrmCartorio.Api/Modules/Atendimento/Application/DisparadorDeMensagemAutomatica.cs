@@ -149,7 +149,9 @@ public class DisparadorDeMensagemAutomatica(
         // Mesma ordenacao de SetorService.ListarAsync — o menu tem de sair na ordem
         // que o cartorio configurou na tela de setores.
         var setores = await db.Setores.AsNoTracking()
-            .Where(s => s.TenantId == tenantId && s.Ativo)
+            // "Fora do menu" (ModoDoRoboNoSetor) some daqui — e, por ser a mesma
+            // lista, a triagem tambem deixa de reconhecer o setor pelo nome.
+            .Where(s => s.TenantId == tenantId && s.Ativo && s.ModoDoRobo != ModoDoRoboNoSetor.ForaDoMenu)
             .OrderBy(s => s.Ordem)
             .ThenBy(s => s.Nome)
             .Select(s => new TriagemAutomatica.OpcaoDeMenu(s.Id, s.Nome))

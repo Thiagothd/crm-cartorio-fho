@@ -93,6 +93,9 @@ public class VarredorDePrazos(
         var candidatas = await db.Conversas.AsNoTracking()
             .Where(criterio)
             .Where(c => tenantsComRegra.Contains(c.TenantId))
+
+            // Robo pausado nesta conversa: nada sai sozinho, aviso de prazo tambem nao.
+            .Where(c => c.RoboPausadoEm == null)
             .OrderBy(c => c.PrazoLimite)
             .Take(LoteMaximo)
             .ToListAsync(ct);

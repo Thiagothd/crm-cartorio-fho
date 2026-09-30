@@ -398,6 +398,15 @@ public static class CatalogoDeDemonstracao
             "2 - Quero falar com um atendente",
             true),
 
+        // ESPELHO OBRIGATORIO de sql/055-liga-e-desliga-do-robo.sql. A unica
+        // mensagem automatica que um contato "sem robo" recebe: sem ela, ele manda
+        // "oi" e nao sabe se alguem viu.
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.ContatoSemRobo,
+            GatilhoDeMensagem.ContatoSemRobo,
+            null,
+            "Oi, {NomeCliente}! Recebemos sua mensagem e já vamos te responder. 😊",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

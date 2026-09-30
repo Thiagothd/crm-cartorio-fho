@@ -845,6 +845,34 @@ Checar("Espera de dados do servico: candidatas em silencio, sem entrada do clien
         .Take(100)
         .ToQueryString());
 
+Checar("Robo: setores do menu sem os que estao fora do menu (enum ModoDoRoboNoSetor convertido)", () =>
+    db.Setores.AsNoTracking()
+        .Where(s => s.TenantId == tenantId && s.Ativo && s.ModoDoRobo != CrmCartorio.Api.Modules.Configuracoes.Domain.Enums.ModoDoRoboNoSetor.ForaDoMenu)
+        .OrderBy(s => s.Ordem).ThenBy(s => s.Nome)
+        .Select(s => new { s.Id, s.Nome })
+        .ToQueryString());
+
+Checar("Robo: modo do setor escolhido na triagem", () =>
+    db.Setores.AsNoTracking()
+        .Where(s => s.Id == setorId && s.TenantId == tenantId)
+        .Select(s => s.ModoDoRobo)
+        .ToQueryString());
+
+Checar("Robo: projecao da conversa com pausa, quem pausou e contato sem robo (subconsultas)", () =>
+    ProjecaoDeConversa.De(db, db.Conversas.AsNoTracking().Where(c => c.TenantId == tenantId))
+        .Select(p => new { p.Id, p.EmAtendimentoHumano, p.RoboPausadoEm, p.RoboPausadoPorNome, p.ClienteSemRobo })
+        .ToQueryString());
+
+Checar("Robo: varredura de inatividade ignora conversa pausada", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId
+                 && c.Status == StatusConversa.Ativa
+                 && c.PerguntaDeEncerramentoEnviadaEm == null
+                 && c.UltimaMensagemEm < agora.AddMinutes(-20)
+                 && c.RoboPausadoEm == null)
+        .Take(200)
+        .ToQueryString());
+
 Checar("IA: orientacao do servico da conversa para o contexto (MensagemAoEscolher NVARCHAR(MAX))", () =>
     db.TiposServico.AsNoTracking()
         .Where(t => t.Id == servicoId && t.TenantId == tenantId && t.MensagemAoEscolher != null)

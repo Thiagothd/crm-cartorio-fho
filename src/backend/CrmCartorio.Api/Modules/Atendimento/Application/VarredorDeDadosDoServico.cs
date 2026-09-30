@@ -37,7 +37,7 @@ public class VarredorDeDadosDoServico(
                          && c.Status == StatusConversa.Ativa
                          && c.AguardandoDadosDoServico
                          && c.DadosDoServicoRecebidosEm != null
-                         && !c.EmAtendimentoHumano
+                         && !c.EmAtendimentoHumano && c.RoboPausadoEm == null
                          && c.UltimaMensagemEm <= limite
 
                          // Mensagem do cliente aceita e ainda não processada (fila do
@@ -80,7 +80,7 @@ public class VarredorDeDadosDoServico(
                                    && c.Status == StatusConversa.Ativa
                                    && c.AguardandoDadosDoServico
                                    && c.DadosDoServicoRecebidosEm != null
-                                   && !c.EmAtendimentoHumano
+                                   && !c.EmAtendimentoHumano && c.RoboPausadoEm == null
                                    && c.UltimaMensagemEm <= limite, ct);
 
         if (conversa is null)

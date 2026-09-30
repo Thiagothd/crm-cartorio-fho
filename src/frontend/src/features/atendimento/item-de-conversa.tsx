@@ -1,4 +1,4 @@
-import { Lock, Smartphone } from 'lucide-react'
+import { BotOff, Lock, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { formatarMomentoRelativo, nomeDeExibicao } from '@/lib/formatacao'
@@ -169,6 +169,23 @@ export function ItemDeConversa({
           ) : (
             <span className="min-w-0 flex-1" />
           )}
+
+          {/* Robô pausado nesta conversa (ou contato atendido sempre sem robô):
+              quem abre a lista precisa saber que ali ninguém automático vai
+              responder — o cliente depende de uma pessoa. Âmbar, como pendência. */}
+          {conversa.status === 'Ativa' && conversa.roboPausadoEm ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-ambar/40 px-1.5 py-0.5 text-[11px] font-medium text-ambar"
+              title={
+                conversa.clienteSemRobo
+                  ? 'Contato atendido sempre sem robô: só a equipe responde.'
+                  : `Robô pausado${conversa.roboPausadoPorNome ? ` por ${conversa.roboPausadoPorNome}` : ''}: só a equipe responde.`
+              }
+            >
+              <BotOff className="size-3" aria-hidden />
+              {conversa.clienteSemRobo ? 'Sem robô' : 'Pausado'}
+            </span>
+          ) : null}
 
           {/* Sem dono no painel, mas alguém da serventia já está respondendo
               pelo celular: continua na fila (qualquer um pode assumir), só que

@@ -1,4 +1,5 @@
 using CrmCartorio.Api.Domain.Common;
+using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 
 namespace CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 
@@ -20,4 +21,10 @@ public class Setor : EntidadeBase, IEntidadeDeTenant
 
     /// <summary>Desativar nao afeta conversa historica que aponta para este setor.</summary>
     public bool Ativo { get; set; } = true;
+
+    /// <summary>
+    /// Como o robô trata este setor: ligado, só equipe (quem escolhe vai direto para
+    /// uma pessoa) ou fora do menu. Ver <see cref="ModoDoRoboNoSetor"/>.
+    /// </summary>
+    public ModoDoRoboNoSetor ModoDoRobo { get; set; } = ModoDoRoboNoSetor.Ligado;
 }
