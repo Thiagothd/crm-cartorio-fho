@@ -845,6 +845,12 @@ Checar("Espera de dados do servico: candidatas em silencio, sem entrada do clien
         .Take(100)
         .ToQueryString());
 
+Checar("IA: orientacao do servico da conversa para o contexto (MensagemAoEscolher NVARCHAR(MAX))", () =>
+    db.TiposServico.AsNoTracking()
+        .Where(t => t.Id == servicoId && t.TenantId == tenantId && t.MensagemAoEscolher != null)
+        .Select(t => new { t.Nome, t.MensagemAoEscolher })
+        .ToQueryString());
+
 Checar("Espera de dados do servico: texto do servico por expressao de campo (MensagemAposComprovante)", () =>
     db.TiposServico.AsNoTracking()
         .Where(t => t.Id == servicoId && t.TenantId == tenantId)

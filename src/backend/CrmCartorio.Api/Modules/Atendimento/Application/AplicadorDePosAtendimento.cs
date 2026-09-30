@@ -130,6 +130,7 @@ public static class AplicadorDePosAtendimento
         conversa.ServicoDoSubmenuId = null;
         conversa.AguardandoDadosDoServico = false;
         conversa.DadosDoServicoRecebidosEm = null;
+        conversa.AguardandoDuvidaDoServico = false;
         conversa.AguardandoComprovante = false;
         conversa.AguardandoRespostaInteligente = false;
         conversa.TentativasRespostaInteligente = 0;
@@ -254,6 +255,7 @@ public static class AplicadorDePosAtendimento
         conversa.ServicoDoSubmenuId = null;
         conversa.AguardandoDadosDoServico = false;
         conversa.DadosDoServicoRecebidosEm = null;
+        conversa.AguardandoDuvidaDoServico = false;
         conversa.AguardandoComprovante = false;
         conversa.AguardandoMenuDeContinuacao = false;
         conversa.AguardandoNome = false;

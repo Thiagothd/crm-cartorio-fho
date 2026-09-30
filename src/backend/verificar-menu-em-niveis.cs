@@ -1,10 +1,11 @@
-#:project CrmCartorio.Api/CrmCartorio.Api.csproj
+﻿#:project CrmCartorio.Api/CrmCartorio.Api.csproj
 #:package Microsoft.EntityFrameworkCore.InMemory@10.0.9
 #:property PublishAot=false
 using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Infrastructure.Persistence.Seeding;
 using CrmCartorio.Api.Infrastructure.Security;
 using CrmCartorio.Api.Modules.Atendimento.Application;
+using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
@@ -165,8 +166,49 @@ var conversa2 = NovaConversa(civil);
 await db.SaveChangesAsync();
 var h = await Geradas(() => Escolher(conversa2, "3"));
 Conferir(conversa2.TipoServicoId == await Id("Habilitação de casamento"), "\"3\" é Habilitação de casamento");
-Conferir(h.Count == 2 && h.Any(x => x.StartsWith("HABILITAÇÃO")) && h.Any(x => x.Contains("Posso ajudar em mais alguma coisa")), "texto próprio e o menu de continuação");
-Conferir(conversa2.AguardandoMenuDeContinuacao && !conversa2.AguardandoDadosDoServico, "sem texto após os dados, não espera dados");
+Conferir(h.Count == 2 && h.Any(x => x.StartsWith("HABILITAÇÃO")) && h.Any(x => x.StartsWith("Ficou alguma dúvida, Adriana Alves?")),
+    "serviço que só orienta: texto próprio e, em seguida, a pergunta de dúvida");
+Conferir(conversa2.AguardandoDuvidaDoServico && !conversa2.AguardandoMenuDeContinuacao && !conversa2.AguardandoDadosDoServico,
+    "espera a resposta à pergunta, sem menu de continuação e sem esperar dados");
+
+// ---- a dúvida vai para a IA, que tem o texto do serviço no contexto, e a pergunta volta
+var iaFalsa = new IaFalsa();
+Task Duvida(Conversa c, string resposta) =>
+    AplicadorDeDuvidaDoServico.AplicarAsync(db, iaFalsa, automaticas, new OpcoesDaIA(), c, resposta, DateTime.UtcNow, log, default);
+
+var du1 = await Geradas(() => Duvida(conversa2, "posso dar entrada em outra cidade?"));
+Conferir(iaFalsa.Chamadas == 1 && du1.Count == 2 && du1.Contains(IaFalsa.Resposta) && du1.Any(x => x.StartsWith("Ficou alguma dúvida")),
+    "dúvida: a IA responde e a pergunta de dúvida volta");
+Conferir(conversa2.AguardandoDuvidaDoServico && !conversa2.AguardandoRespostaInteligente && conversa2.Status == StatusConversa.Ativa,
+    "depois da resposta da IA, continua esperando a resposta à pergunta");
+
+var contextoComServico = await CrmCartorio.Api.Modules.RespostaInteligente.Application.MontadorDeContexto.MontarAsync(db, tenantId, conversa2.TipoServicoId, default);
+var contextoSemServico = await CrmCartorio.Api.Modules.RespostaInteligente.Application.MontadorDeContexto.MontarAsync(db, tenantId, default);
+Conferir(contextoComServico.Contains("ORIENTACAO DO CARTORIO SOBRE O SERVICO QUE O CLIENTE ESCOLHEU (Habilitação de casamento)")
+         && contextoComServico.Contains("HABILITAÇÃO DE CASAMENTO — documentos dos noivos")
+         && !contextoSemServico.Contains("ORIENTACAO DO CARTORIO"),
+    "a IA recebe o texto do serviço da conversa, e só dele");
+
+var du2 = await Geradas(() => Duvida(conversa2, "Não, obrigado!"));
+Conferir(conversa2.Status == StatusConversa.Encerrada && !conversa2.AguardandoDuvidaDoServico && du2.Count == 1 && du2[0].Contains("Foi um prazer"),
+    "\"não, obrigado\": despedida e encerra");
+
+var conversa8 = NovaConversa(civil);
+await db.SaveChangesAsync();
+await Geradas(() => Escolher(conversa8, "2"));
+var du3 = await Geradas(() => Duvida(conversa8, "2"));
+Conferir(conversa8.EmAtendimentoHumano && !conversa8.AguardandoDuvidaDoServico && du3.Count == 1 && du3[0].Contains("atendentes vai continuar"),
+    "\"2\": passa para a equipe");
+
+Conferir(TriagemAutomatica.LerRespostaDeDuvida("1") == TriagemAutomatica.RespostaDeDuvida.SemDuvida
+         && TriagemAutomatica.LerRespostaDeDuvida("Entendi, obrigada!") == TriagemAutomatica.RespostaDeDuvida.SemDuvida
+         && TriagemAutomatica.LerRespostaDeDuvida("quero falar com um atendente") == TriagemAutomatica.RespostaDeDuvida.Atendente
+         && TriagemAutomatica.LerRespostaDeDuvida("Não, obrigado. Tudo certo!") == TriagemAutomatica.RespostaDeDuvida.SemDuvida
+         && TriagemAutomatica.LerRespostaDeDuvida("não entendi a parte da DNV") == TriagemAutomatica.RespostaDeDuvida.Duvida
+         && TriagemAutomatica.LerRespostaDeDuvida("ok, mas e o prazo") == TriagemAutomatica.RespostaDeDuvida.Duvida
+         && TriagemAutomatica.LerRespostaDeDuvida("tenho duvida") == TriagemAutomatica.RespostaDeDuvida.Duvida
+         && TriagemAutomatica.LerRespostaDeDuvida("Obrigado, e precisa levar testemunha?") == TriagemAutomatica.RespostaDeDuvida.Duvida,
+    "leitura da resposta: \"não entendi a parte da DNV\" é dúvida, não encerramento");
 
 // ---- texto longo em duas partes (a habilitação do cartório parceiro tem 4217 caracteres)
 var parte1 = "💍 *HABILITAÇÃO* — parte 1 " + new string('x', 2300);
@@ -177,8 +219,8 @@ var conversa7 = NovaConversa(civil);
 await db.SaveChangesAsync();
 var o = await Geradas(() => Escolher(conversa7, "4"));
 var fioO = await db.Mensagens.Where(m => m.ConversaId == conversa7.Id && m.EhAutomatica).OrderBy(m => m.EnviadaEm).Select(m => m.Conteudo).ToListAsync();
-Conferir(o.Count == 3 && fioO.Count == 3 && fioO[0] == parte1 && fioO[1] == parte2 && fioO[2].Contains("Posso ajudar em mais alguma coisa"),
-    "texto em duas partes sai em duas mensagens, na ordem, e depois o menu de continuação");
+Conferir(o.Count == 3 && fioO.Count == 3 && fioO[0] == parte1 && fioO[1] == parte2 && fioO[2].StartsWith("Ficou alguma dúvida"),
+    "texto em duas partes sai em duas mensagens, na ordem, e depois a pergunta de dúvida");
 Conferir(fioO.All(x => x.Length <= 4000), "nenhuma mensagem gerada passa de 4000");
 
 // ---- regressão: serviço sem nada configurado usa a mensagem geral de sempre
@@ -237,6 +279,19 @@ file sealed class NotificadorSilencioso : INotificadorDeAtendimento
     public Task ConversaEncerradaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task ConversaReabertaAsync(Guid t, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
     public Task MensagemRecebidaAsync(Guid t, MensagemResponse m, ConversaResumoResponse c, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+file sealed class IaFalsa : IRespostaInteligenteService
+{
+    public const string Resposta = "Pode sim: a habilitação é feita no cartório da cidade onde mora um dos noivos.";
+    public int Chamadas { get; private set; }
+
+    public Task<RespostaDaIA> ResponderAsync(Guid tenantId, IReadOnlyList<TrocaAnterior> historico, string mensagemDoCliente,
+        ContextoDaChamada? contexto = null, CancellationToken ct = default)
+    {
+        Chamadas++;
+        return Task.FromResult(new RespostaDaIA(true, Resposta, "ok"));
+    }
 }
 
 file sealed class ContextoFixo(Guid tenantId) : IContextoDoUsuario

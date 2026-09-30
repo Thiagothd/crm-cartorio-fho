@@ -79,6 +79,7 @@ public static class AplicadorDeEncerramentoPorInatividade
                 // estava parada nao pode interpretar o "1" do menu como os dados.
                 conversa.AguardandoDadosDoServico = false;
                 conversa.DadosDoServicoRecebidosEm = null;
+                conversa.AguardandoDuvidaDoServico = false;
                 conversa.AguardandoComprovante = false;
                 conversa.ServicoDoSubmenuId = null;
                 await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.MenuDeContinuacao, ct: ct);

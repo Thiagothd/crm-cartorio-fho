@@ -231,6 +231,17 @@ public class Conversa : EntidadeBase, IEntidadeDeTenant
     public bool AguardandoComprovante { get; set; }
 
     /// <summary>
+    /// O robô mandou a orientação de um serviço e perguntou se ficou dúvida
+    /// (gatilho <c>PerguntaDeDuvida</c>). A próxima mensagem do cliente é a resposta:
+    /// encerra, passa para a equipe ou vai para a IA como dúvida.
+    /// </summary>
+    /// <remarks>
+    /// Volta a ligar depois de cada resposta da IA, até o cliente dizer que está tudo
+    /// certo ou pedir uma pessoa. Ver <c>AplicadorDeDuvidaDoServico</c>.
+    /// </remarks>
+    public bool AguardandoDuvidaDoServico { get; set; }
+
+    /// <summary>
     /// Quando o aviso de prazo proximo do vencimento foi gerado para esta conversa.
     /// </summary>
     /// <remarks>

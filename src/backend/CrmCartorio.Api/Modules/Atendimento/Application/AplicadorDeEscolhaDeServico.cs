@@ -132,6 +132,23 @@ public static class AplicadorDeEscolhaDeServico
             return;
         }
 
+        // Servico que so orienta, com texto proprio (ex.: registro de nascimento, um
+        // ato feito no balcao): pergunta se ficou duvida em vez de oferecer o menu.
+        // Sem a regra da pergunta ativa, segue para o menu de continuacao de sempre.
+        if (!string.IsNullOrWhiteSpace(textos.MensagemAoEscolher) && aoEscolher.Count > 0)
+        {
+            var pergunta = await automaticas.EnfileirarAsync(conversa, GatilhoDeMensagem.PerguntaDeDuvida, ct: ct);
+            if (pergunta.Count > 0)
+            {
+                conversa.AguardandoDuvidaDoServico = true;
+
+                log.LogInformation(
+                    "Escolha de servico da conversa {ConversaId} identificou {TipoServicoId} e pergunta se ficou duvida",
+                    conversa.Id, escolhido);
+                return;
+            }
+        }
+
         // Fase 2E.1: o atendimento estruturado termina aqui, mas a conversa nao
         // pode terminar muda. Oferece continuar em vez de esperar o cliente
         // adivinhar o que fazer depois do checklist.

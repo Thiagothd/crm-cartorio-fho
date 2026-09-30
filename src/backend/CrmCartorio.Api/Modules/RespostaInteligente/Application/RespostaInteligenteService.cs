@@ -58,7 +58,7 @@ public class RespostaInteligenteService(
                 return new RespostaDaIA(false, string.Empty, "IA desligada pela serventia.");
             }
 
-            var contextoDoGrounding = await MontadorDeContexto.MontarAsync(db, tenantId, ct);
+            var contextoDoGrounding = await MontadorDeContexto.MontarAsync(db, tenantId, contexto?.TipoServicoId, ct);
 
             // Blindagem LGPD: mascara CPF/CNPJ/telefone/e-mail/CEP antes de
             // qualquer texto sair para o provedor — nunca o contexto/catálogo,

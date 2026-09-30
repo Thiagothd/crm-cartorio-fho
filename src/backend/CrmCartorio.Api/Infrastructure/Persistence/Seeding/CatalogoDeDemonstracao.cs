@@ -385,6 +385,19 @@ public static class CatalogoDeDemonstracao
             "Se precisar de qualquer coisa, é só mandar uma mensagem — abrimos um novo atendimento na hora.",
             true),
 
+        // ESPELHO OBRIGATORIO de sql/054-pergunta-de-duvida.sql. Sai depois da
+        // orientacao de um servico e depois de cada resposta da IA a uma duvida,
+        // entao o texto precisa servir nas duas vezes; "1" encerra e "2" chama
+        // atendente (TriagemAutomatica.LerRespostaDeDuvida).
+        new(IdentificadoresDeDemonstracao.MensagensAutomaticas.PerguntaDeDuvida,
+            GatilhoDeMensagem.PerguntaDeDuvida,
+            null,
+            "Ficou alguma dúvida, {NomeCliente}? É só escrever aqui que eu te ajudo. 😊\n\n" +
+            "Se estiver tudo certo, responda:\n" +
+            "1 - Não tenho dúvidas, pode encerrar\n" +
+            "2 - Quero falar com um atendente",
+            true),
+
         // A etapa alvo e a etapa final semeada. Se o cartório parceiro renomear ou reordenar o
         // funil, a regra continua valendo: o vinculo e por Id, nao por nome.
         new(IdentificadoresDeDemonstracao.MensagensAutomaticas.AtoConcluido,

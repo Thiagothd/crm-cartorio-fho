@@ -46,7 +46,18 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application;
 /// </remarks>
 public static partial class MontadorDeContexto
 {
-    public static async Task<string> MontarAsync(CrmDbContext db, Guid tenantId, CancellationToken ct)
+    public static Task<string> MontarAsync(CrmDbContext db, Guid tenantId, CancellationToken ct) =>
+        MontarAsync(db, tenantId, null, ct);
+
+    /// <param name="tipoServicoId">
+    /// O serviço que a conversa escolheu. Quando ele tem texto próprio
+    /// (<c>TipoServico.MensagemAoEscolher</c> — a orientação que o cartório escreveu),
+    /// o texto entra no contexto: é dele que sai a resposta para "posso registrar na
+    /// cidade onde moro?" depois da orientação do registro de nascimento (2026-09-30).
+    /// Só o do serviço da conversa, não o de todos: os textos passam de 3 mil
+    /// caracteres cada.
+    /// </param>
+    public static async Task<string> MontarAsync(CrmDbContext db, Guid tenantId, Guid? tipoServicoId, CancellationToken ct)
     {
         var nomeCartorio = await db.Tenants.AsNoTracking()
             .Where(t => t.Id == tenantId)
@@ -165,6 +176,23 @@ public static partial class MontadorDeContexto
             }
 
             texto.Append("): ").Append(conhecimento.Conteudo).AppendLine();
+        }
+
+        if (tipoServicoId is { } servicoDaConversa)
+        {
+            var orientacao = await db.TiposServico.AsNoTracking()
+                .Where(t => t.Id == servicoDaConversa && t.TenantId == tenantId && t.MensagemAoEscolher != null)
+                .Select(t => new { t.Nome, t.MensagemAoEscolher })
+                .FirstOrDefaultAsync(ct);
+
+            if (orientacao is not null && !string.IsNullOrWhiteSpace(orientacao.MensagemAoEscolher))
+            {
+                texto.AppendLine();
+                texto.Append("ORIENTACAO DO CARTORIO SOBRE O SERVICO QUE O CLIENTE ESCOLHEU (")
+                    .Append(orientacao.Nome).AppendLine("):");
+                texto.AppendLine(ResolverConteudo(
+                    orientacao.MensagemAoEscolher.Replace("\n---\n", "\n\n", StringComparison.Ordinal), nomeCartorio));
+            }
         }
 
         return texto.ToString();

@@ -9,8 +9,9 @@
 > por tenant, §1.1; menu de serviços em níveis, com ordem, submenu, texto
 > próprio por serviço e sequência dados → instrução → comprovante, §7.1–7.3;
 > espera o cliente terminar de mandar os dados antes da instrução, e texto
-> próprio ao receber o comprovante, §7.2).
-> **Última atualização:** 2026-09-29
+> próprio ao receber o comprovante, §7.2; "ficou alguma dúvida?" depois da
+> orientação de um serviço, com a IA respondendo pelo texto dele, §7.4).
+> **Última atualização:** 2026-09-30
 >
 > Documento único e definitivo do **comportamento** de automação: o que dispara,
 > em que ordem, e por que cada decisão é assim. [MODELO-DADOS.md](MODELO-DADOS.md)
@@ -55,7 +56,7 @@ tela**, valendo na próxima mensagem — sem deploy:
 
 | Chave | Onde fica o interruptor | Porta única que respeita | Desligada |
 | --- | --- | --- | --- |
-| `MensagensAutomaticasHabilitadas` | Automação → Mensagens → Automáticas (topo) | `DisparadorDeMensagemAutomatica.EnfileirarAsync` | **Nenhum** dos 15 gatilhos dispara — inclusive o bot de triagem (pedido de nome, boas-vindas com menu de setores, menu de serviços, despedida). O cliente manda "oi" e não recebe nada |
+| `MensagensAutomaticasHabilitadas` | Automação → Mensagens → Automáticas (topo) | `DisparadorDeMensagemAutomatica.EnfileirarAsync` | **Nenhum** dos 16 gatilhos dispara — inclusive o bot de triagem (pedido de nome, boas-vindas com menu de setores, menu de serviços, despedida). O cliente manda "oi" e não recebe nada |
 | `RespostaInteligenteHabilitada` | Automação → IA → Situação (topo) | `RespostaInteligenteService.ResponderAsync` | Devolve o mesmo `PodeResponder=false` de "IA desligada ou sem provedor" — o piso de sempre (§8, gatilho 11; pedido explícito escala) continua valendo |
 
 **A chave de mensagens automáticas é a exceção consciente à regra do §1.**
@@ -107,7 +108,7 @@ ao setor X" que dá contexto ao próximo atendente sem virar mensagem ao cliente
 
 ---
 
-## 3. Os 15 gatilhos
+## 3. Os 16 gatilhos
 
 `GatilhoDeMensagem` é **enum, não tabela** — cada valor corresponde a um ponto
 de código que precisa existir para disparar. Gatilho novo exige código novo;
@@ -131,9 +132,10 @@ automáticas, sem release.
 | 12 | `ConfirmacaoDeEncerramento` | Conversa de WhatsApp real parada há `Tenant.MinutosParaPerguntarEncerramento` — pergunta se pode encerrar, com menu numerado `1`/`2`. Ver §10 | `VarredorDeInatividade` (fase 1 — perguntar) |
 | 13 | `EncerramentoPorInatividade` | Ninguém respondeu à pergunta do gatilho 12 dentro de `Tenant.MinutosParaEncerrarSemResposta` — avisa e fecha a conversa. Ver §10 | `VarredorDeInatividade` (fase 2 — encerrar) |
 | 14 | `PedidoDeNome` | O contato chegou sem nome utilizável no perfil do WhatsApp — pergunta como pode chamá-lo **antes** das boas-vindas. Ver §11 | `RecebimentoDeWhatsApp.EnfileirarPrimeiroContatoAsync` |
+| 16 | `PerguntaDeDuvida` | Depois do texto próprio de um serviço que só orienta (sem sequência de dados), e depois de cada resposta da IA a uma dúvida — pergunta se ficou dúvida, com "1" encerrar e "2" atendente. Ver §7.4 | `AplicadorDeEscolhaDeServico`, `AplicadorDeDuvidaDoServico` |
 | 15 | `EncerramentoPeloAtendente` | Um atendente encerrou o atendimento pelo painel — avisa o cliente. Cortesia, não condição (mesma divergência do 13): sem texto ativo a conversa encerra do mesmo jeito. Não reusa `Despedida` (10): aquele é a voz de quem foi atendido até o fim e escolheu fechar; aqui quem fechou foi a serventia. Ver §9 | `ConversaService.EncerrarAsync`, e só ele |
 
-Os gatilhos de 5 a 15 são texto que o **cliente do cartório lê** — por isso
+Os gatilhos de 5 a 16 são texto que o **cliente do cartório lê** — por isso
 nenhum deles é constante fixa em C#: virariam a única mensagem do sistema que
 o cartório parceiro não poderia reescrever sozinho pela tela.
 
@@ -167,6 +169,7 @@ atendimento por WhatsApp.
 | `AguardandoDadosDoServico` | `AplicadorDeEscolhaDeServico`, quando o serviço tem `MensagemAposDados` (§7.2) | `AplicadorDeDadosDoServico` (marca o começo) e `VarredorDeDadosDoServico` (responde) | **Exceção à regra de uma mensagem só:** dura enquanto o cliente manda os dados, e desliga quando o fio fica em silêncio (§7.2) |
 | `DadosDoServicoRecebidosEm` | `AplicadorDeDadosDoServico`, na primeira mensagem de dados | `VarredorDeDadosDoServico` — só olha conversa com o campo preenchido | Junto com `AguardandoDadosDoServico`; também zerado por "menu" e encerramento |
 | `AguardandoComprovante` | `AplicadorDeDadosDoServico`, depois de mandar a `MensagemAposDados` | `AplicadorDeDadosDoServico` | A próxima mensagem do cliente chega — qualquer uma conta como o comprovante, e o atendimento passa para a equipe |
+| `AguardandoDuvidaDoServico` | `AplicadorDeEscolhaDeServico`, depois da orientação de um serviço (§7.4); religada por `AplicadorDeDuvidaDoServico` a cada resposta da IA | `AplicadorDeDuvidaDoServico` | A próxima mensagem chega: encerra, passa para a equipe ou vira dúvida para a IA — e aí a pergunta volta. Também zerada por "menu" e encerramento |
 | `TentativasRespostaInteligente` | Incrementado a cada resposta **bem-sucedida** da IA | — | Zerado ao escalar. **Não é mais lido por nenhuma decisão** (ver §8) — contador informativo |
 | `AguardandoNome` | `RecebimentoDeWhatsApp`, na 1ª mensagem de contato sem nome utilizável (gatilho 14) | `AplicadorDePedidoDeNome` | A próxima mensagem do cliente chega — seja ela um nome ou não. Ver §11 |
 | `PerguntaDeEncerramentoEnviadaEm` | `VarredorDeInatividade`, fase 1 (gatilho 12) | `AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync` | **Qualquer** mensagem do cliente chega — mesmo que não seja `1`/`2`/palavra reconhecida (ver §10). Também zerado ao atendente responder, ao reabrir a conversa e ao desligar o recurso pela tela |
@@ -221,7 +224,9 @@ flowchart TD
     C -- sim --> C1[AplicadorDeEscolhaDeServico<br/>nível 2: serviço, ou submenu]
     C -- não --> C2{AguardandoDadosDoServico<br/>ou AguardandoComprovante?}
     C2 -- sim --> C3[AplicadorDeDadosDoServico<br/>dados → instrução → comprovante → equipe]
-    C2 -- não --> D{AguardandoRespostaInteligente?}
+    C2 -- não --> C4{AguardandoDuvidaDoServico?}
+    C4 -- sim --> C5[AplicadorDeDuvidaDoServico<br/>1 encerra · 2 equipe · dúvida → IA → pergunta de novo]
+    C4 -- não --> D{AguardandoRespostaInteligente?}
     D -- sim --> D1[AplicadorDeRespostaInteligente<br/>continua a troca]
     D -- não --> E[AplicadorDePosAtendimento<br/>o piso]
 
@@ -478,6 +483,48 @@ comprovante —, o aviso geral quando o serviço não tem texto do comprovante,
 serviço com texto próprio sem sequência de dados, a mensagem geral de sempre
 para quem não configurou nada, as recusas do cadastro, "menu" zerando tudo e a
 chave geral desligada.
+
+### 7.4 "Ficou alguma dúvida?" — desde 2026-09-30
+
+Teste do menu do cartório parceiro no mesmo dia: os serviços que só **orientam** —
+registro de nascimento, habilitação de casamento, registro de óbito,
+averbações, atos feitos no balcão — mandavam o texto e, logo depois, o menu de
+continuação. O cliente lia, não escolhia nada, e a conversa acabava encerrada
+por inatividade sem ninguém saber se ele tinha entendido. Decisão do Thiago:
+não encerrar assim; perguntar.
+
+**Quais serviços:** os que têm `MensagemAoEscolher` e **não** têm
+`MensagemAposDados` — texto próprio, sem sequência de dados. Serviço sem texto
+próprio (os de Notas, com a mensagem geral do gatilho 7) continua terminando no
+menu de continuação.
+
+1. Depois do texto, sai o gatilho 16 (`PerguntaDeDuvida`) e liga
+   `AguardandoDuvidaDoServico`.
+2. A resposta é lida por `TriagemAutomatica.LerRespostaDeDuvida`:
+   - **sem dúvida** — "1", ou frase curta só de agradecimento e confirmação
+     ("não, obrigado", "entendi, obrigada", "tudo certo"): despedida (gatilho 10)
+     e encerra, como a opção "Encerrar" do menu de continuação;
+   - **atendente** — "2", ou pedido explícito (`PediuHumano`): gatilho 9 e
+     `EmAtendimentoHumano`;
+   - **qualquer outra coisa é a dúvida** — inclusive "não entendi..." e qualquer
+     frase com "?": vai para a IA.
+3. A IA responde com o texto do serviço **no contexto**: `MontadorDeContexto`
+   acrescenta a `MensagemAoEscolher` do serviço da conversa, e só dela (os
+   textos passam de 3 mil caracteres cada). Sem isso a IA só via nome,
+   documentos e prazo do catálogo, e não saberia responder "posso registrar na
+   cidade onde moro?".
+4. Depois da resposta da IA a pergunta volta, e o ciclo segue até o cliente
+   dizer que está tudo certo ou pedir uma pessoa. Se ele sumir, o encerramento
+   por inatividade de sempre (§10) fecha.
+
+**Errar para "dúvida" é o lado barato.** "Sem dúvida" só vale pela mensagem
+inteira ou por frase curta feita só de palavras de fechamento: "não entendi a
+parte da DNV" começa com "não" e é uma dúvida. Tratar como dúvida custa uma
+resposta a mais da IA; tratar como encerramento fecha o atendimento de quem
+ainda estava perguntando.
+
+Sem regra ativa para o gatilho 16, o serviço volta a terminar no menu de
+continuação. Coberto por `verificar-menu-em-niveis.cs`.
 
 > **Lacuna conhecida, ainda não fechada:** se um setor for cadastrado **sem
 > nenhum** `TipoServico` vinculado (`SetorId` nunca preenchido em nenhum
@@ -1073,6 +1120,7 @@ num lado exige mexer no outro.
 | Nível 1 — triagem por setor | `Modules/Atendimento/Application/AplicadorDeTriagem.cs` |
 | Nível 2 — escolha de serviço e submenu | `Modules/Atendimento/Application/AplicadorDeEscolhaDeServico.cs` |
 | Dados → instrução → comprovante (§7.2) | `Modules/Atendimento/Application/AplicadorDeDadosDoServico.cs` |
+| "Ficou alguma dúvida?" (§7.4) | `Modules/Atendimento/Application/AplicadorDeDuvidaDoServico.cs`, `TriagemAutomatica.LerRespostaDeDuvida` |
 | Espera o cliente terminar de mandar os dados (§7.2.1) | `Modules/Atendimento/Application/VarredorDeDadosDoServico.cs`, `Infrastructure/Automacao/HospedeDaEsperaDeDados.cs` |
 | Piso — pós-atendimento, menu de continuação, encerrar pelo cliente | `Modules/Atendimento/Application/AplicadorDePosAtendimento.cs` |
 | IA — decide responder ou escalar | `Modules/Atendimento/Application/AplicadorDeRespostaInteligente.cs` |

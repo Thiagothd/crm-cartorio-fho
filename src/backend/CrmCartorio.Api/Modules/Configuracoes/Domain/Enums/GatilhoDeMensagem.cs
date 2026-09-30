@@ -201,5 +201,23 @@ public enum GatilhoDeMensagem : byte
     /// Quem provoca: <see cref="Atendimento.Application.ConversaService"/>
     /// (<c>EncerrarAsync</c>), e so ele.
     /// </remarks>
-    EncerramentoPeloAtendente = 15
+    EncerramentoPeloAtendente = 15,
+
+    /// <summary>
+    /// Depois do texto de um serviço que só orienta (ex.: registro de nascimento),
+    /// pergunta se ficou dúvida.
+    /// </summary>
+    /// <remarks>
+    /// Pedido do Thiago em 2026-09-30: sem isto o cliente lia a orientação, recebia o
+    /// menu de continuação e a conversa acabava encerrada por inatividade sem ninguém
+    /// saber se ele entendeu. A resposta é lida por
+    /// <see cref="Atendimento.Domain.TriagemAutomatica.LerRespostaDeDuvida"/> — o texto
+    /// cadastrado deve oferecer "1" para encerrar e "2" para falar com atendente; o
+    /// que não for isso é a dúvida, e a IA responde. A pergunta volta depois de cada
+    /// resposta da IA, então o texto precisa funcionar nas duas situações.
+    ///
+    /// Sem regra ativa, o serviço volta a terminar no <see cref="MenuDeContinuacao"/>,
+    /// como antes. Ver <see cref="Atendimento.Application.AplicadorDeDuvidaDoServico"/>.
+    /// </remarks>
+    PerguntaDeDuvida = 16
 }

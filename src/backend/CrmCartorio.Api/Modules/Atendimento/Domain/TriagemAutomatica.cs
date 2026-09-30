@@ -232,6 +232,84 @@ public static class TriagemAutomatica
             : RespostaDeEncerramento.NaoEntendeu;
     }
 
+    /// <summary>O que o cliente respondeu à pergunta "ficou alguma dúvida?".</summary>
+    public enum RespostaDeDuvida
+    {
+        /// <summary>Está tudo certo: pode encerrar.</summary>
+        SemDuvida,
+
+        /// <summary>Quer falar com uma pessoa.</summary>
+        Atendente,
+
+        /// <summary>Qualquer outra coisa — é a dúvida, e a IA responde.</summary>
+        Duvida
+    }
+
+    /// <summary>
+    /// Respostas que valem "não tenho dúvida". Comparadas com a MENSAGEM INTEIRA,
+    /// já normalizada.
+    /// </summary>
+    private static readonly HashSet<string> RespostasSemDuvida = new(StringComparer.Ordinal)
+    {
+        "1", "nao", "n", "nao obrigado", "nao obrigada", "nao obrigado a", "obrigado", "obrigada",
+        "obrigado a", "muito obrigado", "muito obrigada", "valeu", "vlw", "entendi", "entendido",
+        "tudo certo", "ta certo", "certo", "ok", "okay", "ok obrigado", "ok obrigada", "so isso",
+        "somente", "sem duvida", "sem duvidas", "nenhuma", "nenhuma duvida", "pode encerrar",
+        "encerrar", "encerra", "nao tenho duvida", "nao tenho duvidas", "nao tenho", "tudo bem",
+        "beleza", "blz", "perfeito", "otimo", "show", "nao tenho duvidas pode encerrar"
+    };
+
+    /// <summary>
+    /// Lê a resposta à pergunta de dúvida depois da orientação de um serviço.
+    /// </summary>
+    /// <remarks>
+    /// <b>"Sem dúvida" só pela mensagem inteira</b>, nunca por palavra solta: "não
+    /// entendi a parte da DNV" começa com "não" e é uma dúvida. Errar para
+    /// <see cref="RespostaDeDuvida.Duvida"/> custa uma resposta a mais da IA; errar
+    /// para <see cref="RespostaDeDuvida.SemDuvida"/> encerra o atendimento de quem
+    /// ainda estava perguntando.
+    ///
+    /// Pedido de atendente usa <see cref="PediuHumano"/>, o mesmo do resto do fluxo.
+    /// </remarks>
+    public static RespostaDeDuvida LerRespostaDeDuvida(string? conteudo)
+    {
+        var texto = Normalizar(conteudo);
+
+        if (texto == "2" || PediuHumano(conteudo))
+        {
+            return RespostaDeDuvida.Atendente;
+        }
+
+        // Pergunta e "não entendi" são dúvida, digam o que disserem as outras palavras.
+        if ((conteudo ?? string.Empty).Contains('?')
+            || texto.Contains("nao entendi", StringComparison.Ordinal)
+            || texto.Contains("nao sei", StringComparison.Ordinal))
+        {
+            return RespostaDeDuvida.Duvida;
+        }
+
+        if (RespostasSemDuvida.Contains(texto))
+        {
+            return RespostaDeDuvida.SemDuvida;
+        }
+
+        // Frase curta feita só de agradecimento e confirmação ("entendi, obrigada",
+        // "ok, tudo certo, valeu"), com ou sem um "não" na frente ("não, obrigado").
+        var palavras = texto.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var resto = palavras.Length > 0 && palavras[0] == "nao" ? palavras[1..] : palavras;
+
+        return palavras.Length <= 6 && resto.Length > 0 && resto.All(PalavrasDeFechamento.Contains)
+            ? RespostaDeDuvida.SemDuvida
+            : RespostaDeDuvida.Duvida;
+    }
+
+    /// <summary>Palavras de agradecimento e confirmação, para frases curtas de fechamento.</summary>
+    private static readonly HashSet<string> PalavrasDeFechamento = new(StringComparer.Ordinal)
+    {
+        "ok", "okay", "certo", "entendi", "entendido", "obrigado", "obrigada", "a", "muito", "valeu",
+        "vlw", "beleza", "blz", "perfeito", "otimo", "show", "tudo", "bem", "ta", "so", "isso", "somente"
+    };
+
     /// <summary>
     /// Minusculas, sem acento, sem pontuacao e com espaco colapsado.
     /// </summary>

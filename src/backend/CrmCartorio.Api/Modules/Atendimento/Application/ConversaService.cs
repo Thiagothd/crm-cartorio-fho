@@ -751,6 +751,7 @@ public class ConversaService(
         conversa.ServicoDoSubmenuId = null;
         conversa.AguardandoDadosDoServico = false;
         conversa.DadosDoServicoRecebidosEm = null;
+        conversa.AguardandoDuvidaDoServico = false;
         conversa.AguardandoComprovante = false;
         conversa.AguardandoRespostaInteligente = false;
         conversa.AguardandoMenuDeContinuacao = false;

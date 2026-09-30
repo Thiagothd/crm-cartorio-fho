@@ -109,6 +109,12 @@ export const GATILHOS: { valor: GatilhoDeMensagem; rotulo: string; explicacao: s
       'Sai quando um atendente encerra a conversa pelo painel. Diferente de "Cliente escolheu encerrar": ali quem fechou foi o cliente. Sem este texto o atendimento encerra do mesmo jeito, só sem avisar. O motivo digitado no encerramento NÃO vai para o cliente — fica só no registro interno.',
   },
   {
+    valor: 'PerguntaDeDuvida',
+    rotulo: 'Ficou alguma dúvida?',
+    explicacao:
+      'Sai depois do texto próprio de um serviço que só orienta (ex.: registro de nascimento) e depois de cada resposta da IA a uma dúvida. "1" encerra, "2" chama atendente, qualquer outra coisa é a dúvida e a IA responde. Sem este texto, o serviço termina no menu de continuação.',
+  },
+  {
     valor: 'RespostaSemCorrespondencia',
     rotulo: 'IA sem resposta específica',
     explicacao:
@@ -203,6 +209,12 @@ export function montarTrilhas(etapas: Etapa[]): TrilhaDoFluxo[] {
           'Documentos e prazo',
           'O cliente identificou o serviço no menu de 2º nível.',
           'O cliente escolhe o serviço e não recebe documentos nem prazo.',
+        ),
+        ponto(
+          'PerguntaDeDuvida',
+          'Ficou alguma dúvida?',
+          'Logo depois da orientação de um serviço com texto próprio, e a cada resposta da IA.',
+          'O serviço termina no menu de continuação, sem perguntar se o cliente entendeu.',
         ),
         ponto(
           'MenuDeContinuacao',
