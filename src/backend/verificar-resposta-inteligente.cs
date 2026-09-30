@@ -1104,6 +1104,31 @@ Console.WriteLine("CENARIO 31 — blindagem LGPD: CPF/CNPJ/telefone/e-mail/CEP m
 }
 Console.WriteLine();
 
+Console.WriteLine("CENARIO 33 — formatacao do WhatsApp: Markdown da IA nunca chega cru ao cliente");
+{
+    // Teste ao vivo de 2026-09-30: a IA respondeu "**Alteracao de nome**" e o cliente leu os
+    // asteriscos. A conversao roda no servico, para qualquer provedor.
+    var (orq, gemini, _, _, _, _, _, db) = MontarAmbiente();
+    var servico = new RespostaInteligenteService(
+        db, orq, Options.Create(NovasOpcoes()), NullLogger<RespostaInteligenteService>.Instance);
+    var doModelo = "Sim, exatamente! 📝\n\nPor exemplo:\n- **Alteração de nome** — exige documentação diferente de **reconhecimento de paternidade**\n"
+        + "* **Divórcio** — tem procedimento distinto\n\n### Próximo passo\n➡️ **Qual registro deseja alterar:** nascimento, casamento ou óbito?\n"
+        + "Veja [o site](https://exemplo.com.br).";
+    gemini.Enfileirar(ResultadoDoProvedor.DeSucesso(new RespostaDaIA(true, doModelo, ""), 100, 40, 0, 250));
+
+    var r = await servico.ResponderAsync(tenantId, [], "cada averbacao tem documento proprio?", null, CancellationToken.None);
+
+    Checar("Nenhum asterisco duplo sobra", r.PodeResponder && !r.Resposta.Contains("**"), r.Resposta);
+    Checar("Negrito vira um asterisco de cada lado", r.Resposta.Contains("*Alteração de nome*") && r.Resposta.Contains("*Qual registro deseja alterar:*"), r.Resposta);
+    Checar("Itens de lista viram \"•\"", r.Resposta.Contains("• *Alteração de nome*") && r.Resposta.Contains("• *Divórcio*"), r.Resposta);
+    Checar("Titulo com # vira negrito", r.Resposta.Contains("*Próximo passo*") && !r.Resposta.Contains("#"), r.Resposta);
+    Checar("Link fica legivel", r.Resposta.Contains("o site: https://exemplo.com.br"), r.Resposta);
+
+    var jaCerto = "Atendemos das *8h às 17h*. _Traga_ o documento:\n• RG\n• CPF";
+    Checar("Texto ja no formato do WhatsApp passa igual", FormatacaoDeWhatsapp.Ajustar(jaCerto) == jaCerto);
+}
+Console.WriteLine();
+
 Console.WriteLine(falhas == 0 ? "TODOS OS CENARIOS PASSARAM." : $"{falhas} CENARIO(S) COM FALHA.");
 return falhas == 0 ? 0 : 1;
 

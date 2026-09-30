@@ -604,6 +604,12 @@ segurança, não redação). Resumo das sete regras:
 5. Respostas curtas, português do Brasil, tom cordial. Emoji pontual e com
    propósito é permitido (📍 endereço, 📄 documento, ⏱️ prazo) — nunca solto,
    nunca mais de um por ideia.
+   **Formatação do WhatsApp, desde 2026-09-30:** negrito com um asterisco só
+   (`*assim*`), lista com "•", sem títulos `#` nem links Markdown. Como o
+   modelo escorrega, `FormatacaoDeWhatsapp.Ajustar` converte toda resposta
+   antes de sair (`**x**` → `*x*`, `# Título` → `*Título*`, `- item` →
+   `• item`), para qualquer provedor — achado ao vivo: a IA mandou
+   "**Alteração de nome**" e o cliente leu os asteriscos.
 6. Se posiciona como exceção, não caminho principal: quando fizer sentido,
    fecha convidando a pessoa a voltar às opções numeradas já enviadas.
 7. **(2026-08-18)** Puro agradecimento ou confirmação ("obrigada", "entendi",

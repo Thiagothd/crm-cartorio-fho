@@ -71,7 +71,13 @@ public class RespostaInteligenteService(
 
             var pedido = new PedidoDeIa(contextoDoGrounding, historicoMascarado, mensagemMascarada);
 
-            return await orquestrador.ResponderAsync(tenantId, contexto, pedido, ct);
+            var resposta = await orquestrador.ResponderAsync(tenantId, contexto, pedido, ct);
+
+            // O modelo escreve Markdown (**negrito**); o WhatsApp não. Toda resposta
+            // passa pela conversão, de qualquer provedor — ver FormatacaoDeWhatsapp.
+            return resposta.PodeResponder
+                ? resposta with { Resposta = FormatacaoDeWhatsapp.Ajustar(resposta.Resposta) }
+                : resposta;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
