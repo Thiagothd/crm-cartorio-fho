@@ -9,8 +9,10 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
+using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Application;
 using CrmCartorio.Api.Modules.Servicos.Application;
+using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
@@ -21,7 +23,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 //
 //   dotnet run verificar-menu-em-niveis.cs
 //
-// Monta o kit de partida, configura o menu PELO SERVIÇO DE CADASTRO (o mesmo da tela) e
+// Monta o catalogo de demonstracao, configura o menu PELO SERVIÇO DE CADASTRO (o mesmo da tela) e
 // percorre a conversa com os aplicadores reais: ordem do menu, submenu da segunda via,
 // dados picados → silêncio → Pix (pela varredura real) → comprovante com texto próprio → atendente, serviço sem sequência de dados, regressão da
 // mensagem geral, recusas do cadastro, "menu" zerando tudo e chave geral desligada.
@@ -34,7 +36,53 @@ await using var db = new CrmDbContext(opcoes, FabricaDeCifraDeDados.CriarDorment
 var tenantId = Guid.CreateVersion7();
 db.Tenants.Add(new Tenant { Id = tenantId, RazaoSocial = "Cartório de Teste", NomeFantasia = "Cartório de Teste", Cnpj = "00000000000000" });
 await db.SaveChangesAsync();
-await KitDePartida.AplicarAsync(db, tenantId);
+await AplicarCatalogoAsync(db, tenantId);
+
+// A configuracao do catalogo de demonstracao sob um tenant novo: setores, etapas,
+// servicos com prazo e mensagens automaticas. Nesta branch nao existe o kit de
+// partida da multiempresa; isto faz o mesmo papel, so com o que o menu usa.
+static async Task AplicarCatalogoAsync(CrmDbContext db, Guid tenantId)
+{
+    var setores = new Dictionary<Guid, Guid>();
+    foreach (var s in CatalogoDeDemonstracao.Setores)
+    {
+        setores[s.Id] = Guid.CreateVersion7();
+        db.Setores.Add(new Setor { Id = setores[s.Id], TenantId = tenantId, Nome = s.Nome, Descricao = s.Descricao, Ordem = s.Ordem, Ativo = true });
+    }
+
+    var etapas = new Dictionary<Guid, Guid>();
+    foreach (var e in CatalogoDeDemonstracao.Etapas)
+    {
+        etapas[e.Id] = Guid.CreateVersion7();
+        db.EtapasFunil.Add(new EtapaFunil { Id = etapas[e.Id], TenantId = tenantId, Nome = e.Nome, Descricao = e.Descricao, Ordem = e.Ordem, Cor = e.Cor, EhFinal = e.EhFinal, Ativo = true });
+    }
+
+    foreach (var s in CatalogoDeDemonstracao.Servicos.Where(s => s.SetorId is not null))
+    {
+        var id = Guid.CreateVersion7();
+        db.TiposServico.Add(new TipoServico
+        {
+            Id = id, TenantId = tenantId, Nome = s.Nome, Codigo = s.Codigo, Categoria = s.Categoria, Descricao = s.Descricao,
+            SetorId = setores[s.SetorId!.Value], DocumentosNecessarios = s.DocumentosNecessarios, Ativo = true
+        });
+        db.PrazosServico.Add(new PrazoServico
+        {
+            Id = Guid.CreateVersion7(), TenantId = tenantId, TipoServicoId = id, PrazoHoras = s.PrazoHoras,
+            PercentualAlerta = s.PercentualAlerta, ApenasDiasUteis = s.ApenasDiasUteis, Ativo = true
+        });
+    }
+
+    foreach (var m in CatalogoDeDemonstracao.MensagensAutomaticas)
+    {
+        db.MensagensAutomaticas.Add(new MensagemAutomatica
+        {
+            Id = Guid.CreateVersion7(), TenantId = tenantId, Gatilho = m.Gatilho,
+            EtapaAlvoId = m.EtapaAlvoId is { } alvo ? etapas[alvo] : null, Conteudo = m.Conteudo, Ativo = m.Ativo
+        });
+    }
+
+    await db.SaveChangesAsync();
+}
 
 var ctx = new ContextoFixo(tenantId);
 var cadastro = new TipoServicoService(db, ctx);

@@ -30,6 +30,32 @@ public class DisparadorDeMensagemAutomatica(
     private readonly Dictionary<Guid, string> _nomeDoCartorio = [];
     private readonly Dictionary<Guid, IReadOnlyList<TriagemAutomatica.OpcaoDeMenu>> _setores = [];
 
+    // Ultimo EnviadaEm entregue por este disparador (um por escopo: uma mensagem do
+    // cliente, uma passada de varredura). A fila envia por EnviadaEm, e um mesmo passo
+    // pode gerar mais de um texto em seguida — as partes de um texto longo e, logo
+    // depois, a pergunta de duvida. Com DateTime.UtcNow lido em cada chamada, duas
+    // chamadas no mesmo milissegundo empatavam ou ficavam fora de ordem, e o cliente
+    // recebia a pergunta no meio do texto. Achado em 2026-10-01 pelo verificador.
+    private DateTime _ultimoHorario = DateTime.MinValue;
+
+    /// <summary>
+    /// Horario de envio estritamente crescente dentro do escopo, ja na precisao da
+    /// coluna (datetime2(3)): dois horarios diferentes aqui nunca viram o mesmo no banco.
+    /// </summary>
+    private DateTime ProximoHorario()
+    {
+        var agora = DateTime.UtcNow;
+        agora = new DateTime(agora.Ticks - agora.Ticks % TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
+
+        if (agora <= _ultimoHorario)
+        {
+            agora = _ultimoHorario.AddMilliseconds(1);
+        }
+
+        _ultimoHorario = agora;
+        return agora;
+    }
+
     public async Task<IReadOnlyList<Mensagem>> EnfileirarAsync(
         Conversa conversa,
         GatilhoDeMensagem gatilho,
@@ -80,7 +106,6 @@ public class DisparadorDeMensagemAutomatica(
         }
 
         var dados = await MontarDadosAsync(conversa, ct);
-        var agora = DateTime.UtcNow;
         var geradas = new List<Mensagem>(modelos.Count);
 
         foreach (var modelo in modelos)
@@ -119,7 +144,7 @@ public class DisparadorDeMensagemAutomatica(
                 // promove para Enviada e o retorno da Graph API, e para
                 // Entregue/Lida o webhook de status; nenhuma linha daqui muda.
                 StatusEntrega = StatusEntrega.Pendente,
-                EnviadaEm = agora
+                EnviadaEm = ProximoHorario()
             };
 
             db.Mensagens.Add(mensagem);
@@ -219,7 +244,6 @@ public class DisparadorDeMensagemAutomatica(
         // demais para uma so no WhatsApp). Divide ANTES dos marcadores: o que o
         // cartorio escreveu decide as partes, nunca o nome de um cliente.
         var dados = await MontarDadosAsync(conversa, ct);
-        var agora = DateTime.UtcNow;
         var geradas = new List<Mensagem>();
 
         foreach (var parte in PartesDeMensagem.Dividir(modelo))
@@ -244,9 +268,10 @@ public class DisparadorDeMensagemAutomatica(
                 Tipo = TipoMensagem.Texto,
                 StatusEntrega = StatusEntrega.Pendente,
 
-                // Um milissegundo entre as partes: a fila envia por EnviadaEm, e a
-                // ordem do texto nao pode depender de empate.
-                EnviadaEm = agora.AddMilliseconds(geradas.Count)
+                // Horario crescente entre as partes e entre este texto e o que vier
+                // depois no mesmo passo: a fila envia por EnviadaEm, e a ordem do texto
+                // nao pode depender de empate. Ver ProximoHorario.
+                EnviadaEm = ProximoHorario()
             };
 
             db.Mensagens.Add(mensagem);
