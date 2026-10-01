@@ -16,7 +16,11 @@ import type { Conversa, ModoDeRetomadaDoRobo, Setor } from '@/lib/api/tipos'
  *
  * Os estados, do mais forte para o mais fraco — o primeiro que valer é o que
  * aparece:
- *   1. mensagens automáticas desligadas no geral → nada a fazer aqui;
+ *   1. mensagens automáticas E IA desligadas no geral → nada a fazer aqui. Só uma
+ *      das duas desligada NÃO é robô desligado: com as mensagens desligadas a IA
+ *      continua respondendo, e com a IA desligada os menus continuam saindo
+ *      (achado no teste de 2026-09-30) — a janela diz o que vale e a pausa
+ *      continua disponível;
  *   2. robô pausado (por alguém, ou porque o contato é "sem robô");
  *   3. com atendente (alguém assumiu, ou o cliente pediu uma pessoa);
  *   4. setor "só equipe" → quem escolheu o setor já caiu na equipe (é o 3);
@@ -61,7 +65,9 @@ export function ControleDoRobo({
     return null
   }
 
-  const desligadoNoGeral = chaves ? !chaves.mensagensAutomaticasHabilitadas : false
+  const mensagensLigadas = chaves?.mensagensAutomaticasHabilitadas ?? true
+  const iaLigada = chaves?.respostaInteligenteHabilitada ?? true
+  const desligadoNoGeral = !mensagensLigadas && !iaLigada
   const pausado = conversa.roboPausadoEm !== null
   const comAtendente = !pausado && conversa.emAtendimentoHumano
   const setorSoEquipe = setores.find((s) => s.id === conversa.setorId)?.modoDoRobo === 'SoEquipe'
@@ -101,7 +107,13 @@ export function ControleDoRobo({
           {/* Container query, igual aos outros botões desta linha: em coluna
               estreita fica só o ícone, e a cor diz o estado. */}
           <span className="hidden @xl:inline">
-            {estado === 'pausado' && conversa.clienteSemRobo ? 'Sem robô' : ROTULO[estado]}
+            {estado === 'pausado' && conversa.clienteSemRobo
+              ? 'Sem robô'
+              : estado === 'ativo' && !mensagensLigadas
+                ? 'Só IA'
+                : estado === 'ativo' && !iaLigada
+                  ? 'Robô sem IA'
+                  : ROTULO[estado]}
           </span>
         </button>
       </PopoverTrigger>
@@ -110,14 +122,20 @@ export function ControleDoRobo({
         {estado === 'desligado' ? (
           <Bloco titulo="Robô desligado no cartório inteiro">
             <p>
-              As mensagens automáticas estão desligadas para todos os clientes. Para religar, use o
-              botão <strong className="text-tinta">Robô</strong> no topo do painel.
+              As mensagens automáticas e a IA estão desligadas para todos os clientes. Para religar,
+              use o botão <strong className="text-tinta">Robô</strong> no topo do painel.
             </p>
           </Bloco>
         ) : estado === 'ativo' ? (
           <>
             <Bloco titulo="O robô está atendendo esta conversa">
-              <p>Ele responde com o menu, os textos dos serviços e a IA.</p>
+              <p>
+                {!mensagensLigadas
+                  ? 'Só a IA responde: as mensagens automáticas (menu, textos dos serviços e avisos) estão desligadas no cartório inteiro.'
+                  : !iaLigada
+                    ? 'Ele responde com o menu e os textos dos serviços. A IA está desligada no cartório inteiro.'
+                    : 'Ele responde com o menu, os textos dos serviços e a IA.'}
+              </p>
             </Bloco>
 
             <div className="border-t border-linha px-4 py-3">

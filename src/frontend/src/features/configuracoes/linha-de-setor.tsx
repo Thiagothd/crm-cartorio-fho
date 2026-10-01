@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Setor } from '@/lib/api/tipos'
+import { BotaoDoRoboNoSetor } from './botao-do-robo-no-setor'
 
 /**
  * Mesma linha-cartão de `LinhaDeEtapa`, sem as setas: setor não tem endpoint
@@ -35,17 +36,7 @@ export function LinhaDeSetor({
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="truncate font-medium text-tinta">{setor.nome}</span>
           {!setor.ativo ? <Badge variant="secondary">Inativo</Badge> : null}
-          {/* O robô fora do normal fica à vista na lista — é exceção que se
-              esquece ligada. Âmbar, como pendência (DESIGN.md, seção 5). */}
-          {setor.modoDoRobo === 'SoEquipe' ? (
-            <Badge variant="warning" title="Quem escolhe este setor no menu vai direto para a equipe.">
-              Só equipe
-            </Badge>
-          ) : setor.modoDoRobo === 'ForaDoMenu' ? (
-            <Badge variant="warning" title="Este setor não aparece no menu do robô.">
-              Fora do menu
-            </Badge>
-          ) : null}
+
         </div>
 
         {setor.descricao ? (
@@ -65,6 +56,10 @@ export function LinhaDeSetor({
           {setor.conversasAtivas === 1 ? 'ativa' : 'ativas'}
         </span>
       </div>
+
+      {/* O robô do setor à vista e a um clique — exceção que se esquece ligada,
+          por isso âmbar quando não está no normal (DESIGN.md, seção 5). */}
+      <BotaoDoRoboNoSetor setor={setor} />
 
       <Button
         variant="ghost"
