@@ -1,4 +1,3 @@
-using CrmCartorio.Api.Infrastructure.Tenancy;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using Microsoft.Extensions.Options;
 
@@ -20,13 +19,8 @@ namespace CrmCartorio.Api.Infrastructure.Automacao;
 public class HospedeDaEsperaDeDados(
     IServiceScopeFactory escopos,
     IOptions<OpcoesDeAutomacao> opcoes,
-    ICartoriosDeSegundoPlano cartorios,
     ILogger<HospedeDaEsperaDeDados> log) : BackgroundService
 {
-    // Abaixo do intervalo: um cartorio preso nao pode empurrar a rodada seguinte.
-    private readonly RodadaDosCartorios _rodada = new(
-        "Espera de dados do servico", log, paralelismo: 4, tempoLimite: TimeSpan.FromSeconds(8));
-
     protected override async Task ExecuteAsync(CancellationToken pararEm)
     {
         var configuracao = opcoes.Value;
@@ -49,67 +43,28 @@ public class HospedeDaEsperaDeDados(
 
         while (await relogio.WaitForNextTickAsync(pararEm))
         {
-            await Task.WhenAll(PassadaDoPilotoAsync(silencio, pararEm), PassadaDosCartoriosAsync(silencio, pararEm));
-        }
-    }
+            try
+            {
+                using var escopo = escopos.CreateScope();
+                var varredor = escopo.ServiceProvider.GetRequiredService<IVarredorDeDadosDoServico>();
 
-    private async Task PassadaDoPilotoAsync(TimeSpan silencio, CancellationToken pararEm)
-    {
-        try
-        {
-            await PassadaAsync(null, silencio, pararEm);
-        }
-        catch (OperationCanceledException) when (pararEm.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            // Uma passada com erro nao pode matar o servico de fundo: sem este catch,
-            // quem mandou os dados ficaria sem a instrucao ate alguem reiniciar a API.
-            log.LogError(ex, "Falha na espera de dados do servico. A proxima passada tentara de novo.");
-        }
-    }
+                var tratadas = await varredor.ExecutarAsync(silencio, pararEm);
 
-    /// <summary>Uma passada num banco. Escopo nulo e' o piloto.</summary>
-    private async Task PassadaAsync(CartorioDaRequisicao? cartorio, TimeSpan silencio, CancellationToken pararEm)
-    {
-        using var escopoDoCartorio = cartorio is null ? null : EscopoDeCartorio.Entrar(cartorio);
-        using var escopo = escopos.CreateScope();
-        var varredor = escopo.ServiceProvider.GetRequiredService<IVarredorDeDadosDoServico>();
-
-        var tratadas = await varredor.ExecutarAsync(silencio, pararEm);
-
-        if (tratadas > 0)
-        {
-            log.LogInformation(
-                "Espera de dados do servico respondeu {Total} conversa(s) em '{Banco}'.",
-                tratadas, cartorio?.Slug ?? "piloto");
-        }
-    }
-
-    private async Task PassadaDosCartoriosAsync(TimeSpan silencio, CancellationToken pararEm)
-    {
-        IReadOnlyList<CartorioDaRequisicao> lista;
-        try
-        {
-            lista = await cartorios.ListarAsync(pararEm);
-        }
-        catch (OperationCanceledException) when (pararEm.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception ex)
-        {
-            log.LogError(ex, "Falha ao listar cartorios para a espera de dados do servico.");
-            return;
-        }
-
-        try
-        {
-            await _rodada.ExecutarAsync(lista, (cartorio, ct) => PassadaAsync(cartorio, silencio, ct), pararEm);
-        }
-        catch (OperationCanceledException) when (pararEm.IsCancellationRequested)
-        {
+                if (tratadas > 0)
+                {
+                    log.LogInformation("Espera de dados do servico respondeu {Total} conversa(s).", tratadas);
+                }
+            }
+            catch (OperationCanceledException) when (pararEm.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Uma passada com erro nao pode matar o servico de fundo: sem este catch,
+                // quem mandou os dados ficaria sem a instrucao ate alguem reiniciar a API.
+                log.LogError(ex, "Falha na espera de dados do servico. A proxima passada tentara de novo.");
+            }
         }
     }
 }
