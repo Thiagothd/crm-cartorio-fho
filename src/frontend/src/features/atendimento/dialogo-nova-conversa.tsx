@@ -122,14 +122,36 @@ export function DialogoNovaConversa({
         clienteId: id,
         setorId: setorId === SEM_VALOR ? null : setorId,
         etapaId: etapaId === SEM_VALOR ? null : etapaId,
-        primeiraMensagem: primeiraMensagem.trim() || null,
         comecarComRobo,
       })
+
+      // Pedido do Thiago em 2026-10-28: quem abre pelo painel é o cartório
+      // chamando o cliente, então o texto daqui é a PRIMEIRA MENSAGEM DO
+      // ATENDENTE — sai pelo mesmo envio do fio (assinatura, tiques, falha
+      // visível), não como "o que o cliente pediu". Com o robô, quem fala
+      // primeiro é ele; o campo nem aparece.
+      const mensagem = primeiraMensagem.trim()
+      let mensagemFalhou = false
+
+      if (mensagem && !comecarComRobo) {
+        try {
+          await conversasApi.enviarMensagem(conversa.id, mensagem)
+        } catch {
+          mensagemFalhou = true
+        }
+      }
 
       invalidar()
       aoCriar(conversa.id)
       definirAberto(false)
-      toast.success(`Atendimento ${conversa.protocolo} aberto.`)
+
+      if (mensagemFalhou) {
+        toast.error(
+          `Atendimento ${conversa.protocolo} aberto, mas a mensagem não saiu. Escreva de novo na conversa.`,
+        )
+      } else {
+        toast.success(`Atendimento ${conversa.protocolo} aberto.`)
+      }
     } catch (falha) {
       toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível abrir o atendimento.')
     } finally {
@@ -301,19 +323,21 @@ export function DialogoNovaConversa({
             </p>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="primeira">Primeira mensagem do cliente (opcional)</Label>
-            <Textarea
-              id="primeira"
-              value={primeiraMensagem}
-              onChange={(e) => setPrimeiraMensagem(e.target.value)}
-              placeholder="O que o cliente pediu"
-              rows={2}
-            />
-            <p className="text-xs text-tinta-media">
-              Fica só no histórico, como anotação. Não é enviada ao cliente.
-            </p>
-          </div>
+          {comecarComRobo ? null : (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="primeira">Primeira mensagem para o cliente (opcional)</Label>
+              <Textarea
+                id="primeira"
+                value={primeiraMensagem}
+                onChange={(e) => setPrimeiraMensagem(e.target.value)}
+                placeholder="Ex.: Bom dia! Aqui é do cartório, sobre a sua certidão..."
+                rows={3}
+              />
+              <p className="text-xs text-tinta-media">
+                Sai pelo WhatsApp assim que o atendimento abrir. Pode deixar vazio e escrever na conversa.
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
