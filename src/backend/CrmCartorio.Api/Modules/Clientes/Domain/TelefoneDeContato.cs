@@ -139,6 +139,69 @@ public static class TelefoneDeContato
         };
     }
 
+    /// <summary>
+    /// As formas sob as quais o MESMO contato pode estar gravado em
+    /// <c>Clientes.TelefoneWhatsapp</c>, dado o número que chegou pelo
+    /// WhatsApp (só dígitos, E.164). O próprio número vem sempre primeiro.
+    /// </summary>
+    /// <remarks>
+    /// <b>Bug que isto corrige (produção, 2026-10-28):</b> o atendente chamou
+    /// pelo painel uma cliente cadastrada com o celular completo (13 dígitos,
+    /// com o nono); quando ela respondeu, o WhatsApp entregou o remetente na
+    /// forma legada (12 dígitos, sem o nono) e a recepção, comparando por
+    /// igualdade exata, criou OUTRO cliente e OUTRO atendimento — na fila, com
+    /// o robô ativo.
+    ///
+    /// Mesma regra de
+    /// <c>CanalWhatsApp.Application.NormalizadorDeTelefone.NumerosEquivalentes</c>
+    /// (que o verificador do canal confere contra esta, par a par), escrita de
+    /// novo aqui porque o Atendimento não referencia o <c>Application</c> de
+    /// outro módulo (CLAUDE.md, 7.1) — como <see cref="NomeDeContato"/>, mora no
+    /// <c>Domain</c> de Clientes, que é dono do número.
+    ///
+    /// Segura nos dois sentidos, e por isso NÃO é a aposta de
+    /// <see cref="Interpretar"/>: aqui não se inventa número nenhum, só se
+    /// procura o cadastro pela outra forma — e só quando ela é inequivocamente
+    /// celular:
+    /// <list type="bullet">
+    ///   <item>13 dígitos, 55, DDD válido, nono dígito e o dígito seguinte em
+    ///   6–9 → também a forma sem o nono;</item>
+    ///   <item>12 dígitos, 55, DDD válido e primeiro dígito do assinante em 6–9
+    ///   → também a forma com o nono.</item>
+    /// </list>
+    /// Fixo (assinante em 2–5), número estrangeiro ou qualquer outro formato
+    /// volta só com ele mesmo. A lista devolvida é o que vai no <c>IN</c> da
+    /// consulta — montada em C#, para o filtro traduzir para SQL.
+    /// </remarks>
+    public static IReadOnlyList<string> FormasDoMesmoNumero(string telefoneE164)
+    {
+        if (string.IsNullOrEmpty(telefoneE164))
+        {
+            return [];
+        }
+
+        if (telefoneE164.Length == 13
+            && telefoneE164.StartsWith("55", StringComparison.Ordinal)
+            && DddValido(telefoneE164)
+            && telefoneE164[4] == '9'
+            && telefoneE164[5] is >= '6' and <= '9'
+            && telefoneE164.All(char.IsAsciiDigit))
+        {
+            return [telefoneE164, telefoneE164.Remove(4, 1)];
+        }
+
+        if (telefoneE164.Length == 12
+            && telefoneE164.StartsWith("55", StringComparison.Ordinal)
+            && DddValido(telefoneE164)
+            && telefoneE164[4] is >= '6' and <= '9'
+            && telefoneE164.All(char.IsAsciiDigit))
+        {
+            return [telefoneE164, telefoneE164.Insert(4, "9")];
+        }
+
+        return [telefoneE164];
+    }
+
     private static string SomenteDigitos(string valor) =>
         new(valor.Where(char.IsDigit).ToArray());
 

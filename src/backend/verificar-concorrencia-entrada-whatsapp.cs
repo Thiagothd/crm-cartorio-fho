@@ -727,6 +727,180 @@ try
             && !await db.Mensagens.AnyAsync(m => m.ConversaId == conversaNova && m.EhAutomatica));
     }
 
+    // R — nono digito (bug de producao, 2026-10-28). O atendente chamou pelo
+    // painel uma cliente cadastrada com o celular completo (13 digitos); ela
+    // respondeu, o WhatsApp entregou o remetente sem o nono (12 digitos) e a
+    // recepcao criou OUTRO cliente e OUTRO atendimento, na fila e com o robo.
+    string NovoCelularCanonico() =>
+        $"5598 9{Random.Shared.Next(6, 10)}{Random.Shared.Next(1000000, 10000000)}".Replace(" ", "");
+
+    async Task<(Guid ClienteId, Guid? ConversaId)> CriarClienteComTelefoneAsync(
+        string telefone, string marcador, bool comConversaAtiva, bool ativo = true, int minutosAtras = 5)
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        telefones.Add(telefone);
+        var cliente = new Cliente
+        {
+            TenantId = tenantId,
+            Nome = $"{prefixoNome} {marcador}",
+            TelefoneWhatsapp = telefone,
+            PrimeiroContatoEm = DateTime.UtcNow.AddMinutes(-minutosAtras),
+            CriadoEm = DateTime.UtcNow.AddMinutes(-minutosAtras),
+            Ativo = ativo
+        };
+        db.Clientes.Add(cliente);
+        Conversa? conversa = null;
+        if (comConversaAtiva)
+        {
+            conversa = new Conversa
+            {
+                TenantId = tenantId,
+                ClienteId = cliente.Id,
+                Protocolo = $"WI9-{Guid.NewGuid():N}"[..20],
+                Canal = CanalOrigem.WhatsApp,
+                Status = StatusConversa.Ativa,
+                EmAtendimentoHumano = true,
+                IniciadaEm = DateTime.UtcNow.AddMinutes(-minutosAtras),
+                UltimaMensagemEm = DateTime.UtcNow.AddMinutes(-minutosAtras)
+            };
+            db.Conversas.Add(conversa);
+        }
+        await db.SaveChangesAsync();
+        return (cliente.Id, conversa?.Id);
+    }
+
+    async Task<int> ClientesDasDuasFormasAsync(string canonico)
+    {
+        var formas = new[] { canonico, canonico.Remove(4, 1) };
+        await using var db = new CrmDbContext(opcoes, cifra);
+        return await db.Clientes.CountAsync(c => c.TenantId == tenantId && formas.Contains(c.TelefoneWhatsapp));
+    }
+
+    async Task<Guid> ClienteDaConversaAsync(Guid conversaId)
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        return await db.Conversas.Where(c => c.Id == conversaId).Select(c => c.ClienteId).SingleAsync();
+    }
+
+    // R1 (a) — canonico com atendimento ativo; a resposta chega pelo legado.
+    var canonicoR1 = NovoCelularCanonico();
+    var legadoR1 = canonicoR1.Remove(4, 1);
+    telefones.Add(legadoR1);
+    var clienteR1 = await CriarClienteComTelefoneAsync(canonicoR1, "nono-canonico", comConversaAtiva: true);
+    var conversaR1 = await AceitarAsync(legadoR1, $"{prefixoId}R1-legado", "Oi, recebi sua mensagem.");
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var telefoneGravado = await db.Clientes.Where(c => c.Id == clienteR1.ClienteId).Select(c => c.TelefoneWhatsapp).SingleAsync();
+        Checar("nono: canonico cadastrado + mensagem pelo legado cai no MESMO atendimento",
+            conversaR1 == clienteR1.ConversaId);
+        Checar("nono: canonico cadastrado + mensagem pelo legado nao cria cliente novo",
+            await ClientesDasDuasFormasAsync(canonicoR1) == 1);
+        Checar("nono: o numero gravado do cliente existente nao muda",
+            telefoneGravado == canonicoR1);
+        Checar("nono: nenhuma conversa ativa nova para o contato",
+            await db.Conversas.CountAsync(c => c.TenantId == tenantId && c.ClienteId == clienteR1.ClienteId && c.Status == StatusConversa.Ativa) == 1);
+    }
+
+    // R1b — canonico SEM atendimento ativo: a conversa nova nasce no cadastro existente.
+    var canonicoR1b = NovoCelularCanonico();
+    telefones.Add(canonicoR1b.Remove(4, 1));
+    var clienteR1b = await CriarClienteComTelefoneAsync(canonicoR1b, "nono-canonico-sem-conversa", comConversaAtiva: false);
+    var conversaR1b = await AceitarAsync(canonicoR1b.Remove(4, 1), $"{prefixoId}R1b-legado");
+    Checar("nono: canonico sem atendimento + mensagem pelo legado abre a conversa no cliente existente",
+        await ClienteDaConversaAsync(conversaR1b) == clienteR1b.ClienteId
+        && await ClientesDasDuasFormasAsync(canonicoR1b) == 1);
+
+    // R2 (b) — o inverso: cadastro legado (criado pelo webhook antigo), chega pelo canonico.
+    var canonicoR2 = NovoCelularCanonico();
+    telefones.Add(canonicoR2);
+    var clienteR2 = await CriarClienteComTelefoneAsync(canonicoR2.Remove(4, 1), "nono-legado", comConversaAtiva: true);
+    var conversaR2 = await AceitarAsync(canonicoR2, $"{prefixoId}R2-canonico");
+    Checar("nono: legado cadastrado + mensagem pelo canonico cai no MESMO atendimento",
+        conversaR2 == clienteR2.ConversaId);
+    Checar("nono: legado cadastrado + mensagem pelo canonico nao cria cliente novo",
+        await ClientesDasDuasFormasAsync(canonicoR2) == 1);
+
+    // R3 (c) — fixo de 12 digitos (assinante em 2-5) nao tem par: cria cliente
+    // normalmente, mesmo existindo um cadastro com "o nono inserido" — inserir o
+    // nono num fixo inventaria um numero que nao existe.
+    var fixoR3 = $"55383{Random.Shared.Next(1000000, 10000000)}";
+    var falsoParR3 = fixoR3.Insert(4, "9");
+    telefones.Add(fixoR3);
+    var clienteFalsoParR3 = await CriarClienteComTelefoneAsync(falsoParR3, "nono-falso-par-do-fixo", comConversaAtiva: true);
+    var conversaR3 = await AceitarAsync(fixoR3, $"{prefixoId}R3-fixo");
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var clienteR3 = await db.Clientes.AsNoTracking().SingleOrDefaultAsync(c => c.TenantId == tenantId && c.TelefoneWhatsapp == fixoR3);
+        Checar("nono: fixo de 12 digitos sem par cria cliente com o proprio numero",
+            clienteR3 is not null && await ClienteDaConversaAsync(conversaR3) == clienteR3.Id);
+        Checar("nono: fixo de 12 digitos nunca casa com o cadastro de 13 digitos 'com nono inserido'",
+            conversaR3 != clienteFalsoParR3.ConversaId && clienteR3?.Id != clienteFalsoParR3.ClienteId);
+    }
+
+    // R4 (d) — resposta pelo celular do cartorio, com o contato no legado, cai
+    // na conversa existente do cadastro canonico.
+    var canonicoR4 = NovoCelularCanonico();
+    var legadoR4 = canonicoR4.Remove(4, 1);
+    telefones.Add(legadoR4);
+    var clienteR4 = await CriarClienteComTelefoneAsync(canonicoR4, "nono-aparelho", comConversaAtiva: true);
+    Guid? conversaR4;
+    await using (var db = new CrmDbContext(opcoes, cifra))
+        conversaR4 = await NovoRecebimento(db).RegistrarEnviadaPeloAparelhoAsync(
+            tenantId, PeloCelular(legadoR4, "R4-celular", "Pode vir buscar amanhã."));
+    Checar("nono: resposta pelo celular com o legado cai na conversa existente do canonico",
+        conversaR4 == clienteR4.ConversaId);
+    Checar("nono: resposta pelo celular com o legado nao cria cliente novo",
+        await ClientesDasDuasFormasAsync(canonicoR4) == 1);
+
+    // R5 — duplicata anterior a correcao (as duas formas ja cadastradas, ambas
+    // com atendimento ativo): a recepcao prefere o canonico.
+    var canonicoR5 = NovoCelularCanonico();
+    var clienteCanonicoR5 = await CriarClienteComTelefoneAsync(canonicoR5, "nono-dup-canonico", comConversaAtiva: true, minutosAtras: 10);
+    var clienteLegadoR5 = await CriarClienteComTelefoneAsync(canonicoR5.Remove(4, 1), "nono-dup-legado", comConversaAtiva: true, minutosAtras: 2);
+    var conversaR5 = await AceitarAsync(canonicoR5.Remove(4, 1), $"{prefixoId}R5-legado");
+    Checar("nono: com as duas formas cadastradas, a mensagem pelo legado vai para o canonico",
+        conversaR5 == clienteCanonicoR5.ConversaId && conversaR5 != clienteLegadoR5.ConversaId);
+
+    // R6 — ... mas um canonico INATIVO perde para o legado ativo.
+    var canonicoR6 = NovoCelularCanonico();
+    await CriarClienteComTelefoneAsync(canonicoR6, "nono-inativo-canonico", comConversaAtiva: false, ativo: false);
+    var clienteLegadoR6 = await CriarClienteComTelefoneAsync(canonicoR6.Remove(4, 1), "nono-ativo-legado", comConversaAtiva: true);
+    var conversaR6 = await AceitarAsync(canonicoR6, $"{prefixoId}R6-canonico");
+    Checar("nono: cliente ativo tem preferencia sobre o canonico inativo",
+        conversaR6 == clienteLegadoR6.ConversaId);
+
+    // R7 — o estado REAL de producao em 2026-10-28, antes do script de unificacao: o canonico
+    // tem so o atendimento Simulado aberto pelo "Novo atendimento" do painel, e
+    // o legado tem o atendimento WhatsApp que nasceu da resposta. A proxima
+    // mensagem tem de cair no WhatsApp existente — nunca abrir uma terceira.
+    var canonicoR7 = NovoCelularCanonico();
+    var clienteCanonicoR7 = await CriarClienteComTelefoneAsync(canonicoR7, "nono-prod-canonico", comConversaAtiva: false, minutosAtras: 20);
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        db.Conversas.Add(new Conversa
+        {
+            TenantId = tenantId,
+            ClienteId = clienteCanonicoR7.ClienteId,
+            Protocolo = $"WI9-{Guid.NewGuid():N}"[..20],
+            Canal = CanalOrigem.Simulado,
+            Status = StatusConversa.Ativa,
+            IniciadaEm = DateTime.UtcNow.AddMinutes(-20),
+            UltimaMensagemEm = DateTime.UtcNow.AddMinutes(-20)
+        });
+        await db.SaveChangesAsync();
+    }
+    var clienteLegadoR7 = await CriarClienteComTelefoneAsync(canonicoR7.Remove(4, 1), "nono-prod-legado", comConversaAtiva: true, minutosAtras: 1);
+    var conversaR7 = await AceitarAsync(canonicoR7.Remove(4, 1), $"{prefixoId}R7-legado");
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var formasR7 = new[] { canonicoR7, canonicoR7.Remove(4, 1) };
+        var ativasWhatsapp = await db.Conversas.CountAsync(c => c.TenantId == tenantId
+            && c.Canal == CanalOrigem.WhatsApp && c.Status == StatusConversa.Ativa
+            && db.Clientes.Any(cl => cl.Id == c.ClienteId && formasR7.Contains(cl.TelefoneWhatsapp)));
+        Checar("nono: canonico so com Simulado + legado com WhatsApp: a mensagem cai no WhatsApp existente",
+            conversaR7 == clienteLegadoR7.ConversaId && ativasWhatsapp == 1);
+    }
+
     // L — o processador chama a mesma porta de saida; WA-OUT-01 tem verificador proprio.
     var canal = new CanalContador();
     await using (var db = new CrmDbContext(opcoes, cifra)) await NovoProcessador(db, new IaFake(), canal).ProcessarConversaAsync(lenta.ConversaId);

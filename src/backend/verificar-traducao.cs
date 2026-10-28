@@ -7,6 +7,7 @@ using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -987,6 +988,41 @@ Checar("Importacao: telefones do lote ja existentes, ao confirmar (Contains + pr
     db.Clientes.AsNoTracking()
         .Where(c => c.TenantId == tenantId && telefonesDoLoteDeImportacao.Contains(c.TelefoneWhatsapp))
         .Select(c => c.TelefoneWhatsapp)
+        .ToQueryString());
+
+// --- Recepcao pelas duas formas do celular (2026-10-28) ---------------------
+//
+// Codigo de producao (ClientePorTelefone.DoNumeroRecebido), usado pela
+// recepcao e pela foto de perfil do webhook. O IN com a lista montada em C# e
+// a ordenacao por CASE precisam virar SQL inteiro: avaliado no cliente, o
+// primeiro contato de um celular traria a tabela de clientes para a memoria.
+Checar("Recepcao: cliente pelas duas formas do celular (legado de 12 digitos)", () =>
+    db.Clientes
+        .DoNumeroRecebido(tenantId, "553899000242")
+        .Take(1)
+        .ToQueryString());
+
+Checar("Recepcao: cliente pelas duas formas do celular (canonico de 13 digitos)", () =>
+    db.Clientes
+        .DoNumeroRecebido(tenantId, "5538999000242")
+        .Take(1)
+        .ToQueryString());
+
+Checar("Recepcao: fixo de 12 digitos procura so a forma exata", () =>
+    db.Clientes
+        .DoNumeroRecebido(tenantId, "553832000045")
+        .Take(1)
+        .ToQueryString());
+
+Checar("Recepcao: qual das duas formas ja tem atendimento WhatsApp ativo", () =>
+    RecebimentoDeWhatsApp.ClientesComWhatsappAtivo(db, tenantId, [Guid.NewGuid(), Guid.NewGuid()])
+        .ToQueryString());
+
+Checar("Webhook: foto de perfil do cliente pelas duas formas do celular", () =>
+    db.Clientes.AsNoTracking()
+        .DoNumeroRecebido(tenantId, "553899000242")
+        .Select(c => new { c.FotoPerfilUrl, c.FotoPerfilAtualizadaEm })
+        .Take(1)
         .ToQueryString());
 
 // --- 15. Analise da IA — ChamadasDeIa (migracao 042) ------------------------

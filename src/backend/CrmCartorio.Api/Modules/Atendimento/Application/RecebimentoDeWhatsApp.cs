@@ -429,8 +429,37 @@ public sealed class RecebimentoDeWhatsApp(
         DateTime agora,
         CancellationToken ct)
     {
-        var cliente = await contexto.Clientes.FirstOrDefaultAsync(
-            c => c.TenantId == tenantId && c.TelefoneWhatsapp == mensagem.TelefoneE164, ct);
+        // Pelas duas formas do celular (com e sem o nono digito), nao por
+        // igualdade exata: o cliente cadastrado com 13 digitos e o mesmo que o
+        // WhatsApp entrega com 12. Igualdade exata criou cliente e atendimento
+        // duplicados em producao (2026-10-28). Ver ClientePorTelefone.
+        //
+        // Corrida conhecida e aceita: duas PRIMEIRAS mensagens simultaneas do
+        // mesmo celular, uma em cada forma, sem cadastro nenhum ainda, criariam
+        // dois clientes (o UNIQUE de telefone so protege a forma exata). O
+        // WhatsApp entrega o remetente numa forma so por sessao, entao isso nao
+        // acontece na pratica; se acontecer, sql/producao-unificar-clientes-nono-digito.sql unifica.
+        var candidatos = await contexto.Clientes
+            .DoNumeroRecebido(tenantId, mensagem.TelefoneE164)
+            .Take(2)
+            .ToListAsync(ct);
+
+        var cliente = candidatos.FirstOrDefault();
+
+        // As duas formas ja cadastradas (duplicata anterior a correcao, ainda nao
+        // unificada pelo sql/producao-unificar-clientes-nono-digito.sql): vence quem ja tem atendimento WhatsApp ativo.
+        // Sem isto, preferir o canonico abriria uma TERCEIRA conversa quando o
+        // canonico so tem atendimento Simulado (o "Novo atendimento" do painel)
+        // e o legado tem o atendimento WhatsApp que esta falando com o cliente —
+        // exatamente o estado de producao em 2026-10-28.
+        if (candidatos.Count > 1)
+        {
+            var comWhatsappAtivo = await ClientesComWhatsappAtivo(
+                    contexto, tenantId, candidatos.Select(c => c.Id).ToList())
+                .ToListAsync(ct);
+
+            cliente = candidatos.FirstOrDefault(c => comWhatsappAtivo.Contains(c.Id)) ?? cliente;
+        }
 
         if (cliente is not null)
         {
@@ -468,6 +497,21 @@ public sealed class RecebimentoDeWhatsApp(
         contexto.Clientes.Add(cliente);
         return cliente;
     }
+
+    /// <summary>
+    /// Quais dos clientes candidatos ja tem atendimento WhatsApp ativo. Publico
+    /// so para <c>verificar-traducao.cs</c> chamar a consulta real.
+    /// </summary>
+    public static IQueryable<Guid> ClientesComWhatsappAtivo(
+        CrmDbContext contexto,
+        Guid tenantId,
+        List<Guid> clienteIds) =>
+        contexto.Conversas.AsNoTracking()
+            .Where(c => c.TenantId == tenantId
+                     && clienteIds.Contains(c.ClienteId)
+                     && c.Canal == CanalOrigem.WhatsApp
+                     && c.Status == StatusConversa.Ativa)
+            .Select(c => c.ClienteId);
 
     private static async Task<(Conversa Conversa, bool EhNova)> ResolverConversaAsync(
         CrmDbContext contexto,

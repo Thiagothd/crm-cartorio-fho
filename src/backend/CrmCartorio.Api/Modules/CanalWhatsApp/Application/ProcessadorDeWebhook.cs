@@ -2,6 +2,7 @@ using CrmCartorio.Api.Infrastructure.Persistence;
 using CrmCartorio.Api.Modules.Atendimento.Application;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -297,8 +298,11 @@ public class ProcessadorDeWebhook(
     {
         try
         {
+            // Mesmo cliente que a recepcao vai achar (com ou sem o nono digito):
+            // senao a foto do cadastro canonico nunca seria reaproveitada e o
+            // gateway seria consultado a cada mensagem do contato.
             var cliente = await db.Clientes.AsNoTracking()
-                .Where(c => c.TenantId == tenantId && c.TelefoneWhatsapp == telefoneE164)
+                .DoNumeroRecebido(tenantId, telefoneE164)
                 .Select(c => new { c.FotoPerfilUrl, c.FotoPerfilAtualizadaEm })
                 .FirstOrDefaultAsync(ct);
 

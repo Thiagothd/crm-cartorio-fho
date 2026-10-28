@@ -13,6 +13,7 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Application;
+using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Tenants.Domain.Entities;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Entities;
@@ -882,6 +883,87 @@ Checar(
     "Processador entrega o contato autorizado",
     recebimentoFake.Recebimentos == 1
     && recebimentoFake.Ultima?.TelefoneE164 == "5519990001488");
+
+// CORRECAO (producao, 2026-10-28): a recepcao achava o cliente por igualdade
+// exata e criou cliente/atendimento duplicados quando o WhatsApp entregou o
+// celular sem o nono digito. A regra nova (Clientes.Domain, porque o
+// Atendimento nao le CanalWhatsApp.Application) tem de ser EXATAMENTE a de
+// NormalizadorDeTelefone.NumerosEquivalentes — conferida aqui, par a par.
+var numerosDaEquivalencia = new[]
+{
+    "5519990001488", "551990001488",   // celular, com e sem o nono
+    "5538999000242", "553899000242",   // o caso da producao
+    "5538932000045", "553832000045",   // fixo (assinante 3) e o "falso par" com nono
+    "5538959990000", "553859990000",   // assinante 5: fixo
+    "5538969990000", "553869990000",   // assinante 6: celular legado
+    "5520990001488", "552090001488",   // DDD 20 nao existe
+    "5519890001488",                    // 13 digitos sem o nono na posicao 4
+    "1212990001488", "121290001488",   // fora do Brasil
+    "551990001488000", ""              // comprimento fora das duas formas
+};
+var divergencias = (
+    from a in numerosDaEquivalencia
+    from b in numerosDaEquivalencia
+    where a.Length > 0 && b.Length > 0
+    let pelaRegraDoCanal = NormalizadorDeTelefone.NumerosEquivalentes(a, b)
+    let pelaRecepcao = TelefoneDeContato.FormasDoMesmoNumero(a).Contains(b)
+    where pelaRegraDoCanal != pelaRecepcao
+    select $"{a}x{b}").ToList();
+Checar(
+    "Recepcao: formas do mesmo numero == NumerosEquivalentes em todos os pares" +
+    (divergencias.Count == 0 ? "" : $" (divergem: {string.Join(", ", divergencias)})"),
+    divergencias.Count == 0);
+Checar(
+    "Recepcao: o proprio numero vem sempre primeiro entre as formas",
+    numerosDaEquivalencia.Where(n => n.Length > 0).All(n => TelefoneDeContato.FormasDoMesmoNumero(n)[0] == n));
+Checar(
+    "Recepcao: fixo de 12 digitos so procura a si mesmo",
+    TelefoneDeContato.FormasDoMesmoNumero("553832000045") is [ "553832000045" ]);
+
+// A foto de perfil do webhook precisa achar o MESMO cliente que a recepcao:
+// cadastro canonico com foto recente + mensagem pelo legado = sem consulta ao
+// gateway, e a foto do cadastro segue para o recebimento.
+var clienteComFoto = new Cliente
+{
+    TenantId = tenant.Id,
+    Nome = "Contato autorizado com foto",
+    TelefoneWhatsapp = "5519990001488",
+    FotoPerfilUrl = "https://foto.invalid/contato.jpg",
+    FotoPerfilAtualizadaEm = DateTime.UtcNow.AddMinutes(-5)
+};
+db.Clientes.Add(clienteComFoto);
+await db.SaveChangesAsync();
+
+using var payloadLegadoComFoto = JsonDocument.Parse("""
+    {
+      "key": {
+        "remoteJid": "551990001488@s.whatsapp.net",
+        "fromMe": false,
+        "id": "MENSAGEM-LEGADO-FOTO-1"
+      },
+      "pushName": "Contato autorizado",
+      "message": {
+        "conversation": "mensagem pelo numero sem o nono"
+      }
+    }
+    """);
+
+var consultasDeFotoAntes = gatewayFake.ConsultasDeFoto;
+var recebimentosAntesDaFoto = recebimentoFake.Recebimentos;
+await processador.ProcessarAsync(new PayloadDoWebhook(
+    "messages.upsert",
+    "cartorio-teste",
+    payloadLegadoComFoto.RootElement.Clone()));
+
+Checar(
+    "Foto de perfil: mensagem pelo legado reaproveita a foto do cadastro canonico, sem consultar o gateway",
+    recebimentoFake.Recebimentos == recebimentosAntesDaFoto + 1
+    && recebimentoFake.Ultima?.TelefoneE164 == "551990001488"
+    && recebimentoFake.Ultima?.FotoPerfilUrl == "https://foto.invalid/contato.jpg"
+    && gatewayFake.ConsultasDeFoto == consultasDeFotoAntes);
+
+db.Clientes.Remove(clienteComFoto);
+await db.SaveChangesAsync();
 
 // CORRECAO (achado ao vivo, 2026-09-09): "Somente os liberados" e "Todos,
 // menos os bloqueados" comparavam por igualdade exata de digitos. Uma
