@@ -110,15 +110,42 @@ export function FiltrosDaInbox({
           antes dividia a linha com "Novo atendimento", ficando espremida. */}
       <div className="relative w-full">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-tinta-fraca" />
+        {/* Fora do preenchimento automatico do navegador. Achado em producao
+            em 2026-10-28: o Chrome classificou o campo como "nome" pelo
+            placeholder e o preencheu com o nome completo do proprio cartório parceiro — a
+            lista ficou em "0 de 0" com 5 ativas, e parecia que as conversas
+            tinham sumido. type="search" + autoComplete="off" + name neutro
+            tiram o campo da heuristica de endereco/contato; data-1p-ignore e
+            data-lpignore fazem o mesmo nos gerenciadores de senha. */}
         <Input
+          type="search"
+          name="busca-da-inbox"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          data-1p-ignore
+          data-lpignore="true"
+          aria-label="Buscar atendimento por nome, telefone ou protocolo"
           value={filtros.busca}
           onChange={(e) => atualizar({ busca: e.target.value })}
           placeholder="Nome, telefone ou protocolo"
           // Fase 3.2: a coluna da lista virou cartao bg-branco (secao 16) — o
           // Input padrao tambem e bg-card (branco) e sumiria encaixado nela
-          // sem este override local.
-          className="w-full rounded-full bg-superficie pl-9 focus-visible:bg-branco"
+          // sem este override local. O pr-9 abre espaco para o "limpar", e o
+          // seletor esconde o X nativo do type="search" para nao aparecerem dois.
+          className="w-full rounded-full bg-superficie pl-9 pr-9 focus-visible:bg-branco [&::-webkit-search-cancel-button]:appearance-none"
         />
+        {filtros.busca ? (
+          <button
+            type="button"
+            onClick={() => atualizar({ busca: '' })}
+            aria-label="Limpar busca"
+            title="Limpar busca"
+            className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-tinta-fraca transition-colors hover:bg-branco hover:text-tinta"
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
       </div>
 
       {/* Linha 2 — "Novo atendimento" ancora a esquerda (e' a acao primaria

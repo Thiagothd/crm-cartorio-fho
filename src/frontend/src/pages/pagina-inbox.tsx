@@ -520,6 +520,21 @@ export function PaginaInbox() {
                     aoSelecionar={selecionar}
                   />
                 ))
+              ) : filtros.busca.trim() ? (
+                // Com busca ativa, o vazio diz QUAL busca esvaziou a lista. Em
+                // 2026-10-28 o navegador preencheu o campo sozinho com o nome
+                // do atendente, e "Nenhuma conversa aqui" sem o termo fez
+                // parecer que os atendimentos tinham sumido.
+                <EstadoVazio
+                  icone={Inbox}
+                  titulo="Nenhum atendimento encontrado"
+                  descricao={`A busca "${filtros.busca.trim()}" não encontrou nenhum atendimento nesta lista.`}
+                  acao={
+                    <Button variant="outline" onClick={() => setFiltros({ ...filtros, busca: '' })}>
+                      Limpar busca
+                    </Button>
+                  }
+                />
               ) : (
                 <EstadoVazio
                   icone={Inbox}
