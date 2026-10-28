@@ -65,6 +65,7 @@ export function DialogoNovaConversa({
   const [setorId, setSetorId] = useState(SEM_VALOR)
   const [etapaId, setEtapaId] = useState(SEM_VALOR)
   const [primeiraMensagem, setPrimeiraMensagem] = useState('')
+  const [comecarComRobo, setComecarComRobo] = useState(false)
   const [novoNome, setNovoNome] = useState('')
   const [novoTelefone, setNovoTelefone] = useState('')
   const [modoNovoCliente, setModoNovoCliente] = useState(false)
@@ -86,6 +87,7 @@ export function DialogoNovaConversa({
     setSetorId(SEM_VALOR)
     setEtapaId(SEM_VALOR)
     setPrimeiraMensagem('')
+    setComecarComRobo(false)
     setNovoNome('')
     setNovoTelefone('')
     setModoNovoCliente(false)
@@ -121,6 +123,7 @@ export function DialogoNovaConversa({
         setorId: setorId === SEM_VALOR ? null : setorId,
         etapaId: etapaId === SEM_VALOR ? null : etapaId,
         primeiraMensagem: primeiraMensagem.trim() || null,
+        comecarComRobo,
       })
 
       invalidar()
@@ -274,6 +277,30 @@ export function DialogoNovaConversa({
             </div>
           </div>
 
+          {/* Pedido do Thiago em 2026-10-28: abrir atendimento só oferecia o
+              fluxo do robô (boas-vindas e menu). Conversa livre é o padrão —
+              quem abre pelo painel é quem vai chamar o cliente. */}
+          <div className="flex flex-col gap-1.5">
+            <Label>Como começar</Label>
+            <Select
+              value={comecarComRobo ? 'robo' : 'livre'}
+              onValueChange={(v) => setComecarComRobo(v === 'robo')}
+            >
+              <SelectTrigger aria-label="Como começar o atendimento">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="livre">Conversa livre: eu escrevo para o cliente</SelectItem>
+                <SelectItem value="robo">Robô manda as boas-vindas e o menu</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-tinta-media">
+              {comecarComRobo
+                ? 'O menu só sai com o setor em "Definir depois". A conversa fica na fila até alguém assumir.'
+                : 'O atendimento já fica com você e o robô não responde nesta conversa.'}
+            </p>
+          </div>
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="primeira">Primeira mensagem do cliente (opcional)</Label>
             <Textarea
@@ -283,6 +310,9 @@ export function DialogoNovaConversa({
               placeholder="O que o cliente pediu"
               rows={2}
             />
+            <p className="text-xs text-tinta-media">
+              Fica só no histórico, como anotação. Não é enviada ao cliente.
+            </p>
           </div>
         </div>
 

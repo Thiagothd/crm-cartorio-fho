@@ -39,6 +39,22 @@ public enum ResultadoNoCanal
 public interface IEnviadorDeCanal
 {
     /// <summary>
+    /// O canal real esta ligado e vinculado a esta serventia?
+    /// </summary>
+    /// <remarks>
+    /// E o que decide o canal do atendimento aberto pelo painel ("Novo
+    /// atendimento"). Ate 2026-10-28 ele nascia sempre <c>Simulado</c>, resto da
+    /// Fase 1: o cartório parceiro abriu atendimentos para clientes reais, escreveu, mandou
+    /// PDF, e nada saiu — o fio mostrava um tique so, sem erro nenhum.
+    ///
+    /// O padrao <c>false</c> mantem o comportamento antigo em quem nao tem canal
+    /// (dev, demonstracao, os doubles dos verificadores): sem canal, a conversa
+    /// continua <c>Simulado</c> e nada tenta sair.
+    /// </remarks>
+    Task<bool> AtendeOTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    /// <summary>
     /// Entrega a mensagem pelo canal da conversa.
     /// </summary>
     /// <returns>

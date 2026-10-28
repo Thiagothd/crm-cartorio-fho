@@ -8,7 +8,11 @@ public record CriarConversaRequest(
     Guid ClienteId,
     Guid? SetorId,
     Guid? EtapaId,
-    string? PrimeiraMensagem);
+    string? PrimeiraMensagem,
+    // Só vale para atendimento que sai pelo WhatsApp. Falso (o padrão) é a
+    // conversa livre: o atendente escreve, o robô fica de fora. Verdadeiro
+    // devolve o fluxo do primeiro contato — boas-vindas e menu, na fila.
+    bool ComecarComRobo = false);
 
 public record EnviarMensagemRequest(string Conteudo, Guid? MensagemRespondidaId = null);
 

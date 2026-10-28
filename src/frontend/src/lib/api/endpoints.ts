@@ -155,6 +155,7 @@ export const conversasApi = {
     setorId?: string | null
     etapaId?: string | null
     primeiraMensagem?: string | null
+    comecarComRobo?: boolean
   }) => api.post<Conversa>('/api/conversas', dados),
 
   assumir: (id: string) => api.post<Conversa>(`/api/conversas/${id}/assumir`),

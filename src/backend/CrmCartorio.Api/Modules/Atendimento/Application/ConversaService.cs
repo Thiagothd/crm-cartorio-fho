@@ -291,10 +291,22 @@ public class ConversaService(
             .FirstOrDefaultAsync(c => c.Id == request.ClienteId && c.TenantId == tenantId, ct)
             ?? throw AtendimentoServiceException.ClienteNaoEncontrado();
 
+        // Com o canal real ligado para esta serventia, o atendimento aberto pelo
+        // painel sai pelo WhatsApp. Antes de 2026-10-28 nascia sempre Simulado
+        // (resto da Fase 1), e tudo o que o atendente escrevia ficava só no fio
+        // — com um tique, sem erro, sem o cliente receber nada.
+        var canalDaConversa = await canal.AtendeOTenantAsync(tenantId, ct)
+            ? CanalOrigem.WhatsApp
+            : CanalOrigem.Simulado;
+        // "Conversa livre" é o padrão do atendimento real aberto pelo painel:
+        // quem chama o cliente é o atendente. Com ComecarComRobo, a conversa
+        // segue o fluxo de primeiro contato de sempre (boas-vindas, menu, fila).
+        var abertaPeloCartorio = canalDaConversa == CanalOrigem.WhatsApp && !request.ComecarComRobo;
+
         var conversaAberta = await db.Conversas.AsNoTracking()
             .Where(c => c.TenantId == tenantId
                      && c.ClienteId == cliente.Id
-                     && c.Canal == CanalOrigem.Simulado
+                     && c.Canal == canalDaConversa
                      && c.Status == StatusConversa.Ativa)
             .Select(c => c.Protocolo)
             .FirstOrDefaultAsync(ct);
@@ -339,10 +351,20 @@ public class ConversaService(
             SetorId = request.SetorId,
             EtapaId = etapaId,
             Status = StatusConversa.Ativa,
-            Canal = CanalOrigem.Simulado,
+            Canal = canalDaConversa,
             IniciadaEm = agora,
             UltimaMensagemEm = agora
         };
+
+        // Quem abre um atendimento real para chamar o cliente é quem vai
+        // conversar com ele: a conversa já nasce dele e em atendimento humano,
+        // como na reabertura. Sem isto ela cairia na fila, e a primeira
+        // resposta do cliente seria atendida pelo robô por cima do atendente.
+        if (abertaPeloCartorio)
+        {
+            conversa.AtendenteId = ctx.AtendenteId;
+            conversa.EmAtendimentoHumano = true;
+        }
 
         db.Conversas.Add(conversa);
 
@@ -377,6 +399,8 @@ public class ConversaService(
         // atendente ja escolheu para onde vai o atendimento, mandar o menu
         // "1 - Notas / 2 - Registro Civil" seria perguntar ao cliente algo que a
         // serventia acabou de decidir.
+        IReadOnlyList<Mensagem> boasVindas = [];
+
         if (cliente.AtendimentoSemRobo)
         {
             conversa.RoboPausadoEm = agora;
@@ -384,9 +408,17 @@ public class ConversaService(
             db.Mensagens.Add(MensagemDeSistema(conversa.Id, tenantId,
                 "Contato marcado para ser atendido sem robô: a conversa começou com o robô pausado.", agora));
         }
+        else if (abertaPeloCartorio)
+        {
+            // Sem boas-vindas nem menu: foi o cartório que chamou o cliente, e o
+            // menu "1 - Notas / 2 - Registro Civil" chegaria antes da mensagem do
+            // atendente, perguntando algo que ninguém do outro lado pediu.
+            db.Mensagens.Add(MensagemDeSistema(conversa.Id, tenantId,
+                $"Atendimento aberto pelo WhatsApp por {ctx.Nome}: o robô fica de fora desta conversa.", agora));
+        }
         else if (request.SetorId is null)
         {
-            var boasVindas = await automaticas.EnfileirarAsync(
+            boasVindas = await automaticas.EnfileirarAsync(
                 conversa, GatilhoDeMensagem.NovoAtendimento, ct: ct);
 
             // A flag depende de o menu ter REALMENTE saido. Sem regra cadastrada nao
@@ -404,7 +436,7 @@ public class ConversaService(
         {
             await transacao.RollbackAsync(CancellationToken.None);
             var protocoloConcorrente = await ObterProtocoloAtivoAsync(
-                tenantId, cliente.Id, CanalOrigem.Simulado, null, CancellationToken.None);
+                tenantId, cliente.Id, canalDaConversa, null, CancellationToken.None);
             if (protocoloConcorrente is not null)
             {
                 throw AtendimentoServiceException.ClienteJaTemConversaAtiva(protocoloConcorrente);
@@ -415,6 +447,24 @@ public class ConversaService(
 
         var resumo = await ObterResumoAsync(conversa.Id, ct);
         await notificador.ConversaAtualizadaAsync(tenantId, resumo, ct);
+
+        // Só depois do commit, e em série (boas-vindas antes do menu), como no
+        // religar do robô. Conversa Simulado nunca chega aqui com envio real:
+        // o próprio adaptador recusa qualquer canal que não seja WhatsApp.
+        if (canalDaConversa == CanalOrigem.WhatsApp)
+        {
+            foreach (var mensagem in boasVindas)
+            {
+                try
+                {
+                    await canal.EnviarAsync(mensagem.Id, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogError(ex, "Atendimento {ConversaId} aberto com o robô, mas as boas-vindas nao sairam.", conversa.Id);
+                }
+            }
+        }
 
         return resumo;
     }

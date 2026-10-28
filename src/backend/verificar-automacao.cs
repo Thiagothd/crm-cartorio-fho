@@ -706,6 +706,96 @@ Checar("nenhuma mensagem automatica foi gerada",
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 3B — "Novo atendimento" com o canal real ligado sai pelo WhatsApp
+// ---------------------------------------------------------------------------
+//
+// Achado em producao em 2026-10-28: CriarAsync abria SEMPRE Canal = Simulado,
+// resto da Fase 1. O cartório parceiro abriu atendimentos para clientes reais, escreveu,
+// mandou PDF, e nada saiu — um tique so no fio, sem erro.
+
+Console.WriteLine("TESTE 3B — atendimento aberto pelo painel sai pelo WhatsApp quando ha canal");
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var semCanal = await NovaConversaService(db, atendenteId, atendenteNome).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Sem canal ligado"), null, null, null));
+
+    var gravadaSemCanal = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == semCanal.Id);
+    Checar("sem canal real, continua Simulado (demonstracao e dev)",
+        gravadaSemCanal.Canal == CanalOrigem.Simulado);
+}
+
+Guid conversa3b;
+Guid cliente3b = await NovoClienteAsync("Chamado pelo cartorio");
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome, new CanalReal()).CriarAsync(
+        new CriarConversaRequest(cliente3b, null, null, null));
+
+    conversa3b = criada.Id;
+}
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var gravada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa3b);
+
+    Checar("com canal real, nasce Canal = WhatsApp", gravada.Canal == CanalOrigem.WhatsApp);
+    Checar("nasce com quem abriu", gravada.AtendenteId == atendenteId);
+    Checar("nasce em atendimento humano (robo nao responde por cima)", gravada.EmAtendimentoHumano);
+    Checar("nao entra em triagem", !gravada.AguardandoTriagem);
+}
+
+Checar("nao manda boas-vindas nem menu ao cliente chamado pelo cartorio",
+    (await FioAsync(conversa3b)).Count(m => m.Automatica) == 0);
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var recusou = false;
+
+    try
+    {
+        await NovaConversaService(db, atendenteId, atendenteNome, new CanalReal()).CriarAsync(
+            new CriarConversaRequest(cliente3b, null, null, null));
+    }
+    catch (AtendimentoServiceException)
+    {
+        recusou = true;
+    }
+
+    Checar("segundo atendimento WhatsApp ativo para o mesmo cliente e recusado", recusou);
+}
+
+// Opcao "Robo manda as boas-vindas e o menu": o fluxo de primeiro contato de
+// sempre, agora saindo de verdade pelo canal depois do commit.
+Guid conversa3bRobo;
+var canalComRobo = new CanalReal();
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var criada = await NovaConversaService(db, atendenteId, atendenteNome, canalComRobo).CriarAsync(
+        new CriarConversaRequest(await NovoClienteAsync("Chamado com o robo"), null, null, null, ComecarComRobo: true));
+
+    conversa3bRobo = criada.Id;
+}
+
+await using (var db = new CrmDbContext(opcoes, cifra))
+{
+    var gravada = await db.Conversas.AsNoTracking().FirstAsync(c => c.Id == conversa3bRobo);
+
+    Checar("com o robo: WhatsApp, na fila e aguardando triagem",
+        gravada.Canal == CanalOrigem.WhatsApp && gravada.AtendenteId is null
+            && !gravada.EmAtendimentoHumano && gravada.AguardandoTriagem);
+}
+
+var automaticas3bRobo = (await FioAsync(conversa3bRobo)).Count(m => m.Automatica);
+Checar("com o robo: boas-vindas geradas e entregues ao canal, uma a uma",
+    automaticas3bRobo > 0 && canalComRobo.MensagensEnviadas.Count == automaticas3bRobo,
+    $"automaticas: {automaticas3bRobo}, enviadas ao canal: {canalComRobo.MensagensEnviadas.Count}");
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // TESTE 4 — aviso por mudanca de etapa
 // ---------------------------------------------------------------------------
 
@@ -3359,6 +3449,32 @@ file sealed class CanalSilencioso : IEnviadorDeCanal
 {
     public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default) =>
         Task.FromResult<string?>(null);
+
+    public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<ResultadoNoCanal> CorrigirAsync(Guid m, string conteudo, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+
+    public Task<ResultadoNoCanal> ApagarParaTodosAsync(Guid m, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoNoCanal.NaoSeAplica);
+}
+
+/// <summary>
+/// Canal que se declara ligado para o tenant, mas continua sem entregar nada:
+/// prova a decisao de canal do CriarAsync sem mandar mensagem para ninguem.
+/// </summary>
+file sealed class CanalReal : IEnviadorDeCanal
+{
+    public List<Guid> MensagensEnviadas { get; } = [];
+
+    public Task<bool> AtendeOTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        Task.FromResult(true);
+
+    public Task<string?> EnviarAsync(Guid m, CancellationToken ct = default)
+    {
+        MensagensEnviadas.Add(m);
+        return Task.FromResult<string?>(null);
+    }
 
     public Task EnviarPendentesAsync(Guid c, CancellationToken ct = default) => Task.CompletedTask;
 

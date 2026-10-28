@@ -30,6 +30,26 @@ public class EnviadorPeloWhatsApp(
 
     private readonly OpcoesDoCanalWhatsApp _opcoes = opcoes.Value;
 
+    /// <remarks>
+    /// Mesmo vinculo que o webhook usa para rotear a entrada
+    /// (<c>Tenants.WhatsappInstancia</c> + a instancia deste ambiente): o que
+    /// entra e o que sai precisam concordar sobre qual serventia o numero atende.
+    /// </remarks>
+    public async Task<bool> AtendeOTenantAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        if (!_opcoes.EstaConfigurado)
+        {
+            return false;
+        }
+
+        var instancia = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == tenantId)
+            .Select(t => t.WhatsappInstancia)
+            .FirstOrDefaultAsync(ct);
+
+        return _opcoes.InstanciaConfere(instancia);
+    }
+
     public async Task<string?> EnviarAsync(Guid mensagemId, CancellationToken ct = default)
     {
         if (!_opcoes.EstaConfigurado)
