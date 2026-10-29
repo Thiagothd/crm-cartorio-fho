@@ -1006,5 +1006,95 @@ CREATE INDEX IX_HistoricoDeConhecimentosDeIa_Conhecimento_Versao
     ON dbo.HistoricoDeConhecimentosDeIa (ConhecimentoDeIaId, Versao);
 GO
 
+/* -----------------------------------------------------------------------------
+   19. PendenciasFinanceiras — registro de clientes com valores pendentes.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.PendenciasFinanceiras
+(
+    Id                         UNIQUEIDENTIFIER NOT NULL,
+    TenantId                   UNIQUEIDENTIFIER NOT NULL,
+    ClienteId                  UNIQUEIDENTIFIER NOT NULL,
+    ConversaOrigemId           UNIQUEIDENTIFIER NULL,
+    TipoServicoId              UNIQUEIDENTIFIER NULL,
+    RegistradoPorAtendenteId   UNIQUEIDENTIFIER NOT NULL,
+    QuitadoPorAtendenteId      UNIQUEIDENTIFIER NULL,
+    Titulo                     NVARCHAR(200)    NOT NULL,
+    Observacoes                NVARCHAR(MAX)    NULL,
+    ValorOriginal              DECIMAL(18, 2)   NULL,
+    ValorPago                  DECIMAL(18, 2)   NOT NULL CONSTRAINT DF_PendenciasFinanceiras_ValorPago DEFAULT (0),
+    DataReferencia             DATE             NOT NULL,
+    DataPromessaPagamento      DATE             NULL,
+    Status                     TINYINT          NOT NULL CONSTRAINT DF_PendenciasFinanceiras_Status DEFAULT (1),
+    UltimaCobrancaEm           DATETIME2(3)     NULL,
+    TotalCobrancas             INT              NOT NULL CONSTRAINT DF_PendenciasFinanceiras_TotalCobrancas DEFAULT (0),
+    QuitadaEm                  DATETIME2(3)     NULL,
+    CanceladaEm                DATETIME2(3)     NULL,
+    CriadoEm                   DATETIME2(3)     NOT NULL,
+    AtualizadoEm               DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_PendenciasFinanceiras PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_Clientes
+        FOREIGN KEY (ClienteId) REFERENCES dbo.Clientes (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_Conversas
+        FOREIGN KEY (ConversaOrigemId) REFERENCES dbo.Conversas (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_TiposServico
+        FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_RegistradoPor
+        FOREIGN KEY (RegistradoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT FK_PendenciasFinanceiras_QuitadoPor
+        FOREIGN KEY (QuitadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_PendenciasFinanceiras_Status
+        CHECK (Status IN (1, 2, 3)),
+    CONSTRAINT CK_PendenciasFinanceiras_Valores
+        CHECK ((ValorOriginal IS NULL OR ValorOriginal >= 0) AND ValorPago >= 0 AND TotalCobrancas >= 0)
+);
+GO
+
+CREATE INDEX IX_PendenciasFinanceiras_Tenant_Status_Promessa
+    ON dbo.PendenciasFinanceiras (TenantId, Status, DataPromessaPagamento)
+    INCLUDE (ClienteId, ValorOriginal, ValorPago, Titulo, UltimaCobrancaEm);
+GO
+
+CREATE INDEX IX_PendenciasFinanceiras_Tenant_Cliente_Status
+    ON dbo.PendenciasFinanceiras (TenantId, ClienteId, Status)
+    INCLUDE (ValorOriginal, ValorPago);
+GO
+
+/* -----------------------------------------------------------------------------
+   20. PagamentosDePendencia — historico de baixas parciais ou totais.
+   -------------------------------------------------------------------------- */
+CREATE TABLE dbo.PagamentosDePendencia
+(
+    Id                         UNIQUEIDENTIFIER NOT NULL,
+    TenantId                   UNIQUEIDENTIFIER NOT NULL,
+    PendenciaFinanceiraId      UNIQUEIDENTIFIER NOT NULL,
+    RegistradoPorAtendenteId   UNIQUEIDENTIFIER NOT NULL,
+    Valor                      DECIMAL(18, 2)   NOT NULL,
+    MeioPagamento              TINYINT          NOT NULL CONSTRAINT DF_PagamentosDePendencia_Meio DEFAULT (1),
+    Observacao                 NVARCHAR(MAX)    NULL,
+    PagoEm                     DATETIME2(3)     NOT NULL,
+    CriadoEm                   DATETIME2(3)     NOT NULL,
+    AtualizadoEm               DATETIME2(3)     NOT NULL,
+
+    CONSTRAINT PK_PagamentosDePendencia PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT FK_PagamentosDePendencia_Tenants
+        FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
+    CONSTRAINT FK_PagamentosDePendencia_Pendencias
+        FOREIGN KEY (PendenciaFinanceiraId) REFERENCES dbo.PendenciasFinanceiras (Id) ON DELETE CASCADE,
+    CONSTRAINT FK_PagamentosDePendencia_RegistradoPor
+        FOREIGN KEY (RegistradoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+    CONSTRAINT CK_PagamentosDePendencia_Valor
+        CHECK (Valor > 0),
+    CONSTRAINT CK_PagamentosDePendencia_Meio
+        CHECK (MeioPagamento IN (1, 2, 3, 4, 5))
+);
+GO
+
+CREATE INDEX IX_PagamentosDePendencia_Pendencia_PagoEm
+    ON dbo.PagamentosDePendencia (PendenciaFinanceiraId, PagoEm DESC);
+GO
+
 PRINT 'Schema da Fase 1 criado.';
 GO

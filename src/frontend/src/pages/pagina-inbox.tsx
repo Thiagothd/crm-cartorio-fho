@@ -50,7 +50,9 @@ import {
   DialogoCorrigirMensagem,
 } from '@/features/atendimento/dialogo-corrigir-mensagem'
 import { BarraDeSelecao } from '@/features/atendimento/barra-de-selecao'
-import type { Mensagem, SituacaoPrazo, StatusConversa } from '@/lib/api/tipos'
+import { DialogoNovaPendencia } from '@/features/devedores/dialogo-nova-pendencia'
+import { DialogoPendenciasDoCliente } from '@/features/devedores/dialogo-pendencias-do-cliente'
+import type { Conversa, Mensagem, SituacaoPrazo, StatusConversa } from '@/lib/api/tipos'
 
 const FILTROS_INICIAIS: FiltrosVisiveis = {
   status: 'Ativa',
@@ -75,6 +77,8 @@ export function PaginaInbox() {
 
   const { atendente, tenant, pode } = usarAutenticacao()
   const podeOperarConversaDeTerceiro = pode('atendimento.mexer_no_de_terceiro')
+  const podeVerDevedores = pode('devedores.ver')
+  const podeEditarDevedores = pode('devedores.editar')
   const invalidar = usarInvalidarAtendimento()
 
   // Mesma regra do backend ao resolver {NomeCartorio}: fantasia, e a razão social
@@ -182,6 +186,8 @@ export function PaginaInbox() {
   // diálogo abre por cima da página, não dentro do fio.
   const [mensagemParaCorrigir, setMensagemParaCorrigir] = useState<Mensagem | null>(null)
   const [mensagemParaApagar, setMensagemParaApagar] = useState<Mensagem | null>(null)
+  const [conversaParaNovaPendencia, setConversaParaNovaPendencia] = useState<Conversa | null>(null)
+  const [conversaParaVerPendencias, setConversaParaVerPendencias] = useState<Conversa | null>(null)
 
   const consulta = useMemo(() => filtrosParaConsulta(filtros), [filtros])
 
@@ -494,6 +500,7 @@ export function PaginaInbox() {
               filtros={filtros}
               setores={setores ?? []}
               etapas={etapas ?? []}
+              podeVerDevedores={podeVerDevedores}
               aoMudar={setFiltros}
               aoRecolher={alternarLista}
               aoCriarConversa={selecionar}
@@ -518,6 +525,12 @@ export function PaginaInbox() {
                     souOResponsavel={item.atendenteId === atendente?.id}
                     etapaEhFinal={item.etapaId !== null && etapasFinais.has(item.etapaId)}
                     aoSelecionar={selecionar}
+                    aoMarcarDevedor={
+                      podeEditarDevedores ? (c) => setConversaParaNovaPendencia(c) : undefined
+                    }
+                    aoVerPendencias={
+                      podeVerDevedores ? (c) => setConversaParaVerPendencias(c) : undefined
+                    }
                   />
                 ))
               ) : filtros.busca.trim() ? (
@@ -690,6 +703,12 @@ export function PaginaInbox() {
                       : 'Robô ligado. Ele responde a próxima mensagem do cliente.',
                   )
                 }
+                aoVerPendencias={
+                  podeVerDevedores ? () => setConversaParaVerPendencias(conversa) : undefined
+                }
+                aoMarcarDevedor={
+                  podeEditarDevedores ? () => setConversaParaNovaPendencia(conversa) : undefined
+                }
               />
 
               <div className="flex min-h-0 flex-1">
@@ -820,6 +839,45 @@ export function PaginaInbox() {
         aoConfirmar={() =>
           mensagemParaApagar ? apagarMensagemParaTodos(mensagemParaApagar) : Promise.resolve()
         }
+      />
+
+      <DialogoNovaPendencia
+        aberto={Boolean(conversaParaNovaPendencia)}
+        aoMudarAberto={(ab) => {
+          if (!ab) setConversaParaNovaPendencia(null)
+        }}
+        clienteFixo={
+          conversaParaNovaPendencia
+            ? {
+                id: conversaParaNovaPendencia.clienteId,
+                nome: conversaParaNovaPendencia.clienteNome,
+                telefone: conversaParaNovaPendencia.clienteTelefone,
+                conversaOrigemId: conversaParaNovaPendencia.id,
+                tipoServicoId: conversaParaNovaPendencia.tipoServicoId,
+                tipoServicoNome: conversaParaNovaPendencia.tipoServicoNome,
+              }
+            : null
+        }
+        aoSalvar={() => invalidar(selecionadaId ?? undefined)}
+      />
+
+      <DialogoPendenciasDoCliente
+        cliente={
+          conversaParaVerPendencias
+            ? {
+                id: conversaParaVerPendencias.clienteId,
+                nome: conversaParaVerPendencias.clienteNome,
+                telefone: conversaParaVerPendencias.clienteTelefone,
+                conversaOrigemId: conversaParaVerPendencias.id,
+                tipoServicoId: conversaParaVerPendencias.tipoServicoId,
+                tipoServicoNome: conversaParaVerPendencias.tipoServicoNome,
+              }
+            : null
+        }
+        aoFechar={() => {
+          setConversaParaVerPendencias(null)
+          invalidar(selecionadaId ?? undefined)
+        }}
       />
     </>
   )

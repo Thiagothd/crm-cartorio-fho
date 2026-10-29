@@ -1,4 +1,4 @@
-﻿import { Archive, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Trash2 } from 'lucide-react'
+import { Archive, FileText, HandCoins, Mail, MapPin, MessageSquare, Pencil, Phone, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,11 +9,18 @@ import type { Cliente } from '@/lib/api/tipos'
  * Fichas de cadastro, em vez de uma tabela horizontal: cada cliente reúne os
  * dados que o atendente consulta sem obrigar a percorrer colunas distantes.
  */
-export function ListaDeClientes({ clientes, podeExcluir, aoEditar, aoRemover }: {
+export function ListaDeClientes({
+  clientes,
+  podeExcluir,
+  aoEditar,
+  aoRemover,
+  aoMarcarDevedor,
+}: {
   clientes: Cliente[]
   podeExcluir: boolean
   aoEditar: (cliente: Cliente) => void
   aoRemover: (cliente: Cliente) => void
+  aoMarcarDevedor?: (cliente: Cliente) => void
 }) {
   return (
     // Container query (`@lg`/`@4xl`), não breakpoint de tela: quem aperta esta
@@ -50,6 +57,18 @@ export function ListaDeClientes({ clientes, podeExcluir, aoEditar, aoRemover }: 
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
+                {aoMarcarDevedor ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-10 rounded-lg text-tinta-media hover:text-ambar"
+                    onClick={() => aoMarcarDevedor(cliente)}
+                    aria-label={`Registrar pendência financeira para ${nome}`}
+                    title="Registrar pendência financeira (marcar como devedor)"
+                  >
+                    <HandCoins />
+                  </Button>
+                ) : null}
                 <Button variant="ghost" size="icon-sm" className="size-10 rounded-lg" onClick={() => aoEditar(cliente)} aria-label={`Editar ${nome}`} title="Editar cadastro"><Pencil /></Button>
               </div>
             </header>

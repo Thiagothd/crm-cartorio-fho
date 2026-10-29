@@ -35,6 +35,10 @@ public enum PermissaoDoSistema
     ClientesExcluir,
     ClientesImportarAgenda,
 
+    // --------------------------------------------------------------- Devedores
+    DevedoresVer,
+    DevedoresEditar,
+
     // ------------------------------------------------- Catálogo e estrutura
     ServicosVer,
     ServicosEditar,

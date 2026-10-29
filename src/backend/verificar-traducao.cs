@@ -10,6 +10,8 @@ using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain;
 using CrmCartorio.Api.Modules.Clientes.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.Devedores.Application;
+using CrmCartorio.Api.Modules.Devedores.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 // VERIFICADOR DE TRADUCAO LINQ -> SQL
@@ -1234,6 +1236,55 @@ Checar("Permissoes granulares: projecao de ListarAsync com Permissoes/ModeloDePe
 // inteiro (provado ao vivo pelo cenario 83-5 de verificar-autenticacao.cs).
 // Raw SQL com table hint nao e "traducao de LINQ" — nada aqui exercitaria o
 // tradutor; a garantia mora no verificador de autenticacao, sob corrida real.
+
+// --- Devedores (052) --------------------------------------------------------
+
+var hojeDevedores = DateOnly.FromDateTime(agora);
+
+Checar("Devedores: projecao de pendencias com subconsultas (Cliente, Servico, Atendente, ConversaAtiva)", () =>
+    db.PendenciasFinanceiras.AsNoTracking()
+        .Where(p => p.TenantId == tenantId
+                 && p.Status == StatusPendencia.Aberta
+                 && p.DataPromessaPagamento != null
+                 && p.DataPromessaPagamento < hojeDevedores)
+        .Select(p => new
+        {
+            Pendencia = p,
+            ClienteNome = db.Clientes.Where(c => c.Id == p.ClienteId).Select(c => c.Nome).FirstOrDefault() ?? string.Empty,
+            ClienteTelefone = db.Clientes.Where(c => c.Id == p.ClienteId).Select(c => c.TelefoneWhatsapp).FirstOrDefault() ?? string.Empty,
+            ClienteDocumento = db.Clientes.Where(c => c.Id == p.ClienteId).Select(c => c.Documento).FirstOrDefault(),
+            TipoServicoNome = db.TiposServico.Where(t => t.Id == p.TipoServicoId).Select(t => t.Nome).FirstOrDefault(),
+            RegistradoPorNome = db.Atendentes.Where(a => a.Id == p.RegistradoPorAtendenteId).Select(a => a.Nome).FirstOrDefault(),
+            QuitadoPorNome = db.Atendentes.Where(a => a.Id == p.QuitadoPorAtendenteId).Select(a => a.Nome).FirstOrDefault(),
+            ConversaAtivaId = db.Conversas
+                .Where(c => c.TenantId == p.TenantId && c.ClienteId == p.ClienteId && c.Status == StatusConversa.Ativa)
+                .OrderByDescending(c => c.UltimaMensagemEm)
+                .Select(c => (Guid?)c.Id)
+                .FirstOrDefault(),
+        })
+        .ToQueryString());
+
+Checar("Devedores: historico de pagamentos com nome do atendente", () =>
+    db.PagamentosDePendencia.AsNoTracking()
+        .Where(pg => pg.TenantId == tenantId)
+        .OrderByDescending(pg => pg.PagoEm)
+        .Select(pg => new PagamentoDePendenciaResponse(
+            pg.Id,
+            pg.PendenciaFinanceiraId,
+            pg.Valor,
+            pg.MeioPagamento,
+            pg.Observacao,
+            pg.PagoEm,
+            pg.RegistradoPorAtendenteId,
+            db.Atendentes.Where(a => a.Id == pg.RegistradoPorAtendenteId).Select(a => a.Nome).FirstOrDefault()))
+        .ToQueryString());
+
+Checar("Inbox: filtro ApenasDevedores (Any em PendenciasFinanceiras)", () =>
+    db.Conversas.AsNoTracking()
+        .Where(c => c.TenantId == tenantId && c.Status == StatusConversa.Ativa)
+        .Where(c => db.PendenciasFinanceiras.Any(p =>
+            p.TenantId == tenantId && p.ClienteId == c.ClienteId && p.Status == StatusPendencia.Aberta))
+        .ToQueryString());
 
 Console.WriteLine();
 Console.WriteLine(falhas == 0

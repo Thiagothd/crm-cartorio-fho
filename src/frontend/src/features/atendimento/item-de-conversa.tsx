@@ -1,7 +1,8 @@
-import { BotOff, Lock, Smartphone } from 'lucide-react'
+import { BotOff, HandCoins, Lock, Smartphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { formatarMomentoRelativo, nomeDeExibicao } from '@/lib/formatacao'
+import { formatarReais } from '@/features/devedores/utilitarios'
 import { EtiquetaDePrazo } from './etiqueta-de-prazo'
 import { coresDaEtapa, corSolidaDaEtapa } from './cores-de-etapa'
 import type { Conversa } from '@/lib/api/tipos'
@@ -49,12 +50,16 @@ export function ItemDeConversa({
   souOResponsavel,
   etapaEhFinal,
   aoSelecionar,
+  aoMarcarDevedor,
+  aoVerPendencias,
 }: {
   conversa: Conversa
   selecionada: boolean
   souOResponsavel: boolean
   etapaEhFinal: boolean
   aoSelecionar: (id: string) => void
+  aoMarcarDevedor?: (conversa: Conversa) => void
+  aoVerPendencias?: (conversa: Conversa) => void
 }) {
   const naFila = conversa.atendenteId === null && conversa.status === 'Ativa'
   const encerrada = conversa.status === 'Encerrada'
@@ -64,6 +69,8 @@ export function ItemDeConversa({
     conversa.clienteTelefone,
     conversa.clienteNomePendente,
   )
+  const pendenciasAbertas = conversa.clientePendenciasAbertas ?? 0
+  const saldoDevedor = conversa.clienteSaldoDevedor ?? 0
 
   return (
     <button
@@ -73,7 +80,7 @@ export function ItemDeConversa({
         // Fase 3.2 (docs/DESIGN.md, secao 16): a linha vira cartao — mesmo
         // tratamento de indicador-numerico.tsx. Altura intacta (px-3 py-2.5
         // continuam identicos ao de antes; so a borda trocou de lugar).
-        'flex w-full gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-colors',
+        'group flex w-full gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-colors',
         selecionada
           ? 'border-linha bg-superficie shadow-card'
           : 'hover:border-linha hover:bg-superficie',
@@ -125,15 +132,8 @@ export function ItemDeConversa({
           </span>
         </div>
 
-        {/* Linha 2 — etapa à esquerda (status), prazo à direita (o que exige
-            atenção). Etapa na mesma cor da pílula do funil e do avatar
-            (DESIGN.md, seção 2.2).
-
-            O protocolo saiu daqui por pedido — competia por espaço com a
-            etapa e, com nomes de etapa mais longos, cortava um dos dois de
-            forma feia. Continua acessível: a busca da inbox aceita protocolo
-            ("Nome, telefone ou protocolo"), e o cabeçalho da conversa mostra
-            o número assim que ela abre. */}
+        {/* Linha 2 — etapa à esquerda (status), pílula de devedor no fluxo
+            natural (nunca sobrepondo texto) e prazo à direita. */}
         <div className="mt-1 flex items-center gap-1 overflow-hidden">
           {conversa.etapaNome ? (
             <span
@@ -146,6 +146,70 @@ export function ItemDeConversa({
               }}
             >
               {nomeCompactoDaEtapa(conversa.etapaNome)}
+            </span>
+          ) : null}
+
+          {pendenciasAbertas > 0 ? (
+            <span
+              role={aoVerPendencias ? 'button' : undefined}
+              tabIndex={aoVerPendencias ? 0 : undefined}
+              onClick={
+                aoVerPendencias
+                  ? (e) => {
+                      e.stopPropagation()
+                      aoVerPendencias(conversa)
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                aoVerPendencias
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        aoVerPendencias(conversa)
+                      }
+                    }
+                  : undefined
+              }
+              title={
+                saldoDevedor > 0
+                  ? `Cliente com ${pendenciasAbertas} pendência(s) financeira(s) em aberto (${formatarReais(saldoDevedor)}). Clique para ver ou dar baixa.`
+                  : `Cliente com ${pendenciasAbertas} pendência(s) financeira(s) em aberto. Clique para ver ou dar baixa.`
+              }
+              className={cn(
+                'inline-flex shrink-0 items-center gap-1 rounded-full border border-ambar/40 bg-ambar/10 px-1.5 py-0.5 font-dado text-[10px] font-medium text-ambar',
+                aoVerPendencias &&
+                  'cursor-pointer transition-colors hover:border-ambar hover:bg-ambar/20',
+              )}
+            >
+              <HandCoins className="size-2.5" aria-hidden />
+              {saldoDevedor > 0
+                ? conversa.situacaoPrazo === 'SemPrazo'
+                  ? `Devendo ${formatarReais(saldoDevedor)}`
+                  : formatarReais(saldoDevedor)
+                : 'Devendo'}
+            </span>
+          ) : aoMarcarDevedor ? (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation()
+                aoMarcarDevedor(conversa)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  aoMarcarDevedor(conversa)
+                }
+              }}
+              title="Marcar este contato como devedor / registrar pendência"
+              aria-label={`Marcar ${nomeExibido} como devedor`}
+              className="hidden shrink-0 cursor-pointer items-center gap-1 rounded-full border border-linha-forte bg-branco px-1.5 py-0.5 text-[10px] font-medium text-tinta-media transition-colors hover:border-ambar/60 hover:bg-ambar/10 hover:text-tinta focus-visible:inline-flex group-hover:inline-flex"
+            >
+              <HandCoins className="size-2.5 text-ambar" aria-hidden />+ Devedor
             </span>
           ) : null}
 

@@ -70,6 +70,18 @@ import type {
   TipoServico,
   VersaoDeConhecimentoDeIa,
   VisaoGeral,
+  AbrirConversaComDevedorResposta,
+  AtualizarPendenciaFinanceira,
+  CobrarNoWhatsapp,
+  CobrarNoWhatsappResposta,
+  CriarPendenciaFinanceira,
+  FiltroDeDevedores,
+  ImportarDevedoresEmLote,
+  ListagemDeDevedores,
+  PendenciaFinanceira,
+  RegistrarPagamentoDePendencia,
+  ResultadoDeImportacaoDeDevedores,
+  ResumoDeDividaDoCliente,
 } from './tipos'
 
 // Autenticacao --------------------------------------------------------------
@@ -635,3 +647,38 @@ export const atendentesApi = {
   definirPermissoes: (id: string, dados: { modelo: ModeloDePermissao | null; chaves: string[] }) =>
     api.put<void>(`/api/atendentes/${id}/permissoes`, dados),
 }
+
+// Devedores -------------------------------------------------------------------
+
+export const devedoresApi = {
+  listar: (filtro?: FiltroDeDevedores) =>
+    api.get<ListagemDeDevedores>(`/api/devedores${montarQuery({ ...filtro })}`),
+
+  obterPorCliente: (clienteId: string) =>
+    api.get<ResumoDeDividaDoCliente>(`/api/devedores/cliente/${clienteId}`),
+
+  obter: (id: string) => api.get<PendenciaFinanceira>(`/api/devedores/${id}`),
+
+  criar: (dados: CriarPendenciaFinanceira) =>
+    api.post<PendenciaFinanceira>('/api/devedores', dados),
+
+  atualizar: (id: string, dados: AtualizarPendenciaFinanceira) =>
+    api.put<PendenciaFinanceira>(`/api/devedores/${id}`, dados),
+
+  registrarPagamento: (id: string, dados: RegistrarPagamentoDePendencia) =>
+    api.post<PendenciaFinanceira>(`/api/devedores/${id}/pagamentos`, dados),
+
+  reabrir: (id: string) => api.post<PendenciaFinanceira>(`/api/devedores/${id}/reabrir`),
+
+  cancelar: (id: string) => api.excluir<void>(`/api/devedores/${id}`),
+
+  cobrarNoWhatsapp: (dados: CobrarNoWhatsapp) =>
+    api.post<CobrarNoWhatsappResposta>('/api/devedores/cobrar-whatsapp', dados),
+
+  abrirConversa: (clienteId: string) =>
+    api.post<AbrirConversaComDevedorResposta>(`/api/devedores/cliente/${clienteId}/abrir-conversa`),
+
+  importarEmLote: (dados: ImportarDevedoresEmLote) =>
+    api.post<ResultadoDeImportacaoDeDevedores>('/api/devedores/importacao', dados),
+}
+

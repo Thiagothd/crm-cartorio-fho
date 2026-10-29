@@ -39,6 +39,7 @@ import { ErroDaApi } from '@/lib/api/cliente-http'
 import { cn } from '@/lib/utils'
 import { DialogoDeCliente } from '@/features/clientes/dialogo-de-cliente'
 import { DialogoDeImportacao } from '@/features/clientes/dialogo-de-importacao'
+import { DialogoNovaPendencia } from '@/features/devedores/dialogo-nova-pendencia'
 import type {
   Cliente,
   EstadoCivil,
@@ -62,6 +63,7 @@ export function PaginaClientes() {
   const location = useLocation()
   const { pode } = usarAutenticacao()
   const podeExcluirCliente = pode('clientes.excluir')
+  const podeEditarDevedores = pode('devedores.editar')
   const [abaDaEdicao, setAbaDaEdicao] = useState<'contato' | 'observacoes'>('contato')
   const [filtros, setFiltros] = useState<FiltroDeClientes>({ ordenar: 'nome', tamanho: 100 })
   const [emEdicao, setEmEdicao] = useState<Cliente | null>(null)
@@ -69,6 +71,7 @@ export function PaginaClientes() {
   const [importacaoAberta, setImportacaoAberta] = useState(false)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [emExclusao, setEmExclusao] = useState<Cliente | null>(null)
+  const [clienteParaNovaPendencia, setClienteParaNovaPendencia] = useState<Cliente | null>(null)
 
   // A busca global (cabeçalho) manda o cliente encontrado para aqui via
   // `?busca=`. Sem parâmetro, nada muda do comportamento de sempre.
@@ -295,7 +298,15 @@ export function PaginaClientes() {
                 descricao={error instanceof ErroDaApi ? error.message : 'Verifique sua conexão e tente novamente.'}
                 acao={<Button variant="outline" onClick={() => void refetch()}>Tentar novamente</Button>} />
             ) : data?.itens.length ? (
-              <ListaDeClientes clientes={data.itens} podeExcluir={podeExcluirCliente} aoEditar={abrirEdicao} aoRemover={setEmExclusao} />
+              <ListaDeClientes
+                clientes={data.itens}
+                podeExcluir={podeExcluirCliente}
+                aoEditar={abrirEdicao}
+                aoRemover={setEmExclusao}
+                aoMarcarDevedor={
+                  podeEditarDevedores ? (cliente) => setClienteParaNovaPendencia(cliente) : undefined
+                }
+              />
             ) : (
               <EstadoDaInterface tipo={temFiltro ? 'sem-resultados' : 'vazio'} icone={Users}
                 titulo={temFiltro ? 'Nenhum cliente encontrado' : 'Sua base de clientes começa aqui'}
@@ -330,6 +341,25 @@ export function PaginaClientes() {
       {emExclusao ? (
         <DialogoDeExclusao key={emExclusao.id} cliente={emExclusao} aoFechar={() => setEmExclusao(null)} aoExcluir={atualizarLista} aoAbrirDesativacao={abrirDesativacao} />
       ) : null}
+
+      <DialogoNovaPendencia
+        aberto={Boolean(clienteParaNovaPendencia)}
+        aoMudarAberto={(ab) => {
+          if (!ab) setClienteParaNovaPendencia(null)
+        }}
+        clienteFixo={
+          clienteParaNovaPendencia
+            ? {
+                id: clienteParaNovaPendencia.id,
+                nome: clienteParaNovaPendencia.nome,
+                telefone: clienteParaNovaPendencia.telefoneWhatsapp,
+              }
+            : null
+        }
+        aoSalvar={() => {
+          void clienteDeConsultas.invalidateQueries({ queryKey: ['devedores'] })
+        }}
+      />
     </>
   )
 }

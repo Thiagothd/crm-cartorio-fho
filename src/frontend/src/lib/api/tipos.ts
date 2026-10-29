@@ -144,6 +144,9 @@ export type ChaveDePermissao =
   | 'clientes.editar'
   | 'clientes.excluir'
   | 'clientes.importar_agenda'
+  // Devedores
+  | 'devedores.ver'
+  | 'devedores.editar'
   // Catálogo e estrutura
   | 'servicos.ver'
   | 'servicos.editar'
@@ -375,6 +378,10 @@ export interface Conversa {
   roboPausadoPorNome: string | null
   /** O contato é atendido sempre sem robô. */
   clienteSemRobo: boolean
+  /** Quantidade de pendências financeiras abertas deste cliente. */
+  clientePendenciasAbertas?: number
+  /** Saldo devedor total em aberto deste cliente, em reais. */
+  clienteSaldoDevedor?: number
 }
 
 /** O que acontece ao ligar o robô de novo numa conversa. */
@@ -518,6 +525,7 @@ export interface FiltroDeConversas {
   apenasMinhas?: boolean
   apenasEncerradasHoje?: boolean
   apenasAguardandoResposta?: boolean
+  apenasDevedores?: boolean
   situacaoPrazo?: SituacaoPrazo
   busca?: string
   pagina?: number
@@ -1421,3 +1429,204 @@ export interface AcessoTecnicoAtivo {
   validaAte: string
   motivo: string
 }
+
+// Devedores -------------------------------------------------------------------
+
+export type StatusPendencia = 'Aberta' | 'Quitada' | 'Cancelada'
+
+export type MeioDePagamento = 'Pix' | 'Dinheiro' | 'Cartao' | 'Transferencia' | 'Outro'
+
+export type RecorteDeDevedores =
+  | 'abertas'
+  | 'vencidas'
+  | 'hoje'
+  | 'sem_cobranca'
+  | 'parciais'
+  | 'sem_valor'
+  | 'quitadas'
+  | 'todas'
+
+export type OrdenacaoDeDevedores =
+  | 'maior_valor'
+  | 'mais_antigas'
+  | 'promessa_proxima'
+  | 'recentes'
+  | 'nome'
+
+export interface FiltroDeDevedores {
+  recorte?: RecorteDeDevedores
+  status?: StatusPendencia
+  clienteId?: string
+  tipoServicoId?: string
+  busca?: string
+  ordenar?: OrdenacaoDeDevedores
+}
+
+export interface ResumoDeDevedores {
+  totalEmAberto: number
+  clientesDevedores: number
+  pendenciasAbertas: number
+  pendenciasSemValor: number
+  promessasVencidasTotal: number
+  promessasVencidasQuantidade: number
+  promessasParaHojeTotal: number
+  promessasParaHojeQuantidade: number
+  recuperadoNoMesTotal: number
+  recuperadoNoMesQuantidade: number
+}
+
+export interface PagamentoDePendencia {
+  id: string
+  pendenciaFinanceiraId: string
+  valor: number
+  meioPagamento: MeioDePagamento
+  observacao: string | null
+  pagoEm: string
+  registradoPorAtendenteId: string
+  registradoPorNome: string | null
+}
+
+export interface PendenciaFinanceira {
+  id: string
+  clienteId: string
+  clienteNome: string
+  clienteTelefone: string
+  clienteDocumento: string | null
+  clienteFotoPerfilUrl: string
+  conversaOrigemId: string | null
+  conversaAtivaId: string | null
+  tipoServicoId: string | null
+  tipoServicoNome: string | null
+  titulo: string
+  observacoes: string | null
+  valorOriginal: number | null
+  valorPago: number
+  saldoRestante: number | null
+  dataReferencia: string
+  dataPromessaPagamento: string | null
+  diasEmAberto: number
+  diasDeAtraso: number | null
+  status: StatusPendencia
+  ultimaCobrancaEm: string | null
+  totalCobrancas: number
+  registradoPorAtendenteId: string
+  registradoPorNome: string | null
+  quitadaEm: string | null
+  quitadoPorAtendenteId: string | null
+  quitadoPorNome: string | null
+  criadoEm: string
+  pagamentos: PagamentoDePendencia[]
+}
+
+export interface DevedorConsolidado {
+  clienteId: string
+  clienteNome: string
+  clienteTelefone: string
+  clienteDocumento: string | null
+  clienteFotoPerfilUrl: string
+  conversaAtivaId: string | null
+  quantidadePendenciasAbertas: number
+  quantidadeSemValor: number
+  valorOriginalTotal: number
+  valorPagoTotal: number
+  saldoRestanteTotal: number
+  dataReferenciaMaisAntiga: string
+  proximaPromessaPagamento: string | null
+  temPromessaVencida: boolean
+  temPromessaHoje: boolean
+  ultimaCobrancaEm: string | null
+  totalCobrancas: number
+  pendencias: PendenciaFinanceira[]
+}
+
+export interface ListagemDeDevedores {
+  resumo: ResumoDeDevedores
+  devedores: DevedorConsolidado[]
+  lancamentos: PendenciaFinanceira[]
+  totalLancamentos: number
+}
+
+export interface ResumoDeDividaDoCliente {
+  clienteId: string
+  clienteNome: string
+  clienteTelefone: string
+  pendenciasAbertas: number
+  saldoDevedor: number
+  pendencias: PendenciaFinanceira[]
+}
+
+export interface CriarPendenciaFinanceira {
+  clienteId?: string | null
+  novoClienteNome?: string | null
+  novoClienteTelefone?: string | null
+  novoClienteDocumento?: string | null
+  conversaOrigemId?: string | null
+  tipoServicoId?: string | null
+  titulo: string
+  observacoes?: string | null
+  valorOriginal?: number | null
+  dataReferencia?: string | null
+  dataPromessaPagamento?: string | null
+}
+
+export interface AtualizarPendenciaFinanceira {
+  tipoServicoId?: string | null
+  titulo: string
+  observacoes?: string | null
+  valorOriginal?: number | null
+  dataReferencia: string
+  dataPromessaPagamento?: string | null
+}
+
+export interface RegistrarPagamentoDePendencia {
+  valor?: number | null
+  meioPagamento: MeioDePagamento
+  observacao?: string | null
+  quitarTotalmente?: boolean
+  enviarComprovanteWhatsapp?: boolean
+  mensagemComprovante?: string | null
+}
+
+export interface CobrarNoWhatsapp {
+  clienteId: string
+  pendenciaIds?: string[] | null
+  mensagem: string
+}
+
+export interface CobrarNoWhatsappResposta {
+  conversaId: string
+  mensagemId: string
+  pendenciasAtualizadas: number
+}
+
+export interface AbrirConversaComDevedorResposta {
+  conversaId: string
+  criadaAgora: boolean
+}
+
+export interface ItemDeImportacaoDeDevedor {
+  clienteId?: string | null
+  nome?: string | null
+  telefone?: string | null
+  documento?: string | null
+  titulo?: string | null
+  valorOriginal?: number | null
+  dataPromessaPagamento?: string | null
+  observacoes?: string | null
+}
+
+export interface ImportarDevedoresEmLote {
+  tituloPadrao?: string | null
+  tipoServicoPadraoId?: string | null
+  dataPromessaPadrao?: string | null
+  itens: ItemDeImportacaoDeDevedor[]
+}
+
+export interface ResultadoDeImportacaoDeDevedores {
+  pendenciasCriadas: number
+  clientesNovosCriados: number
+  clientesExistentesVinculados: number
+  ignorados: number
+  avisos: string[]
+}
+

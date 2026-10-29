@@ -6,6 +6,7 @@ import {
   Bot,
   Building2,
   GitBranch,
+  HandCoins,
   History,
   Home,
   Inbox,
@@ -142,6 +143,14 @@ export const NAVEGACAO: GrupoDeNavegacao[] = [
         permissao: 'clientes.ver',
         descricao: 'Contatos e qualificação das partes atendidas',
         carregar: pagina(() => import('@/pages/pagina-clientes'), 'PaginaClientes'),
+      }),
+      item({
+        rotulo: 'Devedores',
+        rota: '/devedores',
+        icone: HandCoins,
+        permissao: 'devedores.ver',
+        descricao: 'Contatos com valores em aberto, promessas de pagamento e cobrança no WhatsApp',
+        carregar: pagina(() => import('@/pages/pagina-devedores'), 'PaginaDevedores'),
       }),
       item({
         rotulo: 'Serviços',

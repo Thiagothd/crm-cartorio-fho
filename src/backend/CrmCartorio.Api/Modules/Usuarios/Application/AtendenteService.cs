@@ -467,6 +467,7 @@ public class AtendenteService(
                 var chaveTexto = CatalogoDePermissoes.Descrever(c).ChaveTexto;
                 return chaveTexto.StartsWith("atendimento.", StringComparison.Ordinal)
                     || chaveTexto.StartsWith("clientes.", StringComparison.Ordinal)
+                    || chaveTexto.StartsWith("devedores.", StringComparison.Ordinal)
                     || chaveTexto.StartsWith("relatorios.", StringComparison.Ordinal);
             }))
         {

@@ -21,12 +21,26 @@ type Estado = {
   respostasRapidas: any[]
   mensagensAutomaticas: any[]
   conhecimentos: any[]
+  pendencias: any[]
   canal: typeof demo.canal
   mfaAtiva: boolean
 }
 
+function sincronizarPendenciasNasConversas(estado: Estado) {
+  for (const c of estado.conversas) {
+    const abertas = estado.pendencias.filter(
+      (p) => p.clienteId === c.clienteId && p.status !== 'Quitada',
+    )
+    c.clientePendenciasAbertas = abertas.length
+    c.clienteSaldoDevedor = abertas.reduce((acc, p) => acc + (p.saldoRestante ?? 0), 0)
+    if (estado.detalhes[c.id]) {
+      estado.detalhes[c.id].conversa = c
+    }
+  }
+}
+
 export function criarEstadoDeCaptura(perfil: demo.Perfil = 'Administrador'): Estado {
-  return {
+  const estado: Estado = {
     perfilAtivo: perfil,
     atendentes: [demo.usuarios.Atendente, demo.usuarios.Supervisor, demo.usuarios.Administrador, ...demo.atendentesExtras],
     clientes: demo.clientes.map((c) => ({ ...c })),
@@ -38,9 +52,12 @@ export function criarEstadoDeCaptura(perfil: demo.Perfil = 'Administrador'): Est
     respostasRapidas: demo.respostasRapidas.map((r) => ({ ...r })),
     mensagensAutomaticas: demo.mensagensAutomaticas.map((m) => ({ ...m })),
     conhecimentos: demo.conhecimentos.map((c) => ({ ...c })),
+    pendencias: JSON.parse(JSON.stringify(demo.pendenciasFinanceiras)),
     canal: { ...demo.canal, situacao: { ...demo.canal.situacao } },
     mfaAtiva: true,
   }
+  sincronizarPendenciasNasConversas(estado)
+  return estado
 }
 
 function usuarioLogado(estado: Estado) {
@@ -157,12 +174,14 @@ export async function instalarMockDeCapturas(page: Page, estado = criarEstadoDeC
       })
     }
     if (path === '/api/conversas' && metodo === 'GET') {
+      sincronizarPendenciasNasConversas(estado)
       const busca = (url.searchParams.get('busca') ?? '').toLowerCase()
       let itens = estado.conversas
       const status = url.searchParams.get('status')
       if (status) itens = itens.filter((c) => c.status === status)
       if (url.searchParams.get('apenasNaFila') === 'true') itens = itens.filter((c) => !c.atendenteId)
       if (url.searchParams.get('apenasMinhas') === 'true') itens = itens.filter((c) => c.atendenteId === usuarioLogado(estado).id)
+      if (url.searchParams.get('apenasDevedores') === 'true') itens = itens.filter((c) => (c.clientePendenciasAbertas ?? 0) > 0)
       const etapaId = url.searchParams.get('etapaId'); if (etapaId) itens = itens.filter((c) => c.etapaId === etapaId)
       const setorId = url.searchParams.get('setorId'); if (setorId) itens = itens.filter((c) => c.setorId === setorId)
       const situacaoPrazo = url.searchParams.get('situacaoPrazo'); if (situacaoPrazo) itens = itens.filter((c) => c.situacaoPrazo === situacaoPrazo)
@@ -171,6 +190,7 @@ export async function instalarMockDeCapturas(page: Page, estado = criarEstadoDeC
     }
     const conversaDetalhe = path.match(/^\/api\/conversas\/([^/]+)$/)
     if (conversaDetalhe && metodo === 'GET') {
+      sincronizarPendenciasNasConversas(estado)
       const encontrado = estado.detalhes[conversaDetalhe[1]]
       return encontrado ? json(route, encontrado) : problema(route, 404, 'conversa_nao_encontrada', 'Conversa não encontrada.')
     }
@@ -365,6 +385,661 @@ export async function instalarMockDeCapturas(page: Page, estado = criarEstadoDeC
     if (path === '/api/conhecimento-de-ia' && metodo === 'POST') { const novo = { id: `conhecimento-${Date.now()}`, versao: 1, criadoPorNome: usuarioLogado(estado).nome, atualizadoPorNome: null, criadoEm: demo.AGORA, atualizadoEm: demo.AGORA, ...corpoJson(route) }; estado.conhecimentos.push(novo); return json(route, novo, 201) }
     if (path === '/api/serventia/encerramento-automatico' && metodo === 'PUT') return json(route, corpoJson(route))
     if (path === '/api/serventia/aparencia' && metodo === 'PUT') return json(route, corpoJson(route))
+
+    // --------------------------------------------------------- Devedores
+    if (path === '/api/devedores' && metodo === 'GET') {
+      const hoje = new Date().toISOString().slice(0, 10)
+      const recorte = url.searchParams.get('recorte') ?? 'abertas'
+      const busca = (url.searchParams.get('busca') ?? '').toLowerCase()
+      const tipoServicoId = url.searchParams.get('tipoServicoId')
+      const ordenar = url.searchParams.get('ordenar') ?? 'maior_valor'
+
+      const emAbertoTodas = estado.pendencias.filter((p) => p.status === 'Aberta')
+      const quitadasTodas = estado.pendencias.filter((p) => p.status === 'Quitada')
+      const vencidasTodas = emAbertoTodas.filter(
+        (p) => p.dataPromessaPagamento && p.dataPromessaPagamento < hoje,
+      )
+      const hojeTodas = emAbertoTodas.filter((p) => p.dataPromessaPagamento === hoje)
+
+      const resumo = {
+        totalEmAberto: emAbertoTodas.reduce((acc, p) => acc + (p.saldoRestante ?? 0), 0),
+        clientesDevedores: new Set(emAbertoTodas.map((p) => p.clienteId)).size,
+        pendenciasAbertas: emAbertoTodas.length,
+        pendenciasSemValor: emAbertoTodas.filter((p) => p.valorOriginal === null).length,
+        promessasVencidasTotal: vencidasTodas.reduce((acc, p) => acc + (p.saldoRestante ?? 0), 0),
+        promessasVencidasQuantidade: vencidasTodas.length,
+        promessasParaHojeTotal: hojeTodas.reduce((acc, p) => acc + (p.saldoRestante ?? 0), 0),
+        promessasParaHojeQuantidade: hojeTodas.length,
+        recuperadoNoMesTotal: quitadasTodas.reduce((acc, p) => acc + (p.valorPago ?? 0), 0),
+        recuperadoNoMesQuantidade: quitadasTodas.length,
+      }
+
+      let lancamentos = [...estado.pendencias]
+      if (recorte === 'abertas') lancamentos = lancamentos.filter((p) => p.status === 'Aberta')
+      else if (recorte === 'vencidas')
+        lancamentos = lancamentos.filter(
+          (p) => p.status === 'Aberta' && p.dataPromessaPagamento && p.dataPromessaPagamento < hoje,
+        )
+      else if (recorte === 'hoje')
+        lancamentos = lancamentos.filter(
+          (p) => p.status === 'Aberta' && p.dataPromessaPagamento === hoje,
+        )
+      else if (recorte === 'sem_cobranca')
+        lancamentos = lancamentos.filter((p) => p.status === 'Aberta' && (p.totalCobrancas ?? 0) === 0)
+      else if (recorte === 'parciais')
+        lancamentos = lancamentos.filter((p) => p.status === 'Aberta' && (p.valorPago ?? 0) > 0)
+      else if (recorte === 'sem_valor')
+        lancamentos = lancamentos.filter((p) => p.status === 'Aberta' && p.valorOriginal === null)
+      else if (recorte === 'quitadas')
+        lancamentos = lancamentos.filter((p) => p.status === 'Quitada')
+
+      if (tipoServicoId) {
+        lancamentos = lancamentos.filter((p) => p.tipoServicoId === tipoServicoId)
+      }
+
+      if (busca) {
+        lancamentos = lancamentos.filter((p) =>
+          `${p.clienteNome} ${p.clienteTelefone} ${p.titulo} ${p.observacoes ?? ''}`
+            .toLowerCase()
+            .includes(busca),
+        )
+      }
+
+      if (ordenar === 'maior_valor') {
+        lancamentos.sort((a, b) => (b.saldoRestante ?? 0) - (a.saldoRestante ?? 0))
+      } else if (ordenar === 'mais_antigas') {
+        lancamentos.sort((a, b) => String(a.dataReferencia).localeCompare(String(b.dataReferencia)))
+      } else if (ordenar === 'promessa_proxima') {
+        lancamentos.sort((a, b) =>
+          String(a.dataPromessaPagamento ?? '9999-99-99').localeCompare(
+            String(b.dataPromessaPagamento ?? '9999-99-99'),
+          ),
+        )
+      } else if (ordenar === 'nome') {
+        lancamentos.sort((a, b) => String(a.clienteNome).localeCompare(String(b.clienteNome)))
+      } else {
+        lancamentos.sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)))
+      }
+
+      const porCliente = new Map<string, any[]>()
+      for (const p of lancamentos) {
+        const atual = porCliente.get(p.clienteId) ?? []
+        atual.push(p)
+        porCliente.set(p.clienteId, atual)
+      }
+
+      const devedores = Array.from(porCliente.entries()).map(([clienteId, pends]) => {
+        const primeira = pends[0]
+        const abertasCli = pends.filter((x) => x.status === 'Aberta')
+        const baseCalculo = abertasCli.length > 0 ? abertasCli : pends
+        const promessas = abertasCli
+          .map((x) => x.dataPromessaPagamento)
+          .filter(Boolean)
+          .sort()
+        return {
+          clienteId,
+          clienteNome: primeira.clienteNome,
+          clienteTelefone: primeira.clienteTelefone,
+          clienteDocumento: primeira.clienteDocumento ?? null,
+          clienteFotoPerfilUrl: primeira.clienteFotoPerfilUrl ?? '',
+          conversaAtivaId: primeira.conversaAtivaId ?? null,
+          quantidadePendenciasAbertas: abertasCli.length,
+          quantidadeSemValor: abertasCli.filter((x) => x.valorOriginal === null).length,
+          valorOriginalTotal: baseCalculo.reduce((acc, x) => acc + (x.valorOriginal ?? 0), 0),
+          valorPagoTotal: baseCalculo.reduce((acc, x) => acc + (x.valorPago ?? 0), 0),
+          saldoRestanteTotal: abertasCli.reduce((acc, x) => acc + (x.saldoRestante ?? 0), 0),
+          dataReferenciaMaisAntiga: [...baseCalculo]
+            .map((x) => x.dataReferencia)
+            .sort()[0],
+          proximaPromessaPagamento: promessas[0] ?? null,
+          temPromessaVencida: abertasCli.some(
+            (x) => x.dataPromessaPagamento && x.dataPromessaPagamento < hoje,
+          ),
+          temPromessaHoje: abertasCli.some((x) => x.dataPromessaPagamento === hoje),
+          ultimaCobrancaEm:
+            [...pends]
+              .map((x) => x.ultimaCobrancaEm)
+              .filter(Boolean)
+              .sort()
+              .reverse()[0] ?? null,
+          totalCobrancas: pends.reduce((acc, x) => acc + (x.totalCobrancas ?? 0), 0),
+          pendencias: pends,
+        }
+      })
+
+      return json(route, {
+        resumo,
+        devedores,
+        lancamentos,
+        totalLancamentos: lancamentos.length,
+      })
+    }
+
+    const devedorPorCliente = path.match(/^\/api\/devedores\/cliente\/([^/]+)$/)
+    if (devedorPorCliente && metodo === 'GET') {
+      const clienteId = devedorPorCliente[1]
+      const cliente = estado.clientes.find((c) => c.id === clienteId)
+      const pends = estado.pendencias.filter((p) => p.clienteId === clienteId)
+      const abertas = pends.filter((p) => p.status === 'Aberta')
+      return json(route, {
+        clienteId,
+        clienteNome: cliente?.nome ?? pends[0]?.clienteNome ?? 'Cliente',
+        clienteTelefone: cliente?.telefoneWhatsapp ?? pends[0]?.clienteTelefone ?? '',
+        pendenciasAbertas: abertas.length,
+        saldoDevedor: abertas.reduce((acc, p) => acc + (p.saldoRestante ?? 0), 0),
+        pendencias: pends,
+      })
+    }
+
+    if (path === '/api/devedores' && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      let cliente = estado.clientes.find((c) => c.id === corpo.clienteId)
+      if (!cliente && corpo.novoClienteTelefone) {
+        const digitos = String(corpo.novoClienteTelefone).replace(/\D/g, '')
+        const e164 = digitos.startsWith('55') ? digitos : `55${digitos}`
+        cliente = estado.clientes.find((c) => c.telefoneWhatsapp === e164)
+        if (!cliente) {
+          cliente = {
+            ...estado.clientes[0],
+            id: `cliente-${Date.now()}`,
+            nome: corpo.novoClienteNome || e164,
+            telefoneWhatsapp: e164,
+            documento: corpo.novoClienteDocumento ?? null,
+            percentualDeQualificacao: 25,
+            totalConversas: 0,
+            temConversaAtiva: false,
+            ativo: true,
+            nomePendente: false,
+          }
+          estado.clientes.push(cliente)
+        }
+      }
+      if (!cliente) {
+        return problema(route, 400, 'cliente_obrigatorio', 'Selecione ou cadastre um cliente.')
+      }
+      const servico = estado.servicos.find((s) => s.id === corpo.tipoServicoId)
+      const conversaAtiva = estado.conversas.find(
+        (c) => c.clienteId === cliente.id && c.status === 'Ativa',
+      )
+      const valorOriginal =
+        typeof corpo.valorOriginal === 'number' && corpo.valorOriginal > 0
+          ? corpo.valorOriginal
+          : null
+      const atendente = usuarioLogado(estado)
+      const nova = {
+        id: `pendencia-${Date.now()}`,
+        clienteId: cliente.id,
+        clienteNome: cliente.nome,
+        clienteTelefone: cliente.telefoneWhatsapp,
+        clienteDocumento: cliente.documento ?? null,
+        clienteFotoPerfilUrl: `/api/clientes/${cliente.id}/foto`,
+        conversaOrigemId: corpo.conversaOrigemId ?? conversaAtiva?.id ?? null,
+        conversaAtivaId: conversaAtiva?.id ?? null,
+        tipoServicoId: servico?.id ?? null,
+        tipoServicoNome: servico?.nome ?? null,
+        titulo: corpo.titulo,
+        observacoes: corpo.observacoes ?? null,
+        valorOriginal,
+        valorPago: 0,
+        saldoRestante: valorOriginal,
+        status: 'Aberta',
+        dataReferencia: corpo.dataReferencia || new Date().toISOString().slice(0, 10),
+        dataPromessaPagamento: corpo.dataPromessaPagamento ?? null,
+        diasEmAberto: 0,
+        diasDeAtraso: null,
+        ultimaCobrancaEm: null,
+        totalCobrancas: 0,
+        registradoPorAtendenteId: atendente.id,
+        registradoPorNome: atendente.nome,
+        criadoEm: new Date().toISOString(),
+        quitadaEm: null,
+        quitadoPorAtendenteId: null,
+        quitadoPorNome: null,
+        pagamentos: [],
+      }
+      estado.pendencias.unshift(nova)
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, nova, 201)
+    }
+
+    const devedorEditar = path.match(/^\/api\/devedores\/([^/]+)$/)
+    if (devedorEditar && metodo === 'PUT') {
+      const alvo = estado.pendencias.find((p) => p.id === devedorEditar[1])
+      if (!alvo) return problema(route, 404, 'pendencia_nao_encontrada', 'Pendência não encontrada.')
+      const corpo = corpoJson(route)
+      const servico = estado.servicos.find((s) => s.id === corpo.tipoServicoId)
+      alvo.titulo = corpo.titulo ?? alvo.titulo
+      alvo.observacoes = corpo.observacoes ?? null
+      alvo.tipoServicoId = servico?.id ?? null
+      alvo.tipoServicoNome = servico?.nome ?? null
+      alvo.valorOriginal =
+        typeof corpo.valorOriginal === 'number' && corpo.valorOriginal > 0
+          ? corpo.valorOriginal
+          : null
+      alvo.saldoRestante =
+        alvo.valorOriginal !== null
+          ? Math.max(0, Number((alvo.valorOriginal - alvo.valorPago).toFixed(2)))
+          : null
+      alvo.dataReferencia = corpo.dataReferencia ?? alvo.dataReferencia
+      alvo.dataPromessaPagamento = corpo.dataPromessaPagamento ?? null
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, alvo)
+    }
+
+    if (devedorEditar && metodo === 'DELETE') {
+      estado.pendencias = estado.pendencias.filter((p) => p.id !== devedorEditar[1])
+      sincronizarPendenciasNasConversas(estado)
+      return route.fulfill({ status: 204 })
+    }
+
+    const devedorPagamento = path.match(/^\/api\/devedores\/([^/]+)\/pagamentos$/)
+    if (devedorPagamento && metodo === 'POST') {
+      const alvo = estado.pendencias.find((p) => p.id === devedorPagamento[1])
+      if (!alvo) return problema(route, 404, 'pendencia_nao_encontrada', 'Pendência não encontrada.')
+      const corpo = corpoJson(route)
+      const atendente = usuarioLogado(estado)
+      const valorLancado =
+        typeof corpo.valor === 'number' && corpo.valor > 0
+          ? corpo.valor
+          : alvo.saldoRestante ?? alvo.valorOriginal ?? 0
+      if (valorLancado > 0) {
+        alvo.pagamentos.unshift({
+          id: `pagamento-${Date.now()}`,
+          pendenciaFinanceiraId: alvo.id,
+          valor: valorLancado,
+          meioPagamento: corpo.meioPagamento || 'Pix',
+          observacao: corpo.observacao ?? null,
+          pagoEm: new Date().toISOString(),
+          registradoPorAtendenteId: atendente.id,
+          registradoPorNome: atendente.nome,
+        })
+        alvo.valorPago = Number((alvo.valorPago + valorLancado).toFixed(2))
+      }
+      if (corpo.quitarTotalmente || (alvo.valorOriginal && alvo.valorPago >= alvo.valorOriginal)) {
+        alvo.status = 'Quitada'
+        alvo.saldoRestante = 0
+        alvo.quitadaEm = new Date().toISOString()
+        alvo.quitadoPorAtendenteId = atendente.id
+        alvo.quitadoPorNome = atendente.nome
+      } else {
+        alvo.status = 'Aberta'
+        alvo.saldoRestante =
+          alvo.valorOriginal !== null
+            ? Math.max(0, Number((alvo.valorOriginal - alvo.valorPago).toFixed(2)))
+            : null
+      }
+      if (corpo.enviarComprovanteWhatsapp && corpo.mensagemComprovante?.trim()) {
+        const textoRecibo = corpo.mensagemComprovante.trim()
+        let conversa = estado.conversas.find(
+          (c) => c.clienteId === alvo.clienteId && c.status === 'Ativa',
+        )
+        if (!conversa) {
+          const agoraIso = new Date().toISOString()
+          conversa = {
+            id: `conversa-${Date.now()}`,
+            protocolo: '202609-0099',
+            clienteId: alvo.clienteId,
+            clienteNome: alvo.clienteNome,
+            clienteTelefone: alvo.clienteTelefone,
+            atendenteId: atendente.id,
+            atendenteNome: atendente.nome,
+            setorId: estado.setores[0].id,
+            setorNome: estado.setores[0].nome,
+            etapaId: estado.etapas[0].id,
+            etapaNome: estado.etapas[0].nome,
+            etapaCor: estado.etapas[0].cor,
+            tipoServicoId: alvo.tipoServicoId,
+            tipoServicoNome: alvo.tipoServicoNome,
+            status: 'Ativa',
+            iniciadaEm: agoraIso,
+            ultimaMensagemEm: agoraIso,
+            mensagensNaoLidas: 0,
+            aguardandoTriagem: false,
+            prazoIniciadoEm: null,
+            prazoLimite: null,
+            situacaoPrazo: 'SemPrazo',
+            previaUltimaMensagem: textoRecibo,
+            encerradaEm: null,
+            encerradaPorNome: null,
+            motivoEncerramento: null,
+            reabertaEm: null,
+            clienteFotoPerfilUrl: null,
+            clienteNomePendente: false,
+          }
+          estado.conversas.unshift(conversa)
+          estado.detalhes[conversa.id] = { conversa, mensagens: [], historico: [] }
+        } else {
+          conversa.atendenteId = atendente.id
+          conversa.atendenteNome = atendente.nome
+          conversa.aguardandoTriagem = false
+          conversa.mensagensNaoLidas = 0
+          conversa.ultimaMensagemEm = new Date().toISOString()
+          conversa.previaUltimaMensagem = textoRecibo
+        }
+        estado.detalhes[conversa.id]?.mensagens.push({
+          id: `msg-recibo-${Date.now()}`,
+          conversaId: conversa.id,
+          autorTipo: 'Atendente',
+          atendenteId: atendente.id,
+          atendenteNome: atendente.nome,
+          conteudo: textoRecibo,
+          tipo: 'Texto',
+          statusEntrega: 'Enviada',
+          ehAutomatica: false,
+          fixada: false,
+          oculta: false,
+          ocultaPorNome: null,
+          encaminhadaDeProtocolo: null,
+          enviadaEm: new Date().toISOString(),
+          lidaEm: null,
+          mensagemRespondidaId: null,
+          respondidaAutor: null,
+          respondidaConteudo: null,
+          arquivoNome: null,
+          arquivoTipoMime: null,
+          arquivoTamanhoBytes: null,
+          geradaPorIa: false,
+        })
+      }
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, alvo)
+    }
+
+    const devedorReabrir = path.match(/^\/api\/devedores\/([^/]+)\/reabrir$/)
+    if (devedorReabrir && metodo === 'POST') {
+      const alvo = estado.pendencias.find((p) => p.id === devedorReabrir[1])
+      if (!alvo) return problema(route, 404, 'pendencia_nao_encontrada', 'Pendência não encontrada.')
+      alvo.quitadaEm = null
+      alvo.quitadoPorAtendenteId = null
+      alvo.quitadoPorNome = null
+      alvo.status = 'Aberta'
+      alvo.saldoRestante =
+        alvo.valorOriginal !== null
+          ? Math.max(0, Number((alvo.valorOriginal - alvo.valorPago).toFixed(2)))
+          : null
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, alvo)
+    }
+
+    if (path === '/api/devedores/cobrar-whatsapp' && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      const cliente = estado.clientes.find((c) => c.id === corpo.clienteId)
+      if (!cliente) return problema(route, 404, 'cliente_nao_encontrado', 'Cliente não encontrado.')
+      const atendente = usuarioLogado(estado)
+      let conversa = estado.conversas.find(
+        (c) => c.clienteId === cliente.id && c.status === 'Ativa',
+      )
+      if (!conversa) {
+        conversa = {
+          id: `conversa-${Date.now()}`,
+          protocolo: '202609-0098',
+          clienteId: cliente.id,
+          clienteNome: cliente.nome,
+          clienteTelefone: cliente.telefoneWhatsapp,
+          atendenteId: atendente.id,
+          atendenteNome: atendente.nome,
+          setorId: estado.setores[0].id,
+          setorNome: estado.setores[0].nome,
+          etapaId: estado.etapas[0].id,
+          etapaNome: estado.etapas[0].nome,
+          etapaCor: estado.etapas[0].cor,
+          tipoServicoId: null,
+          tipoServicoNome: null,
+          status: 'Ativa',
+          iniciadaEm: new Date().toISOString(),
+          ultimaMensagemEm: new Date().toISOString(),
+          mensagensNaoLidas: 0,
+          aguardandoTriagem: false,
+          prazoIniciadoEm: null,
+          prazoLimite: null,
+          situacaoPrazo: 'SemPrazo',
+          previaUltimaMensagem: corpo.mensagem,
+          encerradaEm: null,
+          encerradaPorNome: null,
+          motivoEncerramento: null,
+          reabertaEm: null,
+          clienteFotoPerfilUrl: null,
+          clienteNomePendente: false,
+        }
+        estado.conversas.unshift(conversa)
+        estado.detalhes[conversa.id] = { conversa, mensagens: [], historico: [] }
+      } else {
+        conversa.atendenteId = atendente.id
+        conversa.atendenteNome = atendente.nome
+        conversa.aguardandoTriagem = false
+        conversa.mensagensNaoLidas = 0
+        conversa.ultimaMensagemEm = new Date().toISOString()
+        conversa.previaUltimaMensagem = corpo.mensagem
+      }
+      const msg = {
+        id: `msg-cobranca-${Date.now()}`,
+        conversaId: conversa.id,
+        autorTipo: 'Atendente',
+        atendenteId: atendente.id,
+        atendenteNome: atendente.nome,
+        conteudo: corpo.mensagem,
+        tipo: 'Texto',
+        statusEntrega: 'Enviada',
+        ehAutomatica: false,
+        fixada: false,
+        oculta: false,
+        ocultaPorNome: null,
+        encaminhadaDeProtocolo: null,
+        enviadaEm: new Date().toISOString(),
+        lidaEm: null,
+        mensagemRespondidaId: null,
+        respondidaAutor: null,
+        respondidaConteudo: null,
+        arquivoNome: null,
+        arquivoTipoMime: null,
+        arquivoTamanhoBytes: null,
+        geradaPorIa: false,
+      }
+      estado.detalhes[conversa.id]?.mensagens.push(msg)
+
+      let pendenciasAtualizadas = 0
+      for (const p of estado.pendencias) {
+        if (
+          p.clienteId === cliente.id &&
+          p.status === 'Aberta' &&
+          (!corpo.pendenciaIds?.length || corpo.pendenciaIds.includes(p.id))
+        ) {
+          p.ultimaCobrancaEm = new Date().toISOString()
+          p.totalCobrancas = (p.totalCobrancas ?? 0) + 1
+          p.conversaAtivaId = conversa.id
+          pendenciasAtualizadas++
+        }
+      }
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, { conversaId: conversa.id, mensagemId: msg.id, pendenciasAtualizadas })
+    }
+
+    const abrirConversaDevedor = path.match(/^\/api\/devedores\/cliente\/([^/]+)\/abrir-conversa$/)
+    if (abrirConversaDevedor && metodo === 'POST') {
+      const cliente = estado.clientes.find((c) => c.id === abrirConversaDevedor[1])
+      if (!cliente) return problema(route, 404, 'cliente_nao_encontrado', 'Cliente não encontrado.')
+      const atendente = usuarioLogado(estado)
+      let conversa = estado.conversas.find(
+        (c) => c.clienteId === cliente.id && c.status === 'Ativa',
+      )
+      let criadaAgora = false
+      if (!conversa) {
+        criadaAgora = true
+        const agoraIso = new Date().toISOString()
+        conversa = {
+          id: `conversa-${Date.now()}`,
+          protocolo: '202609-0097',
+          clienteId: cliente.id,
+          clienteNome: cliente.nome,
+          clienteTelefone: cliente.telefoneWhatsapp,
+          atendenteId: atendente.id,
+          atendenteNome: atendente.nome,
+          setorId: estado.setores[0].id,
+          setorNome: estado.setores[0].nome,
+          etapaId: estado.etapas[0].id,
+          etapaNome: estado.etapas[0].nome,
+          etapaCor: estado.etapas[0].cor,
+          tipoServicoId: null,
+          tipoServicoNome: null,
+          status: 'Ativa',
+          iniciadaEm: agoraIso,
+          ultimaMensagemEm: agoraIso,
+          mensagensNaoLidas: 0,
+          aguardandoTriagem: false,
+          prazoIniciadoEm: null,
+          prazoLimite: null,
+          situacaoPrazo: 'SemPrazo',
+          previaUltimaMensagem: null,
+          encerradaEm: null,
+          encerradaPorNome: null,
+          motivoEncerramento: null,
+          reabertaEm: null,
+          clienteFotoPerfilUrl: null,
+          clienteNomePendente: false,
+        }
+        estado.conversas.unshift(conversa)
+        estado.detalhes[conversa.id] = {
+          conversa,
+          mensagens: [
+            {
+              id: `msg-sistema-${Date.now()}`,
+              conversaId: conversa.id,
+              autorTipo: 'Sistema',
+              atendenteId: null,
+              atendenteNome: 'Sistema',
+              conteudo: `Atendimento aberto por ${atendente.nome} a partir de Devedores.`,
+              tipo: 'Texto',
+              statusEntrega: 'Entregue',
+              ehAutomatica: false,
+              fixada: false,
+              oculta: false,
+              ocultaPorNome: null,
+              encaminhadaDeProtocolo: null,
+              enviadaEm: agoraIso,
+              lidaEm: agoraIso,
+              mensagemRespondidaId: null,
+              respondidaAutor: null,
+              respondidaConteudo: null,
+              arquivoNome: null,
+              arquivoTipoMime: null,
+              arquivoTamanhoBytes: null,
+              geradaPorIa: false,
+            },
+          ],
+          historico: [],
+        }
+      } else {
+        conversa.atendenteId = atendente.id
+        conversa.atendenteNome = atendente.nome
+        conversa.aguardandoTriagem = false
+        conversa.mensagensNaoLidas = 0
+      }
+      for (const p of estado.pendencias) {
+        if (p.clienteId === cliente.id && p.status === 'Aberta') {
+          p.conversaAtivaId = conversa.id
+        }
+      }
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, { conversaId: conversa.id, criadaAgora })
+    }
+
+    if (path === '/api/devedores/importacao' && metodo === 'POST') {
+      const corpo = corpoJson(route)
+      const itens = Array.isArray(corpo.itens) ? corpo.itens : []
+      let pendenciasCriadas = 0
+      let clientesNovosCriados = 0
+      let clientesExistentesVinculados = 0
+      let ignorados = 0
+      const avisos: string[] = []
+      const hoje = new Date().toISOString().slice(0, 10)
+      const atendente = usuarioLogado(estado)
+
+      itens.forEach((item: any, idx: number) => {
+        let cliente = item.clienteId
+          ? estado.clientes.find((c) => c.id === item.clienteId)
+          : undefined
+        if (!cliente && item.telefone) {
+          const digitos = String(item.telefone).replace(/\D/g, '')
+          if (digitos.length >= 10) {
+            const e164 = digitos.startsWith('55') ? digitos : `55${digitos}`
+            cliente = estado.clientes.find((c) => c.telefoneWhatsapp === e164)
+            if (cliente) {
+              clientesExistentesVinculados++
+            } else {
+              cliente = {
+                ...estado.clientes[0],
+                id: `cliente-${Date.now()}-${idx}`,
+                nome: item.nome || e164,
+                telefoneWhatsapp: e164,
+                documento: item.documento ?? null,
+                percentualDeQualificacao: 25,
+                totalConversas: 0,
+                temConversaAtiva: false,
+                ativo: true,
+                nomePendente: false,
+              }
+              estado.clientes.push(cliente)
+              clientesNovosCriados++
+            }
+          }
+        } else if (cliente) {
+          clientesExistentesVinculados++
+        }
+
+        if (!cliente) {
+          ignorados++
+          avisos.push(`Item ${idx + 1}: cliente ou telefone inválido.`)
+          return
+        }
+
+        const valorOriginal =
+          typeof item.valorOriginal === 'number' && item.valorOriginal > 0
+            ? item.valorOriginal
+            : null
+        const servico = estado.servicos.find((s) => s.id === corpo.tipoServicoPadraoId)
+
+        estado.pendencias.unshift({
+          id: `pendencia-${Date.now()}-${idx}`,
+          clienteId: cliente.id,
+          clienteNome: cliente.nome,
+          clienteTelefone: cliente.telefoneWhatsapp,
+          clienteDocumento: cliente.documento ?? null,
+          clienteFotoPerfilUrl: `/api/clientes/${cliente.id}/foto`,
+          conversaOrigemId: null,
+          conversaAtivaId: null,
+          tipoServicoId: servico?.id ?? null,
+          tipoServicoNome: servico?.nome ?? null,
+          titulo: item.titulo || corpo.tituloPadrao || 'Pendência financeira',
+          observacoes: item.observacoes ?? null,
+          valorOriginal,
+          valorPago: 0,
+          saldoRestante: valorOriginal,
+          status: 'Aberta',
+          dataReferencia: hoje,
+          dataPromessaPagamento: item.dataPromessaPagamento ?? corpo.dataPromessaPadrao ?? null,
+          diasEmAberto: 0,
+          diasDeAtraso: null,
+          ultimaCobrancaEm: null,
+          totalCobrancas: 0,
+          registradoPorAtendenteId: atendente.id,
+          registradoPorNome: atendente.nome,
+          criadoEm: new Date().toISOString(),
+          quitadaEm: null,
+          quitadoPorAtendenteId: null,
+          quitadoPorNome: null,
+          pagamentos: [],
+        })
+        pendenciasCriadas++
+      })
+      sincronizarPendenciasNasConversas(estado)
+      return json(route, {
+        pendenciasCriadas,
+        clientesNovosCriados,
+        clientesExistentesVinculados,
+        ignorados,
+        avisos,
+      })
+    }
 
     return problema(route, 501, 'mock_de_captura_nao_implementado', `Endpoint não implementado nas capturas: ${metodo} ${path}`)
   })

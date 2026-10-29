@@ -63,6 +63,12 @@ public static class CatalogoDePermissoes
         D(PermissaoDoSistema.ClientesImportarAgenda, "clientes.importar_agenda", "Importar contatos em lote",
             "Puxar a agenda do WhatsApp do cartório ou importar uma lista/CSV.", "Clientes"),
 
+        // --------------------------------------------------------- Devedores
+        D(PermissaoDoSistema.DevedoresVer, "devedores.ver", "Abrir a tela de Devedores",
+            "Ver a lista de contatos com valores em aberto, saldos e histórico de pagamentos.", "Devedores", ehTela: true),
+        D(PermissaoDoSistema.DevedoresEditar, "devedores.editar", "Gerenciar pendências e cobranças",
+            "Lançar pendências financeiras, dar baixa parcial ou total, importar lista e cobrar pelo WhatsApp.", "Devedores"),
+
         // ------------------------------------------------- Catálogo e estrutura
         D(PermissaoDoSistema.ServicosVer, "servicos.ver", "Ver o catálogo de serviços",
             "Ver os atos oferecidos e o prazo de cada um.", "Catálogo e estrutura", ehTela: true),
@@ -280,6 +286,8 @@ public static class CatalogoDePermissoes
         PermissaoDoSistema.AtendimentoMexerNoDeTerceiro,
         PermissaoDoSistema.ClientesExcluir,
         PermissaoDoSistema.ClientesImportarAgenda,
+        PermissaoDoSistema.DevedoresVer,
+        PermissaoDoSistema.DevedoresEditar,
         PermissaoDoSistema.RelatoriosVer,
         PermissaoDoSistema.RelatoriosEquipe,
         PermissaoDoSistema.RelatoriosSaudeIa,

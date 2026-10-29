@@ -6,6 +6,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Enums;
+using CrmCartorio.Api.Modules.Devedores.Domain.Enums;
 using CrmCartorio.Api.Modules.Seguranca.Domain.Enums;
 using CrmCartorio.Api.Modules.Servicos.Domain;
 using CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
@@ -87,6 +88,15 @@ public class ConversaService(
             consulta = consulta.Where(AguardandoRespostaDoCartorio.Expressao(db.Mensagens));
         }
 
+        if (filtro.ApenasDevedores && ctx.Pode(PermissaoDoSistema.DevedoresVer))
+        {
+            consulta = consulta.Where(c =>
+                db.PendenciasFinanceiras.Any(p =>
+                    p.TenantId == tenantId
+                    && p.ClienteId == c.ClienteId
+                    && p.Status == StatusPendencia.Aberta));
+        }
+
         if (filtro.ApenasEncerradasHoje)
         {
             // Mesmo limite de dia que ResumoDoPainelAsync usa para contar, de modo
@@ -142,8 +152,10 @@ public class ConversaService(
             .Take(tamanho)
             .ToListAsync(ct);
 
+        var podeVerDevedores = ctx.Pode(PermissaoDoSistema.DevedoresVer);
+
         return new ResultadoPaginado<ConversaResumoResponse>(
-            [.. itens.Select(p => p.ParaResposta(agora))],
+            [.. itens.Select(p => p.ParaResposta(agora, podeVerDevedores))],
             total,
             pagina,
             tamanho);
@@ -1187,7 +1199,7 @@ public class ConversaService(
             .FirstOrDefaultAsync(ct)
             ?? throw AtendimentoServiceException.ConversaNaoEncontrada();
 
-        return projecao.ParaResposta(DateTime.UtcNow);
+        return projecao.ParaResposta(DateTime.UtcNow, ctx.Autenticado && ctx.Pode(PermissaoDoSistema.DevedoresVer));
     }
 
     private async Task<Conversa> CarregarAsync(Guid id, CancellationToken ct) =>

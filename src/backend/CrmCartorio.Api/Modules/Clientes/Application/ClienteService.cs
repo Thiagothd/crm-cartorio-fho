@@ -238,7 +238,8 @@ public partial class ClienteService(
             .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == ctx.TenantId, ct)
             ?? throw ClientesServiceException.NaoEncontrado();
 
-        var temHistorico = await db.Conversas.AnyAsync(x => x.ClienteId == id, ct);
+        var temHistorico = await db.Conversas.AnyAsync(x => x.ClienteId == id, ct)
+            || await db.PendenciasFinanceiras.AnyAsync(x => x.ClienteId == id, ct);
 
         if (temHistorico)
         {

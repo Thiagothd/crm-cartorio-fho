@@ -4,6 +4,7 @@ import {
   ArrowRightLeft,
   CircleCheck,
   Hand,
+  HandCoins,
   History,
   Images,
   Lock,
@@ -43,6 +44,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { formatarTelefone, nomeDeExibicao } from '@/lib/formatacao'
+import { formatarReais } from '@/features/devedores/utilitarios'
 import { EtiquetaDePrazo } from './etiqueta-de-prazo'
 import { ControleDoRobo } from './controle-do-robo'
 import { corSolidaDaEtapa } from './cores-de-etapa'
@@ -76,6 +78,8 @@ export function CabecalhoDaConversa({
   aoVoltar,
   painelAtivo,
   aoAlternarPainel,
+  aoVerPendencias,
+  aoMarcarDevedor,
 }: {
   conversa: Conversa
   souOResponsavel: boolean
@@ -106,6 +110,8 @@ export function CabecalhoDaConversa({
    */
   painelAtivo: PainelDaConversa
   aoAlternarPainel: (qual: Exclude<PainelDaConversa, null>) => void
+  aoVerPendencias?: () => void
+  aoMarcarDevedor?: () => void
 }) {
   const [dialogoEncerrar, setDialogoEncerrar] = useState(false)
   const [dialogoTransferir, setDialogoTransferir] = useState(false)
@@ -120,6 +126,8 @@ export function CabecalhoDaConversa({
     conversa.clienteTelefone,
     conversa.clienteNomePendente,
   )
+  const pendenciasAbertas = conversa.clientePendenciasAbertas ?? 0
+  const saldoDevedor = conversa.clienteSaldoDevedor ?? 0
 
   return (
     <header className="flex shrink-0 items-center justify-between gap-2 border-b border-linha-forte bg-branco px-3 py-2 md:gap-4 md:px-6 md:py-2.5">
@@ -181,6 +189,20 @@ export function CabecalhoDaConversa({
             ) : null}
 
             {!ativa ? <Badge variant="secondary">Encerrada</Badge> : null}
+
+            {pendenciasAbertas > 0 && aoVerPendencias ? (
+              <button
+                type="button"
+                onClick={aoVerPendencias}
+                title="Ver ou dar baixa nas pendências financeiras deste cliente"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-ambar/50 bg-ambar/10 px-2 py-0.5 font-dado text-[11px] font-medium text-ambar transition-colors hover:bg-ambar/20"
+              >
+                <HandCoins className="size-3" aria-hidden />
+                {saldoDevedor > 0
+                  ? `Devendo ${formatarReais(saldoDevedor)}`
+                  : `Devendo (${pendenciasAbertas})`}
+              </button>
+            ) : null}
 
             {/* Container query, nao breakpoint de tela: quem aperta esta
                 linha e o painel de historico abrindo ao lado, com a janela do
@@ -359,6 +381,19 @@ export function CabecalhoDaConversa({
           </Button>
         ) : null}
 
+        {aoMarcarDevedor ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="hidden rounded-full @xl:inline-flex"
+            onClick={aoMarcarDevedor}
+            title="Marcar como devedor / registrar pendência financeira"
+          >
+            <HandCoins className={pendenciasAbertas > 0 ? 'text-ambar' : undefined} />
+            <span className="sr-only">Marcar como devedor</span>
+          </Button>
+        ) : null}
+
         <Button
           variant={painelAtivo === 'historico' ? 'secondary' : 'ghost'}
           size="icon-sm"
@@ -405,6 +440,20 @@ export function CabecalhoDaConversa({
               Protocolo {conversa.protocolo}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+
+            {pendenciasAbertas > 0 && aoVerPendencias ? (
+              <DropdownMenuItem onSelect={aoVerPendencias}>
+                <HandCoins className="text-ambar" />
+                Pendências financeiras ({pendenciasAbertas})
+              </DropdownMenuItem>
+            ) : null}
+
+            {aoMarcarDevedor ? (
+              <DropdownMenuItem onSelect={aoMarcarDevedor}>
+                <HandCoins />
+                Marcar como devedor
+              </DropdownMenuItem>
+            ) : null}
 
             {/* Consulta, não ação sobre o atendimento: fica fora do bloco de
                 Transferir/Devolver/Encerrar e vale também para conversa

@@ -107,6 +107,7 @@ public record FiltroDeConversas
     /// <see cref="ApenasEncerradasHoje"/>.
     /// </summary>
     public bool ApenasAguardandoResposta { get; init; }
+    public bool ApenasDevedores { get; init; }
 
     public SituacaoPrazo? SituacaoPrazo { get; init; }
     public string? Busca { get; init; }
@@ -167,7 +168,17 @@ public record ConversaResumoResponse(
     /// <summary>Quem pausou. Nulo com a pausa automática de contato "sem robô".</summary>
     string? RoboPausadoPorNome = null,
     /// <summary>O contato está marcado para ser atendido sempre sem robô.</summary>
-    bool ClienteSemRobo = false);
+    bool ClienteSemRobo = false,
+    /// <summary>
+    /// Quantidade de pendências financeiras abertas deste cliente (zerado quando
+    /// o atendente não tem <c>devedores.ver</c>).
+    /// </summary>
+    int ClientePendenciasAbertas = 0,
+    /// <summary>
+    /// Saldo devedor total em aberto deste cliente em reais (zerado quando o
+    /// atendente não tem <c>devedores.ver</c>).
+    /// </summary>
+    decimal ClienteSaldoDevedor = 0m);
 
 /// <param name="SempreSemRoboParaOContato">
 /// Marca também o contato (Cliente.AtendimentoSemRobo): as próximas conversas dele já

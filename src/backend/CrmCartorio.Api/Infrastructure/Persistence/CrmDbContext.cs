@@ -5,6 +5,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.CanalWhatsApp.Domain.Entities;
 using CrmCartorio.Api.Modules.Clientes.Domain.Entities;
 using CrmCartorio.Api.Modules.Configuracoes.Domain.Entities;
+using CrmCartorio.Api.Modules.Devedores.Domain.Entities;
 using CrmCartorio.Api.Modules.RespostaInteligente.Domain.Entities;
 using CrmCartorio.Api.Modules.Seguranca.Domain.Entities;
 using CrmCartorio.Api.Modules.Servicos.Domain.Entities;
@@ -53,6 +54,8 @@ public class CrmDbContext(DbContextOptions<CrmDbContext> options, ICifraDeDados 
     public DbSet<DispositivoConfiavel> DispositivosConfiaveis => Set<DispositivoConfiavel>();
     public DbSet<RegistroDeAcesso> RegistrosDeAcesso => Set<RegistroDeAcesso>();
     public DbSet<AutorizacaoDeAcessoTecnico> AutorizacoesDeAcessoTecnico => Set<AutorizacaoDeAcessoTecnico>();
+    public DbSet<PendenciaFinanceira> PendenciasFinanceiras => Set<PendenciaFinanceira>();
+    public DbSet<PagamentoDePendencia> PagamentosDePendencia => Set<PagamentoDePendencia>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

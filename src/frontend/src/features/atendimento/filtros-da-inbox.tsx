@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronsLeft, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ChevronsLeft, HandCoins, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +29,7 @@ export interface FiltrosVisiveis {
   situacaoPrazo?: SituacaoPrazo
   apenasEncerradasHoje?: boolean
   apenasAguardandoResposta?: boolean
+  apenasDevedores?: boolean
   escopo: 'todas' | 'minhas' | 'fila'
   busca: string
 }
@@ -43,6 +44,7 @@ export function filtrosParaConsulta(filtros: FiltrosVisiveis): FiltroDeConversas
     apenasNaFila: filtros.escopo === 'fila',
     apenasEncerradasHoje: filtros.apenasEncerradasHoje,
     apenasAguardandoResposta: filtros.apenasAguardandoResposta,
+    apenasDevedores: filtros.apenasDevedores,
     busca: filtros.busca.trim() || undefined,
     tamanho: 60,
   }
@@ -65,7 +67,8 @@ export function temFiltroAplicado(filtros: FiltrosVisiveis) {
     Boolean(filtros.etapaId) ||
     Boolean(filtros.situacaoPrazo) ||
     Boolean(filtros.apenasEncerradasHoje) ||
-    Boolean(filtros.apenasAguardandoResposta)
+    Boolean(filtros.apenasAguardandoResposta) ||
+    Boolean(filtros.apenasDevedores)
   )
 }
 
@@ -79,6 +82,7 @@ export function FiltrosDaInbox({
   filtros,
   setores,
   etapas,
+  podeVerDevedores = false,
   aoMudar,
   aoRecolher,
   aoCriarConversa,
@@ -86,6 +90,7 @@ export function FiltrosDaInbox({
   filtros: FiltrosVisiveis
   setores: Setor[]
   etapas: Etapa[]
+  podeVerDevedores?: boolean
   aoMudar: (filtros: FiltrosVisiveis) => void
   aoRecolher: () => void
   /**
@@ -101,7 +106,10 @@ export function FiltrosDaInbox({
   }
 
   const temFiltroAvancado =
-    Boolean(filtros.setorId) || Boolean(filtros.etapaId) || Boolean(filtros.situacaoPrazo)
+    Boolean(filtros.setorId) ||
+    Boolean(filtros.etapaId) ||
+    Boolean(filtros.situacaoPrazo) ||
+    Boolean(filtros.apenasDevedores)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
 
   return (
@@ -156,7 +164,29 @@ export function FiltrosDaInbox({
       <div className="flex items-center justify-between gap-2">
         <DialogoNovaConversa aoCriar={aoCriarConversa} />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {podeVerDevedores ? (
+            <Button
+              variant={filtros.apenasDevedores ? 'secondary' : 'outline'}
+              size="icon"
+              className={cn(
+                'relative',
+                filtros.apenasDevedores && 'border-ambar/50 bg-ambar/15 text-ambar hover:bg-ambar/20',
+              )}
+              onClick={() => atualizar({ apenasDevedores: !filtros.apenasDevedores })}
+              aria-pressed={Boolean(filtros.apenasDevedores)}
+              aria-label="Filtrar conversas de devedores"
+              title={
+                filtros.apenasDevedores
+                  ? 'Mostrando apenas clientes com pendência financeira (clique para limpar)'
+                  : 'Filtrar conversas de clientes com pendência financeira'
+              }
+            >
+              <HandCoins />
+              <span className="sr-only">Devedores</span>
+            </Button>
+          ) : null}
+
           {/* Fase 3.2: antes so' aparecia abaixo de md (os selects inline
               cobriam o desktop). Agora e' o unico caminho para os filtros
               avancados em qualquer largura — CamposDeFiltroAvancado inline
@@ -270,6 +300,7 @@ export function FiltrosDaInbox({
             filtros={filtros}
             etapas={etapas}
             setores={setores}
+            podeVerDevedores={podeVerDevedores}
             aoMudar={atualizar}
             temFiltroAvancado={temFiltroAvancado}
           />
@@ -286,12 +317,14 @@ function CamposDeFiltroAvancado({
   filtros,
   etapas,
   setores,
+  podeVerDevedores,
   aoMudar,
   temFiltroAvancado,
 }: {
   filtros: FiltrosVisiveis
   etapas: Etapa[]
   setores: Setor[]
+  podeVerDevedores: boolean
   aoMudar: (parcial: Partial<FiltrosVisiveis>) => void
   temFiltroAvancado: boolean
 }) {
@@ -357,13 +390,42 @@ function CamposDeFiltroAvancado({
             variant="ghost"
             size="icon"
             title="Limpar filtros"
-            onClick={() => aoMudar({ setorId: undefined, etapaId: undefined, situacaoPrazo: undefined })}
+            onClick={() =>
+              aoMudar({
+                setorId: undefined,
+                etapaId: undefined,
+                situacaoPrazo: undefined,
+                apenasDevedores: undefined,
+              })
+            }
           >
             <X />
             <span className="sr-only">Limpar filtros</span>
           </Button>
         ) : null}
       </div>
+
+      {podeVerDevedores ? (
+        <button
+          type="button"
+          onClick={() => aoMudar({ apenasDevedores: !filtros.apenasDevedores })}
+          aria-pressed={Boolean(filtros.apenasDevedores)}
+          className={cn(
+            'mt-1 flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors',
+            filtros.apenasDevedores
+              ? 'border-ambar/50 bg-ambar/15 text-ambar'
+              : 'border-linha bg-superficie text-tinta-media hover:border-linha-forte hover:text-tinta',
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <HandCoins className="size-3.5 shrink-0" />
+            Apenas clientes com pendência financeira (devedores)
+          </span>
+          <span className="font-dado text-[11px]">
+            {filtros.apenasDevedores ? 'Ativo' : 'Filtrar'}
+          </span>
+        </button>
+      ) : null}
     </div>
   )
 }

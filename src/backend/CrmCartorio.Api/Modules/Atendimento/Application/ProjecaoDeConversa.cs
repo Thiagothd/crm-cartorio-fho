@@ -3,6 +3,7 @@ using CrmCartorio.Api.Modules.Atendimento.Domain;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Entities;
 using CrmCartorio.Api.Modules.Atendimento.Domain.Enums;
 using CrmCartorio.Api.Modules.Clientes.Domain;
+using CrmCartorio.Api.Modules.Devedores.Domain.Enums;
 
 namespace CrmCartorio.Api.Modules.Atendimento.Application;
 
@@ -50,7 +51,9 @@ public sealed record ProjecaoDeConversa(
     bool EmAtendimentoHumano,
     DateTime? RoboPausadoEm,
     string? RoboPausadoPorNome,
-    bool ClienteSemRobo)
+    bool ClienteSemRobo,
+    int ClientePendenciasAbertas,
+    decimal ClienteSaldoDevedor)
 {
     /// <summary>
     /// Projeta conversas com os nomes resolvidos.
@@ -103,13 +106,24 @@ public sealed record ProjecaoDeConversa(
             c.EmAtendimentoHumano,
             c.RoboPausadoEm,
             db.Atendentes.Where(x => x.Id == c.RoboPausadoPorAtendenteId).Select(x => x.Nome).FirstOrDefault(),
-            db.Clientes.Where(x => x.Id == c.ClienteId).Select(x => x.AtendimentoSemRobo).FirstOrDefault()));
+            db.Clientes.Where(x => x.Id == c.ClienteId).Select(x => x.AtendimentoSemRobo).FirstOrDefault(),
+            db.PendenciasFinanceiras.Count(p =>
+                p.TenantId == c.TenantId && p.ClienteId == c.ClienteId && p.Status == StatusPendencia.Aberta),
+            db.PendenciasFinanceiras
+                .Where(p => p.TenantId == c.TenantId
+                         && p.ClienteId == c.ClienteId
+                         && p.Status == StatusPendencia.Aberta
+                         && p.ValorOriginal != null
+                         && p.ValorOriginal > p.ValorPago)
+                .Select(p => (decimal?)(p.ValorOriginal!.Value - p.ValorPago))
+                .Sum() ?? 0m));
 
     /// <summary>
     /// A situacao de prazo depende do relogio, entao e resolvida aqui, na memoria,
-    /// e nunca no banco.
+    /// e nunca no banco. Quando <paramref name="podeVerDevedores"/> e <c>false</c>,
+    /// os contadores financeiros sao mascarados com zero.
     /// </summary>
-    public ConversaResumoResponse ParaResposta(DateTime agora) =>
+    public ConversaResumoResponse ParaResposta(DateTime agora, bool podeVerDevedores = true) =>
         new(Id,
             Protocolo,
             ClienteId,
@@ -146,6 +160,8 @@ public sealed record ProjecaoDeConversa(
             EmAtendimentoHumano,
             RoboPausadoEm,
             RoboPausadoPorNome,
-            ClienteSemRobo);
+            ClienteSemRobo,
+            podeVerDevedores ? ClientePendenciasAbertas : 0,
+            podeVerDevedores ? ClienteSaldoDevedor : 0m);
 }
 

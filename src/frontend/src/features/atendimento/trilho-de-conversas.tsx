@@ -101,6 +101,14 @@ export function TrilhoDeConversas({
                   aria-label={`${conversa.mensagensNaoLidas} nao lidas`}
                 />
               ) : null}
+
+              {(conversa.clientePendenciasAbertas ?? 0) > 0 ? (
+                <span
+                  className="absolute bottom-0.5 right-1.5 size-2 rounded-full border border-branco bg-ambar"
+                  aria-label="Cliente com pendência financeira"
+                  title="Cliente com pendência financeira em aberto"
+                />
+              ) : null}
             </button>
           )
         })}
