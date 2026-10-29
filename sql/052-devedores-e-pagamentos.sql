@@ -62,25 +62,22 @@ BEGIN
         Observacoes                  NVARCHAR(MAX)    NULL,
 
         -- Nulo quando o contato foi marcado como devedor sem valor especificado ainda.
-        ValorOriginal                DECIMAL(12, 2)   NULL,
-        ValorPago                    DECIMAL(12, 2)   NOT NULL CONSTRAINT DF_PendenciasFinanceiras_ValorPago DEFAULT (0),
+        ValorOriginal                DECIMAL(18, 2)   NULL,
+        ValorPago                    DECIMAL(18, 2)   NOT NULL CONSTRAINT DF_PendenciasFinanceiras_ValorPago DEFAULT (0),
 
-        DataReferencia               DATETIME2(3)     NOT NULL,
-        DataPromessaPagamento        DATETIME2(3)     NULL,
+        DataReferencia               DATE             NOT NULL,
+        DataPromessaPagamento        DATE             NULL,
 
         -- 1 Aberta, 2 Quitada, 3 Cancelada
         Status                       TINYINT          NOT NULL CONSTRAINT DF_PendenciasFinanceiras_Status DEFAULT (1),
 
         UltimaCobrancaEm             DATETIME2(3)     NULL,
-        UltimaCobrancaPorAtendenteId UNIQUEIDENTIFIER NULL,
         TotalCobrancas               INT              NOT NULL CONSTRAINT DF_PendenciasFinanceiras_TotalCobrancas DEFAULT (0),
 
-        CriadoPorAtendenteId         UNIQUEIDENTIFIER NOT NULL,
+        RegistradoPorAtendenteId     UNIQUEIDENTIFIER NOT NULL,
         QuitadaEm                    DATETIME2(3)     NULL,
-        QuitadaPorAtendenteId        UNIQUEIDENTIFIER NULL,
+        QuitadoPorAtendenteId        UNIQUEIDENTIFIER NULL,
         CanceladaEm                  DATETIME2(3)     NULL,
-        CanceladaPorAtendenteId      UNIQUEIDENTIFIER NULL,
-        MotivoCancelamento           NVARCHAR(500)    NULL,
 
         CriadoEm                     DATETIME2(3)     NOT NULL,
         AtualizadoEm                 DATETIME2(3)     NOT NULL,
@@ -94,14 +91,10 @@ BEGIN
             FOREIGN KEY (ConversaOrigemId) REFERENCES dbo.Conversas (Id),
         CONSTRAINT FK_PendenciasFinanceiras_TiposServico
             FOREIGN KEY (TipoServicoId) REFERENCES dbo.TiposServico (Id),
-        CONSTRAINT FK_PendenciasFinanceiras_CriadoPor
-            FOREIGN KEY (CriadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
-        CONSTRAINT FK_PendenciasFinanceiras_UltimaCobrancaPor
-            FOREIGN KEY (UltimaCobrancaPorAtendenteId) REFERENCES dbo.Atendentes (Id),
-        CONSTRAINT FK_PendenciasFinanceiras_QuitadaPor
-            FOREIGN KEY (QuitadaPorAtendenteId) REFERENCES dbo.Atendentes (Id),
-        CONSTRAINT FK_PendenciasFinanceiras_CanceladaPor
-            FOREIGN KEY (CanceladaPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+        CONSTRAINT FK_PendenciasFinanceiras_RegistradoPor
+            FOREIGN KEY (RegistradoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
+        CONSTRAINT FK_PendenciasFinanceiras_QuitadoPor
+            FOREIGN KEY (QuitadoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
         CONSTRAINT CK_PendenciasFinanceiras_Status
             CHECK (Status IN (1, 2, 3)),
         CONSTRAINT CK_PendenciasFinanceiras_Valores
@@ -136,11 +129,11 @@ BEGIN
         Id                       UNIQUEIDENTIFIER NOT NULL,
         TenantId                 UNIQUEIDENTIFIER NOT NULL,
         PendenciaFinanceiraId    UNIQUEIDENTIFIER NOT NULL,
-        Valor                    DECIMAL(12, 2)   NOT NULL,
+        Valor                    DECIMAL(18, 2)   NOT NULL,
         PagoEm                   DATETIME2(3)     NOT NULL,
 
         -- 1 Pix, 2 Dinheiro, 3 Cartao, 4 Transferencia, 5 Outro
-        MeioDePagamento          TINYINT          NOT NULL CONSTRAINT DF_PagamentosDePendencia_Meio DEFAULT (1),
+        MeioPagamento            TINYINT          NOT NULL CONSTRAINT DF_PagamentosDePendencia_Meio DEFAULT (1),
 
         -- Cifrada em repouso (PR3, ConversorCifrado com limite de 500 chars em claro).
         Observacao               NVARCHAR(MAX)    NULL,
@@ -153,13 +146,13 @@ BEGIN
         CONSTRAINT FK_PagamentosDePendencia_Tenants
             FOREIGN KEY (TenantId) REFERENCES dbo.Tenants (Id),
         CONSTRAINT FK_PagamentosDePendencia_Pendencias
-            FOREIGN KEY (PendenciaFinanceiraId) REFERENCES dbo.PendenciasFinanceiras (Id),
+            FOREIGN KEY (PendenciaFinanceiraId) REFERENCES dbo.PendenciasFinanceiras (Id) ON DELETE CASCADE,
         CONSTRAINT FK_PagamentosDePendencia_Atendentes
             FOREIGN KEY (RegistradoPorAtendenteId) REFERENCES dbo.Atendentes (Id),
         CONSTRAINT CK_PagamentosDePendencia_Valor
             CHECK (Valor > 0),
         CONSTRAINT CK_PagamentosDePendencia_Meio
-            CHECK (MeioDePagamento BETWEEN 1 AND 5)
+            CHECK (MeioPagamento BETWEEN 1 AND 5)
     );
 END
 GO
