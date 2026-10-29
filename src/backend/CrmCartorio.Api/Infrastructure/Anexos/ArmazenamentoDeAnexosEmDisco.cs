@@ -79,11 +79,17 @@ public class ArmazenamentoDeAnexosEmDisco(
                 (".xlsx", TipoMensagem.Documento),
             ["text/plain"] = (".txt", TipoMensagem.Documento),
 
-            // Audio de WhatsApp e ogg/opus; os demais aparecem em encaminhamento.
+            // Audio de WhatsApp e ogg/opus; webm/mp4/wav/mp3 entram pela gravacao
+            // de voz direto no navegador (MediaRecorder) ou por encaminhamento.
             ["audio/ogg"] = (".ogg", TipoMensagem.Audio),
+            ["audio/webm"] = (".webm", TipoMensagem.Audio),
             ["audio/mpeg"] = (".mp3", TipoMensagem.Audio),
+            ["audio/mp3"] = (".mp3", TipoMensagem.Audio),
             ["audio/mp4"] = (".m4a", TipoMensagem.Audio),
+            ["audio/x-m4a"] = (".m4a", TipoMensagem.Audio),
             ["audio/aac"] = (".aac", TipoMensagem.Audio),
+            ["audio/wav"] = (".wav", TipoMensagem.Audio),
+            ["audio/x-wav"] = (".wav", TipoMensagem.Audio),
             ["audio/amr"] = (".amr", TipoMensagem.Audio),
 
             ["video/mp4"] = (".mp4", TipoMensagem.Video),

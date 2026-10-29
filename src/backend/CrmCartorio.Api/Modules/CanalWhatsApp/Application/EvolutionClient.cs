@@ -234,16 +234,44 @@ public class EvolutionClient(
     {
         GarantirConfigurado();
 
+        var categoria = CategoriaDaMidia(tipoMime);
+        var base64 = Convert.ToBase64String(conteudo);
+
+        // Audio sem legenda sai pelo endpoint dedicado de voz (sendWhatsAppAudio):
+        // o gateway converte qualquer formato gravado no navegador (webm/ogg/mp4/wav)
+        // para ogg/opus via ffmpeg interno e entrega com ptt=true (nota de voz nativa
+        // no celular do cliente, tanto Android quanto iPhone).
+        if (categoria == "audio" && string.IsNullOrWhiteSpace(legenda))
+        {
+            var respostaAudio = await EnviarAsync(
+                HttpMethod.Post,
+                $"message/sendWhatsAppAudio/{_opcoes.NomeDaInstancia}",
+                new
+                {
+                    number = telefoneE164,
+                    audio = base64,
+                    encoding = true
+                },
+                ct);
+
+            if (respostaAudio is { } ra
+                && ra.TryGetProperty("key", out var chaveAudio)
+                && LerTexto(chaveAudio, "id") is { Length: > 0 } idAudio)
+            {
+                return idAudio;
+            }
+        }
+
         var resposta = await EnviarAsync(
             HttpMethod.Post,
             $"message/sendMedia/{_opcoes.NomeDaInstancia}",
             new
             {
                 number = telefoneE164,
-                mediatype = CategoriaDaMidia(tipoMime),
+                mediatype = categoria,
                 mimetype = tipoMime,
                 caption = legenda ?? string.Empty,
-                media = Convert.ToBase64String(conteudo),
+                media = base64,
                 fileName = nomeDoArquivo
             },
             ct)

@@ -190,11 +190,12 @@ public class MensagemService(
         mensagem.ArquivoTamanhoBytes = gravado.TamanhoBytes;
         mensagem.Tipo = gravado.Tipo;
 
-        // Sem legenda, o fio mostra o nome do arquivo — mais util que "[documento]"
-        // e igual ao que o recebimento faz com documento que chega sem legenda.
+        // Sem legenda, audio vira "[áudio]" (para a lista de conversas mostrar o
+        // rotulo limpo e o balao nao repetir o nome tecnico do arquivo gravado),
+        // e documento mostra o nome do arquivo.
         if (string.IsNullOrWhiteSpace(legenda))
         {
-            mensagem.Conteudo = gravado.Nome;
+            mensagem.Conteudo = gravado.Tipo == TipoMensagem.Audio ? "[áudio]" : gravado.Nome;
         }
 
         db.Mensagens.Add(mensagem);

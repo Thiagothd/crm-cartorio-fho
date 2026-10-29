@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Lock, Paperclip, Reply, Send, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Lock, Mic, Paperclip, Pause, Reply, Send, Square, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ErroDaApi } from '@/lib/api/cliente-http'
 import { conversasApi } from '@/lib/api/endpoints'
+import { cn } from '@/lib/utils'
 import { usarInvalidarAtendimento, usarRespostasRapidas } from './consultas'
 import { aplicarMarcadores, dadosDaConversa } from './placeholders'
+import { PlayerDeAudio } from './player-de-audio'
 import {
   ID_DA_LISTA,
   SeletorDeRespostaRapida,
@@ -36,6 +38,36 @@ const TAMANHO_MAXIMO_MB = 16
 const TIPOS_ACEITOS =
   'image/jpeg,image/png,image/webp,image/gif,application/pdf,.doc,.docx,.xls,.xlsx,text/plain,audio/*,video/mp4'
 
+const FORMATOS_DE_GRAVACAO = [
+  { mime: 'audio/ogg;codecs=opus', ext: '.ogg', tipoBase: 'audio/ogg' },
+  { mime: 'audio/webm;codecs=opus', ext: '.webm', tipoBase: 'audio/webm' },
+  { mime: 'audio/webm', ext: '.webm', tipoBase: 'audio/webm' },
+  { mime: 'audio/mp4', ext: '.m4a', tipoBase: 'audio/mp4' },
+]
+
+const QUANTIDADE_BARRAS_ONDA = 20
+const NIVEIS_INICIAIS = Array.from({ length: QUANTIDADE_BARRAS_ONDA }, () => 18)
+
+function escolherFormatoDeGravacao() {
+  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+    return { mime: '', ext: '.webm', tipoBase: 'audio/webm' }
+  }
+
+  for (const formato of FORMATOS_DE_GRAVACAO) {
+    if (window.MediaRecorder.isTypeSupported(formato.mime)) {
+      return formato
+    }
+  }
+
+  return { mime: '', ext: '.webm', tipoBase: 'audio/webm' }
+}
+
+function formatarCronometro(segundos: number) {
+  const min = Math.floor(segundos / 60)
+  const seg = Math.floor(segundos % 60)
+  return `${min}:${String(seg).padStart(2, '0')}`
+}
+
 export function CaixaDeEnvio({
   conversa,
   souOResponsavel,
@@ -56,8 +88,24 @@ export function CaixaDeEnvio({
   const [enviando, setEnviando] = useState(false)
   const [indiceAtivo, setIndiceAtivo] = useState(0)
   const [seletorDispensado, setSeletorDispensado] = useState(false)
+
+  // Estado de gravação de voz
+  const [gravandoAudio, setGravandoAudio] = useState(false)
+  const [gravacaoPausada, setGravacaoPausada] = useState(false)
+  const [segundosGravados, setSegundosGravados] = useState(0)
+  const [niveisDeVoz, setNiveisDeVoz] = useState<number[]>(NIVEIS_INICIAIS)
+  const [audioGravado, setAudioGravado] = useState<File | null>(null)
+
   const campo = useRef<HTMLTextAreaElement>(null)
   const seletorDeArquivo = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const streamDeAudioRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const rafOndaRef = useRef<number | null>(null)
+  const pedacosDeAudioRef = useRef<Blob[]>([])
+  const acaoAoFinalizarRef = useRef<'cancelar' | 'previa' | 'enviar'>('previa')
+  const formatoEscolhidoRef = useRef(escolherFormatoDeGravacao())
+
   const invalidar = usarInvalidarAtendimento()
 
   const { data: respostasRapidas } = usarRespostasRapidas()
@@ -69,28 +117,90 @@ export function CaixaDeEnvio({
     [respostasRapidas, termo],
   )
 
-  // Nada cadastrado: nem abre. Um painel vazio a cada "/" seria ruído. Já filtro
-  // sem resultado ABRE, com a explicação — senão a tecla pareceria não funcionar.
   const seletorAberto =
     termo !== null && !seletorDispensado && (respostasRapidas?.length ?? 0) > 0
 
+  // Object URL para ouvir a prévia de áudio gravado ou arquivo de áudio anexado
+  const urlPreviaAudio = useMemo(() => {
+    const alvo = audioGravado ?? (arquivo?.type.startsWith('audio/') ? arquivo : null)
+    if (!alvo) return null
+    return URL.createObjectURL(alvo)
+  }, [audioGravado, arquivo])
+
   useEffect(() => {
-    // Cada tecla muda o filtro, e a opção ativa tem de voltar para a primeira —
-    // senão o índice apontaria para uma linha que não está mais na lista.
+    return () => {
+      if (urlPreviaAudio) {
+        URL.revokeObjectURL(urlPreviaAudio)
+      }
+    }
+  }, [urlPreviaAudio])
+
+  const liberarHardwareDeAudio = useCallback(() => {
+    if (rafOndaRef.current !== null) {
+      cancelAnimationFrame(rafOndaRef.current)
+      rafOndaRef.current = null
+    }
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
+    if (streamDeAudioRef.current) {
+      for (const trilha of streamDeAudioRef.current.getTracks()) {
+        trilha.stop()
+      }
+      streamDeAudioRef.current = null
+    }
+    mediaRecorderRef.current = null
+  }, [])
+
+  // Se trocar de conversa ou desmontar, encerra imediatamente qualquer gravação aberta
+  useEffect(() => {
+    return () => {
+      acaoAoFinalizarRef.current = 'cancelar'
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop()
+        } catch {
+          // ignora
+        }
+      }
+      liberarHardwareDeAudio()
+    }
+  }, [conversa.id, liberarHardwareDeAudio])
+
+  useEffect(() => {
+    setAudioGravado(null)
+    setGravandoAudio(false)
+    setGravacaoPausada(false)
+    setSegundosGravados(0)
+  }, [conversa.id])
+
+  // Cronômetro da gravação ativa
+  useEffect(() => {
+    if (!gravandoAudio || gravacaoPausada) {
+      return
+    }
+
+    const intervalo = window.setInterval(() => {
+      setSegundosGravados((atual) => atual + 1)
+    }, 1000)
+
+    return () => window.clearInterval(intervalo)
+  }, [gravandoAudio, gravacaoPausada])
+
+  useEffect(() => {
     setIndiceAtivo(0)
 
-    // Sair do padrão de atalho rearma o seletor: dispensar com Esc vale para aquela
-    // digitação, não para o resto do atendimento.
     if (termo === null) {
       setSeletorDispensado(false)
     }
   }, [termo])
 
   useEffect(() => {
-    if (mensagemRespondida) {
+    if (mensagemRespondida && !gravandoAudio && !audioGravado) {
       campo.current?.focus()
     }
-  }, [mensagemRespondida])
+  }, [mensagemRespondida, gravandoAudio, audioGravado])
 
   if (conversa.status === 'Encerrada') {
     return (
@@ -100,9 +210,6 @@ export function CaixaDeEnvio({
     )
   }
 
-  // A trava, do lado de quem escreve: conversa de OUTRO atendente não tem caixa
-  // de texto. Conversa na fila tem — quem escreve e envia assume junto, e o
-  // backend faz isso com o mesmo UPDATE condicional de sempre.
   if (!souOResponsavel && conversa.atendenteId !== null) {
     return (
       <div className="flex items-center justify-between gap-3 border-t border-linha bg-superficie px-3 py-3 md:px-6 md:py-4">
@@ -114,13 +221,6 @@ export function CaixaDeEnvio({
     )
   }
 
-  /**
-   * Insere o texto da resposta rápida no campo. NÃO envia.
-   *
-   * Os marcadores são resolvidos aqui para que o atendente leia a mensagem final
-   * antes de mandar — inserir um "{NomeCliente}" cru transferiria para ele a
-   * conferência de um detalhe que o sistema já sabe fazer.
-   */
   function inserirRespostaRapida(resposta: RespostaRapida) {
     const conteudo = aplicarMarcadores(
       resposta.conteudo,
@@ -130,8 +230,6 @@ export function CaixaDeEnvio({
     setTexto(conteudo)
     setSeletorDispensado(false)
 
-    // Depois do re-render, devolve o foco e põe o cursor no fim — o passo seguinte
-    // natural é completar ou ajustar o texto.
     requestAnimationFrame(() => {
       const elemento = campo.current
       if (!elemento) return
@@ -141,12 +239,6 @@ export function CaixaDeEnvio({
     })
   }
 
-  /**
-   * Recusa o arquivo grande demais AQUI.
-   *
-   * O backend recusa igual, mas só depois do upload inteiro subir — e um arquivo
-   * de 40 MB numa conexão de balcão de cartório leva minutos para ser rejeitado.
-   */
   function escolherArquivo(escolhido: File | null) {
     if (!escolhido) {
       return
@@ -157,15 +249,218 @@ export function CaixaDeEnvio({
       return
     }
 
+    setAudioGravado(null)
     setArquivo(escolhido)
     campo.current?.focus()
   }
 
+  async function enviarArquivoDeAudioDireto(arquivoDeVoz: File) {
+    if (enviando) return
+    setEnviando(true)
+
+    try {
+      await conversasApi.enviarAnexo(conversa.id, arquivoDeVoz, '', mensagemRespondida?.id)
+      setAudioGravado(null)
+      aoCancelarResposta()
+      invalidar(conversa.id)
+    } catch (falha) {
+      // Se falhar, preserva o áudio gravado na prévia para o atendente não perder a fala
+      setAudioGravado(arquivoDeVoz)
+
+      if (falha instanceof ErroDaApi && falha.ehConflitoDeAtribuicao) {
+        toast.warning('Conversa já assumida', {
+          description: `${falha.atendenteQueAssumiu ?? 'Outro atendente'} chegou primeiro. Seu áudio não foi enviado.`,
+        })
+        invalidar(conversa.id)
+        return
+      }
+
+      toast.error(falha instanceof ErroDaApi ? falha.message : 'Não foi possível enviar o áudio.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  function iniciarMonitorDeNivelDeVoz(stream: MediaStream) {
+    try {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctx) return
+
+      const ctx = new Ctx()
+      audioContextRef.current = ctx
+      const fonte = ctx.createMediaStreamSource(stream)
+      const analisador = ctx.createAnalyser()
+      analisador.fftSize = 64
+      analisador.smoothingTimeConstant = 0.75
+      fonte.connect(analisador)
+
+      const buffer = new Uint8Array(analisador.frequencyBinCount)
+
+      const atualizar = () => {
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+          return
+        }
+
+        if (mediaRecorderRef.current.state === 'recording') {
+          analisador.getByteFrequencyData(buffer)
+          let soma = 0
+          for (let i = 0; i < buffer.length; i++) {
+            soma += buffer[i]
+          }
+          const media = soma / Math.max(1, buffer.length)
+          const altura = Math.max(16, Math.min(100, Math.round((media / 140) * 100)))
+
+          setNiveisDeVoz((anterior) => [...anterior.slice(1), altura])
+        }
+
+        rafOndaRef.current = requestAnimationFrame(atualizar)
+      }
+
+      rafOndaRef.current = requestAnimationFrame(atualizar)
+    } catch {
+      // Visualizador de nível é opcional; se o navegador restringir AudioContext, a gravação segue normal
+    }
+  }
+
+  async function iniciarGravacaoDeAudio() {
+    if (enviando || gravandoAudio) return
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function' ||
+      typeof window.MediaRecorder === 'undefined'
+    ) {
+      toast.error('Este navegador não suporta gravação de áudio.')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+
+      streamDeAudioRef.current = stream
+      pedacosDeAudioRef.current = []
+      const formato = escolherFormatoDeGravacao()
+      formatoEscolhidoRef.current = formato
+
+      const opcoes = formato.mime ? { mimeType: formato.mime } : undefined
+      const gravador = new MediaRecorder(stream, opcoes)
+      mediaRecorderRef.current = gravador
+
+      gravador.ondataavailable = (evento) => {
+        if (evento.data && evento.data.size > 0) {
+          pedacosDeAudioRef.current.push(evento.data)
+        }
+      }
+
+      gravador.onstop = () => {
+        const acao = acaoAoFinalizarRef.current
+        const pedacos = pedacosDeAudioRef.current
+        pedacosDeAudioRef.current = []
+        liberarHardwareDeAudio()
+        setGravandoAudio(false)
+        setGravacaoPausada(false)
+        setNiveisDeVoz(NIVEIS_INICIAIS)
+
+        if (acao === 'cancelar' || pedacos.length === 0) {
+          setSegundosGravados(0)
+          return
+        }
+
+        const fmt = formatoEscolhidoRef.current
+        const blob = new Blob(pedacos, { type: fmt.tipoBase })
+        if (blob.size === 0) {
+          toast.error('Nenhum som foi captado pelo microfone.')
+          setSegundosGravados(0)
+          return
+        }
+
+        if (blob.size > TAMANHO_MAXIMO_MB * 1024 * 1024) {
+          toast.error(`O áudio gravado passa do limite de ${TAMANHO_MAXIMO_MB} MB.`)
+          setSegundosGravados(0)
+          return
+        }
+
+        const carimbo = new Date().toISOString().replace(/[:.]/g, '-')
+        const arquivoFinal = new File([blob], `audio-${carimbo}${fmt.ext}`, {
+          type: fmt.tipoBase,
+        })
+
+        if (acao === 'enviar') {
+          setSegundosGravados(0)
+          void enviarArquivoDeAudioDireto(arquivoFinal)
+        } else {
+          setAudioGravado(arquivoFinal)
+        }
+      }
+
+      gravador.start(200)
+      setArquivo(null)
+      setAudioGravado(null)
+      setSegundosGravados(0)
+      setGravacaoPausada(false)
+      setGravandoAudio(true)
+      iniciarMonitorDeNivelDeVoz(stream)
+    } catch (erro) {
+      liberarHardwareDeAudio()
+      const nomeErro = erro instanceof DOMException ? erro.name : ''
+      if (nomeErro === 'NotAllowedError' || nomeErro === 'PermissionDeniedError') {
+        toast.error('Permissão de microfone negada', {
+          description:
+            'Clique no ícone de cadeado ou configurações ao lado do endereço do site no navegador e permita o uso do microfone.',
+        })
+      } else if (nomeErro === 'NotFoundError' || nomeErro === 'DevicesNotFoundError') {
+        toast.error('Nenhum microfone encontrado', {
+          description: 'Conecte um microfone ou fone de ouvido para gravar áudios.',
+        })
+      } else {
+        toast.error('Não foi possível acessar o microfone.')
+      }
+    }
+  }
+
+  function alternarPausaDaGravacao() {
+    const gravador = mediaRecorderRef.current
+    if (!gravador) return
+
+    if (gravador.state === 'recording') {
+      gravador.pause()
+      setGravacaoPausada(true)
+    } else if (gravador.state === 'paused') {
+      gravador.resume()
+      setGravacaoPausada(false)
+    }
+  }
+
+  function finalizarGravacao(acao: 'cancelar' | 'previa' | 'enviar') {
+    acaoAoFinalizarRef.current = acao
+    const gravador = mediaRecorderRef.current
+    if (gravador && gravador.state !== 'inactive') {
+      gravador.stop()
+    } else {
+      liberarHardwareDeAudio()
+      setGravandoAudio(false)
+      setGravacaoPausada(false)
+      setSegundosGravados(0)
+    }
+  }
+
   async function enviar() {
+    if (audioGravado) {
+      await enviarArquivoDeAudioDireto(audioGravado)
+      return
+    }
+
     const conteudo = texto.trim()
 
-    // Com arquivo, o texto vira legenda e pode ser vazio: um documento sozinho já
-    // é uma mensagem completa.
     if ((!conteudo && !arquivo) || enviando) {
       return
     }
@@ -184,9 +479,6 @@ export function CaixaDeEnvio({
       aoCancelarResposta()
       invalidar(conversa.id)
     } catch (falha) {
-      // Corrida perdida ao assumir junto com o envio: a mensagem NÃO foi gravada.
-      // O texto fica no campo de propósito — quem escreveu não deve perder o que
-      // digitou por causa de um clique de um colega meio segundo antes.
       if (falha instanceof ErroDaApi && falha.ehConflitoDeAtribuicao) {
         toast.warning('Conversa já assumida', {
           description: `${falha.atendenteQueAssumiu ?? 'Outro atendente'} chegou primeiro. Sua mensagem não foi enviada.`,
@@ -202,9 +494,6 @@ export function CaixaDeEnvio({
   }
 
   function aoTeclar(evento: KeyboardEvent<HTMLTextAreaElement>) {
-    // Com o seletor aberto, as teclas pertencem a ele. Enter precisa INSERIR, não
-    // enviar: sem esta ordem, quem digitasse "/prazo" e apertasse Enter mandaria
-    // literalmente "/prazo" para o cliente.
     if (seletorAberto) {
       if (evento.key === 'ArrowDown' || evento.key === 'ArrowUp') {
         evento.preventDefault()
@@ -232,7 +521,6 @@ export function CaixaDeEnvio({
       }
     }
 
-    // Enter envia, Shift+Enter quebra linha — o hábito de quem usa WhatsApp.
     if (evento.key === 'Enter' && !evento.shiftKey) {
       evento.preventDefault()
       void enviar()
@@ -267,123 +555,273 @@ export function CaixaDeEnvio({
         </div>
       ) : null}
 
-      {/* O arquivo escolhido fica à vista ANTES de enviar, e não some sozinho:
-          anexar por engano num atendimento de cartório manda o documento de um
-          cliente para outro. Sair daqui exige o X, não a sorte. */}
       {arquivo ? (
-        <div className="flex items-center gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
-          <Paperclip className="size-3.5 shrink-0 text-tinta-media" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-tinta">{arquivo.name}</p>
-            <p className="font-dado text-[10px] text-tinta-fraca">
-              {arquivo.size < 1024 * 1024
-                ? `${Math.round(arquivo.size / 1024)} KB`
-                : `${(arquivo.size / 1024 / 1024).toFixed(1).replace('.', ',')} MB`}
-              {' — o texto abaixo vai como legenda'}
-            </p>
+        <div className="flex flex-col gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Paperclip className="size-3.5 shrink-0 text-tinta-media" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs text-tinta">{arquivo.name}</p>
+              <p className="font-dado text-[10px] text-tinta-fraca">
+                {arquivo.size < 1024 * 1024
+                  ? `${Math.round(arquivo.size / 1024)} KB`
+                  : `${(arquivo.size / 1024 / 1024).toFixed(1).replace('.', ',')} MB`}
+                {arquivo.type.startsWith('audio/')
+                  ? ' — áudio pronto para envio'
+                  : ' — o texto abaixo vai como legenda'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setArquivo(null)}
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-tinta-fraca transition-colors hover:bg-branco hover:text-tinta"
+              aria-label="Remover arquivo"
+              title="Remover arquivo"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setArquivo(null)}
-            className="flex size-8 shrink-0 items-center justify-center rounded-md text-tinta-fraca transition-colors hover:bg-branco hover:text-tinta"
-            aria-label="Remover arquivo"
-            title="Remover arquivo"
-          >
-            <X className="size-3.5" />
-          </button>
+          {arquivo.type.startsWith('audio/') && urlPreviaAudio ? (
+            <PlayerDeAudio url={urlPreviaAudio} className="w-full max-w-md pt-0.5" />
+          ) : null}
         </div>
       ) : null}
 
-      {/* relative: é a âncora do seletor, que sobe a partir do topo do campo. */}
-      <div className="relative flex items-end gap-2">
-        {seletorAberto ? (
-          <SeletorDeRespostaRapida
-            respostas={filtradas}
-            termo={termo ?? ''}
-            indiceAtivo={indiceAtivo}
-            aoEscolher={inserirRespostaRapida}
-          />
-        ) : null}
-
-        <Textarea
-          ref={campo}
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={aoTeclar}
-          placeholder="Escreva a resposta… (Enter envia, / abre as respostas rápidas)"
-          rows={2}
-          maxLength={4000}
-          // Fase 3.2: o wrapper da conversa virou bg-branco (secao 16) — o
-          // Textarea padrao tambem e bg-card (branco) e sumiria encaixado
-          // nele sem este override local. rounded-balao (12px) substitui o
-          // rounded-md (6px) padrao, mesmo raio do balao do fio.
-          className="max-h-40 min-h-[42px] resize-none rounded-balao bg-superficie focus-visible:bg-branco"
-          /* Padrão combobox sem trocar o papel do campo: ele continua sendo a caixa
-             de mensagem para o leitor de tela, e a opção ativa é anunciada por
-             activedescendant — o foco nunca sai daqui, senão cada seta interromperia
-             a digitação. */
-          aria-expanded={seletorAberto}
-          /* Só aponta para a lista quando ela existe: sem resultado o seletor mostra
-             uma explicação, não um <ul>, e apontar para um id inexistente confunde o
-             leitor de tela em vez de ajudar. */
-          aria-controls={seletorAberto && filtradas.length > 0 ? ID_DA_LISTA : undefined}
-          aria-activedescendant={
-            seletorAberto && filtradas.length > 0 ? idDaOpcao(indiceAtivo) : undefined
-          }
-          aria-autocomplete="list"
-        />
-
-        <input
-          ref={seletorDeArquivo}
-          type="file"
-          accept={TIPOS_ACEITOS}
-          className="hidden"
-          onChange={(e) => {
-            escolherArquivo(e.target.files?.[0] ?? null)
-
-            // Zera o input para que escolher O MESMO arquivo de novo, depois de
-            // remover, ainda dispare o onChange.
-            e.target.value = ''
+      {gravandoAudio ? (
+        <div
+          role="region"
+          aria-label="Gravação de áudio em andamento"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              finalizarGravacao('cancelar')
+            }
           }}
-        />
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-          onClick={() => seletorDeArquivo.current?.click()}
-          disabled={enviando}
-          title="Anexar arquivo"
+          className="flex min-h-[42px] items-center gap-2 rounded-balao border border-linha-forte bg-superficie px-2.5 py-1.5"
         >
-          <Paperclip />
-          <span className="sr-only">Anexar arquivo</span>
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => finalizarGravacao('cancelar')}
+            className="size-8 shrink-0 rounded-full text-tinta-media hover:bg-selo/10 hover:text-selo"
+            title="Cancelar e descartar áudio (Esc)"
+          >
+            <Trash2 className="size-4" />
+            <span className="sr-only">Cancelar gravação</span>
+          </Button>
 
-        {/* O aviso de que enviar TAMBEM assume o atendimento saiu da tela e
-            virou title: a informacao continua a um passe de mouse, e as duas
-            linhas que ela ocupava voltaram para o fio. O botao "Assumir" no
-            cabecalho segue sendo o caminho de quem so quer reservar a conversa.
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 px-1">
+            <span className="inline-flex shrink-0 items-center gap-1.5">
+              <span
+                className={cn(
+                  'size-2.5 rounded-full',
+                  gravacaoPausada ? 'bg-ambar' : 'animate-pulse bg-selo',
+                )}
+              />
+              <span className="font-dado text-xs font-medium text-tinta">
+                {formatarCronometro(segundosGravados)}
+              </span>
+            </span>
 
-            A dica do "/" tambem saiu: o placeholder do campo ja diz, e dizer
-            duas vezes custava mais uma linha. */}
-        <Button
-          onClick={() => void enviar()}
-          disabled={enviando || (!texto.trim() && !arquivo)}
-          size="icon"
-          // Fase 3.2 (secao 16): rounded-full + gradiente ENTRE OPACIDADES
-          // DO MESMO TOKEN (DESIGN.md 15.3) — o unico tipo de gradiente
-          // autorizado. Nunca de um token para outro.
-          className="rounded-full bg-gradient-to-b from-primary to-primary/90"
-          title={
-            naFila
-              ? 'Enviar — ao enviar, você assume o atendimento'
-              : 'Enviar'
-          }
+            <div
+              aria-hidden
+              className="flex h-6 min-w-0 flex-1 items-center gap-1 overflow-hidden px-1"
+            >
+              {niveisDeVoz.map((nivel, idx) => (
+                <span
+                  key={idx}
+                  className={cn(
+                    'w-1 shrink-0 rounded-full transition-all duration-75',
+                    gravacaoPausada ? 'bg-tinta-fraca/50' : 'bg-envio',
+                  )}
+                  style={{ height: `${gravacaoPausada ? 22 : nivel}%` }}
+                />
+              ))}
+            </div>
+
+            <span className="hidden text-[11px] text-tinta-media sm:inline">
+              {gravacaoPausada ? 'Gravação pausada' : 'Gravando áudio…'}
+            </span>
+          </div>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={alternarPausaDaGravacao}
+            className="size-8 shrink-0 rounded-full text-tinta-media hover:text-tinta"
+            title={gravacaoPausada ? 'Retomar gravação' : 'Pausar gravação'}
+          >
+            {gravacaoPausada ? <Mic className="size-4 text-envio" /> : <Pause className="size-4" />}
+            <span className="sr-only">
+              {gravacaoPausada ? 'Retomar gravação' : 'Pausar gravação'}
+            </span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => finalizarGravacao('previa')}
+            className="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs"
+            title="Parar gravação e ouvir antes de enviar"
+          >
+            <Square className="size-3 fill-current" />
+            <span className="hidden sm:inline">Ouvir</span>
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            onClick={() => finalizarGravacao('enviar')}
+            disabled={enviando}
+            className="rounded-full bg-gradient-to-b from-primary to-primary/90"
+            title={
+              naFila
+                ? 'Enviar áudio agora — ao enviar, você assume o atendimento'
+                : 'Enviar áudio agora'
+            }
+          >
+            <Send className="size-4" />
+            <span className="sr-only">Enviar áudio</span>
+          </Button>
+        </div>
+      ) : audioGravado ? (
+        <div
+          role="region"
+          aria-label="Prévia do áudio gravado"
+          className="flex min-h-[42px] items-center gap-2 rounded-balao border border-linha-forte bg-superficie px-2.5 py-1.5"
         >
-          <Send />
-          <span className="sr-only">Enviar</span>
-        </Button>
-      </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setAudioGravado(null)
+              setSegundosGravados(0)
+            }}
+            disabled={enviando}
+            className="size-8 shrink-0 rounded-full text-tinta-media hover:bg-selo/10 hover:text-selo"
+            title="Descartar áudio gravado"
+          >
+            <Trash2 className="size-4" />
+            <span className="sr-only">Descartar áudio</span>
+          </Button>
+
+          <div className="min-w-0 flex-1 px-1">
+            <PlayerDeAudio url={urlPreviaAudio} className="w-full" />
+          </div>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => void iniciarGravacaoDeAudio()}
+            disabled={enviando}
+            className="size-8 shrink-0 rounded-full text-tinta-media hover:text-tinta"
+            title="Gravar novamente"
+          >
+            <Mic className="size-4" />
+            <span className="sr-only">Gravar novamente</span>
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            onClick={() => void enviar()}
+            disabled={enviando}
+            className="rounded-full bg-gradient-to-b from-primary to-primary/90"
+            title={
+              naFila
+                ? 'Enviar áudio — ao enviar, você assume o atendimento'
+                : 'Enviar áudio'
+            }
+          >
+            <Send className="size-4" />
+            <span className="sr-only">Enviar áudio</span>
+          </Button>
+        </div>
+      ) : (
+        <div className="relative flex items-end gap-1.5 sm:gap-2">
+          {seletorAberto ? (
+            <SeletorDeRespostaRapida
+              respostas={filtradas}
+              termo={termo ?? ''}
+              indiceAtivo={indiceAtivo}
+              aoEscolher={inserirRespostaRapida}
+            />
+          ) : null}
+
+          <Textarea
+            ref={campo}
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            onKeyDown={aoTeclar}
+            placeholder="Escreva a resposta… (Enter envia, / abre as respostas rápidas)"
+            rows={2}
+            maxLength={4000}
+            className="max-h-40 min-h-[42px] resize-none rounded-balao bg-superficie focus-visible:bg-branco"
+            aria-expanded={seletorAberto}
+            aria-controls={seletorAberto && filtradas.length > 0 ? ID_DA_LISTA : undefined}
+            aria-activedescendant={
+              seletorAberto && filtradas.length > 0 ? idDaOpcao(indiceAtivo) : undefined
+            }
+            aria-autocomplete="list"
+          />
+
+          <input
+            ref={seletorDeArquivo}
+            type="file"
+            accept={TIPOS_ACEITOS}
+            className="hidden"
+            onChange={(e) => {
+              escolherArquivo(e.target.files?.[0] ?? null)
+              e.target.value = ''
+            }}
+          />
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="rounded-full"
+            onClick={() => seletorDeArquivo.current?.click()}
+            disabled={enviando}
+            title="Anexar arquivo"
+          >
+            <Paperclip />
+            <span className="sr-only">Anexar arquivo</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="rounded-full"
+            onClick={() => void iniciarGravacaoDeAudio()}
+            disabled={enviando}
+            title="Gravar áudio de voz"
+          >
+            <Mic />
+            <span className="sr-only">Gravar áudio de voz</span>
+          </Button>
+
+          <Button
+            onClick={() => void enviar()}
+            disabled={enviando || (!texto.trim() && !arquivo)}
+            size="icon"
+            className="rounded-full bg-gradient-to-b from-primary to-primary/90"
+            title={
+              naFila
+                ? 'Enviar — ao enviar, você assume o atendimento'
+                : 'Enviar'
+            }
+          >
+            <Send />
+            <span className="sr-only">Enviar</span>
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

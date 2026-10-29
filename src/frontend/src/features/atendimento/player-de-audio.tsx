@@ -51,6 +51,7 @@ export function PlayerDeAudio({
   className?: string
 }) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const medindoDuracaoInfinite = useRef(false)
   const [tocando, setTocando] = useState(false)
   const [atual, setAtual] = useState(0)
   const [duracao, setDuracao] = useState(0)
@@ -62,6 +63,16 @@ export function PlayerDeAudio({
       void audioRef.current?.play()
     }
   }, [url, autoPlay])
+
+  function registrarDuracaoValida(elemento: HTMLAudioElement) {
+    if (Number.isFinite(elemento.duration) && elemento.duration > 0) {
+      setDuracao(elemento.duration)
+      if (medindoDuracaoInfinite.current) {
+        medindoDuracaoInfinite.current = false
+        elemento.currentTime = 0
+      }
+    }
+  }
 
   function alternar() {
     if (!url) {
@@ -83,9 +94,11 @@ export function PlayerDeAudio({
     }
   }
 
+  const duracaoConhecida = Number.isFinite(duracao) && duracao > 0
+
   function buscar(evento: MouseEvent<HTMLDivElement>) {
     const audio = audioRef.current
-    if (!audio || duracao <= 0) {
+    if (!audio || !duracaoConhecida) {
       return
     }
 
@@ -94,7 +107,7 @@ export function PlayerDeAudio({
     audio.currentTime = fracao * duracao
   }
 
-  const progresso = duracao > 0 ? (atual / duracao) * 100 : 0
+  const progresso = duracaoConhecida ? Math.min(100, (atual / duracao) * 100) : 0
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
@@ -106,8 +119,27 @@ export function PlayerDeAudio({
           onPlay={() => setTocando(true)}
           onPause={() => setTocando(false)}
           onEnded={() => setTocando(false)}
-          onLoadedMetadata={(e) => setDuracao(e.currentTarget.duration)}
-          onTimeUpdate={(e) => setAtual(e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => {
+            const el = e.currentTarget
+            if (el.duration === Infinity) {
+              // Áudios gravados no navegador via MediaRecorder (WebM/Opus) nascem
+              // sem duração no cabeçalho; avançar para um instante alto força o
+              // Chromium a calcular o fim do stream e devolver a duração exata.
+              medindoDuracaoInfinite.current = true
+              el.currentTime = 1e101
+            } else {
+              registrarDuracaoValida(el)
+            }
+          }}
+          onDurationChange={(e) => registrarDuracaoValida(e.currentTarget)}
+          onTimeUpdate={(e) => {
+            const el = e.currentTarget
+            if (medindoDuracaoInfinite.current) {
+              registrarDuracaoValida(el)
+              return
+            }
+            setAtual(el.currentTime)
+          }}
           className="hidden"
         />
       ) : null}
@@ -135,12 +167,12 @@ export function PlayerDeAudio({
         role="slider"
         aria-label="Progresso do áudio"
         aria-valuemin={0}
-        aria-valuemax={Math.round(duracao)}
+        aria-valuemax={duracaoConhecida ? Math.round(duracao) : 0}
         aria-valuenow={Math.round(atual)}
-        onClick={url && duracao > 0 ? buscar : undefined}
+        onClick={url && duracaoConhecida ? buscar : undefined}
         className={cn(
           'relative h-1.5 flex-1 rounded-full bg-linha',
-          url && duracao > 0 && 'cursor-pointer',
+          url && duracaoConhecida && 'cursor-pointer',
         )}
       >
         <div
