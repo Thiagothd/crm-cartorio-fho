@@ -75,6 +75,14 @@ public class ProvedorAnthropic(
 
     public bool EstaConfigurado => _opcoes.AnthropicEstaConfigurado;
 
+    /// <summary>
+    /// O Haiku 4.5 rejeita <c>effort</c> com 400; do Haiku 5.5 em diante ele e o
+    /// controle de quanto o modelo pensa. Decidido pelo modelo configurado para
+    /// que voltar a configuracao para o 4.5 nunca derrube a IA.
+    /// </summary>
+    private bool ModeloAceitaEsforco =>
+        !Modelo.StartsWith("claude-haiku-4", StringComparison.OrdinalIgnoreCase);
+
     public async Task<ResultadoDoProvedor> GerarAsync(PedidoDeIa pedido, CancellationToken ct)
     {
         var cronometro = Stopwatch.StartNew();
@@ -105,13 +113,25 @@ public class ProvedorAnthropic(
                 new MessageCreateParams
                 {
                     Model = Modelo,
-                    MaxTokens = 1024,
+                    // 4096, e nao 1024: a partir do Haiku 5.5 o modelo pensa antes de
+                    // responder, e o pensamento conta dentro deste teto. Com 1024 uma
+                    // resposta longa podia parar no meio (stop_reason max_tokens).
+                    MaxTokens = 4096,
                     System = PromptDeSistema.ParaAnthropic(),
                     Messages = mensagens,
-                    OutputConfig = new OutputConfig
-                    {
-                        Format = new JsonOutputFormat { Schema = EsquemaDaResposta }
-                    }
+                    OutputConfig = ModeloAceitaEsforco
+                        ? new OutputConfig
+                        {
+                            Format = new JsonOutputFormat { Schema = EsquemaDaResposta },
+                            // Resposta curta de balcao, grounded no catalogo: esforco
+                            // baixo basta e mantem a latencia dentro do timeout. O
+                            // padrao do Haiku 5.5 e medium.
+                            Effort = Effort.Low
+                        }
+                        : new OutputConfig
+                        {
+                            Format = new JsonOutputFormat { Schema = EsquemaDaResposta }
+                        }
                 },
                 cancellationToken: limite.Token);
 
@@ -138,7 +158,7 @@ public class ProvedorAnthropic(
                 new RespostaDaIA(lida.PodeResponder, lida.Resposta, lida.Motivo, InterpretarCategoria(lida.Categoria)),
                 tokensEntrada: (int)resposta.Usage.InputTokens,
                 tokensSaida: (int)resposta.Usage.OutputTokens,
-                tokensPensamento: 0, // Haiku 4.5 nao suporta thinking (ver README do modulo)
+                tokensPensamento: 0, // a API nao separa: no Haiku 5.5 o pensamento ja vem somado em OutputTokens
                 latenciaMs: (int)cronometro.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

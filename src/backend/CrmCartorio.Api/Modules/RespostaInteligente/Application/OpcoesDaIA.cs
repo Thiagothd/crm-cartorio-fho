@@ -43,7 +43,7 @@ public class OpcoesDaIA
     public string ModeloDoAnthropicResolvido =>
         !string.IsNullOrWhiteSpace(Anthropic.Modelo) ? Anthropic.Modelo
         : !string.IsNullOrWhiteSpace(Modelo) ? Modelo!
-        : "claude-haiku-4-5";
+        : "claude-haiku-5-5";
 
     public bool GeminiEstaConfigurado => Gemini.Habilitado && !string.IsNullOrWhiteSpace(Gemini.ApiKey);
 
@@ -153,9 +153,10 @@ public class OpcoesDoAnthropic
 
     public int TimeoutSegundos { get; set; } = 20;
 
-    public decimal CustoPorMilhaoEntradaUsd { get; set; } = 1.00m;
+    /// <summary>Haiku 5.5 com prompt de ate 100K tokens (acima disso, US$ 0,50 / 2,50). O 4.5 era US$ 1 / 5.</summary>
+    public decimal CustoPorMilhaoEntradaUsd { get; set; } = 0.10m;
 
-    public decimal CustoPorMilhaoSaidaUsd { get; set; } = 5.00m;
+    public decimal CustoPorMilhaoSaidaUsd { get; set; } = 0.50m;
 
     /// <summary>Cotação usada só para exibir o custo estimado do Haiku em R$ no painel — preço muda, fica configurável.</summary>
     public decimal CotacaoDoDolar { get; set; } = 5.40m;
