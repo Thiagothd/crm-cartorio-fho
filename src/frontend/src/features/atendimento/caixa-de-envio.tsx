@@ -62,6 +62,32 @@ function escolherFormatoDeGravacao() {
   return { mime: '', ext: '.webm', tipoBase: 'audio/webm' }
 }
 
+/**
+ * Confere o começo do arquivo gravado: WebM abre com o cabeçalho EBML e Ogg com
+ * "OggS". Um arquivo sem isso chega ao cliente (o gateway reconverte o que
+ * achar) mas não toca no painel — melhor pedir nova gravação do que enviar um
+ * áudio que o atendente não consegue conferir.
+ */
+async function gravacaoTemCabecalhoValido(blob: Blob, tipoBase: string) {
+  const assinatura: Record<string, number[]> = {
+    'audio/webm': [0x1a, 0x45, 0xdf, 0xa3],
+    'audio/ogg': [0x4f, 0x67, 0x67, 0x53],
+  }
+
+  const esperado = assinatura[tipoBase]
+  if (!esperado) {
+    return true
+  }
+
+  try {
+    const inicio = new Uint8Array(await blob.slice(0, esperado.length).arrayBuffer())
+    return esperado.every((byte, i) => inicio[i] === byte)
+  } catch {
+    // Sem como ler (ambiente sem Blob.arrayBuffer): não bloqueia o envio.
+    return true
+  }
+}
+
 function formatarCronometro(segundos: number) {
   const min = Math.floor(segundos / 60)
   const seg = Math.floor(segundos % 60)
@@ -99,10 +125,10 @@ export function CaixaDeEnvio({
   const campo = useRef<HTMLTextAreaElement>(null)
   const seletorDeArquivo = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const iniciandoGravacaoRef = useRef(false)
   const streamDeAudioRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const rafOndaRef = useRef<number | null>(null)
-  const pedacosDeAudioRef = useRef<Blob[]>([])
   const acaoAoFinalizarRef = useRef<'cancelar' | 'previa' | 'enviar'>('previa')
   const formatoEscolhidoRef = useRef(escolherFormatoDeGravacao())
 
@@ -325,7 +351,10 @@ export function CaixaDeEnvio({
   }
 
   async function iniciarGravacaoDeAudio() {
-    if (enviando || gravandoAudio) return
+    // `gravandoAudio` so vira true depois do `await getUserMedia`; um segundo
+    // clique no meio dessa espera abria um segundo gravador, e os dois escreviam
+    // no mesmo conjunto de pedacos. A trava e sincrona, por ref, de proposito.
+    if (enviando || gravandoAudio || iniciandoGravacaoRef.current) return
 
     if (
       typeof navigator === 'undefined' ||
@@ -337,6 +366,8 @@ export function CaixaDeEnvio({
       return
     }
 
+    iniciandoGravacaoRef.current = true
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -347,7 +378,6 @@ export function CaixaDeEnvio({
       })
 
       streamDeAudioRef.current = stream
-      pedacosDeAudioRef.current = []
       const formato = escolherFormatoDeGravacao()
       formatoEscolhidoRef.current = formato
 
@@ -355,16 +385,29 @@ export function CaixaDeEnvio({
       const gravador = new MediaRecorder(stream, opcoes)
       mediaRecorderRef.current = gravador
 
+      // Pedaços DESTE gravador, e não de um ref compartilhado: o último pedaço de
+      // um gravador já descartado (troca de conversa no meio da gravação) chega
+      // depois, como evento enfileirado. Num array compartilhado ele caía na
+      // frente da gravação seguinte e o arquivo saía sem o cabeçalho WebM no
+      // começo — chegava ao cliente, mas não tocava no painel (achado em
+      // produção, 2026-10-30).
+      const pedacos: Blob[] = []
+
       gravador.ondataavailable = (evento) => {
         if (evento.data && evento.data.size > 0) {
-          pedacosDeAudioRef.current.push(evento.data)
+          pedacos.push(evento.data)
         }
       }
 
       gravador.onstop = () => {
+        // Gravador descartado (a limpeza já soltou o microfone e zerou a ref): o
+        // `onstop` dele não pode finalizar nem derrubar a gravação que começou
+        // depois.
+        if (mediaRecorderRef.current !== gravador) {
+          return
+        }
+
         const acao = acaoAoFinalizarRef.current
-        const pedacos = pedacosDeAudioRef.current
-        pedacosDeAudioRef.current = []
         liberarHardwareDeAudio()
         setGravandoAudio(false)
         setGravacaoPausada(false)
@@ -394,12 +437,22 @@ export function CaixaDeEnvio({
           type: fmt.tipoBase,
         })
 
-        if (acao === 'enviar') {
-          setSegundosGravados(0)
-          void enviarArquivoDeAudioDireto(arquivoFinal)
-        } else {
-          setAudioGravado(arquivoFinal)
-        }
+        void gravacaoTemCabecalhoValido(blob, fmt.tipoBase).then((valida) => {
+          if (!valida) {
+            toast.error('A gravação saiu corrompida', {
+              description: 'Grave o áudio de novo. Nada foi enviado ao cliente.',
+            })
+            setSegundosGravados(0)
+            return
+          }
+
+          if (acao === 'enviar') {
+            setSegundosGravados(0)
+            void enviarArquivoDeAudioDireto(arquivoFinal)
+          } else {
+            setAudioGravado(arquivoFinal)
+          }
+        })
       }
 
       gravador.start(200)
@@ -424,6 +477,8 @@ export function CaixaDeEnvio({
       } else {
         toast.error('Não foi possível acessar o microfone.')
       }
+    } finally {
+      iniciandoGravacaoRef.current = false
     }
   }
 

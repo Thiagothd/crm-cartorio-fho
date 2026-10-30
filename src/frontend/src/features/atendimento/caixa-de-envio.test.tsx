@@ -49,15 +49,27 @@ const conversaAtiva: Conversa = {
   clienteFotoPerfilUrl: null,
   clienteNomePendente: false,
   atendidaPeloAparelho: false,
+  emAtendimentoHumano: false,
+  roboPausadoEm: null,
+  roboPausadoPorNome: null,
+  clienteSemRobo: false,
 }
+
+const CABECALHO_WEBM = [0x1a, 0x45, 0xdf, 0xa3]
 
 class MockMediaRecorder {
   static isTypeSupported = vi.fn((mime: string) => mime.includes('audio/webm'))
+  static instancias = 0
+  static primeirosBytes: number[] = CABECALHO_WEBM
   state: 'inactive' | 'recording' | 'paused' = 'inactive'
   mimeType = 'audio/webm;codecs=opus'
   ondataavailable: ((ev: { data: Blob }) => void) | null = null
   onstop: (() => void) | null = null
   onerror: (() => void) | null = null
+
+  constructor() {
+    MockMediaRecorder.instancias += 1
+  }
 
   start() {
     this.state = 'recording'
@@ -74,7 +86,9 @@ class MockMediaRecorder {
   stop() {
     if (this.state === 'inactive') return
     this.state = 'inactive'
-    const blob = new Blob([new Uint8Array(2048)], { type: 'audio/webm' })
+    const corpo = new Uint8Array(2048)
+    corpo.set(MockMediaRecorder.primeirosBytes)
+    const blob = new Blob([corpo], { type: 'audio/webm' })
     this.ondataavailable?.({ data: blob })
     this.onstop?.()
   }
@@ -85,6 +99,8 @@ describe('CaixaDeEnvio — gravação e envio de áudio de voz', () => {
   const enviarAnexoMock = vi.mocked(conversasApi.enviarAnexo)
 
   beforeEach(() => {
+    MockMediaRecorder.instancias = 0
+    MockMediaRecorder.primeirosBytes = CABECALHO_WEBM
     stopTrack.mockClear()
     enviarAnexoMock.mockReset()
     enviarAnexoMock.mockResolvedValue({} as never)
@@ -204,5 +220,39 @@ describe('CaixaDeEnvio — gravação e envio de áudio de voz', () => {
     })
     expect(enviarAnexoMock).not.toHaveBeenCalled()
     expect(stopTrack).toHaveBeenCalled()
+  })
+
+  it('ignora o segundo clique no microfone enquanto o primeiro ainda espera a permissão', async () => {
+    renderizarCaixa()
+
+    const gravar = screen.getByRole('button', { name: 'Gravar áudio de voz' })
+    fireEvent.click(gravar)
+    fireEvent.click(gravar)
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Gravação de áudio em andamento' })).toBeInTheDocument()
+    })
+
+    // Dois gravadores no mesmo conjunto de pedaços produziam um arquivo sem o
+    // cabeçalho no começo (achado em produção, 2026-10-30).
+    expect(MockMediaRecorder.instancias).toBe(1)
+  })
+
+  it('não envia a gravação que saiu sem o cabeçalho do WebM', async () => {
+    MockMediaRecorder.primeirosBytes = [0x43, 0xc3, 0x81, 0x00]
+
+    renderizarCaixa()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gravar áudio de voz' }))
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Gravação de áudio em andamento' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar áudio' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Gravação de áudio em andamento' })).not.toBeInTheDocument()
+    })
+    expect(enviarAnexoMock).not.toHaveBeenCalled()
   })
 })

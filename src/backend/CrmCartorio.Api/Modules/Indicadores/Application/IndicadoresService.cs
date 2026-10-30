@@ -954,17 +954,25 @@ public class IndicadoresService(
                 $"{c.Protocolo} está na fila sem responsável", c.ClienteNome, c.UltimaMensagemEm, $"/atendimentos/{c.Id}"));
         }
 
-        if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp))
-        {
-            var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
+        // O aviso de canal caido vai para QUALQUER atendente, nao so para quem tem
+        // a permissao de saude do WhatsApp: quem escreve no balcao e quem primeiro
+        // percebe que a mensagem nao sai, e nao precisa de permissao nenhuma para
+        // isso (queda de 17 horas sem ninguem ver, em 2026-10-29). Quem pode
+        // reconectar vai direto para a tela do canal; os demais recebem o aviso
+        // para acionar quem pode.
+        var situacao = await ConsultarWhatsAppComSegurancaAsync(tenantId, ct);
 
-            if (situacao.Habilitado && !situacao.Conectado)
-            {
-                alertas.Add(new AlertaOperacionalResponse(
-                    "whatsapp:desconectado", "whatsapp_desconectado", SeveridadeDeAlerta.Critica,
-                    "WhatsApp desconectado", "Nenhuma mensagem nova entra até reconectar.",
-                    agora, "/integracoes/whatsapp"));
-            }
+        if (situacao.Habilitado && !situacao.Conectado)
+        {
+            var podeReconectar = ctx.Pode(PermissaoDoSistema.RelatoriosSaudeWhatsapp);
+
+            alertas.Add(new AlertaOperacionalResponse(
+                "whatsapp:desconectado", "whatsapp_desconectado", SeveridadeDeAlerta.Critica,
+                "WhatsApp desconectado",
+                podeReconectar
+                    ? "Mensagens não entram nem saem até reconectar."
+                    : "Mensagens não entram nem saem. Avise o administrador.",
+                agora, podeReconectar ? "/integracoes/whatsapp" : "/"));
         }
 
         if (ctx.Pode(PermissaoDoSistema.RelatoriosSaudeIa))

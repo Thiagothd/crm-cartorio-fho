@@ -7,6 +7,7 @@ import { usarAutenticacao } from '@/lib/auth/usar-autenticacao'
 import { Avatar } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { BuscaGlobal } from './busca-global'
+import { AvisoDeWhatsappDesconectado } from './aviso-de-whatsapp-desconectado'
 import { SinoDeAlertas } from './sino-de-alertas'
 import { IndicadorDoRobo } from './indicador-do-robo'
 import { SeletorDeTema } from '@/components/ui/seletor-de-tema'
@@ -90,6 +91,8 @@ export function CabecalhoGlobal({
             Vazio na maioria das telas; some sem custar layout quando não há
             nada dentro. */}
         <div ref={aoRegistrarContainerDeAcoes} className="order-last flex w-full min-w-0 flex-wrap items-center justify-end gap-2 empty:hidden @min-[64rem]/conteudo:order-none @min-[64rem]/conteudo:w-auto" />
+
+        <AvisoDeWhatsappDesconectado habilitado={Boolean(atendente)} />
 
         <IndicadorDoRobo habilitado={Boolean(atendente)} />
 

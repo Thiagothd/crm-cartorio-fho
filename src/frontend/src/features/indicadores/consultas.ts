@@ -98,8 +98,10 @@ export function usarAlertasOperacionais(habilitado: boolean) {
   return useQuery({
     queryKey: chavesDeIndicadores.alertas(),
     queryFn: () => indicadoresApi.alertas(),
-    staleTime: 60_000,
-    refetchInterval: 120_000,
+    // 30 s, e nao 2 min: o aviso de WhatsApp caido no cabecalho precisa aparecer
+    // logo. O servidor guarda o estado do canal por 15 s, entao nao pesa.
+    staleTime: 20_000,
+    refetchInterval: 30_000,
     enabled: habilitado,
   })
 }
