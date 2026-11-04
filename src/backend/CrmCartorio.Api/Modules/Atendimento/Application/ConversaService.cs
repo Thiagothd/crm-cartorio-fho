@@ -748,7 +748,7 @@ public class ConversaService(
     /// Desliga toda espera do robô: menus no ar, sequência de dados, pergunta de dúvida,
     /// troca com a IA e pergunta de encerramento pendente.
     /// </summary>
-    private static void ZerarFluxoDoRobo(Conversa conversa)
+    internal static void ZerarFluxoDoRobo(Conversa conversa)
     {
         conversa.AguardandoTriagem = false;
         conversa.AguardandoNome = false;

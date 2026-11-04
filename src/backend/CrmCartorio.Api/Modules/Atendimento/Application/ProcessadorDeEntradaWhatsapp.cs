@@ -312,6 +312,14 @@ public sealed class ProcessadorDeEntradaWhatsapp(
         {
             await EnfileirarPrimeiroContatoAsync(conversa, cliente, agora, ct);
         }
+        // Antes de qualquer resposta: se do outro lado é outro robô (2026-10-22, a
+        // "Mila" da empresa externa), o nosso para aqui em vez de entrar no laço.
+        else if (await TravaContraRoboDoOutroLado.PausarSeForRoboAsync(db, conversa, agora, ct))
+        {
+            log.LogWarning(
+                "Robo pausado sozinho na conversa {ConversaId}: o contato parece ser outro robo.",
+                conversa.Id);
+        }
         else if (await AplicadorDeEncerramentoPorInatividade.TratarRespostaAsync(
                      db, automaticas, conversa, conteudo, agora.AddMilliseconds(1), ct))
         {

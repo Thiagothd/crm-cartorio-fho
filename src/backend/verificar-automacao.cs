@@ -3169,6 +3169,136 @@ finally
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// TESTE 34 — trava contra robo respondendo robo (pedido do cartório parceiro depois de
+// 2026-10-22, a "Mila" da empresa externa): a decisao pura e o caminho real do
+// WhatsApp, com um contato que repete a mesma mensagem longa.
+// ---------------------------------------------------------------------------
+
+Console.WriteLine("TESTE 34 — trava contra robo respondendo robo");
+
+{
+    TravaContraRoboDoOutroLado.MensagemRecente Do(AutorTipo autor, string texto, bool automatica = false) =>
+        new(autor, automatica, texto);
+
+    var textoDeRobo = "Olá! Eu sou a Mila, assistente virtual. Protocolo 123. Como posso ajudar?";
+
+    Checar("trava: '1' tres vezes e resposta de menu, nao robo",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Cliente, "1"), Do(AutorTipo.Cliente, "1"), Do(AutorTipo.Cliente, "1")]) is null);
+
+    Checar("trava: mesmo texto longo tres vezes (protocolo muda) pausa",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Cliente, textoDeRobo.Replace("123", "991")),
+            Do(AutorTipo.Cliente, textoDeRobo.Replace("123", "992")),
+            Do(AutorTipo.Cliente, textoDeRobo)]) is not null);
+
+    Checar("trava: mesma resposta automatica tres vezes pausa",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Sistema, "Não entendi a opção. Responda com o número do setor.", automatica: true),
+            Do(AutorTipo.Cliente, "abc"),
+            Do(AutorTipo.Sistema, "Não entendi a opção. Responda com o número do setor.", automatica: true),
+            Do(AutorTipo.Cliente, "xyz"),
+            Do(AutorTipo.Sistema, "Não entendi a opção. Responda com o número do setor.", automatica: true)]) is not null);
+
+    Checar("trava: atendente falando no meio reinicia a contagem",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Atendente, "Bom dia, aqui é do cartório."),
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Cliente, textoDeRobo)]) is null);
+
+    Checar("trava: robo religado reinicia a contagem",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Sistema, "Robô ligado de novo por cartório parceiro; ele responde a próxima mensagem do cliente."),
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Cliente, textoDeRobo)]) is null);
+
+    Checar("trava: nota da triagem NAO reinicia a contagem",
+        TravaContraRoboDoOutroLado.Avaliar([
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Sistema, "Triagem automatica encaminhou o atendimento ao setor Notas."),
+            Do(AutorTipo.Cliente, textoDeRobo),
+            Do(AutorTipo.Cliente, textoDeRobo)]) is not null);
+
+    List<TravaContraRoboDoOutroLado.MensagemRecente> Rajada(int automaticas, int recebidas) =>
+        Enumerable.Range(0, automaticas).Select(i => Do(AutorTipo.Sistema, $"resposta automatica numero {(char)('a' + i)} do menu", automatica: true))
+            .Concat(Enumerable.Range(0, recebidas).Select(i => Do(AutorTipo.Cliente, $"pergunta diferente {(char)('a' + i)} do contato")))
+            .ToList();
+
+    Checar("trava: rajada de 12 automaticas com 6 do contato pausa",
+        TravaContraRoboDoOutroLado.Avaliar(Rajada(12, 6)) is not null);
+    Checar("trava: 11 automaticas ainda nao e rajada",
+        TravaContraRoboDoOutroLado.Avaliar(Rajada(11, 6)) is null);
+    Checar("trava: 12 automaticas com 5 do contato ainda nao e rajada",
+        TravaContraRoboDoOutroLado.Avaliar(Rajada(12, 5)) is null);
+
+    // --- caminho real: o contato-robo manda a mesma mensagem pelo WhatsApp
+    var telefone34 = $"5538000{++sequencial:D6}";
+    var textoPeloCanal = $"{PrefixoDeTeste}Olá! Eu sou a Mila, assistente virtual da previdência. Como posso te ajudar hoje?";
+    Guid conversa34 = Guid.Empty;
+
+    for (var i = 1; i <= 3; i++)
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        conversa34 = await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone34, "Mila", textoPeloCanal,
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-34-{i}"));
+    }
+
+    var automaticasAntes34 = (await TextosDaConversaAsync(conversa34)).Length;
+    var c34 = await RecarregarAsync(conversa34);
+
+    Checar("trava (WhatsApp): terceira mensagem igual pausa o robo da conversa",
+        c34.RoboPausadoEm is not null && c34.RoboPausadoPorAtendenteId is null
+        && !c34.AguardandoTriagem && !c34.AguardandoNome);
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        var nota = await db.Mensagens.AsNoTracking()
+            .Where(m => m.ConversaId == conversa34 && m.AutorTipo == AutorTipo.Sistema && !m.EhAutomatica)
+            .Select(m => m.Conteudo)
+            .ToListAsync();
+        Checar("trava (WhatsApp): o fio registra que o robo pausou sozinho e por que",
+            nota.Any(n => n.StartsWith("Robô pausado sozinho", StringComparison.Ordinal)), string.Join(" | ", nota));
+    }
+
+    await using (var db = new CrmDbContext(opcoes, cifra))
+    {
+        await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone34, "Mila", textoPeloCanal,
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-34-4"));
+    }
+
+    Checar("trava (WhatsApp): depois da pausa, nada mais sai sozinho",
+        (await TextosDaConversaAsync(conversa34)).Length == automaticasAntes34);
+
+    Checar("trava (WhatsApp): o contato nao fica marcado como 'sempre sem robo'",
+        (await ClienteDaConversaAsync(conversa34)) is { AtendimentoSemRobo: false });
+
+    // --- pessoa de verdade: tres mensagens diferentes nao pausam
+    var telefone34b = $"5538000{++sequencial:D6}";
+    Guid conversa34b = Guid.Empty;
+    var falas = new[] { "bom dia", "quero uma certidão de casamento", "é para amanhã, pode ser?" };
+
+    for (var i = 0; i < falas.Length; i++)
+    {
+        await using var db = new CrmDbContext(opcoes, cifra);
+        conversa34b = await NovoRecebimento(db).ReceberAsync(
+            tenantId,
+            new MensagemDoCanal(telefone34b, "Joana", $"{PrefixoDeTeste}{falas[i]}",
+                TipoMensagem.Texto, $"{PrefixoDeTeste}ext-{sequencial}-34b-{i}"));
+    }
+
+    Checar("trava (WhatsApp): pessoa respondendo normal continua com o robo",
+        (await RecarregarAsync(conversa34b)).RoboPausadoEm is null);
+}
+
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------
 // Limpeza
 // ---------------------------------------------------------------------------
 
