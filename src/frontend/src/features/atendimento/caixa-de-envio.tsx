@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react'
 import { Lock, Mic, Paperclip, Pause, Reply, Send, Square, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -37,6 +45,54 @@ const TAMANHO_MAXIMO_MB = 16
 /** O mesmo conjunto que o backend aceita, para o seletor já filtrar. */
 const TIPOS_ACEITOS =
   'image/jpeg,image/png,image/webp,image/gif,application/pdf,.doc,.docx,.xls,.xlsx,text/plain,audio/*,video/mp4'
+
+/**
+ * Imagens que o Ctrl+V transforma em anexo — as mesmas que o 📎 já manda como
+ * foto. Print de tela chega como `image/png`.
+ */
+const EXTENSAO_DA_IMAGEM_COLADA: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+}
+
+/**
+ * Tira da área de transferência a imagem colada, ou `null` quando o colar é de
+ * texto — aí o navegador cola sozinho, sem custo nenhum.
+ *
+ * Se veio texto junto, o texto vence: copiar células do Excel ou um trecho do
+ * Word põe na área de transferência o texto E uma imagem da seleção, e quem
+ * colou ali quer o texto. Print de tela e "Copiar imagem" não trazem texto.
+ *
+ * Só olha `types` e `items` (metadados); o conteúdo só é lido quando há uma
+ * imagem de fato.
+ */
+function imagemDaAreaDeTransferencia(dados: DataTransfer | null): File | null {
+  if (!dados || Array.from(dados.types ?? []).includes('text/plain')) {
+    return null
+  }
+
+  for (const item of Array.from(dados.items ?? [])) {
+    if (item.kind !== 'file' || !(item.type in EXTENSAO_DA_IMAGEM_COLADA)) {
+      continue
+    }
+
+    const original = item.getAsFile()
+    if (!original) {
+      continue
+    }
+
+    // O navegador chama todo print de "image.png"; um nome com data deixa o
+    // anexo reconhecível no fio e no histórico.
+    const carimbo = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    return new File([original], `imagem-${carimbo}${EXTENSAO_DA_IMAGEM_COLADA[item.type]}`, {
+      type: item.type,
+    })
+  }
+
+  return null
+}
 
 const FORMATOS_DE_GRAVACAO = [
   { mime: 'audio/ogg;codecs=opus', ext: '.ogg', tipoBase: 'audio/ogg' },
@@ -161,6 +217,21 @@ export function CaixaDeEnvio({
     }
   }, [urlPreviaAudio])
 
+  // Miniatura da imagem anexada (colada ou pelo 📎), para o atendente conferir
+  // que é o print certo antes de mandar.
+  const urlPreviaImagem = useMemo(
+    () => (arquivo?.type.startsWith('image/') ? URL.createObjectURL(arquivo) : null),
+    [arquivo],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (urlPreviaImagem) {
+        URL.revokeObjectURL(urlPreviaImagem)
+      }
+    }
+  }, [urlPreviaImagem])
+
   const liberarHardwareDeAudio = useCallback(() => {
     if (rafOndaRef.current !== null) {
       cancelAnimationFrame(rafOndaRef.current)
@@ -278,6 +349,23 @@ export function CaixaDeEnvio({
     setAudioGravado(null)
     setArquivo(escolhido)
     campo.current?.focus()
+  }
+
+  function aoColar(evento: ClipboardEvent<HTMLTextAreaElement>) {
+    const imagem = imagemDaAreaDeTransferencia(evento.clipboardData)
+    if (!imagem) {
+      return
+    }
+
+    // Só aqui o colar padrão é barrado: num campo de texto ele não faria nada
+    // com a imagem mesmo.
+    evento.preventDefault()
+
+    if (enviando) {
+      return
+    }
+
+    escolherArquivo(imagem)
   }
 
   async function enviarArquivoDeAudioDireto(arquivoDeVoz: File) {
@@ -613,7 +701,15 @@ export function CaixaDeEnvio({
       {arquivo ? (
         <div className="flex flex-col gap-2 rounded-md border border-linha-forte bg-superficie px-3 py-2">
           <div className="flex items-center gap-2">
-            <Paperclip className="size-3.5 shrink-0 text-tinta-media" />
+            {urlPreviaImagem ? (
+              <img
+                src={urlPreviaImagem}
+                alt="Prévia da imagem anexada"
+                className="size-10 shrink-0 rounded-md border border-linha object-cover"
+              />
+            ) : (
+              <Paperclip className="size-3.5 shrink-0 text-tinta-media" />
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs text-tinta">{arquivo.name}</p>
               <p className="font-dado text-[10px] text-tinta-fraca">
@@ -812,6 +908,7 @@ export function CaixaDeEnvio({
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={aoTeclar}
+            onPaste={aoColar}
             placeholder="Escreva a resposta… (Enter envia, / abre as respostas rápidas)"
             rows={2}
             maxLength={4000}

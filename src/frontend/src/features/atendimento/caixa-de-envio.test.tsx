@@ -256,3 +256,130 @@ describe('CaixaDeEnvio — gravação e envio de áudio de voz', () => {
     expect(enviarAnexoMock).not.toHaveBeenCalled()
   })
 })
+
+describe('CaixaDeEnvio — colar imagem com Ctrl+V', () => {
+  const enviarAnexoMock = vi.mocked(conversasApi.enviarAnexo)
+  const enviarMensagemMock = vi.mocked(conversasApi.enviarMensagem)
+
+  beforeEach(() => {
+    enviarAnexoMock.mockReset()
+    enviarAnexoMock.mockResolvedValue({} as never)
+    enviarMensagemMock.mockReset()
+    enviarMensagemMock.mockResolvedValue({} as never)
+
+    vi.mocked(usarInvalidarAtendimento).mockReturnValue(vi.fn())
+    vi.mocked(usarRespostasRapidas).mockReturnValue({
+      data: [],
+    } as unknown as ReturnType<typeof usarRespostasRapidas>)
+
+    if (!URL.createObjectURL) {
+      URL.createObjectURL = vi.fn(() => 'blob:imagem-teste')
+    } else {
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:imagem-teste')
+    }
+    if (!URL.revokeObjectURL) {
+      URL.revokeObjectURL = vi.fn()
+    } else {
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function renderizarCaixa() {
+    renderizarComProvedores(
+      <CaixaDeEnvio
+        conversa={conversaAtiva}
+        souOResponsavel
+        mensagemRespondida={null}
+        aoCancelarResposta={vi.fn()}
+        setores={[]}
+        nomeCartorio="1º Ofício"
+      />,
+    )
+    return screen.getByPlaceholderText(/Escreva a resposta/) as HTMLTextAreaElement
+  }
+
+  /** O que o navegador põe na área de transferência ao colar um print de tela. */
+  function areaComPrint() {
+    const print = new File([new Uint8Array(512)], 'image.png', { type: 'image/png' })
+    return {
+      types: ['Files'],
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => print }],
+      files: [print],
+      getData: () => '',
+    }
+  }
+
+  it('transforma o print colado em anexo e envia com o texto como legenda', async () => {
+    const campo = renderizarCaixa()
+
+    fireEvent.change(campo, { target: { value: 'Segue o print' } })
+    const colagemPadraoSeguiu = fireEvent.paste(campo, { clipboardData: areaComPrint() })
+
+    expect(colagemPadraoSeguiu).toBe(false)
+    expect(await screen.findByAltText('Prévia da imagem anexada')).toBeInTheDocument()
+    expect(screen.getByText(/o texto abaixo vai como legenda/)).toBeInTheDocument()
+
+    fireEvent.keyDown(campo, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(enviarAnexoMock).toHaveBeenCalledTimes(1)
+    })
+
+    const [conversaId, arquivoEnviado, legenda] = enviarAnexoMock.mock.calls[0]
+    expect(conversaId).toBe('42')
+    expect(arquivoEnviado.type).toBe('image/png')
+    expect(arquivoEnviado.name).toMatch(/^imagem-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.png$/)
+    expect(legenda).toBe('Segue o print')
+    expect(enviarMensagemMock).not.toHaveBeenCalled()
+  })
+
+  it('deixa o colar de texto com o navegador, sem virar anexo', () => {
+    const campo = renderizarCaixa()
+
+    const colagemPadraoSeguiu = fireEvent.paste(campo, {
+      clipboardData: {
+        types: ['text/plain'],
+        items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }],
+        files: [],
+        getData: () => 'protocolo 2026-00042',
+      },
+    })
+
+    expect(colagemPadraoSeguiu).toBe(true)
+    expect(screen.queryByAltText('Prévia da imagem anexada')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remover arquivo' })).not.toBeInTheDocument()
+  })
+
+  it('cola o texto quando a cópia traz texto e imagem juntos, como célula do Excel', () => {
+    const campo = renderizarCaixa()
+    const area = areaComPrint()
+
+    const colagemPadraoSeguiu = fireEvent.paste(campo, {
+      clipboardData: { ...area, types: ['text/plain', 'text/html', 'Files'] },
+    })
+
+    expect(colagemPadraoSeguiu).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Remover arquivo' })).not.toBeInTheDocument()
+  })
+
+  it('não anexa arquivo colado que não é imagem', () => {
+    const campo = renderizarCaixa()
+    const compactado = new File(['x'], 'dados.zip', { type: 'application/zip' })
+
+    const colagemPadraoSeguiu = fireEvent.paste(campo, {
+      clipboardData: {
+        types: ['Files'],
+        items: [{ kind: 'file', type: 'application/zip', getAsFile: () => compactado }],
+        files: [compactado],
+        getData: () => '',
+      },
+    })
+
+    expect(colagemPadraoSeguiu).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Remover arquivo' })).not.toBeInTheDocument()
+  })
+})
