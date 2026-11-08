@@ -28,7 +28,7 @@ public class EvolutionClient(
         GarantirConfigurado();
 
         // instance/create NUNCA e chamado quando a instancia ja existe — nem
-        // idempotente. Incidente ao vivo em 2026-08-22 (ver DEPLOY-WHATSAPP.md):
+        // idempotente. Incidente ao vivo em 2026-08-22 (ver INSTALACAO.md):
         // repetir a criacao com a sessao ja aberta fez o gateway forcar um
         // LOGOUT de verdade, exigindo QR novo. Tratar 403/409 como "seguro"
         // supunha um idempotente que esta versao do gateway nao entrega.
@@ -482,7 +482,7 @@ public class EvolutionClient(
             ?? throw CanalWhatsAppServiceException.GatewayIndisponivel();
 
         // Confirmado ao vivo contra o gateway real em 2026-08-24: a resposta e
-        // um array cru de contatos, sem envelope — ver docs/DEPLOY-WHATSAPP.md.
+        // um array cru de contatos, sem envelope — ver docs/INSTALACAO.md.
         if (corpo.ValueKind != JsonValueKind.Array)
         {
             log.LogWarning("Gateway devolveu formato inesperado para findContacts na instancia {Instancia}.",

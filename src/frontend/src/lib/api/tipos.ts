@@ -620,7 +620,7 @@ export interface DadosDeCliente {
   atendimentoSemRobo?: boolean
 }
 
-/** Situação do canal real de WhatsApp — ver docs/DEPLOY-WHATSAPP.md. */
+/** Situação do canal real de WhatsApp — ver docs/INSTALACAO.md. */
 export interface SituacaoDoCanal {
   /** O canal está ligado na configuração do servidor. */
   habilitado: boolean
@@ -739,7 +739,7 @@ export interface OpcoesDeClientes {
 
 // Importação de contatos ------------------------------------------------------
 
-/** De onde a lista de contatos veio. `WhatsApp` ainda não está disponível — ver `docs/DEPLOY-WHATSAPP.md`. */
+/** De onde a lista de contatos veio. `WhatsApp` ainda não está disponível — ver `docs/INSTALACAO.md`. */
 export type FonteDeImportacao = 'Texto' | 'WhatsApp'
 
 /** O que aconteceria com esta linha se a importação for confirmada. */

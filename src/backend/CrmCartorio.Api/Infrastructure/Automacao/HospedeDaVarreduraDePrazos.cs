@@ -10,7 +10,7 @@ namespace CrmCartorio.Api.Infrastructure.Automacao;
 /// Casca de hospedagem, sem regra de negocio: quem decide o que e alerta, o que e
 /// atraso e que texto sai e o varredor, dentro do modulo Atendimento. Aqui so mora o
 /// relogio e o escopo de injecao — que e o que <c>Infrastructure/</c> na raiz pode
-/// conter (CLAUDE.md, 7.1).
+/// conter (docs/CONVENCOES.md, 7.1).
 /// </remarks>
 public class HospedeDaVarreduraDePrazos(
     IServiceScopeFactory escopos,

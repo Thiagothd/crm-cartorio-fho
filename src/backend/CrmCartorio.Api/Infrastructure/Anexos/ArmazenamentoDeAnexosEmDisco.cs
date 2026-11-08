@@ -30,7 +30,7 @@ public class OpcoesDeAnexos
 /// <remarks>
 /// O binario NAO vai para o banco: o .bak cresceria com cada foto de documento
 /// que um cliente manda, e sao muitas num cartorio. Em troca, backup de banco
-/// sozinho nao basta — a pasta entra na rotina junto (docs/BACKUP.md).
+/// sozinho nao basta — a pasta entra na rotina junto (docs/INSTALACAO.md).
 /// </remarks>
 public class ArmazenamentoDeAnexosEmDisco(
     IOptions<OpcoesDeAnexos> opcoes,

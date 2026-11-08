@@ -6,7 +6,7 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain.Enums;
 /// <remarks>
 /// Mora no <c>Domain</c>, não no <c>Application</c>, de propósito: o módulo de
 /// Indicadores também precisa deste rótulo para a aba de Atendentes, e a regra
-/// de arquitetura (CLAUDE.md 7.1) proíbe um módulo referenciar o
+/// de arquitetura (docs/CONVENCOES.md 7.1) proíbe um módulo referenciar o
 /// <c>Application</c> interno de outro. Tipo de <c>Domain</c> é compartilhável —
 /// é o mesmo motivo pelo qual <c>StatusConversa</c> e <c>TipoDePessoa</c> são
 /// lidos de fora dos módulos que os declaram.

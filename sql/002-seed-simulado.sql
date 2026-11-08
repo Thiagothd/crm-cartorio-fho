@@ -148,8 +148,7 @@ VALUES
 
    Helena e Rafael sao nomes ficticios (titular e substituto).
    Carla e Paula sao NOMES FICTICIOS — existem para demonstrar a trava de
-   conversa, que precisa de mais de um atendente na mesma fila. Substituir pelos
-   nomes ficticios de demonstracao.
+   conversa, que precisa de mais de um atendente na mesma fila.
    -------------------------------------------------------------------------- */
 INSERT INTO dbo.Atendentes
     (Id, TenantId, Nome, Email, SenhaHash, Perfil, Cargo, SetorPadraoId, Ativo, CriadoEm, AtualizadoEm)

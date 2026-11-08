@@ -3,7 +3,7 @@ namespace CrmCartorio.Api.Modules.Clientes.Application;
 /// <summary>
 /// Importação de contatos em lote — texto colado, CSV, ou (quando a sonda do
 /// gateway confirmar o formato) a agenda do WhatsApp pareado. Nunca envia
-/// mensagem: só cadastra. Ver <c>docs/DEPLOY-WHATSAPP.md</c> e o CLAUDE.md,
+/// mensagem: só cadastra. Ver <c>docs/INSTALACAO.md</c> e o docs/CONVENCOES.md,
 /// seção 2, sobre por que disparo em massa foi cancelado deste ajuste.
 /// </summary>
 public interface IImportacaoDeContatosService

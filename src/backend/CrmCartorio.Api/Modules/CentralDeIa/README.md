@@ -12,7 +12,7 @@ diferentes e não se sobrepõem — não mexa em `pagina-ia.tsx` nem em
 
 `Atendente` é sempre preso a um `TenantId` — é assim que `IContextoDoUsuario`
 resolve `TenantId`/`Perfil`/permissão em toda consulta do sistema, e é a razão
-de toda tabela de tenant ser filtrada por ele (CLAUDE.md 7.1). Isso é exatamente
+de toda tabela de tenant ser filtrada por ele (docs/CONVENCOES.md 7.1). Isso é exatamente
 o oposto do que a Central precisa: uma identidade que enxergue TODOS os
 tenants ao mesmo tempo, mesmo havendo um só hoje — a tela já nasce pensando em
 mais.
@@ -132,7 +132,7 @@ tem um cenário por reflexão que falha se algum desses campos for adicionado a
 ## Fronteiras
 
 Lê `ChamadasDeIa` (entidade de `Modules/RespostaInteligente/Domain/Entities`) e
-`Tenants` direto pelo `DbContext` — permitido, é um banco só (CLAUDE.md 7.1).
+`Tenants` direto pelo `DbContext` — permitido, é um banco só (docs/CONVENCOES.md 7.1).
 Reaproveita `DisjuntorDoGemini`/`FingerprintDeChave`/`OpcoesDaIA` de
 `Modules/RespostaInteligente` da mesma forma: leitura de tipo/serviço
 transversal de cota, nunca chamando o `Application` interno daquele módulo por

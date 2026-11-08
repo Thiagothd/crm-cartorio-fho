@@ -7,8 +7,8 @@ do gateway.
 > **Piloto, não produção.** Conexão não oficial (Evolution API, wrapper de
 > Baileys) em números dedicados e isolados, nunca no número do cartório. Produção
 > e teste usam instâncias diferentes no mesmo gateway. Ver
-> [CLAUDE.md](../../../../../CLAUDE.md), seção "Mudança de direção — 2026-08-16",
-> e [docs/DEPLOY-WHATSAPP.md](../../../../../docs/DEPLOY-WHATSAPP.md).
+> [docs/CONVENCOES.md](../../../../../docs/CONVENCOES.md), seção "Decisão do canal",
+> e [docs/INSTALACAO.md](../../../../../docs/INSTALACAO.md).
 
 ## Por que existe um slice inteiro para isto
 

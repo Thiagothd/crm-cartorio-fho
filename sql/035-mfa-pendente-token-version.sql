@@ -62,7 +62,7 @@
        ignora a coluna nova. O binario NOVO (com o bloqueador 8 corrigido)
        MAPEIA e CONSULTA MfaPendenteTokenVersion em IniciarAsync e em
        ConfirmarNucleoAsync — nao deve ser iniciado antes desta migration
-       estar aplicada, mesmo padrao de 033/034 (ver docs/DEPLOY.md, secao 1.2).
+       estar aplicada, mesmo padrao de 033/034 (ver docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        A coluna so entra quando ainda nao existe. Rodar o script de novo nao
@@ -107,7 +107,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'035-mfa-pendente-token-version.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'035-mfa-pendente-token-version.sql',
-                N'SEC-03 (bloqueador 8): MfaPendenteTokenVersion em Atendentes — vincula o segredo MFA pendente (primeira ativacao voluntaria e troca de autenticador) a TokenVersion do instante em que foi gerado. Confirmacao exige que a TokenVersion atual ainda bata, fechando a promocao/revogacao no meio da cerimonia. Binario corrigido exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'SEC-03 (bloqueador 8): MfaPendenteTokenVersion em Atendentes — vincula o segredo MFA pendente (primeira ativacao voluntaria e troca de autenticador) a TokenVersion do instante em que foi gerado. Confirmacao exige que a TokenVersion atual ainda bata, fechando a promocao/revogacao no meio da cerimonia. Binario corrigido exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

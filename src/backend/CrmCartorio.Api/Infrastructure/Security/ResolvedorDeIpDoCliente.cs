@@ -9,7 +9,7 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// <remarks>
 /// <b>Por que nao basta <c>RemoteIpAddress</c>:</b> em producao o trafego chega
 /// pela borda da Cloudflare e entra no IIS atraves do <c>cloudflared.exe</c>, que
-/// roda na PROPRIA maquina (ver docs/INFRAESTRUTURA.md, secoes 1 e 5). Do ponto de
+/// roda na PROPRIA maquina (ver docs/INSTALACAO.md, secoes 1 e 5). Do ponto de
 /// vista do IIS, portanto, toda requisicao publica vem de <c>127.0.0.1</c> — sem
 /// tratar o cabecalho, o mundo inteiro dividiria um unico balde de limite e a
 /// protecao por IP nao existiria na pratica.

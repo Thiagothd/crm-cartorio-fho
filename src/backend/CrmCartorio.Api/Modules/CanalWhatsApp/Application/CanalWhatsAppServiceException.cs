@@ -46,7 +46,7 @@ public class CanalWhatsAppServiceException(string codigo, string mensagem, int s
 
     /// <remarks>
     /// A Meta bloqueia temporariamente 2-3 pareamentos seguidos em pouco tempo
-    /// (docs/DEPLOY-WHATSAPP.md, seção 7). Recusar aqui evita gastar uma
+    /// (docs/INSTALACAO.md, seção 7). Recusar aqui evita gastar uma
     /// tentativa que sabemos que vai falhar.
     /// </remarks>
     public static CanalWhatsAppServiceException PareamentoMuitoRecente(int segundosRestantes)

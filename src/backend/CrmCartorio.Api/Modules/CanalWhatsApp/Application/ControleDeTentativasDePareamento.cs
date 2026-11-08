@@ -7,7 +7,7 @@ namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 /// </summary>
 /// <remarks>
 /// A Meta bloqueia temporariamente 2-3 pareamentos seguidos em pouco tempo
-/// (docs/DEPLOY-WHATSAPP.md, seção 7). Recusar aqui evita gastar uma tentativa
+/// (docs/INSTALACAO.md, seção 7). Recusar aqui evita gastar uma tentativa
 /// que já sabemos que vai falhar.
 ///
 /// Registrado como <b>singleton</b> de propósito: <see cref="PareamentoDoCanal"/>

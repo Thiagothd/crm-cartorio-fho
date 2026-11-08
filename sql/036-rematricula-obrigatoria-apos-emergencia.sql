@@ -73,7 +73,7 @@
        RematriculaObrigatoriaAposEmergencia em AutenticarAsync,
        ConfirmarNucleoAsync e TentarResetarDeEmergenciaAsync — nao deve ser
        iniciado antes desta migration estar aplicada, mesmo padrao de 033,
-       034 e 035 (ver docs/DEPLOY.md, secao 1.2).
+       034 e 035 (ver docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        A coluna so entra quando ainda nao existe. Rodar o script de novo nao
@@ -120,7 +120,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'036-rematricula-obrigatoria-apos-emergencia.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'036-rematricula-obrigatoria-apos-emergencia.sql',
-                N'SEC-03 (bloqueador B19, sexta revisao independente): RematriculaObrigatoriaAposEmergencia em Atendentes — bloqueia login so-senha apos reset de emergencia (break-glass) INDEPENDENTE da politica obrigatoria do tenant, ate concluir matricula nova com o ticket do proprio break-glass. Binario corrigido exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'SEC-03 (bloqueador B19, sexta revisao independente): RematriculaObrigatoriaAposEmergencia em Atendentes — bloqueia login so-senha apos reset de emergencia (break-glass) INDEPENDENTE da politica obrigatoria do tenant, ate concluir matricula nova com o ticket do proprio break-glass. Binario corrigido exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

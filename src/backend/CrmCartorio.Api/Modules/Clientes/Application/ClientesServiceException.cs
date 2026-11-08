@@ -9,7 +9,7 @@ namespace CrmCartorio.Api.Modules.Clientes.Application;
 /// O texto destas mensagens vai PARA DEBAIXO DO CAMPO na tela, e nao mais para
 /// um toast que passa: o dialogo usa o `codigo` para achar o campo culpado e
 /// mostra a mensagem ali, fixa, ate o atendente corrigir. Por isso levam acento
-/// (CLAUDE.md 7.2 permite em texto exibido) e falam do que fazer, nao do que
+/// (docs/CONVENCOES.md 7.2 permite em texto exibido) e falam do que fazer, nao do que
 /// esta errado por dentro.
 /// </remarks>
 public class ClientesServiceException(string codigo, string mensagem, int statusHttp = 400)
@@ -59,7 +59,7 @@ public class ClientesServiceException(string codigo, string mensagem, int status
     /// A instância não devolveu contatos — pode ser porque de fato não há
     /// nenhum, ou porque a Evolution não está persistindo contatos nesta
     /// instância. A tela precisa dizer isto e não "falhou", ver
-    /// docs/DEPLOY-WHATSAPP.md.
+    /// docs/INSTALACAO.md.
     /// </summary>
     public static ClientesServiceException GatewayIndisponivelParaImportacao() =>
         new("gateway_indisponivel_para_importacao",

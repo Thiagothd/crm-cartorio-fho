@@ -75,7 +75,7 @@
        Os dois workflows (deploy-teste.yml / deploy-producao.yml) ja garantem
        essa ordem: aplicam as migrations pendentes, abortam se alguma falhar, e
        so entao param o App Pool, copiam os arquivos e religam. Em deploy MANUAL,
-       a mesma ordem tem de ser seguida a mao — ver docs/DEPLOY.md, secao 2.
+       a mesma ordem tem de ser seguida a mao — ver docs/INSTALACAO.md, secao 2.
 
    IDEMPOTENCIA
        Cada coluna so entra quando ainda nao existe; cada CHECK so e criado

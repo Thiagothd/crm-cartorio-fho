@@ -22,7 +22,7 @@
    CONSEQUENCIA PARA BACKUP — LEIA ANTES DE CONFIAR NO .bak
        O backup do banco NAO leva os anexos. Quem faz copia so do SQL Server
        restaura conversas com anexo quebrado. A rotina de backup (Fase 2D) tem de
-       cobrir a pasta de anexos junto, e docs/BACKUP.md registra isso.
+       cobrir a pasta de anexos junto, e docs/INSTALACAO.md registra isso.
 
    NOME DO ARQUIVO NO DISCO
        E sempre {MensagemId}{extensao}, NUNCA o nome que veio do cliente. Nome de

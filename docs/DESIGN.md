@@ -31,9 +31,8 @@ Consequência prática: a tela é **disciplinada**. Contenção não é falta de
 capricho, é o capricho. O que dá personalidade é a tipografia e um único
 elemento com licença poética (o selo, seção 6), não efeito visual espalhado.
 
-Isso também é argumento comercial. O concorrente é SaaS em nuvem com cara de
-software. Parecer registro oficial reforça exatamente o que vendemos:
-seriedade e soberania sobre o dado.
+Isso também é decisão de produto. Parecer registro oficial reforça o que o
+sistema precisa transmitir: seriedade e soberania sobre o dado.
 
 ---
 
@@ -1281,7 +1280,7 @@ gráfico, pílulas segmentadas de filtro.
 
 Do que **não** veio: o fundo escuro, a paleta fria, o glow neon e o tipo de
 letra dessas telas. A paleta de papel e tinta da seção 2 é o que diferencia o
-produto de "SaaS genérico" — e é argumento comercial (seção 1), não gosto.
+produto de "SaaS genérico" — e é decisão de produto (seção 1), não gosto.
 
 ## 16. Fase 3.2 — a Bancada (o balcão)
 

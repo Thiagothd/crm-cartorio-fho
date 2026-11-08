@@ -17,12 +17,12 @@
 
        Na Fase 1 existe um tenant so, e daria para fixar o valor no codigo. Nao
        fixamos de proposito: todo dado de tenant ja filtra por TenantId desde o
-       inicio (CLAUDE.md, 7.1), e abrir excecao justamente no ponto de ENTRADA
+       inicio (docs/CONVENCOES.md, 7.1), e abrir excecao justamente no ponto de ENTRADA
        das mensagens seria criar, na Fase 3, a reescrita mais cara possivel.
 
    PILOTO, NAO CANAL OFICIAL
        A instancia usa um numero dedicado ao ambiente de demonstracao/teste. Nao
-       e o numero publico do cartorio. Ver docs/DEPLOY-WHATSAPP.md.
+       e o numero publico do cartorio. Ver docs/INSTALACAO.md.
 
    IDEMPOTENCIA
        A coluna e o indice so sao criados quando ainda nao existem. Rodar de novo

@@ -10,7 +10,7 @@
        Atualiza o CONTEUDO das 8 mensagens automaticas e das 6 respostas rapidas
        ja cadastradas, acrescentando emoji pontual e com proposito (endereco,
        documento, prazo, confirmacao) — decisao do Thiago em 2026-08-17, depois
-       de comparar com o fluxo de um concorrente real (CLAUDE.md regra 8,
+       de comparar com o fluxo de um concorrente real (docs/CONVENCOES.md regra 8,
        DESIGN.md secao 4).
 
    O QUE NAO MUDA

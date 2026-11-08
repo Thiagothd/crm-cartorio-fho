@@ -46,7 +46,7 @@
        ele. O binario NOVO (com DefinirPermissoesAsync) nao deve ser iniciado
        antes desta migration estar aplicada — o primeiro INSERT com Tipo = 12
        falharia contra a CHECK antiga, mesmo padrao de 033..037 (ver
-       docs/DEPLOY.md, secao 1.2).
+       docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        DROP + ADD da mesma CHECK constraint, sempre para a MESMA definicao
@@ -99,7 +99,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'044-eventos-de-seguranca-permissoes-alteradas.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'044-eventos-de-seguranca-permissoes-alteradas.sql',
-                N'Permissoes granulares: alarga CK_EventosDeSeguranca_Tipo para 1..12, liberando PermissoesAlteradas (12) — gravado por AtendenteService.DefinirPermissoesAsync toda vez que a meta-permissao equipe.permissoes e usada para ajustar o acesso de outro atendente. Binario com permissoes granulares exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'Permissoes granulares: alarga CK_EventosDeSeguranca_Tipo para 1..12, liberando PermissoesAlteradas (12) — gravado por AtendenteService.DefinirPermissoesAsync toda vez que a meta-permissao equipe.permissoes e usada para ajustar o acesso de outro atendente. Binario com permissoes granulares exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

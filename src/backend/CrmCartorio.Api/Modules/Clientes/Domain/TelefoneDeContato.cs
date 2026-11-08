@@ -156,7 +156,7 @@ public static class TelefoneDeContato
     /// <c>CanalWhatsApp.Application.NormalizadorDeTelefone.NumerosEquivalentes</c>
     /// (que o verificador do canal confere contra esta, par a par), escrita de
     /// novo aqui porque o Atendimento não referencia o <c>Application</c> de
-    /// outro módulo (CLAUDE.md, 7.1) — como <see cref="NomeDeContato"/>, mora no
+    /// outro módulo (docs/CONVENCOES.md, 7.1) — como <see cref="NomeDeContato"/>, mora no
     /// <c>Domain</c> de Clientes, que é dono do número.
     ///
     /// Segura nos dois sentidos, e por isso NÃO é a aposta de

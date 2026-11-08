@@ -19,7 +19,7 @@
        depois, na conversa de um cliente.
 
        Nao e uma ferramenta de migracao. Continua valendo a regra 1 do
-       CLAUDE.md: nada roda contra banco sem aprovacao explicita, e o .sql
+       docs/CONVENCOES.md: nada roda contra banco sem aprovacao explicita, e o .sql
        continua sendo revisado a mao. Esta tabela so responde o que ja foi
        feito.
 

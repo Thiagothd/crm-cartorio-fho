@@ -3,7 +3,7 @@
 # NAO e a solucao final do cartorio. Roda com o numero PESSOAL do Thiago para
 # demonstrar o canal sem depender dos pre-requisitos da Cloud API oficial da
 # Meta (CNPJ verificado + numero dedicado), que estao travados em terceiro.
-# Ver docs/DEPLOY-WHATSAPP.md e o bloco de mudanca de direcao no CLAUDE.md.
+# Ver docs/INSTALACAO.md e o bloco de mudanca de direcao no docs/CONVENCOES.md.
 #
 # O gateway e o banco de sessao (Postgres/Redis deste compose) rodam no proprio
 # servidor. Isso NAO significa que nenhum dado de conversa sai do servidor: a
@@ -84,7 +84,7 @@ services:
       CACHE_LOCAL_ENABLED: "false"
 
       # O webhook e' configurado POR INSTANCIA na hora do pareamento (ver
-      # DEPLOY-WHATSAPP.md), e nao aqui: o token compartilhado que a API .NET
+      # INSTALACAO.md), e nao aqui: o token compartilhado que a API .NET
       # valida vai na URL, e URL com segredo nao entra em variavel global.
       WEBHOOK_GLOBAL_ENABLED: "false"
 

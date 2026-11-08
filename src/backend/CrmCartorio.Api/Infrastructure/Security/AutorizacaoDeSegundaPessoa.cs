@@ -298,7 +298,7 @@ internal static class AutorizacaoDeSegundaPessoa
         Console.WriteLine();
         Console.WriteLine("1. Envie o DESAFIO abaixo (as 7 linhas, sem alterar nada) ao custodiante.");
         Console.WriteLine("2. Ele confere ALVO/OPERACAO/OPERADOR, assina no equipamento DELE e");
-        Console.WriteLine("   devolve SO a assinatura em Base64 (ver docs/BACKUP.md).");
+        Console.WriteLine("   devolve SO a assinatura em Base64 (ver docs/INSTALACAO.md).");
         Console.WriteLine();
         Console.WriteLine($"Motivo (em claro, conferido pelo hash do desafio): {motivo.Trim()}");
         Console.WriteLine();

@@ -20,7 +20,7 @@ namespace CrmCartorio.Api.Infrastructure.Persistence.Seeding;
 /// <remarks>
 /// Desligado por padrao — so roda com Seed:Habilitado = true. NAO cria schema:
 /// o DDL fica em sql/001-schema.sql para execucao manual, conforme a regra 1 do
-/// CLAUDE.md. Se as tabelas nao existirem, o semeador avisa e desiste em vez de
+/// docs/CONVENCOES.md. Se as tabelas nao existirem, o semeador avisa e desiste em vez de
 /// tentar criar qualquer coisa.
 /// </remarks>
 public class SemeadorDeDemonstracao(
@@ -290,7 +290,7 @@ public class SemeadorDeDemonstracao(
     /// veria a automacao funcionando.
     ///
     /// Se as tabelas ainda nao existirem, avisa e sai — nao cria schema, conforme a
-    /// regra 1 do CLAUDE.md. O DDL esta em sql/005-mensagens-automaticas.sql.
+    /// regra 1 do docs/CONVENCOES.md. O DDL esta em sql/005-mensagens-automaticas.sql.
     /// </remarks>
     private async Task SemearAutomacaoAsync(CancellationToken ct)
     {

@@ -75,7 +75,7 @@ public class TipoServicoService(CrmDbContext db, IContextoDoUsuario ctx) : ITipo
 
     /// <summary>
     /// TipoServico nao tem propriedade de navegacao para Setor — modulos distintos,
-    /// e so o Id atravessa a fronteira (CLAUDE.md, 7.1). Mesmo padrao de
+    /// e so o Id atravessa a fronteira (docs/CONVENCOES.md, 7.1). Mesmo padrao de
     /// DisparadorDeMensagemAutomatica.MontarDadosAsync: consulta direta pelo
     /// DbContext, nao chamada a um Service de outro modulo.
     /// </summary>

@@ -28,7 +28,7 @@
    SEM MECANISMO DE DISPARO EM MASSA
        Esta migracao NAO cria nada de campanha, fila de envio, ou opt-out. O
        pedido original incluia disparo em massa; foi cancelado apos avaliar o
-       risco de banimento do numero do piloto sobre Baileys (CLAUDE.md, secao
+       risco de banimento do numero do piloto sobre Baileys (docs/CONVENCOES.md, secao
        8) — sem via oficial da Meta disponivel, nao ha como recuperar um numero
        banido. So a importacao de contatos segue, que nao envia nada e tem
        risco de banimento zero.

@@ -49,7 +49,7 @@ public enum ElegibilidadeDeBootstrap
 /// <remarks>
 /// <b>Comando de execucao unica no binario publicado</b> — nao um
 /// <c>dotnet run</c> de script solto, porque o servidor so tem o Hosting
-/// Bundle instalado (docs/DEPLOY.md), sem SDK. Rode com:
+/// Bundle instalado (docs/INSTALACAO.md), sem SDK. Rode com:
 /// <c>dotnet CrmCartorio.Api.dll --emitir-ticket-de-bootstrap</c>.
 ///
 /// <b>Regras que este comando impoe, todas deliberadas:</b>

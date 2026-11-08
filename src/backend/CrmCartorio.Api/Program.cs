@@ -209,7 +209,7 @@ builder.Services.AddScoped<IVarredorDeDadosDoServico, VarredorDeDadosDoServico>(
 builder.Services.AddScoped<INotificadorDeAtendimento, NotificadorDeAtendimento>();
 builder.Services.AddScoped<SemeadorDeDemonstracao>();
 
-// Canal real de WhatsApp (PILOTO, numeros dedicados — ver docs/DEPLOY-WHATSAPP.md).
+// Canal real de WhatsApp (PILOTO, numeros dedicados — ver docs/INSTALACAO.md).
 // O recebimento fica no Atendimento porque e regra de atendimento; so o formato
 // do gateway mora no slice CanalWhatsApp.
 builder.Services.AddScoped<IRecebimentoDeWhatsApp, RecebimentoDeWhatsApp>();

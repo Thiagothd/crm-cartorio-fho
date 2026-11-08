@@ -12,7 +12,7 @@ namespace CrmCartorio.Api.Modules.Usuarios.Domain;
 /// Vive em <c>Domain</c>, não em <c>Application</c>: é lido tanto por
 /// <c>Infrastructure.Security.ContextoDoUsuario</c> (fora do módulo Usuarios)
 /// quanto pelos verificadores — nenhum dos dois pode referenciar o
-/// <c>Application</c> de um módulo (CLAUDE.md 7.1).
+/// <c>Application</c> de um módulo (docs/CONVENCOES.md 7.1).
 /// </remarks>
 public static class CatalogoDePermissoes
 {

@@ -31,7 +31,7 @@ abaixo.
 `Infrastructure/Auditoria/IRegistradorDeAcesso` (não `Modules/Seguranca/Application`)
 é quem grava. Fica em `Infrastructure` porque é chamado de dentro de
 `ConversaService`, `MensagemService` e `ClienteService` — três módulos
-diferentes — e CLAUDE.md 7.1 proíbe um módulo referenciar o `Application`
+diferentes — e docs/CONVENCOES.md 7.1 proíbe um módulo referenciar o `Application`
 interno de outro. Mesmo motivo de `INotificadorDeAtendimento` morar em
 `Infrastructure/Realtime`.
 

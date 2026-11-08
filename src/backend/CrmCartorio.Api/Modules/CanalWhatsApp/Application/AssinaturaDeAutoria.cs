@@ -19,7 +19,7 @@ public readonly record struct AutoriaDaMensagem(
 /// <remarks>
 /// Mora no <c>CanalWhatsApp</c>, nao no <c>Atendimento</c>: <c>*negrito*</c> e
 /// sintaxe do WhatsApp. Trocar para a Cloud API da Meta mantem a decisao;
-/// trocar o canal por SMS ou e-mail jogaria fora (regra 7.1 do CLAUDE.md —
+/// trocar o canal por SMS ou e-mail jogaria fora (regra 7.1 do docs/CONVENCOES.md —
 /// adaptador fora, porta dentro).
 ///
 /// <b>So decora na SAIDA, nunca persiste.</b> O unico chamador e

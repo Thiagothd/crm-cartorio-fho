@@ -289,7 +289,7 @@ export const clientesApi = {
 
 /**
  * Duas rotas em vez de um `?apenasPrevia=` porque a prévia é editável: o
- * operador desmarca linhas antes de confirmar. Ver docs/PROCESSO-DE-AJUSTE.md.
+ * operador desmarca linhas antes de confirmar. Ver docs/INSTALACAO.md.
  */
 export const importacaoDeContatosApi = {
   analisarTexto: (texto: string) =>

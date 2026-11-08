@@ -369,7 +369,7 @@ versionado (`[formatoVersao][tamanhoDaVersaoDaChave][versaoDaChave][nonce:12][ta
 AAD = `TenantId ‖ AtendenteId` — mover o ciphertext de uma conta para outra,
 mesmo com a chave certa, falha ao decifrar. Chave em
 `appsettings.<Ambiente>.json` (`Mfa:Chaves:<versão>`), custódia e teste de
-restauração obrigatórios em `docs/BACKUP.md` antes de exigir MFA em produção.
+restauração obrigatórios em `docs/INSTALACAO.md` antes de exigir MFA em produção.
 TOTP em si via `Otp.NET` — SHA1/6 dígitos/passo 30s, janela ±1 (90s de
 tolerância a deriva de relógio), nunca implementação própria da RFC.
 Anti-replay: `Atendentes.MfaUltimoPassoUsado`, compare-and-set (`WHERE
@@ -560,7 +560,7 @@ Formato: ECDSA P-256, SHA-256, assinatura DER em Base64 — exatamente o que
 `openssl dgst -sha256 -sign` produz, para o custodiante usar ferramenta
 padrão. Só primitivas de `System.Security.Cryptography`; nenhuma biblioteca
 nova, nenhum esquema caseiro. Procedimento de geração, custódia, rotação,
-revogação e teste da chave: `docs/BACKUP.md`.
+revogação e teste da chave: `docs/INSTALACAO.md`.
 
 **Rematrícula obrigatória, independente da política do tenant (bloqueador
 B19).** `Atendentes.RematriculaObrigatoriaAposEmergencia` (migration 036) é

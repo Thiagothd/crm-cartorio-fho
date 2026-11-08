@@ -10,7 +10,7 @@ public class UsuariosServiceException(string codigo, string mensagem, int status
     /// Diferenciar os tres entregaria a um atacante a lista de e-mails validos.
     /// </summary>
     // Acento no texto EXIBIDO, sem acento no `codigo` — a regra 7.2 do
-    // CLAUDE.md: identificador de codigo sem acento, mensagem de usuario com.
+    // docs/CONVENCOES.md: identificador de codigo sem acento, mensagem de usuario com.
     // Nao diz QUAL dos dois errou, e e' deliberado: apontar "e-mail nao existe"
     // confirmaria para quem tenta adivinhar que aquele endereco tem conta aqui.
     public static UsuariosServiceException CredenciaisInvalidas() =>

@@ -13,7 +13,7 @@ namespace CrmCartorio.Api.Infrastructure.Automacao;
 /// Casca de hospedagem, sem regra de negocio: quem decide O QUE enviar e a
 /// mensagem que ja foi gravada como <c>Pendente</c> por quem chamou
 /// <see cref="IFilaDeEnvioDoCanal.Agendar"/>; aqui so mora o consumo da fila e
-/// o escopo de injecao (CLAUDE.md, 7.1) — mesmo papel de
+/// o escopo de injecao (docs/CONVENCOES.md, 7.1) — mesmo papel de
 /// <see cref="HospedeDaVarreduraDePrazos"/>.
 /// </remarks>
 public class HospedeDaFilaDeEnvioDoCanal(

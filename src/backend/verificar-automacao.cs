@@ -273,7 +273,7 @@ ConversaService NovaConversaService(CrmDbContext db, Guid quem, string nome, IEn
         NullLogger<ConversaService>.Instance);
 
 // Blindagem LGPD: instancia real de RegistradorDeAcesso, nao um dublê — a
-// regra do projeto e' verificador chamar o servico real (CLAUDE.md 9). Cache
+// regra do projeto e' verificador chamar o servico real (docs/CONVENCOES.md 9). Cache
 // novo a cada chamada, de proposito: a deduplicacao por janela de 15 min
 // nunca deve interferir entre cenarios independentes deste arquivo.
 IRegistradorDeAcesso NovoRegistrador(CrmDbContext db, Guid tenant, Guid quem, string nome) =>

@@ -8,7 +8,7 @@ namespace CrmCartorio.Api.Modules.CanalWhatsApp.Application;
 /// número de 10/11 dígitos (sem código do país) recebe o 55 automaticamente —
 /// no balcão ninguém digita "+55". Duplicada aqui, e não referenciada de lá,
 /// porque os dois módulos não compartilham <c>Application</c> entre si
-/// (CLAUDE.md, 7.1) — só entidade lida pelo <c>DbContext</c> atravessa a
+/// (docs/CONVENCOES.md, 7.1) — só entidade lida pelo <c>DbContext</c> atravessa a
 /// fronteira.
 /// </remarks>
 public static class NormalizadorDeTelefone

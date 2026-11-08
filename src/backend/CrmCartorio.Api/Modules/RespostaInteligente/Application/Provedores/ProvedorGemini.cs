@@ -19,7 +19,7 @@ namespace CrmCartorio.Api.Modules.RespostaInteligente.Application.Provedores;
 /// </summary>
 /// <remarks>
 /// <c>store: false</c> de propósito: o histórico do cartório não fica retido na
-/// nuvem do Google — coerente com o posicionamento LGPD do produto (CLAUDE.md
+/// nuvem do Google — coerente com o posicionamento LGPD do produto (docs/CONVENCOES.md
 /// §4). Por isso o histórico é sempre reconstruído do nosso banco e enviado
 /// inline em <c>input</c>, nunca via <c>previous_interaction_id</c> (que exige
 /// <c>store: true</c>).

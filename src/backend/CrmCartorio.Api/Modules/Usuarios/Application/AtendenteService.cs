@@ -95,7 +95,7 @@ public class AtendenteService(
     ///
     /// O de-para em si migrou para <see cref="DescricaoDeCargo"/>, no
     /// <c>Domain</c>, quando o modulo de Indicadores passou a precisar do mesmo
-    /// rotulo: modulo nao referencia o <c>Application</c> de outro (CLAUDE.md
+    /// rotulo: modulo nao referencia o <c>Application</c> de outro (docs/CONVENCOES.md
     /// 7.1). Este metodo fica como atalho para os chamadores que ja existiam.
     /// </remarks>
     public static string DescreverCargo(CargoNaServentia cargo) => DescricaoDeCargo.De(cargo);

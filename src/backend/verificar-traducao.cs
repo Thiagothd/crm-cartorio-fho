@@ -18,7 +18,7 @@ using Microsoft.EntityFrameworkCore;
 //
 // Rode com:  dotnet run verificar-traducao.cs
 //
-// Por que existe: a regra 1 do CLAUDE.md proibe executar DDL/DML, entao nao ha
+// Por que existe: a regra 1 do docs/CONVENCOES.md proibe executar DDL/DML, entao nao ha
 // banco de desenvolvimento contra o qual exercitar as consultas. Uma consulta que
 // nao traduz compila normalmente e so estoura em tempo de execucao — na frente do
 // cliente, se ninguem verificar antes.

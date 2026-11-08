@@ -16,7 +16,7 @@ param(
 # POR QUE ISTO EXISTE
 #     DATABASE_SAVE_DATA_NEW_MESSAGE=true e obrigatorio (sem ele o tique de
 #     entrega/leitura nunca correlaciona — ver infra/whatsapp/docker-compose.yml
-#     e docs/DEPLOY-WHATSAPP.md, secao 7). Isso significa que a Evolution
+#     e docs/INSTALACAO.md, secao 7). Isso significa que a Evolution
 #     guarda uma SEGUNDA copia do texto de toda mensagem, fora do SQL Server —
 #     o historico de verdade, que nunca e apagado (RF-015/RNF-008), continua
 #     so no SQL Server. Esta copia da Evolution e um efeito colateral tecnico,

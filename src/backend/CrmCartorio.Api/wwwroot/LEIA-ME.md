@@ -19,7 +19,7 @@ e a API passa a servir o painel e a própria API na **mesma origem**. É o que
 faz o CORS deixar de existir, dispensa regra de rewrite no IIS, e mantém o
 WebSocket do SignalR fora de cross-origin.
 
-Ver `docs/INFRAESTRUTURA.md`.
+Ver `docs/INSTALACAO.md`.
 
 > O `.gitignore` da raiz ignora `dist/`, então o build do Vite nunca é
 > versionado — nem aqui, nem lá.

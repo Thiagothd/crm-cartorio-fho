@@ -16,7 +16,7 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// TOTP ou uma ida ao banco por tentativa.
 ///
 /// Vale por PROCESSO, nao pelo cluster. Hoje isso nao e uma lacuna real: os dois
-/// App Pools rodam com <c>Maximum Worker Processes = 1</c> (docs/INFRAESTRUTURA.md,
+/// App Pools rodam com <c>Maximum Worker Processes = 1</c> (docs/INSTALACAO.md,
 /// secao 4.1), entao ha um processo por ambiente. Se algum dia virar web garden ou
 /// mais de uma instancia, esta camada dilui na mesma proporcao — e a de conta, que
 /// e a exata, continua exata.

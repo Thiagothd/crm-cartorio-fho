@@ -15,7 +15,7 @@ namespace CrmCartorio.Api.Modules.Clientes.Domain;
 /// Mora em <c>Clientes/Domain</c> porque a regra e sobre o nome do CLIENTE. O
 /// modulo Atendimento a consome direto — permitido, e o mesmo tipo de dependencia
 /// que ele ja tem sobre <c>Clientes.Domain.Entities</c>; o que a fronteira do
-/// CLAUDE.md 7.1 proibe e chamar o <c>Application</c> de outro slice.
+/// docs/CONVENCOES.md 7.1 proibe e chamar o <c>Application</c> de outro slice.
 ///
 /// <b>As duas leituras tem vies OPOSTO, de proposito.</b> O custo de errar nao e
 /// simetrico:

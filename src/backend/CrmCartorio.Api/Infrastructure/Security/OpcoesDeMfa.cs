@@ -3,7 +3,7 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// <summary>
 /// SEC-03: chaves de cifra do segredo TOTP. Mesma disciplina de
 /// <c>OpcoesDeJwt.Chave</c> — vive em <c>appsettings.&lt;Ambiente&gt;.json</c>,
-/// nunca versionada, nunca junto do backup do banco (ver docs/BACKUP.md).
+/// nunca versionada, nunca junto do backup do banco (ver docs/INSTALACAO.md).
 /// </summary>
 /// <remarks>
 /// <see cref="Chaves"/> e um mapa {versao (string) → chave AES-256 em base64,

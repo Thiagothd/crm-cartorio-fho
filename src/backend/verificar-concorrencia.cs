@@ -156,7 +156,7 @@ ConversaService Servico(CrmDbContext db, int indiceDoAtendente)
         NullLogger<ConversaService>.Instance);
 }
 
-// Blindagem LGPD: instancia real de RegistradorDeAcesso (CLAUDE.md 9 — o
+// Blindagem LGPD: instancia real de RegistradorDeAcesso (docs/CONVENCOES.md 9 — o
 // verificador chama o servico real). Cache novo a cada chamada: a
 // deduplicacao por janela de 15 min nao deve vazar entre cenarios de
 // concorrencia independentes deste arquivo.

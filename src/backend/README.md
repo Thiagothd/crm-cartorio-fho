@@ -135,7 +135,7 @@ e o nome de quem assumiu.
 ## Migrations
 
 Não há migrations do EF Core. O DDL é escrito à mão em `sql/` e revisado
-manualmente, conforme a regra 1 do [CLAUDE.md](../../CLAUDE.md). As
+manualmente, conforme a regra 1 do [docs/CONVENCOES.md](../../docs/CONVENCOES.md). As
 `IEntityTypeConfiguration` mapeiam para esse schema — se um for alterado, o outro
 precisa acompanhar.
 

@@ -13,7 +13,7 @@ namespace CrmCartorio.Api.Modules.Atendimento.Application;
 /// <remarks>
 /// Le <c>MensagensAutomaticas</c> pelo DbContext, sem passar pelo Application de
 /// Configuracoes: e um banco so, e essa e a fronteira que o projeto adotou
-/// (CLAUDE.md, 7.1). O cadastro pertence a Configuracoes; transformar cadastro em
+/// (docs/CONVENCOES.md, 7.1). O cadastro pertence a Configuracoes; transformar cadastro em
 /// mensagem no fio pertence aqui.
 /// </remarks>
 public class DisparadorDeMensagemAutomatica(
@@ -339,7 +339,7 @@ public class DisparadorDeMensagemAutomatica(
     /// <summary>
     /// Mesma logica de TipoServicoService.DescreverPrazo (Modules/Servicos), sem
     /// chamar aquele Service — modulo nao chama Application de outro modulo
-    /// (CLAUDE.md, 7.1). Formatacao pura, pequena o bastante para nao valer um
+    /// (docs/CONVENCOES.md, 7.1). Formatacao pura, pequena o bastante para nao valer um
     /// tipo compartilhado so para isto.
     /// </summary>
     private static string FormatarPrazo(int prazoHoras, bool apenasDiasUteis)

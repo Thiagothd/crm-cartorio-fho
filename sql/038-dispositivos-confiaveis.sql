@@ -60,7 +60,7 @@
        completo. O binario NOVO CONSULTA e GRAVA dbo.DispositivosConfiaveis em
        AutenticarAsync, ConcluirLoginMfaAsync e ObterSituacaoAsync — nao deve
        ser iniciado antes desta migration estar aplicada, mesmo padrao de
-       033..037 (ver docs/DEPLOY.md, secao 1.2).
+       033..037 (ver docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        A tabela so e criada quando ainda nao existe. Rodar o script de novo
@@ -147,7 +147,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'038-dispositivos-confiaveis.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'038-dispositivos-confiaveis.sql',
-                N'SEC-03: "confiar neste dispositivo por 30 dias" no segundo fator do login. Guarda so o hash do token, com rotacao a cada uso e teto duro de 30 dias. TokenVersionNoRegistro reaproveita a invalidacao ja existente (troca de senha, reset/desativacao/troca de MFA, break-glass, mudanca de Perfil/Cargo/Ativo). Binario novo exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'SEC-03: "confiar neste dispositivo por 30 dias" no segundo fator do login. Guarda so o hash do token, com rotacao a cada uso e teto duro de 30 dias. TokenVersionNoRegistro reaproveita a invalidacao ja existente (troca de senha, reset/desativacao/troca de MFA, break-glass, mudanca de Perfil/Cargo/Ativo). Binario novo exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

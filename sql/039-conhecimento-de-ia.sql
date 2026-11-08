@@ -50,7 +50,7 @@
        por completo. O binario NOVO consulta dbo.ConhecimentosDeIa em
        MontadorDeContexto.MontarAsync — nao deve ser iniciado antes desta
        migration estar aplicada, mesmo padrao das migrations anteriores (ver
-       docs/DEPLOY.md, secao 1.2).
+       docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        As tabelas so sao criadas quando ainda nao existem. Rodar o script de
@@ -183,7 +183,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'039-conhecimento-de-ia.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'039-conhecimento-de-ia.sql',
-                N'Conhecimento aprovado da IA: ConhecimentosDeIa (cadastro governado, por servico/tema, com vigencia) + HistoricoDeConhecimentosDeIa (trilha append-only, snapshot antes de cada edicao). Consumido por MontadorDeContexto no grounding. Binario novo exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'Conhecimento aprovado da IA: ConhecimentosDeIa (cadastro governado, por servico/tema, com vigencia) + HistoricoDeConhecimentosDeIa (trilha append-only, snapshot antes de cada edicao). Consumido por MontadorDeContexto no grounding. Binario novo exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

@@ -45,7 +45,7 @@ function variantDaSituacao(situacao: SituacaoDaLinhaImportada) {
 
 /**
  * Diálogo de importação em lote. Só cadastra — nunca envia mensagem, ver
- * CLAUDE.md §2 sobre por que disparo em massa não faz parte deste ajuste.
+ * docs/CONVENCOES.md §2 sobre por que disparo em massa não faz parte deste ajuste.
  *
  * Só a linha `Nova` é selecionável: é a única situação com um E.164 pronto
  * para gravar. `Ambigua` (DDD válido, 12 dígitos — pode ser fixo ou celular

@@ -3482,7 +3482,7 @@ try
     // contra CrmCartorio.Api/bin/Debug/net10.0/CrmCartorio.Api.dll e chamava
     // isso de "binario publicado" — afirmacao mais forte que a evidencia
     // (Debug != publish). Agora publica de verdade (mesmo comando de
-    // docs/DEPLOY.md: `dotnet publish -c Release`) para uma pasta descartavel
+    // docs/INSTALACAO.md: `dotnet publish -c Release`) para uma pasta descartavel
     // antes de subir o processo, e SO ENTAO roda o Kestrel real em loopback
     // e bate nele com HttpClient — prova a trava do bloqueador 1 na borda
     // HTTP real (auth JWT, roteamento, middleware, ProblemDetails) contra o

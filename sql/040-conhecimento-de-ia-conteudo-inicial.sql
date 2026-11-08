@@ -23,7 +23,7 @@
        chute de regra local — e pouco: documento de identidade generico,
        emolumento variavel por Estado, e o texto padrao de LGPD.
        Decisao do Thiago (2026-09-04): preencher com a melhor suposicao
-       defensavel documentada como tal (regra 13 do CLAUDE.md), sem deixar a
+       defensavel documentada como tal (regra 13 do docs/CONVENCOES.md), sem deixar a
        tela nova vazia, e ajustar com o cartório parceiro depois.
 
    RISCO QUE O ITEM DE EMOLUMENTO EXISTE PRA CONTER
@@ -113,7 +113,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'040-conhecimento-de-ia-conteudo-inicial.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'040-conhecimento-de-ia-conteudo-inicial.sql',
-                N'Conteudo inicial de dbo.ConhecimentosDeIa: 3 itens universais ativos (documento+CPF, emolumento variavel, LGPD) e 2 rascunhos inativos aguardando confirmacao do cartório parceiro (Notificacao Extrajudicial, agendamento). Suposicao defensavel, editavel pela tela (regra 13 do CLAUDE.md).');
+                N'Conteudo inicial de dbo.ConhecimentosDeIa: 3 itens universais ativos (documento+CPF, emolumento variavel, LGPD) e 2 rascunhos inativos aguardando confirmacao do cartório parceiro (Notificacao Extrajudicial, agendamento). Suposicao defensavel, editavel pela tela (regra 13 do docs/CONVENCOES.md).');
 END
 GO
 

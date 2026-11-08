@@ -37,7 +37,7 @@ public class Tenant : EntidadeBase
     ///
     /// Nulo enquanto o canal nao foi conectado. Preenchido ao parear pela tela de
     /// Configuracoes. Cada ambiente usa sua propria instancia e seu numero
-    /// dedicado, conforme docs/DEPLOY-WHATSAPP.md.
+    /// dedicado, conforme docs/INSTALACAO.md.
     /// </remarks>
     public string? WhatsappInstancia { get; set; }
 

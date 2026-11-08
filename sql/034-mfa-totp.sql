@@ -62,7 +62,7 @@
        Esta migration e compativel com o binario ANTIGO rodando: ele ignora as
        colunas e tabelas novas. O binario SEC-03, por sua vez, MAPEIA e
        CONSULTA essas colunas em toda autenticacao — nao deve ser iniciado
-       antes desta migration estar aplicada. Ver docs/DEPLOY.md, secao 1.2.
+       antes desta migration estar aplicada. Ver docs/INSTALACAO.md, secao 1.2.
 
    IDEMPOTENCIA
        Cada coluna/CHECK/tabela/indice so entra quando ainda nao existe. Rodar
@@ -294,7 +294,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'034-mfa-totp.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'034-mfa-totp.sql',
-                N'SEC-03: TOTP para contas privilegiadas. 9 colunas de MFA em Atendentes (segredo AES-256-GCM, bloqueio por conta, anti-replay), MfaObrigatorioParaAdministradores em Tenants, tabelas DesafiosDeMfa/CodigosDeRecuperacaoMfa/EventosDeSeguranca. Binario SEC-03 exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'SEC-03: TOTP para contas privilegiadas. 9 colunas de MFA em Atendentes (segredo AES-256-GCM, bloqueio por conta, anti-replay), MfaObrigatorioParaAdministradores em Tenants, tabelas DesafiosDeMfa/CodigosDeRecuperacaoMfa/EventosDeSeguranca. Binario SEC-03 exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

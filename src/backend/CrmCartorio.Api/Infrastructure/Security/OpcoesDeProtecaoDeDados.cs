@@ -5,7 +5,7 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// colunas com conteudo de conversa e dado sensivel da ficha do cliente.
 /// Mesma disciplina de <see cref="OpcoesDeMfa"/> — vive em
 /// <c>appsettings.&lt;Ambiente&gt;.json</c>, nunca versionada, nunca junto do
-/// backup do banco (ver docs/BACKUP.md).
+/// backup do banco (ver docs/INSTALACAO.md).
 /// </summary>
 /// <remarks>
 /// <b>Ausencia e estado valido, de proposito.</b> Ao contrario de

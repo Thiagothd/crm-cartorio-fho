@@ -106,7 +106,7 @@ fontes: texto colado, CSV, ou a agenda do WhatsApp pareado
 (`IEvolutionClient.ObterContatosAsync`, no número que estiver conectado agora —
 não fixo em nenhum ambiente). **Não dispara mensagem nenhuma** — só cria a
 ficha. Disparo em massa foi avaliado e cancelado neste ajuste pelo risco de
-banimento do piloto sobre Baileys (CLAUDE.md, seção 2, "Mudança de direção —
+banimento do piloto sobre Baileys (docs/CONVENCOES.md, seção 2, "Mudança de direção —
 2026-08-16"); a coluna acima nasce pronta para o dia em que essa distinção
 importar de novo, pela via oficial da Meta.
 

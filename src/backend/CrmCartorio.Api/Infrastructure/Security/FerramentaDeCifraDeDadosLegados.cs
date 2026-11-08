@@ -16,7 +16,7 @@ namespace CrmCartorio.Api.Infrastructure.Security;
 /// unica (mesma disciplina dos break-glass de MFA), NAO um modo do servidor.
 /// </summary>
 /// <remarks>
-/// <b>Passo do runbook de ativacao (docs/DEPLOY.md), nunca automatico.</b>
+/// <b>Passo do runbook de ativacao (docs/INSTALACAO.md), nunca automatico.</b>
 /// So faz sentido DEPOIS que alguem com acesso direto ao servidor provisionou
 /// <c>ProtecaoDeDados:Chaves</c>/<c>ChaveDeIndice</c> — roda com
 /// <c>ExigirCifrado</c> ainda desligado (janela de migracao: leitura tolera

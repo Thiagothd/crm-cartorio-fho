@@ -86,7 +86,7 @@ public class OpcoesDoCanalWhatsApp
     /// </summary>
     /// <remarks>
     /// Existe para isolar números usados em demonstração e teste (ver
-    /// docs/DEPLOY-WHATSAPP.md): sem isso, qualquer pessoa que mande mensagem para
+    /// docs/INSTALACAO.md): sem isso, qualquer pessoa que mande mensagem para
     /// o canal cairia na triagem, e uma conversa antiga do banco ainda poderia
     /// receber mensagem pelo gateway. Lista vazia = sem restrição — é o estado
     /// final para um canal público de produção.

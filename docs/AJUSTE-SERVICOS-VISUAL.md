@@ -87,7 +87,7 @@ visível na viewport de 360px antes da rolagem. Capturas ficam em
 
 Build mantém os avisos anteriores de PURE no SignalR e chunk global maior que
 500 kB. Nenhuma dependência foi adicionada. Publicação segue PR para `teste`
-e revisão manual antes do merge, conforme PROCESSO-DE-AJUSTE.md.
+e revisão manual antes do merge, conforme INSTALACAO.md.
 
 ## Arquivos da entrega de Serviços
 

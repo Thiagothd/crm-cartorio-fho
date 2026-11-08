@@ -52,7 +52,7 @@ public record ProtecaoAtivaResponse(
     long TotalDeRegistrosDeAcesso);
 
 /// <summary>
-/// Paginação local ao módulo (CLAUDE.md 7.1 — cada módulo tem o próprio
+/// Paginação local ao módulo (docs/CONVENCOES.md 7.1 — cada módulo tem o próprio
 /// contrato de página, nunca importa o de outro).
 /// </summary>
 public record PaginaDeSeguranca<T>(IReadOnlyList<T> Itens, int Total, int Pagina, int Tamanho);

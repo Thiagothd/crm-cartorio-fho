@@ -109,7 +109,7 @@ provedor, e continua sem saber que existem dois.
   transcreve o histórico inline num único texto, com marcadores de turno.
 
 - **`store: false` sempre.** O histórico do cartório não fica retido na nuvem
-  do Google — coerente com o posicionamento LGPD do produto (CLAUDE.md §4).
+  do Google — coerente com o posicionamento LGPD do produto (docs/CONVENCOES.md §4).
   Por isso não se usa `previous_interaction_id` (exigiria `store: true`); o
   histórico é sempre reconstruído do nosso banco e enviado inline.
 

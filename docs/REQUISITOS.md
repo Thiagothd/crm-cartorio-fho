@@ -1,7 +1,7 @@
 # REQUISITOS
 
-> **Status:** confirmados. Fase 1 implementada e ampliada para a apresentação.
-> **Última atualização:** 2026-08-22
+> **Status:** vigente para a entrega acadêmica.
+> **Última atualização:** 2026-11-08
 
 Origem de cada requisito:
 
@@ -81,7 +81,7 @@ Origem de cada requisito:
 | RNF-009 | Concorrência de escrita em `Conversa` controlada por `rowversion` | TEC | ✅ |
 | RNF-010 | Erro de negócio retorna `ProblemDetails` com código estável, não stack trace | TEC | ✅ |
 | RNF-011 | Domínio nomeado em português; termos técnicos em inglês | TEC | ✅ |
-| RNF-012 | Nenhuma biblioteca não oficial de WhatsApp **no número do cartório, nem em produção** | TEC | ⚠️ Exceção deliberada e isolada desde 2026-08-16: piloto de demonstração roda sobre Evolution API, em número dedicado — nunca o do cartório. Ver CLAUDE.md, seção 2, "Mudança de direção — 2026-08-16" |
+| RNF-012 | Nenhuma biblioteca não oficial de WhatsApp **no número do cartório, nem em produção** | TEC | ⚠️ Exceção deliberada e isolada desde 2026-08-16: piloto de demonstração roda sobre Evolution API, em número dedicado — nunca o do cartório. Ver docs/CONVENCOES.md, seção 2, "Decisão do canal" |
 | RNF-013 | Segredo (JWT, connection string) fora do controle de versão | TEC | ✅ |
 
 ---
@@ -116,7 +116,7 @@ Registrados para não se perderem. **Não implementar agora.**
 pelos pré-requisitos abaixo.** Desde 2026-08-16 um piloto não oficial
 (Evolution API, número dedicado) entrega o equivalente funcional de RF-101,
 RF-102, RF-104 e RF-105 — mecanismo diferente, mesmo resultado para quem usa
-o painel. Decisão registrada em CLAUDE.md, seção 2, "Mudança de direção —
+o painel. Decisão registrada em docs/CONVENCOES.md, seção 2, "Mudança de direção —
 2026-08-16"; comportamento completo em
 [docs/FLUXO-AUTOMACAO.md](FLUXO-AUTOMACAO.md). RF-103 (template fora da janela
 de 24h) e RF-106 (painel de custo) são específicos da Cloud API e não se
@@ -143,7 +143,6 @@ Ambos são processos externos com terceiros. **Iniciar em paralelo à Fase 1.**
 | RF-201 | Isolamento efetivo por cartório cliente, com verificação em todas as camadas |
 | RF-202 | Onboarding de novo cartório sem intervenção manual no banco |
 | RF-203 | Embedded Signup da Meta — cada cliente verifica a própria conta com o próprio CNPJ |
-| RF-204 | Cobrança / assinatura por tenant |
 
 RF-203 é decisão de risco, não só técnica: com Embedded Signup, a equipe do projeto nunca
 manuseia documento de terceiro.
@@ -152,25 +151,20 @@ manuseia documento de terceiro.
 
 ## 5. Pendências de validação com o cartório parceiro
 
-**Isto é o que precisa da palavra dele antes da apresentação.**
+Pontos levantados para validação do fluxo com o cartório parceiro. Tudo é feito
+com dados fictícios.
 
-### 5.1 Prioridade alta — dados que não fecham
+### 5.1 Dados institucionais
 
-Estão gravados no sistema exatamente como informados, para conferência direta
-contra a página oficial. **Aparecem na tela**, então erro aqui custa credibilidade.
-
-| # | Dado | Está no sistema | Problema |
-| --- | --- | --- | --- |
-| 1 | **CNPJ** | `21.35.122/6000-10` | 13 dígitos; CNPJ tem **14**. É o documento que a Meta valida no pré-requisito A da Fase 2 — errado ali, o processo trava |
-| 2 | **Telefone** | `(38) 99977-891` | 10 dígitos; celular com DDD tem **11** |
-| 3 | **CNS** | `04.679-7` | Conferir o formato na fonte |
+Os dados institucionais exibidos na demonstração são conferidos com a fonte
+oficial antes de uso.
 
 ### 5.2 Nomes de pessoas
 
 | # | Pendência | Está no sistema |
 | --- | --- | --- |
 | 4 | Titular e substituto | Helena Campos Nogueira e Rafael Campos Nogueira — **nomes fictícios** |
-| 5 | **Demais atendentes** | "Carla Menezes" e "Paula Ribeiro" são **FICTÍCIOS**. Existem porque a trava de conversa só se demonstra com mais de um atendente na fila. Nomes fictícios de demonstração |
+| 5 | **Demais atendentes** | "Carla Menezes" e "Paula Ribeiro" são **fictícios**. Existem porque a trava de conversa só se demonstra com mais de um atendente na fila |
 
 ### 5.3 Catálogo de serviços
 
@@ -238,9 +232,8 @@ confirmar ou trocar.
 | 18 | Horário e endereço no texto | "de segunda a sexta-feira, das 8h às 17h", "Praça São Francisco, nº 70, Centro, Gameleiras/MG" — dados oficiais confirmados (CONTEXTO.md §2) | Editar o texto da mensagem |
 | 19 | Respostas rápidas | Seis cadastradas: `/horario`, `/prazo`, `/valor`, `/firma`, `/escritura`, `/certidao` | Configurações → Respostas rápidas |
 
-> **Pendência 5 continua aberta:** "Carla Menezes" e "Paula Ribeiro" seguem sendo
-> **nomes fictícios**, mantidos porque a trava de conversa só se demonstra com mais
-> de um atendente na fila. Nomes fictícios de demonstração.
+> "Carla Menezes" e "Paula Ribeiro" são **nomes fictícios**, mantidos porque a
+> trava de conversa só se demonstra com mais de um atendente na fila.
 
 ### 5.8 Triagem continua ativa depois de um atendente assumir
 
@@ -291,7 +284,7 @@ demonstrável, mas nenhuma mensagem sai até que ele diga que quer.
 
 **Cadastro puro, editável em `Automação → Encerramento automático`** — sem
 alteração de código para trocar. Registrado aqui porque os valores atuais são
-**suposição nossa, não confirmada com o cartório parceiro** (regra 13 do CLAUDE.md): o
+**suposição nossa, não confirmada com o cartório parceiro** (regra 13 do docs/CONVENCOES.md): o
 sistema não pode ficar sem esse comportamento até ele decidir, então os
 tempos abaixo entraram como padrão defensável.
 

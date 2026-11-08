@@ -70,7 +70,7 @@
        ele. O binario NOVO (com FerramentaDeReemissaoDeTicketDeEmergencia)
        nao deve ser iniciado antes desta migration estar aplicada — o
        primeiro INSERT com Tipo = 11 falharia contra a CHECK antiga, mesmo
-       padrao de 033/034/035/036 (ver docs/DEPLOY.md, secao 1.2).
+       padrao de 033/034/035/036 (ver docs/INSTALACAO.md, secao 1.2).
 
    IDEMPOTENCIA
        DROP + ADD da mesma CHECK constraint, sempre para a MESMA definicao
@@ -123,7 +123,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM dbo.VersaoDoSchema WHERE Script = N'037-reemissao-de-ticket-de-emergencia.sql')
         INSERT INTO dbo.VersaoDoSchema (Script, Observacao)
         VALUES (N'037-reemissao-de-ticket-de-emergencia.sql',
-                N'SEC-03 (bloqueador B20, setima revisao independente): alarga CK_EventosDeSeguranca_Tipo para 1..11, liberando TicketDeRematriculaReemitido (11) — reemissao de ticket de rematricula durante uma recuperacao de emergencia ja aberta, sem tocar MfaAtivo/RematriculaObrigatoriaAposEmergencia. Binario corrigido exige esta migration antes de subir (docs/DEPLOY.md 1.2).');
+                N'SEC-03 (bloqueador B20, setima revisao independente): alarga CK_EventosDeSeguranca_Tipo para 1..11, liberando TicketDeRematriculaReemitido (11) — reemissao de ticket de rematricula durante uma recuperacao de emergencia ja aberta, sem tocar MfaAtivo/RematriculaObrigatoriaAposEmergencia. Binario corrigido exige esta migration antes de subir (docs/INSTALACAO.md 1.2).');
 END
 GO
 

@@ -836,7 +836,7 @@ public class IndicadoresService(
             .ToListAsync(ct);
 
         // Alfabetica, nao por volume: e' distribuicao de trabalho, nao ranking
-        // de desempenho — AGENTS.md pede que desempenho individual so apareca
+        // de desempenho — docs/CONVENCOES.md pede que desempenho individual so apareca
         // com proposito operacional, nunca como carnaval punitivo.
         return atendentes
             .Select(a =>

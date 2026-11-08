@@ -8,7 +8,7 @@ namespace CrmCartorio.Api.Infrastructure.Auditoria;
 /// <c>Infrastructure</c>, não em <c>Modules/Seguranca/Application</c>,
 /// porque é chamado de dentro de outros módulos (Atendimento, Clientes) —
 /// mesmo motivo de <c>INotificadorDeAtendimento</c> morar em
-/// <c>Infrastructure/Realtime</c> (CLAUDE.md 7.1: um módulo não referencia o
+/// <c>Infrastructure/Realtime</c> (docs/CONVENCOES.md 7.1: um módulo não referencia o
 /// <c>Application</c> interno de outro).
 /// </summary>
 public interface IRegistradorDeAcesso

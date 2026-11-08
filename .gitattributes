@@ -11,7 +11,7 @@
 * text=auto eol=lf
 
 # Os .sql sao gravados em UTF-8 COM BOM de proposito — sem o BOM o sqlcmd le o
-# arquivo como ANSI e todo acento vira dois caracteres no banco (ver CLAUDE.md,
+# arquivo como ANSI e todo acento vira dois caracteres no banco (ver docs/CONVENCOES.md,
 # regra 10). A marcacao abaixo nao altera o BOM, que e conteudo e nao fim de
 # linha; esta aqui para deixar explicito que o arquivo e texto e nao deve ser
 # tratado como binario por nenhuma ferramenta.
