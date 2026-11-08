@@ -1976,15 +1976,15 @@ Checar("ParaE164Basico recusa vazio", TelefoneDeContato.ParaE164Basico("") is nu
 Checar("ParaE164Basico recusa nulo", TelefoneDeContato.ParaE164Basico(null) is null);
 
 // Interpretar: mais desconfiado, so a importacao em lote usa.
-var telefoneValidoComNono = TelefoneDeContato.Interpretar("(38) 99912-0045");
+var telefoneValidoComNono = TelefoneDeContato.Interpretar("(38) 99900-0045");
 Checar("Interpretar aceita 13 digitos com DDD valido",
     telefoneValidoComNono.Valido && telefoneValidoComNono.E164 == "5538999000045");
 
-var telefoneFixo = TelefoneDeContato.Interpretar("38 3212-0045");
+var telefoneFixo = TelefoneDeContato.Interpretar("38 3200-0045");
 Checar("Interpretar aceita 12 digitos com assinante comecando em 2-5 como fixo, ja completo",
     telefoneFixo.Valido && telefoneFixo.E164 == "553832000045");
 
-var telefoneCelularLegado = TelefoneDeContato.Interpretar("38 98179-660");
+var telefoneCelularLegado = TelefoneDeContato.Interpretar("38 98000-660");
 Checar("Interpretar insere o nono em 12 digitos com assinante comecando em 6-9 (celular legado)",
     telefoneCelularLegado.Valido && telefoneCelularLegado.E164 == "5538998000660");
 

@@ -14,8 +14,16 @@
 
 ## 2. Banco de dados
 
-O esquema não é criado automaticamente. Crie a base e aplique os scripts de
-[`sql/`](../sql/) em ordem numérica.
+O esquema não é criado automaticamente. Crie a base com o nome
+`CRM_Cartorio_Demo` e aplique os scripts numerados de [`sql/`](../sql/) em ordem
+numérica. Os scripts recusam bancos que não estejam na lista de ambientes conhecidos.
+
+```bash
+sqlcmd -S localhost -E -C -Q "CREATE DATABASE [CRM_Cartorio_Demo] COLLATE Latin1_General_CI_AS"
+for f in sql/[0-9]*.sql; do sqlcmd -S localhost -E -C -b -d CRM_Cartorio_Demo -i "$f" || break; done
+```
+
+Os verificadores que escrevem no banco aceitam somente a base `CRM_Cartorio_Dev`.
 
 Os arquivos `.sql` são gravados em UTF-8 com BOM. Ao editar, preserve o BOM para
 que o `sqlcmd` não corrompa os acentos.

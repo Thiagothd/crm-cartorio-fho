@@ -1085,14 +1085,14 @@ Console.WriteLine("CENARIO 31 — blindagem LGPD: CPF/CNPJ/telefone/e-mail/CEP m
     await servico.ResponderAsync(
         tenantId,
         historicoComDadoPessoal,
-        "meu telefone e (38) 99912-0045 e meu email e cliente@exemplo.com, o CEP e 39500-000",
+        "meu telefone e (38) 99900-0045 e meu email e cliente@exemplo.com, o CEP e 39500-000",
         contexto: null,
         ct: CancellationToken.None);
 
     var pedido = capturador.UltimoPedido!;
     Checar("CPF do historico mascarado", pedido.Historico[0].Conteudo.Contains("[CPF]") && !pedido.Historico[0].Conteudo.Contains("123.456.789"));
     Checar("Troca sem dado pessoal passa intacta", pedido.Historico[1].Conteudo == "Claro, so um instante.");
-    Checar("Telefone da pergunta mascarado", pedido.MensagemDoCliente.Contains("[TELEFONE]") && !pedido.MensagemDoCliente.Contains("99912-0045"));
+    Checar("Telefone da pergunta mascarado", pedido.MensagemDoCliente.Contains("[TELEFONE]") && !pedido.MensagemDoCliente.Contains("99900-0045"));
     Checar("E-mail da pergunta mascarado", pedido.MensagemDoCliente.Contains("[EMAIL]") && !pedido.MensagemDoCliente.Contains("cliente@exemplo.com"));
     Checar("CEP da pergunta mascarado", pedido.MensagemDoCliente.Contains("[CEP]") && !pedido.MensagemDoCliente.Contains("39500-000"));
 

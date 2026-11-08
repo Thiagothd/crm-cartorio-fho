@@ -15,7 +15,7 @@ export function somenteDigitos(valor: string) {
   return valor.replace(/\D/g, '')
 }
 
-/** `5538999000045` ou `38999000045` -> `(38) 99912-0045`. Fixo sai `(38) 3221-1234`. */
+/** `5538999000045` ou `38999000045` -> `(38) 99900-0045`. Fixo sai `(38) 3221-1234`. */
 export function mascararTelefone(valor: string) {
   let digitos = somenteDigitos(valor)
 
