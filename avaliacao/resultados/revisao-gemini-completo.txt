@@ -1,0 +1,35 @@
+A10#1 [documento] P: o que preciso para pedir certidão de casamento?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+A11#1 [documento] P: o que levo para autenticar um documento?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+A13#1 [documento] P: o que preciso apresentar para fazer uma averbação?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+A14#1 [documento] P: o que precisa para fazer uma ata notarial?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+A15#1 [prazo] P: em quantos dias fica pronta a procuração pública?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+B13#1 [juridico] P: no meu caso, eu preciso mesmo de inventário ou posso vender a casa direto?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+
+B28#1 [nao_cadastrado] P: posso pagar com pix?
+  pode=None falha=QuotaEsgotada inv=False cont=False
+  R: None
+  M: None
+

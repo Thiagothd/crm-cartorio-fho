@@ -1,0 +1,87 @@
+CATALOGO DE SERVICOS:
+- Ata notarial (Tabelionato de Notas)
+  Documentos necessarios: Documento de identificação com foto e a descrição do fato a ser constatado pelo tabelião.
+  Prazo: ~3 dias uteis
+- Autenticação de documento (Tabelionato de Notas)
+  Documentos necessarios: Documento original e a cópia a ser autenticada.
+  Prazo: ~2 horas
+- Averbações (Registro Civil)
+  Documentos necessarios: Documento de identificação com foto de quem solicita, o registro original a ser averbado e o documento que comprova o fato — sentença, escritura ou certidão, conforme o caso.
+  Prazo: ~2 dias uteis
+- Certidão de casamento (Registro Civil)
+  Documentos necessarios: Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.
+  Prazo: ~1 dia uteis
+- Certidão de nascimento (Registro Civil)
+  Documentos necessarios: Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.
+  Prazo: ~1 dia uteis
+- Certidão de óbito (Registro Civil)
+  Documentos necessarios: Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.
+  Prazo: ~1 dia uteis
+- Escritura de divórcio consensual (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF de ambos os cônjuges e certidão de casamento. O divórcio consensual em cartório só é possível sem filho menor ou incapaz do casal.
+  Prazo: ~10 dias uteis
+- Escritura de inventário e partilha (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF de todos os herdeiros, certidão de óbito, certidão de casamento do falecido (se houver) e documentos dos bens a partilhar. Também é exigida certidão negativa de débitos do ITCMD.
+  Prazo: ~20 dias uteis
+- Escritura declaratória de união estável (Tabelionato de Notas)
+  Documentos necessarios: RG, CPF e comprovante de residência de ambos, e duas testemunhas com documento de identificação.
+  Prazo: ~10 dias uteis
+- Escritura pública de compra e venda (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF das partes, certidão atualizada do imóvel e comprovante de residência. Certidões negativas adicionais podem ser exigidas conforme o caso — confirme com o cartório antes de reunir a documentação.
+  Prazo: ~10 dias uteis
+- Escritura pública de doação (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF do doador e do donatário, documento do bem a ser doado e comprovante de residência.
+  Prazo: ~10 dias uteis
+- Habilitação de casamento (Registro Civil)
+  Documentos necessarios: RG e CPF dos dois noivos, certidão de nascimento (ou de casamento anterior já com a averbação de divórcio ou óbito) e comprovante de residência. É preciso também indicar duas testemunhas maiores de idade, com documento de identificação.
+  Prazo: ~15 dias uteis
+- Procuração pública (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF de quem outorga a procuração. Se possível, informe também nome completo e CPF de quem vai receber os poderes.
+  Prazo: ~2 dias uteis
+- Reconhecimento de firma (Tabelionato de Notas)
+  Documentos necessarios: Documento de identificação original com foto. É preciso ter ficha de assinatura já aberta neste cartório — sem isso, é necessário comparecer pessoalmente antes.
+  Prazo: ~2 horas
+- Registro de nascimento (Registro Civil)
+  Documentos necessarios: Declaração de Nascido Vivo (DNV) fornecida pela maternidade ou hospital, documento de identificação dos pais e comprovante de residência.
+  Prazo: ~2 horas
+- Registro de óbito (Registro Civil)
+  Documentos necessarios: Declaração de Óbito fornecida pelo médico ou pelo IML, documento de identificação do falecido, quando houver, e de quem está declarando.
+  Prazo: ~2 horas
+- Segunda via de certidão (Registro Civil)
+  Documentos necessarios: Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.
+  Prazo: ~2 dias uteis
+- Testamento público (Tabelionato de Notas)
+  Documentos necessarios: RG e CPF de quem testa, documento de identificação de duas testemunhas, e a relação dos bens e dos herdeiros.
+  Prazo: ~10 dias uteis
+
+INFORMACOES CADASTRADAS DO CARTORIO:
+- Dados para emitir certidão: 📄 Para localizarmos o registro e emitirmos a certidão, precisamos de:
+
+- Nome completo do registrado
+- Data do fato (nascimento, casamento ou óbito)
+- Nome dos pais, se souber
+
+Com esses dados fazemos a busca no livro e informamos o prazo de emissão.
+- Documentos para escritura: 📄 Para lavrarmos uma escritura pública, precisamos de:
+
+- RG e CPF das partes (e do cônjuge, quando casado)
+- Certidão de casamento atualizada, se for o caso
+- Comprovante de endereço
+- Documentação do bem objeto do ato
+
+A relação varia conforme o tipo de escritura. Confirmo os detalhes do seu caso e retorno.
+- Emolumentos: 💰 Os valores dos atos seguem a Tabela de Emolumentos do Tribunal de Justiça de Minas Gerais, definida por lei estadual — não é preço fixado pelo cartório.
+
+Vou verificar o valor exato aplicável ao seu caso e retorno em seguida.
+- Horário e endereço: 📍 O Cartório de Gameleiras atende de segunda a sexta-feira, das 8h às 17h, na Praça São Francisco, nº 70, Centro, Gameleiras/MG, CEP 39505-000.
+- Reconhecimento de firma: ✍️ Para o reconhecimento de firma, é necessário que sua ficha de assinatura esteja aberta neste cartório.
+
+Caso ainda não possua, basta comparecer com documento de identificação original com foto para abertura na hora.
+- Situação do protocolo: 📋 Seu atendimento está registrado sob o protocolo , referente a: .
+
+Assim que houver novidade, informaremos por aqui.
+
+CONHECIMENTO APROVADO:
+- Uso dos dados pessoais no atendimento pelo WhatsApp (Dados pessoais e LGPD): Os dados fornecidos pelo cliente neste canal são usados apenas para realizar o atendimento solicitado, conforme a Lei Geral de Proteção de Dados (LGPD), e não são compartilhados com terceiros além do necessário para prestar o serviço.
+- Documento de identidade e CPF exigidos em qualquer atendimento presencial (Documentação geral): Para qualquer ato no cartório é necessário apresentar documento oficial de identificação com foto (RG, CNH ou passaporte) e CPF, ambos originais. Sem esses documentos o atendimento presencial não pode ser realizado.
+- Valor do serviço (emolumento) varia por ato e é tabelado pelo Estado (Valores e emolumentos): O valor cobrado por cada ato (emolumento) segue a tabela oficial do Tribunal de Justiça do Estado e varia conforme o serviço solicitado. Não é possível informar um valor genérico pelo chat; para saber o valor exato de um serviço específico, encaminhe o cliente a um atendente.

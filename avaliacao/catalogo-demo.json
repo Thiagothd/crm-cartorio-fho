@@ -1,0 +1,460 @@
+{
+ "setores": [
+  {
+   "id": "0199b2c0-0001-7000-8000-000000000002",
+   "nome": "Registro Civil",
+   "descricao": "Nascimento, casamento, óbito, segundas vias e averbações.",
+   "ordem": 1,
+   "ativo": true,
+   "conversasAtivas": 3,
+   "modoDoRobo": "Ligado"
+  },
+  {
+   "id": "0199b2c0-0001-7000-8000-000000000001",
+   "nome": "Tabelionato de Notas",
+   "descricao": "Escrituras, procurações, reconhecimento de firma e autenticação.",
+   "ordem": 2,
+   "ativo": true,
+   "conversasAtivas": 4,
+   "modoDoRobo": "Ligado"
+  }
+ ],
+ "tipos": [
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000015",
+   "nome": "Ata notarial",
+   "codigo": "NOT-ATA",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000015",
+    "prazoHoras": 72,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "3 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "Documento de identificação com foto e a descrição do fato a ser constatado pelo tabelião.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000006",
+   "nome": "Autenticação de documento",
+   "codigo": "NOT-AUTEN",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000006",
+    "prazoHoras": 2,
+    "percentualAlerta": 70,
+    "apenasDiasUteis": false,
+    "prazoDescrito": "2 horas"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "Documento original e a cópia a ser autenticada.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000018",
+   "nome": "Escritura de divórcio consensual",
+   "codigo": "NOT-EDIV",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000018",
+    "prazoHoras": 240,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "10 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF de ambos os cônjuges e certidão de casamento. O divórcio consensual em cartório só é possível sem filho menor ou incapaz do casal.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000017",
+   "nome": "Escritura de inventário e partilha",
+   "codigo": "NOT-EINV",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000017",
+    "prazoHoras": 480,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "20 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF de todos os herdeiros, certidão de óbito, certidão de casamento do falecido (se houver) e documentos dos bens a partilhar. Também é exigida certidão negativa de débitos do ITCMD.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000019",
+   "nome": "Escritura declaratória de união estável",
+   "codigo": "NOT-EUNI",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000019",
+    "prazoHoras": 240,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "10 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG, CPF e comprovante de residência de ambos, e duas testemunhas com documento de identificação.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000007",
+   "nome": "Escritura pública de compra e venda",
+   "codigo": "NOT-ECV",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000007",
+    "prazoHoras": 240,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "10 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF das partes, certidão atualizada do imóvel e comprovante de residência. Certidões negativas adicionais podem ser exigidas conforme o caso — confirme com o cartório antes de reunir a documentação.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000008",
+   "nome": "Escritura pública de doação",
+   "codigo": "NOT-EDOA",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000008",
+    "prazoHoras": 240,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "10 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF do doador e do donatário, documento do bem a ser doado e comprovante de residência.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000009",
+   "nome": "Procuração pública",
+   "codigo": "NOT-PROC",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000009",
+    "prazoHoras": 48,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "2 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF de quem outorga a procuração. Se possível, informe também nome completo e CPF de quem vai receber os poderes.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000005",
+   "nome": "Reconhecimento de firma",
+   "codigo": "NOT-FIRMA",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000005",
+    "prazoHoras": 2,
+    "percentualAlerta": 70,
+    "apenasDiasUteis": false,
+    "prazoDescrito": "2 horas"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "Documento de identificação original com foto. É preciso ter ficha de assinatura já aberta neste cartório — sem isso, é necessário comparecer pessoalmente antes.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000016",
+   "nome": "Testamento público",
+   "codigo": "NOT-TESTAM",
+   "categoria": "Notas",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000016",
+    "prazoHoras": 240,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "10 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000001",
+   "setorNome": "Tabelionato de Notas",
+   "documentosNecessarios": "RG e CPF de quem testa, documento de identificação de duas testemunhas, e a relação dos bens e dos herdeiros.",
+   "ordem": 0
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000011",
+   "nome": "Averbações",
+   "codigo": "RC-AVERB",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000011",
+    "prazoHoras": 48,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "2 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Documento de identificação com foto de quem solicita, o registro original a ser averbado e o documento que comprova o fato — sentença, escritura ou certidão, conforme o caso.",
+   "ordem": 5
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000002",
+   "nome": "Certidão de casamento",
+   "codigo": "RC-CAS",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000002",
+    "prazoHoras": 24,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "1 dia uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.",
+   "ordem": 2
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000001",
+   "nome": "Certidão de nascimento",
+   "codigo": "RC-NASC",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000001",
+    "prazoHoras": 24,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "1 dia uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.",
+   "ordem": 1
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000003",
+   "nome": "Certidão de óbito",
+   "codigo": "RC-OBI",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000003",
+    "prazoHoras": 24,
+    "percentualAlerta": 75,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "1 dia uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.",
+   "ordem": 3
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000010",
+   "nome": "Habilitação de casamento",
+   "codigo": "RC-HABIL",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000010",
+    "prazoHoras": 360,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "15 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "RG e CPF dos dois noivos, certidão de nascimento (ou de casamento anterior já com a averbação de divórcio ou óbito) e comprovante de residência. É preciso também indicar duas testemunhas maiores de idade, com documento de identificação.",
+   "ordem": 3
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000012",
+   "nome": "Registro de nascimento",
+   "codigo": "RC-REGNASC",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000012",
+    "prazoHoras": 2,
+    "percentualAlerta": 70,
+    "apenasDiasUteis": false,
+    "prazoDescrito": "2 horas"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Declaração de Nascido Vivo (DNV) fornecida pela maternidade ou hospital, documento de identificação dos pais e comprovante de residência.",
+   "ordem": 2
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000013",
+   "nome": "Registro de óbito",
+   "codigo": "RC-REGOBI",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000013",
+    "prazoHoras": 2,
+    "percentualAlerta": 70,
+    "apenasDiasUteis": false,
+    "prazoDescrito": "2 horas"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Declaração de Óbito fornecida pelo médico ou pelo IML, documento de identificação do falecido, quando houver, e de quem está declarando.",
+   "ordem": 4
+  },
+  {
+   "id": "0199b2c0-0004-7000-8000-000000000004",
+   "nome": "Segunda via de certidão",
+   "codigo": "RC-2VIA",
+   "categoria": "RegistroCivil",
+   "descricao": null,
+   "ativo": true,
+   "prazo": {
+    "id": "0199b2c0-0005-7000-8000-000000000004",
+    "prazoHoras": 48,
+    "percentualAlerta": 80,
+    "apenasDiasUteis": true,
+    "prazoDescrito": "2 dias uteis"
+   },
+   "setorId": "0199b2c0-0001-7000-8000-000000000002",
+   "setorNome": "Registro Civil",
+   "documentosNecessarios": "Documento de identificação com foto de quem solicita. Se a certidão for de outra pessoa, informe também o nome completo e, se possível, a data do ato ou o número do registro.",
+   "ordem": 1
+  }
+ ],
+ "rapidas": [
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000006",
+   "atalho": "certidao",
+   "titulo": "Dados para emitir certidão",
+   "conteudo": "📄 Para localizarmos o registro e emitirmos a certidão, precisamos de:\n\n- Nome completo do registrado\n- Data do fato (nascimento, casamento ou óbito)\n- Nome dos pais, se souber\n\nCom esses dados fazemos a busca no livro e informamos o prazo de emissão.",
+   "ativo": true
+  },
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000005",
+   "atalho": "escritura",
+   "titulo": "Documentos para escritura",
+   "conteudo": "📄 Para lavrarmos uma escritura pública, precisamos de:\n\n- RG e CPF das partes (e do cônjuge, quando casado)\n- Certidão de casamento atualizada, se for o caso\n- Comprovante de endereço\n- Documentação do bem objeto do ato\n\nA relação varia conforme o tipo de escritura. Confirmo os detalhes do seu caso e retorno.",
+   "ativo": true
+  },
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000004",
+   "atalho": "firma",
+   "titulo": "Reconhecimento de firma",
+   "conteudo": "✍️ Para o reconhecimento de firma, é necessário que sua ficha de assinatura esteja aberta neste cartório.\n\nCaso ainda não possua, basta comparecer com documento de identificação original com foto para abertura na hora.",
+   "ativo": true
+  },
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000001",
+   "atalho": "horario",
+   "titulo": "Horário e endereço",
+   "conteudo": "📍 O {NomeCartorio} atende de segunda a sexta-feira, das 8h às 17h, na Praça São Francisco, nº 70, Centro, Gameleiras/MG, CEP 39505-000.",
+   "ativo": true
+  },
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000002",
+   "atalho": "prazo",
+   "titulo": "Situação do protocolo",
+   "conteudo": "📋 Seu atendimento está registrado sob o protocolo {Protocolo}, referente a: {Servico}.\n\nAssim que houver novidade, informaremos por aqui.",
+   "ativo": true
+  },
+  {
+   "id": "0199b2c0-0007-7000-8000-000000000003",
+   "atalho": "valor",
+   "titulo": "Emolumentos",
+   "conteudo": "💰 Os valores dos atos seguem a Tabela de Emolumentos do Tribunal de Justiça de Minas Gerais, definida por lei estadual — não é preço fixado pelo cartório.\n\nVou verificar o valor exato aplicável ao seu caso e retorno em seguida.",
+   "ativo": true
+  }
+ ],
+ "conhecimentos": [
+  {
+   "id": "0199b2c0-0008-7000-8000-000000000003",
+   "titulo": "Uso dos dados pessoais no atendimento pelo WhatsApp",
+   "conteudo": "Os dados fornecidos pelo cliente neste canal são usados apenas para realizar o atendimento solicitado, conforme a Lei Geral de Proteção de Dados (LGPD), e não são compartilhados com terceiros além do necessário para prestar o serviço.",
+   "tema": "Dados pessoais e LGPD",
+   "tipoServicoId": null,
+   "tipoServicoNome": null,
+   "vigenteDesde": null,
+   "vigenteAte": null,
+   "versao": 1,
+   "criadoPorNome": null,
+   "atualizadoPorNome": null,
+   "ativo": true,
+   "criadoEm": "2026-09-08T22:49:23.814Z",
+   "atualizadoEm": "2026-09-08T22:49:23.814Z"
+  },
+  {
+   "id": "0199b2c0-0008-7000-8000-000000000001",
+   "titulo": "Documento de identidade e CPF exigidos em qualquer atendimento presencial",
+   "conteudo": "Para qualquer ato no cartório é necessário apresentar documento oficial de identificação com foto (RG, CNH ou passaporte) e CPF, ambos originais. Sem esses documentos o atendimento presencial não pode ser realizado.",
+   "tema": "Documentação geral",
+   "tipoServicoId": null,
+   "tipoServicoNome": null,
+   "vigenteDesde": null,
+   "vigenteAte": null,
+   "versao": 1,
+   "criadoPorNome": null,
+   "atualizadoPorNome": null,
+   "ativo": true,
+   "criadoEm": "2026-09-08T22:49:23.814Z",
+   "atualizadoEm": "2026-09-08T22:49:23.814Z"
+  },
+  {
+   "id": "0199b2c0-0008-7000-8000-000000000002",
+   "titulo": "Valor do serviço (emolumento) varia por ato e é tabelado pelo Estado",
+   "conteudo": "O valor cobrado por cada ato (emolumento) segue a tabela oficial do Tribunal de Justiça do Estado e varia conforme o serviço solicitado. Não é possível informar um valor genérico pelo chat; para saber o valor exato de um serviço específico, encaminhe o cliente a um atendente.",
+   "tema": "Valores e emolumentos",
+   "tipoServicoId": null,
+   "tipoServicoNome": null,
+   "vigenteDesde": null,
+   "vigenteAte": null,
+   "versao": 1,
+   "criadoPorNome": null,
+   "atualizadoPorNome": null,
+   "ativo": true,
+   "criadoEm": "2026-09-08T22:49:23.814Z",
+   "atualizadoEm": "2026-09-08T22:49:23.814Z"
+  }
+ ]
+}

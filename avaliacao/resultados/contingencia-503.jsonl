@@ -1,0 +1,4 @@
+{"ordem":1,"id":"A01","tipoDeFalha":"503","geminiDiscado":true,"podeResponder":true,"tamanhoDaResposta":306,"motivo":"","latenciaTotalMs":1779}
+{"ordem":2,"id":"A02","tipoDeFalha":"503","geminiDiscado":true,"podeResponder":true,"tamanhoDaResposta":405,"motivo":"","latenciaTotalMs":1615}
+{"ordem":3,"id":"A03","tipoDeFalha":"503","geminiDiscado":true,"podeResponder":true,"tamanhoDaResposta":453,"motivo":"","latenciaTotalMs":1454}
+{"ordem":4,"id":"A04","tipoDeFalha":"503","geminiDiscado":false,"podeResponder":true,"tamanhoDaResposta":372,"motivo":"","latenciaTotalMs":1926}

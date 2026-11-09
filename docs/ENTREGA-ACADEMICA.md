@@ -24,10 +24,10 @@ Professor: Thiago Giroto Milani.
 | 1 | Clientes, catálogo e histórico em SQL Server | Implementado | `Modules/Clientes`, `Modules/Servicos`, `Modules/Atendimento` |
 | 2 | Canal real de mensagens com WhatsApp | Implementado | `Modules/CanalWhatsApp`, `verificar-canal-whatsapp.cs` |
 | 3 | Bot de triagem por setor | Implementado | `verificar-automacao.cs`, `verificar-menu-em-niveis.cs` |
-| 4 | LLM restrita ao catálogo, com medição de acerto e escalonamento | Implementado; medição a registrar | `Modules/RespostaInteligente`, `verificar-qualidade-ia.cs` |
-| 5 | Contingência entre dois provedores | Implementada e verificada com provedores simulados; demonstração real a registrar | `verificar-resposta-inteligente.cs` |
-| 6 | Painel responsivo com filtros, em duas resoluções | Implementado; registro das resoluções a incluir | `src/frontend/e2e/`, `docs/PLAYWRIGHT-E2E.md` |
-| 7 | Validação com cartório parceiro usando dados fictícios | Registro a consolidar | `docs/REQUISITOS.md`, seção 5 |
+| 4 | LLM restrita ao catálogo, com medição de acerto e escalonamento | Implementado e medido em amostra de 18 perguntas | `artigo/`, `avaliacao/`, `src/backend/avaliar-ia.cs` |
+| 5 | Contingência entre dois provedores | Implementada, verificada e ensaiada com falha simulada e provedor real | `verificar-resposta-inteligente.cs`, `avaliacao/resultados/` |
+| 6 | Painel responsivo com filtros, em duas resoluções | Implementado; 11 telas em 1366x768 e 390x844 sem estouro horizontal | `artigo/`, seção de resultados |
+| 7 | Validação com cartório parceiro usando dados fictícios | Demonstração em 09/09/2026, com observações registradas no artigo | `artigo/`, seção de resultados |
 
 ## 3. Linha do tempo
 
@@ -46,7 +46,7 @@ alteravam arquivos omitidos não aparecem.
 ## 4. Mudanças em relação ao pré-projeto
 
 - **Uso em piloto:** o cartório parceiro passou a utilizar o sistema em piloto durante o semestre. A avaliação acadêmica e a demonstração usam somente dados fictícios.
-- **Provedores de IA:** o modelo principal evoluiu para Claude Haiku 5.5. O Gemini permanece na arquitetura e é habilitado por configuração.
+- **Provedores de IA:** na demonstração, o Gemini 3.6 Flash é tentado primeiro e o Claude Haiku 5.5 assume em caso de falha.
 - **Funcionalidades adicionais:** controle de devedores, áudio e colagem de imagem foram incluídos a partir da validação com o cartório parceiro.
 
 ## 5. Integridade do repositório

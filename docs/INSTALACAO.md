@@ -8,8 +8,8 @@
 - .NET SDK 10
 - Node.js 24
 - SQL Server (Express atende) e `sqlcmd`
-- Chave de API da Anthropic, para a resposta inteligente
-- Chave de API do Google Gemini, para a contingência entre provedores
+- Chave de API do Google Gemini, provedor tentado primeiro na resposta inteligente
+- Chave de API da Anthropic, provedor de contingência
 - Evolution API, para o canal real de WhatsApp
 
 ## 2. Banco de dados

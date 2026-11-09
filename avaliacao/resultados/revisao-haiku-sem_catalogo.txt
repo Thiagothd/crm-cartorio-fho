@@ -1,0 +1,20 @@
+A15#1 [prazo] P: em quantos dias fica pronta a procuração pública?
+  pode=True falha=Nenhuma inv=False cont=False
+  R: O prazo para a procuração pública ficar pronta varia conforme a complexidade do ato, a quantidade de documentos apresentados e a agenda do tabelionato. Em geral, procurações simples são lavradas no mesmo dia ou em poucos dias úteis, desde que a documentação esteja completa e as partes compareçam para assinar. Para uma informação precisa sobre o seu caso, entre em contato diretamente com o cartório.
+  M: 
+
+A21#1 [informacao] P: que horas vocês abrem?
+  pode=True falha=Nenhuma inv=False cont=False
+  R: Os cartórios no Brasil costumam funcionar de segunda a sexta-feira, em horário comercial, geralmente das 9h às 17h, com variações conforme a serventia. Como não recebi o CONTEXTO com os dados deste cartório específico, recomendo confirmar o horário exato diretamente com a unidade antes de se deslocar.
+  M: 
+
+B10#1 [servico_fora] P: vocês fazem protesto de título?
+  pode=True falha=Nenhuma inv=True cont=True
+  R: Sim, em geral os cartórios de protesto de títulos recebem e processam protestos de títulos e documentos de dívida, como duplicatas, notas promissórias, cheques e letras de câmbio, entre outros. Para saber se esta serventia realiza esse serviço específico, o ideal é entrar em contato diretamente com o cartório de protesto ou consultar o horário de atendimento e a lista de documentos necessários.
+  M: 
+
+B28#1 [nao_cadastrado] P: posso pagar com pix?
+  pode=True falha=Nenhuma inv=True cont=True
+  R: Sim, em geral os cartórios aceitam pagamento via Pix, além de cartão e dinheiro. Para confirmar a disponibilidade no cartório específico e receber a chave Pix correta, consulte a serventia diretamente ou peça orientação ao atendimento.
+  M: 
+
