@@ -4,7 +4,7 @@
 > **Última atualização:** 2026-11-08
 
 Projeto Final de Aplicações Integradas em Engenharia da Computação, FHO.
-Integrantes: Thiago Antunes de Oliveira (RA 114667) e Matheus Moreira (RA 114882).
+Integrantes: Thiago Antunes de Oliveira (RA 114667), Matheus Moreira (RA 114882) e Matheus Sheid dos Santos (RA 109896).
 Professor: Thiago Giroto Milani.
 
 ## 1. Pré-requisitos do roteiro

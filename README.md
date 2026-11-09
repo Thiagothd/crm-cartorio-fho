@@ -8,7 +8,7 @@ curso de Engenharia da Computação da **FHO**.
 | | |
 | --- | --- |
 | **Professor** | Thiago Giroto Milani |
-| **Integrantes** | Thiago Antunes de Oliveira (RA 114667) e Matheus Moreira (RA 114882) |
+| **Integrantes** | Thiago Antunes de Oliveira (RA 114667), Matheus Moreira (RA 114882) e Matheus Sheid dos Santos (RA 109896) |
 | **Documento de entrega** | [docs/ENTREGA-ACADEMICA.md](docs/ENTREGA-ACADEMICA.md) |
 
 ## O problema
